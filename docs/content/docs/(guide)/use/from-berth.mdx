@@ -1,0 +1,119 @@
+---
+title: Moving from berth
+description: Move an installation of berth 0.6 to Rookery, on your machine, on a server and on the hosts.
+icon: ArrowRightLeft
+---
+
+Rookery is the successor of berth. It doesn't read anything under berth's names, so an installation of berth 0.6 moves over by hand, in the order below. The hosts keep running throughout. Only their management moves.
+
+## What is renamed
+
+| berth | Rookery |
+| --- | --- |
+| The program `berth`, the controller `berthd` | `rookery`, `rookeryd` |
+| `~/.config/berth`, `~/.local/share/berth` | `~/.config/rookery`, `~/.local/share/rookery` |
+| `~/Library/Application Support/berth` on macOS, `%LOCALAPPDATA%\berth` on Windows | The same folders named `rookery` |
+| The store `berth.db` | `rookery.db` |
+| Environment variables `BERTH_*` | `ROOKERY_*` |
+| Profile settings `devbox_*` | `rookery_*` |
+| A plugin's `berth` key in `package.json`, the package names `berth-plugin-*`, `BERTH_ARG_*` in its actions | `rookery`, `rookery-plugin-*`, `ROOKERY_ARG_*` |
+| The image `ghcr.io/helightdev/berth`, the container `berth`, `/srv/berth` of the server recipe | `ghcr.io/aiviarium/rookery`, `rookery`, `/srv/rookery` |
+| The OAuth roles `berth:view`, `berth:operate`, `berth:admin` and the client `berth-cli` | `rookery:view`, `rookery:operate`, `rookery:admin` and `rookery-cli` |
+| Labels `berth-*` on Docker machines, `user.berth-*` on Incus instances | `rookery-*`, `user.rookery-*` |
+| On a host: `/etc/berth`, `/etc/devbox`, `/var/lib/devbox`, `/opt/devbox-tools` | `/etc/rookery`, `/var/lib/rookery`, `/opt/rookery-tools` |
+| On a host: `berthd.service`, `devbox-desktop.service`, `devbox-novnc.service`, `berth-svc-*.service` | `rookeryd.service`, `rookery-desktop.service`, `rookery-novnc.service`, `rookery-svc-*.service` |
+
+The coding agents are not bundled with Rookery. A profile that names `claude/cli`, `codex/cli`, `pi/cli` or `t3/server` needs the plugins that provide them, installed with `rookery plugin add`.
+
+## 1. Export the profiles
+
+With berth still installed, write each host's profile to a file and give its settings and the backup plugin's files their new names:
+
+```bash
+for host in $(berth ls -o json | jq -r '.[].name'); do
+  berth host export "$host" | sed 's/devbox_/rookery_/g; s/berth-backup/rookery-backup/g' > "$host.json"
+done
+grep -il 'berth\|devbox' *.json   # anything left to rename by hand
+```
+
+On a berth server, run this from a client connected to it. Keep a copy of the data folder as well (`~/.local/share/berth`, or `/srv/berth` on a server) until the move is done.
+
+## 2. Move the client
+
+Quit berth, install Rookery ([Install](/docs/start/install)) and move the folders:
+
+```bash
+mv ~/.config/berth ~/.config/rookery
+mv ~/.local/share/berth ~/.local/share/rookery
+cd ~/.local/share/rookery && for f in berth.db*; do mv "$f" "rookery${f#berth}"; done
+```
+
+`store.key`, `serve.token` and the SSH key keep their names. Check `~/.config/rookery/config.json` for paths that still name `berth`, such as `store` or `store_key`, and rename `BERTH_*` variables in your shell's configuration. On macOS and Windows, rename the settings folder in the same way. Then remove the `berth` program.
+
+## 3. Move the server
+
+Stop the container, move its folder, and give the store its new name:
+
+```bash
+docker stop berth && docker rm berth
+sudo mv /srv/berth /srv/rookery
+sudo mv /srv/rookery/config/berth /srv/rookery/config/rookery
+sudo mv /srv/rookery/data/berth /srv/rookery/data/rookery
+cd /srv/rookery/data/rookery && for f in berth.db*; do sudo mv "$f" "rookery${f#berth}"; done
+```
+
+Start it again with the [server recipe](https://github.com/aiviarium/rookery/tree/main/recipes/rookery-server) or the image `ghcr.io/aiviarium/rookery`, with `ROOKERY_*` for any `BERTH_*` variable you gave it. With OAuth, rename the roles and the client in your identity provider. The clients connect again with the same address and token.
+
+## 4. Bring the profiles back
+
+With Rookery running, import each profile you exported, and install your own plugins again in their new form:
+
+```bash
+for file in *.json; do rookery host import "${file%.json}" "$file"; done
+```
+
+A plugin you wrote needs the renames of the table above before Rookery loads it.
+
+## 5. Re-apply each host
+
+The old desktop units hold the display and noVNC's port, so stop berth's units first. On the host:
+
+```bash title="On the host"
+for unit in berthd.service devbox-lid.service devbox-cockpit-cert.timer berth-backup.timer \
+    $(cd /etc/systemd/system && ls berth-svc-*.service 2>/dev/null); do
+  sudo systemctl disable --now "$unit" 2>/dev/null
+done
+sudo -u agent XDG_RUNTIME_DIR="/run/user/$(id -u agent)" systemctl --user disable --now devbox-desktop devbox-novnc
+```
+
+Then apply the profile from Rookery, which installs `rookeryd`, the new units and the tools under their new paths:
+
+```bash
+rookery host apply studio
+```
+
+When the host works, remove what berth left on it:
+
+```bash title="On the host"
+sudo rm -rf /etc/berth /etc/devbox /var/lib/berth /var/lib/devbox /opt/devbox-tools /usr/local/lib/berth \
+  /usr/local/bin/berthd /usr/local/bin/devbox-* /usr/local/sbin/devbox-* /usr/local/sbin/berth-backup \
+  /etc/systemd/system/berthd.service /etc/systemd/system/berth-svc-*.service /etc/systemd/system/devbox-* \
+  /etc/systemd/system/berth-backup.* /etc/sudoers.d/90-berth-access /etc/sudoers.d/90-devbox-agent \
+  /etc/sudoers.d/99-devbox-operator /etc/systemd/logind.conf.d/70-devbox.conf /etc/berth-backup.*
+sudo rm -rf /home/agent/.config/devbox /home/agent/.config/systemd/user/devbox-*.service \
+  /home/agent/.config/systemd/user/t3code.service.d/devbox.conf
+sudo systemctl daemon-reload
+```
+
+Use the agent's own name and home if they differ from `agent`. A `managed` host has only `/etc/berth`, `/var/lib/berth`, `/usr/local/lib/berth` and `berthd`. With the backup plugin, the repository stays as it is: the apply writes its settings as `/etc/rookery-backup.conf`, and its password to `~/.config/rookery-backup/password` from the secret the profile names.
+
+## 6. Machines a provisioner made
+
+A provisioner finds its machines by their labels. The ones berth made belong to Rookery once their labels have the new names.
+
+| Provisioner | What to do |
+| --- | --- |
+| Incus | Copy each `user.berth-*` key of an instance to `user.rookery-*`, such as `incus config set NAME user.rookery-host="$(incus config get NAME user.berth-host)"`, and the same for `-instance`, `-resource` and `-token` where they are set |
+| Docker | A container's labels cannot change. Create the machine again with `rookery host create NAME --provisioner PROVISIONER`, then remove the old container and its volume |
+
+A host joined to the tailnet keeps its tags. If you set `tailnet_tags` to `tag:berth`, keep that tag in the tailnet's policy or set a new one with `rookery config set tailnet_tags`.
