@@ -165,7 +165,7 @@
         owner: "{{ item.item.user }}"
         group: "{{ item.item.user }}"
         mode: '0600'
-        marker: '# {mark} ROOKERY'
+        marker: '# {mark} ROOKERY PROFILE'
         block: "{{ item.item.key }}"
       loop: "{{ rookery_authorized_keys.results }}"
       loop_control:

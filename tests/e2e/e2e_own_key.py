@@ -67,9 +67,9 @@ class OwnKeyOnly:
         own = self.keyed.own_public()
         keys = f'/home/{OPERATOR}/.ssh/authorized_keys'
         # The profile lists no key; rookery's has a block of its own that no apply removes.
-        profiles = self.root_on_host(f"sed -n '/BEGIN ROOKERY/,/END ROOKERY/p' {keys}")
+        profiles = self.root_on_host(f"sed -n '/^# BEGIN ROOKERY PROFILE$/,/^# END ROOKERY PROFILE$/p' {keys}")
         self.assertEqual([line for line in profiles.splitlines() if not line.startswith('#')], [])
-        rookeries = self.root_on_host(f"sed -n '/BEGIN ROOKERY/,/END ROOKERY/p' {keys}")
+        rookeries = self.root_on_host(f"sed -n '/^# BEGIN ROOKERY [0-9a-f]*$/,/^# END ROOKERY [0-9a-f]*$/p' {keys}")
         self.assertIn(own, rookeries.splitlines())
         sudoers = self.root_on_host('cat /etc/sudoers.d/99-rookery-operator')
         self.assertIn(f'{OPERATOR} ALL=(ALL:ALL) NOPASSWD: ALL', sudoers)
