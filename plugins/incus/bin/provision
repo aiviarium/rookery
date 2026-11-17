@@ -1,0 +1,1170 @@
+#!/usr/bin/env python3
+"""Virtual machines and containers on an Incus server, through its REST API.
+
+berth runs this as `provision VERB` with one JSON request on standard input and
+reads one JSON answer from standard output, as version 2 of its provisioner
+protocol says. Progress and errors go to standard error; `logs` writes the
+instance's console log on standard output instead. Only the standard library is
+used, as berth needs nothing else where it runs.
+"""
+import hashlib
+import http.client
+import json
+import os
+from pathlib import Path
+import re
+import signal
+import ssl
+import sys
+import tempfile
+import time
+import urllib.parse
+
+IMAGES = 'https://images.linuxcontainers.org'
+BOOTSTRAP = '/opt/devbox-bootstrap'
+ARCHIVE = f'{BOOTSTRAP}/release.tar.gz'
+TYPES = {'vm': 'virtual-machine', 'container': 'container'}
+CLOUD_INIT_LOG = '/var/log/cloud-init-output.log'
+# How many of the latest lines `logs` gives when the request does not say.
+LOG_LINES = 100
+# Incus names are host names: letters, digits and hyphens, at most 63 characters.
+NAME_LIMIT = 63
+PROTOCOL = 2
+# Rows of a listing an action answers with, at most.
+ROWS = 60
+# What usually speaks on a port, as a hint for people.
+HINTS = {22: 'ssh', 80: 'http', 443: 'https', 3000: 'http', 3306: 'mysql', 5432: 'postgres', 6379: 'redis',
+         8000: 'http', 8080: 'http', 8443: 'https', 27017: 'mongodb'}
+LOOPBACK = ('127.0.0.1', '::1', 'localhost')
+
+
+class Failure(Exception):
+    """A reason to stop, said to the person on standard error."""
+
+
+class IncusError(Failure):
+    def __init__(self, status, message):
+        super().__init__(message)
+        self.status = status
+
+
+def say(line):
+    print(line, file=sys.stderr, flush=True)
+
+
+def instance_name(host):
+    name = re.sub(r'[^a-z0-9-]+', '-', f'berth-{host}'.lower())
+    return re.sub(r'-{2,}', '-', name)[:NAME_LIMIT].rstrip('-')
+
+
+class Incus:
+    def __init__(self, server, project, secrets, scratch):
+        url = urllib.parse.urlsplit(server)
+        if url.scheme != 'https' or not url.hostname:
+            raise Failure(f'server must be an https:// address such as https://192.0.2.10:8443, not {server!r}')
+        self.server = server
+        self.host = url.hostname
+        self.port = url.port or 8443
+        self.project = project or 'default'
+        # The node the server runs on, whose controller dials the endpoints, when berth names one.
+        self.node = ''
+        cert, key = secrets.get('incus_client_cert') or '', secrets.get('incus_client_key') or ''
+        if not cert.strip() or not key.strip():
+            raise Failure('The secrets incus_client_cert and incus_client_key are needed to talk to Incus.')
+        # ssl reads a client certificate only from files, so they live in a private
+        # directory for as long as this runs.
+        cert_path, key_path = Path(scratch) / 'client.crt', Path(scratch) / 'client.key'
+        for path, value in ((cert_path, cert), (key_path, key)):
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, 'w') as stream:
+                stream.write(value)
+        self.context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        # The client key authenticates berth, so no older protocol is accepted for it.
+        self.context.minimum_version = ssl.TLSVersion.TLSv1_2
+        try:
+            self.context.load_cert_chain(cert_path, key_path)
+        except ssl.SSLError:
+            raise Failure('incus_client_cert and incus_client_key are not a PEM certificate and its key.') from None
+        finally:
+            key_path.unlink()
+        pinned = (secrets.get('incus_server_cert') or '').strip()
+        self.pinned = None
+        if pinned:
+            match = re.search(r'-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----', pinned, re.S)
+            try:
+                self.pinned = ssl.PEM_cert_to_DER_cert(match[0]) if match else None
+            except ValueError:
+                pass
+            if not self.pinned:
+                raise Failure('incus_server_cert is not a PEM certificate.')
+            # Incus makes its own certificate, for no name a CA would vouch for, so the
+            # one given is compared byte for byte instead of checked as a chain.
+            self.context.check_hostname = False
+            self.context.verify_mode = ssl.CERT_NONE
+        else:
+            self.context.load_default_certs()
+
+    def connect(self, timeout):
+        connection = http.client.HTTPSConnection(self.host, self.port, context=self.context, timeout=timeout)
+        try:
+            connection.connect()
+        except ssl.SSLCertVerificationError as exc:
+            raise Failure(f'The certificate of {self.server} is not trusted here ({exc.verify_message}). '
+                          'Store the server\'s certificate as the berth secret incus_server_cert.') from None
+        except (OSError, http.client.HTTPException) as exc:
+            raise Failure(f'Cannot reach the Incus server at {self.server}: {exc}') from None
+        if self.pinned and connection.sock.getpeercert(binary_form=True) != self.pinned:
+            connection.close()
+            raise Failure(f'{self.server} presented a certificate other than the one in incus_server_cert. '
+                          'Check the address, or store the server\'s current certificate.')
+        return connection
+
+    def untrusted(self):
+        return Failure(f'The Incus server at {self.server} does not trust this client certificate. '
+                       'Add incus_client_cert to its trust store: on the server, run '
+                       '`incus config trust add-certificate FILE` with the certificate in FILE.')
+
+    def exchange(self, method, path, body=None, query=None, headers=None, timeout=20):
+        """The status and the raw body of the answer."""
+        query = dict(query or {})
+        query.setdefault('project', self.project)
+        target = urllib.parse.quote(path) + '?' + urllib.parse.urlencode(query)
+        headers = dict(headers or {})
+        if isinstance(body, (dict, list)):
+            body = json.dumps(body).encode()
+            headers['Content-Type'] = 'application/json'
+        connection = self.connect(timeout)
+        try:
+            connection.request(method, target, body=body, headers=headers)
+            response = connection.getresponse()
+            raw = response.read()
+        except (OSError, http.client.HTTPException) as exc:
+            raise Failure(f'Lost the connection to {self.server}: {exc}') from None
+        finally:
+            connection.close()
+        if response.status == 403:
+            raise self.untrusted()
+        return response.status, raw
+
+    def text(self, path, query=None):
+        """A file the API serves as it is, such as a console log, or '' when it has none."""
+        status, raw = self.exchange('GET', path, query=query)
+        return raw.decode('utf-8', 'replace') if status == 200 else ''
+
+    def request(self, method, path, body=None, query=None, headers=None, timeout=20):
+        status, raw = self.exchange(method, path, body, query, headers, timeout)
+        try:
+            data = json.loads(raw) if raw else {}
+        except ValueError:
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        return status, data
+
+    def call(self, method, path, body=None, missing=False, wait=900, **options):
+        """The metadata of a sync answer, or of the finished operation of an async one.
+        With `missing`, a 404 answers None."""
+        status, data = self.request(method, path, body, **options)
+        if status == 404 and missing:
+            return None
+        if status >= 400 or data.get('type') == 'error':
+            raise IncusError(status, data.get('error') or f'HTTP {status}')
+        if data.get('type') == 'async':
+            return self.wait(data.get('operation') or '', wait)
+        return data.get('metadata')
+
+    def wait(self, operation, limit):
+        uuid = operation.split('?')[0].rstrip('/').rsplit('/', 1)[-1]
+        deadline = time.monotonic() + limit
+        while True:
+            status, data = self.request('GET', f'/1.0/operations/{uuid}/wait', query={'timeout': 30}, timeout=60)
+            if status >= 400 and status != 504:
+                raise IncusError(status, data.get('error') or f'HTTP {status}')
+            found = data.get('metadata') or {}
+            if found.get('status') == 'Success':
+                return found.get('metadata')
+            if found.get('status') in ('Failure', 'Cancelled'):
+                raise IncusError(status, found.get('err') or found['status'])
+            if time.monotonic() > deadline:
+                raise Failure(f'Incus did not finish {found.get("description") or "an operation"} in time.')
+
+    def check_trust(self):
+        status, data = self.request('GET', '/1.0', query={'project': self.project})
+        if status >= 400:
+            raise IncusError(status, data.get('error') or f'HTTP {status}')
+        if (data.get('metadata') or {}).get('auth') != 'trusted':
+            raise self.untrusted()
+        self.about = data.get('metadata') or {}
+
+    # Instances.
+
+    def instances(self):
+        return self.call('GET', '/1.0/instances', query={'recursion': 1}) or []
+
+    def instance(self, name):
+        return self.call('GET', f'/1.0/instances/{name}', missing=True)
+
+    def set_state(self, name, action):
+        self.call('PUT', f'/1.0/instances/{name}/state', {'action': action, 'force': action == 'stop', 'timeout': 60},
+                  wait=300)
+
+    def address(self, name):
+        state = self.call('GET', f'/1.0/instances/{name}/state', missing=True) or {}
+        found = []
+        for interface, details in sorted((state.get('network') or {}).items()):
+            # Bridges the guest makes itself, such as Docker's, are not how it is reached, and
+            # devbox0 is the role's own, with an address that only tells NetworkManager it is online.
+            if interface == 'lo' or interface.startswith(('docker', 'br-', 'veth', 'tailscale', 'incusbr', 'lxcbr',
+                                                          'devbox')):
+                continue
+            for entry in (details or {}).get('addresses') or []:
+                if entry.get('family') == 'inet' and entry.get('scope') == 'global' and entry.get('address'):
+                    # Only an interface Incus gave the guest has a name on the server's side.
+                    found.append((not (details or {}).get('host_name'), interface, entry['address']))
+                    break
+        return min(found)[2] if found else ''
+
+    def exists(self, name, path):
+        """Whether a path exists in the instance; raises while Incus cannot look."""
+        status, data = self.request('HEAD', f'/1.0/instances/{name}/files', query={'path': path})
+        if status == 404:
+            return False
+        if status >= 400:
+            raise IncusError(status, data.get('error') or f'HTTP {status}')
+        return True
+
+    def push(self, name, archive):
+        owner = {'X-Incus-uid': '0', 'X-Incus-gid': '0'}
+        self.call('POST', f'/1.0/instances/{name}/files', b'', query={'path': BOOTSTRAP},
+                  headers={**owner, 'X-Incus-type': 'directory', 'X-Incus-mode': '0700'})
+        with open(archive, 'rb') as stream:
+            size = os.fstat(stream.fileno()).st_size
+            self.call('POST', f'/1.0/instances/{name}/files', stream, query={'path': ARCHIVE}, timeout=900,
+                      headers={**owner, 'X-Incus-type': 'file', 'X-Incus-mode': '0600', 'X-Incus-write': 'overwrite',
+                               'Content-Type': 'application/octet-stream', 'Content-Length': str(size)})
+
+
+def state_of(instance):
+    status = (instance or {}).get('status') or ''
+    if not instance:
+        return 'gone'
+    return 'stopped' if status in ('Stopped', 'Frozen', 'Error') else 'running'
+
+
+def split_address(text):
+    """The protocol, address and port of a proxy device's listen or connect, such as
+    tcp:0.0.0.0:8080 or tcp:[::]:443, or None for a socket file or a range of ports."""
+    protocol, _, rest = (text or '').partition(':')
+    address, _, port = rest.rpartition(':')
+    if protocol not in ('tcp', 'udp') or not port.isdigit() or not 0 < int(port) < 65536:
+        return None
+    return protocol, address.strip('[]'), int(port)
+
+
+def endpoints_of(incus, instance):
+    """The instance's proxy devices, each a port of the Incus server that leads into it. An instance's
+    own address is its address; berth is not told which of its ports serve anything. On a node
+    berth names, its controller dials, so the server's loopback is the node's."""
+    local = incus.host in LOOPBACK or bool(incus.node)
+    found = []
+    for name, device in sorted(((instance or {}).get('expanded_devices') or {}).items()):
+        if (device or {}).get('type') != 'proxy':
+            continue
+        listen, connect = split_address(device.get('listen')), split_address(device.get('connect'))
+        if not listen:
+            continue
+        protocol, address, port = listen
+        # Listening on every address: the server's own name for it, or this machine's loopback.
+        if address in ('', '0.0.0.0', '::'):
+            address = '127.0.0.1' if local else incus.host
+        endpoint = {'name': re.sub(r'[^a-z0-9_.-]+', '-', name.lower()).strip('-._')[:63] or 'proxy',
+                    'address': address, 'port': port, 'protocol': protocol}
+        target = connect[2] if connect else port
+        if protocol == 'tcp' and target in HINTS:
+            endpoint['hint'] = HINTS[target]
+        if local:
+            endpoint['local'] = True
+        found.append(endpoint)
+    return found
+
+
+def checked_archive(seed):
+    archive = (seed or {}).get('archive') or {}
+    path, expected = archive.get('path') or '', archive.get('sha256') or ''
+    if not path or not os.path.isfile(path):
+        raise Failure(f'The release archive {path or "(none given)"} is not there.')
+    digest = hashlib.sha256()
+    with open(path, 'rb') as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(block)
+    if expected and digest.hexdigest() != expected:
+        raise Failure(f'The release archive {path} does not match its digest; render the seed again.')
+    return path
+
+
+def wait_for_agent(incus, name, limit=300):
+    """A VM's files are reachable only once the Incus agent in the guest runs."""
+    deadline = time.monotonic() + limit
+    while True:
+        try:
+            incus.exists(name, '/')
+            return
+        except IncusError as exc:
+            if time.monotonic() > deadline:
+                raise Failure(f'The Incus agent in {name} did not answer within {limit // 60} minutes: {exc}') from None
+        time.sleep(5)
+
+
+def wait_for_address(incus, name, limit=60):
+    deadline = time.monotonic() + limit
+    while True:
+        address = incus.address(name)
+        if address or time.monotonic() > deadline:
+            return address
+        time.sleep(3)
+
+
+def deliver(incus, name, kind, archive, running):
+    """Puts the release in the guest and leaves it running. A container takes the
+    file before its first boot; a VM only once its agent is up."""
+    if kind == 'container':
+        if not running:
+            say('Copying the release…')
+            incus.push(name, archive)
+            say('Starting…')
+            incus.set_state(name, 'start')
+        elif not incus.exists(name, ARCHIVE):
+            say('Copying the release…')
+            incus.push(name, archive)
+        return
+    if not running:
+        say('Starting…')
+        incus.set_state(name, 'start')
+    say('Waiting for the Incus agent in the guest…')
+    wait_for_agent(incus, name)
+    if not incus.exists(name, ARCHIVE):
+        say('Copying the release…')
+        incus.push(name, archive)
+
+
+def create(incus, request, arguments):
+    if request.get('kind') == 'instance':
+        return create_instance(incus, request, arguments)
+    host, token = request.get('host') or '', request.get('token') or ''
+    if not host or not token:
+        raise Failure('create needs a host and a token.')
+    kind = request['provisioner']
+    archive = checked_archive(request.get('seed'))
+    found = [i for i in incus.instances() if (i.get('config') or {}).get('user.berth-instance') == token]
+    if found:
+        name = found[0]['name']
+        say(f'{name} exists already; making sure it is set up.')
+        deliver(incus, name, kind, archive, state_of(found[0]) == 'running')
+    else:
+        name = instance_name(host)
+        other = incus.instance(name)
+        if other:
+            whose = 'another berth record' if 'user.berth-host' in (other.get('config') or {}) else 'something other than berth'
+            raise Failure(f'{incus.server} already has an instance named {name}, made by {whose}. '
+                          'Rename or delete it on the server first.')
+        image = arguments.get('image') or 'ubuntu/26.04/cloud'
+        config = {
+            'limits.cpu': arguments.get('cpus') or '4',
+            'limits.memory': arguments.get('memory') or '8GiB',
+            'cloud-init.user-data': (request.get('seed') or {}).get('user_data') or '',
+        }
+        for label, value in (request.get('labels') or {}).items():
+            config[f'user.{label}'] = str(value)
+        config['user.berth-host'] = config.get('user.berth-host') or host
+        config['user.berth-instance'] = token
+        if kind == 'container':
+            # The guest's systemd does not come up in an unprivileged container without it.
+            config['security.nesting'] = 'true'
+        devices = {'root': {'type': 'disk', 'path': '/', 'pool': arguments.get('pool') or 'default',
+                            'size': arguments.get('disk') or '60GiB'}}
+        if arguments.get('network'):
+            devices['eth0'] = {'type': 'nic', 'name': 'eth0', 'network': arguments['network']}
+        say(f'Creating {name}…')
+        try:
+            incus.call('POST', '/1.0/instances', {
+                'name': name, 'type': TYPES[kind], 'profiles': ['default'], 'start': False,
+                'config': config, 'devices': devices,
+                'source': {'type': 'image', 'mode': 'pull', 'protocol': 'simplestreams',
+                           'server': IMAGES, 'alias': image},
+            })
+        except IncusError as exc:
+            reason = str(exc)
+            if 'image' in reason.lower() and ('not found' in reason.lower() or "couldn't be found" in reason.lower()):
+                raise Failure(f'There is no image {image} on {IMAGES} for {TYPES[kind]} instances: {reason}') from None
+            raise Failure(f'Incus could not create {name}: {reason}') from None
+        deliver(incus, name, kind, archive, False)
+    answer = {'id': name, 'endpoints': endpoints_of(incus, incus.instance(name))}
+    address = wait_for_address(incus, name)
+    if address:
+        answer['address'] = address
+    return answer
+
+
+def made_by_berth(instance):
+    config = (instance or {}).get('config') or {}
+    return 'user.berth-host' in config or 'user.berth-resource' in config
+
+
+def resource_name(name):
+    name = re.sub(r'[^a-z0-9-]+', '-', (name or '').lower())
+    return re.sub(r'-{2,}', '-', name)[:NAME_LIMIT].strip('-')
+
+
+def create_instance(incus, request, arguments):
+    """A plain instance of any image, set up by its own cloud-init user data, if any: it
+    becomes no berth host."""
+    labels = request.get('labels') or {}
+    token = labels.get('berth-token') or request.get('token') or ''
+    kind = request['provisioner']
+    found = [i for i in incus.instances() if token and (i.get('config') or {}).get('user.berth-token') == token]
+    if found:
+        name = found[0]['name']
+        say(f'{name} exists already.')
+        if state_of(found[0]) != 'running':
+            incus.set_state(name, 'start')
+    else:
+        name = resource_name(request.get('name'))
+        if not name or not name[0].isalpha():
+            raise Failure(f'{request.get("name")!r} cannot name an Incus instance: it has to start with a letter.')
+        if incus.instance(name):
+            raise Failure(f'{incus.server} already has an instance named {name}. Choose another name.')
+        image = arguments.get('image') or 'ubuntu/24.04'
+        config = {'limits.cpu': arguments.get('cpus') or '2', 'limits.memory': arguments.get('memory') or '2GiB'}
+        if (arguments.get('user_data') or '').strip():
+            config['cloud-init.user-data'] = arguments['user_data']
+        for label, value in labels.items():
+            config[f'user.{label}'] = str(value)
+        if kind == 'container' and arguments.get('nesting', 'yes') == 'yes':
+            config['security.nesting'] = 'true'
+        devices = {'root': {'type': 'disk', 'path': '/', 'pool': arguments.get('pool') or 'default',
+                            'size': arguments.get('disk') or '20GiB'}}
+        if arguments.get('network'):
+            devices['eth0'] = {'type': 'nic', 'name': 'eth0', 'network': arguments['network']}
+        say(f'Creating {name} from {image}…')
+        try:
+            incus.call('POST', '/1.0/instances', {
+                'name': name, 'type': TYPES[kind], 'profiles': ['default'], 'start': True,
+                'config': config, 'devices': devices,
+                'source': {'type': 'image', 'mode': 'pull', 'protocol': 'simplestreams',
+                           'server': IMAGES, 'alias': image},
+            })
+        except IncusError as exc:
+            reason = str(exc)
+            if 'image' in reason.lower() and ('not found' in reason.lower() or "couldn't be found" in reason.lower()):
+                raise Failure(f'There is no image {image} on {IMAGES} for {TYPES[kind]} instances: {reason}') from None
+            raise Failure(f'Incus could not create {name}: {reason}') from None
+    instance = incus.instance(name)
+    answer = {'id': name, 'state': state_of(instance), 'endpoints': endpoints_of(incus, instance)}
+    address = wait_for_address(incus, name)
+    if address:
+        answer['address'] = address
+    return answer
+
+
+def status(incus, request, arguments):
+    instance = incus.instance(request['id'])
+    answer = {'state': state_of(instance)}
+    if instance:
+        answer['endpoints'] = endpoints_of(incus, instance) if answer['state'] == 'running' else []
+    if answer['state'] == 'running':
+        address = incus.address(request['id'])
+        if address:
+            answer['address'] = address
+    return answer
+
+
+def destroy(incus, request, arguments):
+    name = request['id']
+    instance = incus.instance(name)
+    if not instance:
+        return {}
+    if not made_by_berth(instance):
+        raise Failure(f'{name} on {incus.server} was not made by berth (it has no user.berth-host or user.berth-resource), so berth leaves it alone.')
+    if instance.get('status') != 'Stopped':
+        say(f'Stopping {name}…')
+        incus.set_state(name, 'stop')
+    say(f'Deleting {name}…')
+    incus.call('DELETE', f'/1.0/instances/{name}', missing=True, wait=300)
+    return {}
+
+
+def power(action):
+    def verb(incus, request, arguments):
+        name = request['id']
+        instance = incus.instance(name)
+        if not instance:
+            raise Failure(f'{name} is no longer on {incus.server}.')
+        if (action == 'start') != (state_of(instance) == 'running'):
+            incus.set_state(name, action)
+        return {}
+    return verb
+
+
+def listed(incus, request, arguments):
+    wanted = request.get('kind') or ''
+    kind = TYPES[request['provisioner']]
+    resources = []
+    for i in incus.instances():
+        config = i.get('config') or {}
+        if i.get('type', kind) != kind:
+            continue
+        if 'user.berth-host' in config and wanted in ('', 'machine'):
+            resources.append({'id': i['name'], 'kind': 'machine', 'name': config['user.berth-host'],
+                              'host': config['user.berth-host'], 'state': state_of(i)})
+        elif 'user.berth-resource' in config and wanted in ('', 'instance'):
+            resources.append({'id': i['name'], 'kind': 'instance', 'name': i['name'], 'host': '',
+                              'state': state_of(i)})
+    return {'resources': resources}
+
+
+def names(incus, path):
+    return sorted(item.get('name') or '' for item in incus.call('GET', path, query={'recursion': 1}) or [])
+
+
+def gib(count):
+    return f'{(count or 0) / 1024 ** 3:.1f} GiB'
+
+
+def server_status(incus):
+    """The server itself, for the provisioner's own status."""
+    environment = incus.about.get('environment') or {}
+    details = [
+        {'label': 'Server', 'value': incus.server},
+        {'label': 'Incus', 'value': environment.get('server_version') or 'unknown'},
+        {'label': 'Name', 'value': environment.get('server_name') or ''},
+        {'label': 'Kernel', 'value': f'{environment.get("kernel") or "?"} {environment.get("kernel_version") or ""}'.strip()},
+        {'label': 'Storage', 'value': ', '.join(filter(None, (d.get('Name') or d.get('name') for d in environment.get('storage_supported_drivers') or [])))
+         or environment.get('storage') or ''},
+        {'label': 'Project', 'value': incus.project},
+    ]
+    values = {}
+    for argument, path in (('pool', '/1.0/storage-pools'), ('network', '/1.0/networks'),
+                           ('instance', '/1.0/instances')):
+        try:
+            values[argument] = [name for name in names(incus, path) if name]
+        except IncusError:
+            pass
+    return {'state': 'ready',
+            'message': f'Incus {environment.get("server_version") or ""} answers at {incus.server} and trusts berth'
+                       .replace('  ', ' '),
+            'details': details, 'values': values, 'collections': collections_of(incus)}
+
+
+def collections_of(incus):
+    """The items of the collections the manifest declares, as rows berth shows in tables. One the
+    server does not answer for is left out, and the rest are still given."""
+    found = {}
+    for collection, rows in (('pools', pool_rows), ('volumes', volume_rows), ('images', image_rows)):
+        try:
+            found[collection] = rows(incus)
+        except IncusError:
+            pass
+    return found
+
+
+def users_of(used_by):
+    """What the used_by of Incus names, as 'instance web' or 'profile default'."""
+    users = []
+    for url in used_by or []:
+        parts = urllib.parse.urlparse(url).path.strip('/').split('/')
+        if len(parts) >= 3:
+            kind = {'instances': 'instance', 'profiles': 'profile', 'images': 'image',
+                    'storage-pools': 'volume'}.get(parts[1], parts[1])
+            users.append(f'{kind} {parts[-1][:12] if kind == "image" else parts[-1]}')
+    return users
+
+
+def pool_rows(incus):
+    rows = []
+    for pool in (incus.call('GET', '/1.0/storage-pools', query={'recursion': 1}) or [])[:ROWS]:
+        name = pool.get('name') or ''
+        config = pool.get('config') or {}
+        total, used = space_of(incus, name)
+        known = total is not None
+        unavailable = {}
+        can, why = resizable(incus, pool)
+        if not can:
+            unavailable['resize-pool'] = why[:1].upper() + why[1:]
+        users = users_of(pool.get('used_by'))
+        if users:
+            unavailable['remove-pool'] = f'Incus removes only an empty pool, and {", ".join(users[:3])}' + \
+                (f' and {len(users) - 3} more' if len(users) > 3 else '') + ' use it'
+        rows.append({'name': name,
+                     'columns': {'driver': pool.get('driver') or '?', 'source': config.get('source') or '',
+                                 'size': gib(total) if known else config.get('size') or '?',
+                                 'used': gib(used) if known else '?',
+                                 'free': gib((total or 0) - (used or 0)) if known else '?'},
+                     'unavailable': unavailable})
+    return rows
+
+
+def volume_rows(incus):
+    rows = []
+    for pool in names(incus, '/1.0/storage-pools'):
+        for volume in incus.call('GET', f'/1.0/storage-pools/{pool}/volumes/custom', query={'recursion': 1}) or []:
+            if len(rows) >= ROWS:
+                return rows
+            name = volume.get('name') or ''
+            used = ''
+            try:
+                usage = (incus.call('GET', f'/1.0/storage-pools/{pool}/volumes/custom/{name}/state',
+                                    missing=True) or {}).get('usage') or {}
+                if usage.get('used') is not None:
+                    used = gib(usage['used'])
+            except IncusError:
+                pass
+            users = [user.split(' ', 1)[1] for user in users_of(volume.get('used_by'))]
+            unavailable = {}
+            if users:
+                unavailable['remove-volume'] = f'Incus refuses it while {", ".join(users)} use' + \
+                    ('s' if len(users) == 1 else '') + ' it'
+            rows.append({'name': name, 'key': {'pool': pool, 'volume': name},
+                         'columns': {'pool': pool, 'type': volume.get('content_type') or 'filesystem',
+                                     'size': (volume.get('config') or {}).get('size') or 'no set size',
+                                     'used': used, 'used_by': ', '.join(users) or 'nothing'},
+                         'unavailable': unavailable})
+    return rows
+
+
+def image_rows(incus):
+    rows = []
+    for image in (incus.call('GET', '/1.0/images', query={'recursion': 1}) or [])[:ROWS]:
+        fingerprint = (image.get('fingerprint') or '')[:12]
+        if not fingerprint:
+            continue
+        aliases = ', '.join(alias.get('name') or '' for alias in image.get('aliases') or [])
+        described = (image.get('properties') or {}).get('description') or ''
+        rows.append({'name': aliases or described or fingerprint, 'key': {'image': fingerprint},
+                     'columns': {'fingerprint': fingerprint, 'type': image.get('type') or '?',
+                                 'size': gib(image.get('size')), 'cached': 'yes' if image.get('cached') else 'no',
+                                 'uploaded': (image.get('uploaded_at') or '')[:10]}})
+    return rows
+
+
+# What change applies to an instance in place; the rest are fixed when it is made.
+CHANGEABLE = ('cpus', 'memory', 'disk')
+
+# The byte suffixes Incus takes for sizes ("Units for storage, memory and network limits"); none is bytes.
+UNITS = {'': 1, 'B': 1, 'bytes': 1,
+         'kB': 1000, 'MB': 1000 ** 2, 'GB': 1000 ** 3, 'TB': 1000 ** 4, 'PB': 1000 ** 5, 'EB': 1000 ** 6,
+         'KiB': 1024, 'MiB': 1024 ** 2, 'GiB': 1024 ** 3, 'TiB': 1024 ** 4, 'PiB': 1024 ** 5, 'EiB': 1024 ** 6}
+SIZE = re.compile(r'([0-9]+)(' + '|'.join(unit for unit in UNITS if unit) + ')?')
+SIZE_HELP = ('a whole number and a unit with no space between them, such as 50GiB or 200GB '
+             '(kB, MB, GB, TB in powers of 1000; KiB, MiB, GiB, TiB in powers of 1024)')
+
+
+def bytes_of(text):
+    """The bytes a size as Incus writes it stands for, or None for one it would not take."""
+    match = SIZE.fullmatch((text or '').strip())
+    return int(match[1]) * UNITS[match[2] or ''] if match else None
+
+
+def size_of(arguments, what='size'):
+    """The size given, checked before it is sent: Incus takes nothing else."""
+    size = (arguments.get(what) or '').strip()
+    if not size:
+        raise Failure(f'Give the {what}: {SIZE_HELP}.')
+    if not bytes_of(size):
+        raise Failure(f'{size!r} is not a size Incus takes. Give {SIZE_HELP}.')
+    return size
+
+
+def optional_size(arguments):
+    """A size that may be left out, checked like any other."""
+    return size_of(arguments) if (arguments.get('size') or '').strip() else ''
+
+
+def root_device(instance):
+    """The name and settings of the instance's root disk, and whether they are its own
+    rather than its profile's."""
+    for own, devices in ((True, instance.get('devices') or {}), (False, instance.get('expanded_devices') or {})):
+        for name, device in sorted(devices.items()):
+            if (device or {}).get('type') == 'disk' and device.get('path') == '/':
+                return name, dict(device), own
+    return None, None, False
+
+
+def grow_root(incus, name, instance, size):
+    """The patch that gives the instance's root disk `size`, or None when it has it already.
+    A root disk the instance has from its profile is overridden by one of its own with the new size."""
+    device, root, own = root_device(instance)
+    if not root:
+        raise Failure(f'{name} has no root disk berth can find: neither it nor its profiles have a disk at /.')
+    current = root.get('size') or ''
+    if bytes_of(current) == bytes_of(size):
+        return None
+    if bytes_of(current) and bytes_of(size) < bytes_of(current):
+        raise Failure(f'The root disk of {name} is {current}, and berth only grows it: Incus cannot shrink a '
+                      'virtual machine\'s disk, and a container\'s only on some drivers and never below what it holds.')
+    if not own:
+        say(f'{name} has its root disk from its profile; it gets one of its own of {size}.')
+    return {'devices': {**(instance.get('devices') or {}), device: {**root, 'size': size}}}
+
+
+def change(incus, request, arguments):
+    """New limits for an instance: its CPUs and memory, and a larger root disk."""
+    name = request['id']
+    instance = incus.instance(name)
+    if not instance:
+        raise Failure(f'{name} is no longer on {incus.server}.')
+    if not made_by_berth(instance):
+        raise Failure(f'{name} on {incus.server} was not made by berth, so berth leaves it alone.')
+    fixed = [argument for argument in request.get('changed') or [] if argument not in CHANGEABLE]
+    if request.get('kind') == 'instance' and fixed:
+        raise Failure(f'{name} cannot change its {", ".join(fixed)} in place: make a new instance instead.')
+    patch = {'config': {}}
+    if arguments.get('cpus'):
+        patch['config']['limits.cpu'] = arguments['cpus']
+    if arguments.get('memory'):
+        patch['config']['limits.memory'] = arguments['memory']
+    # berth sends every value; the disk is grown only when it was given anew, so a disk
+    # resize-disk grew is not set back to the size berth made it with.
+    if arguments.get('disk') and 'disk' in request.get('changed', ['disk']):
+        grown = grow_root(incus, name, instance, size_of(arguments, 'disk'))
+        if grown:
+            patch.update(grown)
+    if patch['config'] or 'devices' in patch:
+        say(f'Changing {name}…')
+        incus.call('PATCH', f'/1.0/instances/{name}', patch)
+    instance = incus.instance(name)
+    return {'state': state_of(instance), 'endpoints': endpoints_of(incus, instance)}
+
+
+def logs(incus, request, arguments):
+    """The instance's console log, its last lines, or cloud-init's output when the console has none.
+    Incus keeps the console log as a whole; following it is not offered."""
+    name = request['id']
+    if not incus.instance(name):
+        raise Failure(f'{name} is no longer on {incus.server}.')
+    text = incus.text(f'/1.0/instances/{name}/console', {'type': 'log'})
+    if not text.strip():
+        # A VM's files are out of reach until its agent runs, which answers as no file.
+        text = incus.text(f'/1.0/instances/{name}/files', {'path': CLOUD_INIT_LOG})
+    tail = int(request.get('tail') or LOG_LINES)
+    lines = text.splitlines()[-tail:] if tail > 0 else text.splitlines()
+    sys.stdout.write(''.join(line + '\n' for line in lines))
+    if request.get('follow'):
+        say('Incus keeps the console log as a whole; this is all of it for now.')
+    return None
+
+
+def run_in(incus, request, arguments):
+    """Run the request's command in a running instance, with its output recorded by Incus and then
+    written on standard error, which berth shows as the job's: the command's exit status."""
+    name = request['id']
+    command = request.get('command')
+    if not isinstance(command, list) or not command or not all(isinstance(word, str) for word in command):
+        raise Failure('The request carries no command as a list of words.')
+    if request.get('stdin'):
+        raise Failure('Incus runs the command here without standard input: give it none.')
+    instance = incus.instance(name)
+    if not instance:
+        raise Failure(f'{name} is no longer on {incus.server}.')
+    if state_of(instance) != 'running':
+        raise Failure(f'{name} is not running: start it first.')
+    done = incus.call('POST', f'/1.0/instances/{name}/exec', {
+        'command': command, 'environment': {}, 'interactive': False,
+        'wait-for-websocket': False, 'record-output': True,
+    }) or {}
+    for stream in ('1', '2'):
+        path = ((done.get('output') or {}).get(stream) or '').split('?')[0]
+        if not path.startswith(f'/1.0/instances/{name}/logs/'):
+            continue
+        sys.stderr.write(incus.text(path))
+        sys.stderr.flush()
+        # The recorded output stays on the server until it is removed.
+        incus.exchange('DELETE', path)
+    return {'exit_code': int(done.get('return', -1))}
+
+
+def counted(count, word):
+    return f'{count} {word}' + ('' if count == 1 else 's')
+
+
+def act_server(incus, arguments):
+    status = server_status(incus)
+    return {'message': status['message'], 'details': status['details']}
+
+
+def table(header, rows):
+    """Rows of an answer that read as a table: the first cell is the label, the rest are
+    lined up in the value, with the header as the first row."""
+    cells = [list(header)] + [list(row) for row in rows]
+    widths = [max(len(row[column]) for row in cells) for column in range(len(header))]
+    lined = []
+    for row in cells:
+        value = '  '.join(cell.ljust(widths[column]) for column, cell in enumerate(row[1:], 1)).rstrip()
+        lined.append({'label': row[0], 'value': value})
+    return lined
+
+
+# Drivers whose loop file Incus grows when the pool's size is raised ("Resize a storage pool").
+GROWS = ('btrfs', 'zfs', 'lvm')
+
+
+def resizable(incus, pool):
+    """Whether Incus can grow the pool by its size, and why not."""
+    driver = pool.get('driver') or '?'
+    source = ((pool.get('config') or {}).get('source') or '').strip()
+    if driver == 'dir':
+        return False, 'a dir pool has no size of its own, only the space of its file system'
+    if driver not in GROWS:
+        return False, f'Incus grows only loop-backed btrfs, zfs and lvm pools, not {driver}'
+    # A loop file Incus made is DISKS/NAME.img; any other source is a device, dataset or group the admin gave.
+    if source and not source.endswith('.img'):
+        return False, f'it is on {source}, given when it was made; grow that instead'
+    extensions = incus.about.get('api_extensions')
+    if isinstance(extensions, list) and 'storage_pool_loop_resize' not in extensions:
+        return False, 'this Incus lacks the API extension storage_pool_loop_resize'
+    return True, ''
+
+
+def space_of(incus, name):
+    """The total and used bytes of a pool, or (None, None) when Incus cannot tell."""
+    try:
+        space = (incus.call('GET', f'/1.0/storage-pools/{name}/resources') or {}).get('space') or {}
+    except IncusError:
+        return None, None
+    return space.get('total'), space.get('used')
+
+
+def space_said(total, used):
+    if total is None:
+        return 'its use is not known'
+    return f'{gib(total)}, {gib(used)} used, {gib((total or 0) - (used or 0))} free'
+
+
+def act_pools(incus, arguments):
+    rows = []
+    pools = incus.call('GET', '/1.0/storage-pools', query={'recursion': 1}) or []
+    for pool in pools[:ROWS]:
+        name = pool.get('name') or ''
+        config = pool.get('config') or {}
+        total, used = space_of(incus, name)
+        can, why = resizable(incus, pool)
+        known = total is not None
+        rows.append((name, pool.get('driver') or '?', config.get('source') or '',
+                     gib(total) if known else config.get('size') or '?',
+                     gib(used) if known else '?', gib((total or 0) - (used or 0)) if known else '?',
+                     'yes' if can else f'no: {why}'))
+    message = f'{counted(len(pools), "storage pool")} on {incus.server}'
+    if len(pools) > ROWS:
+        message += f', the first {ROWS} shown'
+    return {'message': message,
+            'details': table(('Pool', 'Driver', 'Source', 'Size', 'Used', 'Free', 'Can grow'), rows)}
+
+
+def pool_named(incus, name):
+    pool = incus.call('GET', f'/1.0/storage-pools/{name}', missing=True)
+    if not pool:
+        raise Failure(f'{incus.server} has no storage pool {name}.')
+    return pool
+
+
+def act_resize_pool(incus, arguments):
+    name, size = pool_of(arguments), size_of(arguments)
+    pool = pool_named(incus, name)
+    can, why = resizable(incus, pool)
+    if not can:
+        raise Failure(f'The pool {name} cannot be resized: {why}.')
+    total, used = space_of(incus, name)
+    current = (pool.get('config') or {}).get('size') or ''
+    now = bytes_of(current) or total
+    if now and bytes_of(size) == now:
+        return {'message': f'The pool {name} is {current or gib(total)} already',
+                'details': [{'label': 'Size', 'value': space_said(total, used)}]}
+    if now and bytes_of(size) < now:
+        raise Failure(f'The pool {name} is {current or gib(total)}, and Incus only grows a pool: no driver, '
+                      f'{pool.get("driver")} neither, can shrink one. Give a size larger than that.')
+    say(f'Before: {space_said(total, used)}')
+    say(f'Growing the {pool.get("driver")} pool {name} to {size}…')
+    incus.call('PATCH', f'/1.0/storage-pools/{name}', {'config': {'size': size}})
+    after = space_of(incus, name)
+    say(f'After: {space_said(*after)}')
+    return {'message': f'The pool {name} on {incus.server} is {size} now',
+            'details': [{'label': 'Before', 'value': space_said(total, used)},
+                        {'label': 'After', 'value': space_said(*after)}]}
+
+
+# The pool settings set-pool changes: those Incus applies to a pool that exists. The ones that
+# say where and how it was made, such as source, zfs.pool_name and lvm.vg_name, stay as they were.
+POOL_KEYS = {
+    'description': 'what the pool is for, in words',
+    'volume.size': 'the size of a new volume or root disk that names none',
+    'volume.snapshots.schedule': 'when new volumes take snapshots, as a cron expression or @daily',
+    'volume.snapshots.expiry': 'when snapshots of new volumes are removed, such as 2w',
+}
+DRIVER_KEYS = {
+    'dir': {'rsync.bwlimit': 'the bandwidth rsync may use to move volumes, such as 50MB',
+            'rsync.compression': 'whether rsync compresses what it moves: true or false'},
+    'btrfs': {'btrfs.mount_options': 'the options the pool is mounted with'},
+    'zfs': {'zfs.clone_copy': 'true, false or rebase: how instances are copied from images',
+            'zfs.export': 'whether the zpool is exported when it is unmounted: true or false'},
+}
+
+
+def act_set_pool(incus, arguments):
+    name = pool_of(arguments)
+    key, value = (arguments.get('key') or '').strip(), (arguments.get('value') or '').strip()
+    pool = pool_named(incus, name)
+    driver = pool.get('driver') or '?'
+    known = {**POOL_KEYS, **DRIVER_KEYS.get(driver, {})}
+    if key == 'size':
+        raise Failure('The size of a pool is changed with resize-pool, which says whether it can grow.')
+    if key not in known:
+        raise Failure(f'berth does not change {key or "(no key)"} of a {driver} pool. It changes '
+                      + ', '.join(known) + '; the rest are fixed when the pool is made.')
+    if key == 'volume.size' and value:
+        size_of({'size': value})
+    before = pool.get('description') if key == 'description' else (pool.get('config') or {}).get(key)
+    if key == 'description':
+        incus.call('PATCH', f'/1.0/storage-pools/{name}', {'description': value})
+    elif value:
+        incus.call('PATCH', f'/1.0/storage-pools/{name}', {'config': {key: value}})
+    else:
+        # An empty value unsets the key, as `incus storage unset` does: the pool is put back without it.
+        config = {k: v for k, v in (pool.get('config') or {}).items() if k != key}
+        incus.call('PUT', f'/1.0/storage-pools/{name}', {'config': config, 'description': pool.get('description') or ''})
+    return {'message': f'The pool {name}: {key} is {value or "unset"} now',
+            'details': [{'label': 'Before', 'value': before or '(unset)'},
+                        {'label': 'After', 'value': value or '(unset)'}]}
+
+
+def act_resize_volume(incus, arguments):
+    pool, size = pool_of(arguments), size_of(arguments)
+    name = storage_name({'name': arguments.get('volume')}, 'volume')
+    path = f'/1.0/storage-pools/{pool}/volumes/custom/{name}'
+    volume = incus.call('GET', path, missing=True)
+    if not volume:
+        raise Failure(f'The pool {pool} has no custom volume {name} in the project {incus.project}.')
+    current = (volume.get('config') or {}).get('size') or ''
+    content = volume.get('content_type') or 'filesystem'
+    if current and bytes_of(size) == bytes_of(current):
+        return {'message': f'The volume {pool}/{name} is {current} already'}
+    if current and bytes_of(size) < (bytes_of(current) or 0):
+        if content == 'block':
+            raise Failure(f'{pool}/{name} is a block volume of {current}, and Incus cannot shrink a block volume.')
+        say(f'Shrinking {pool}/{name}: Incus refuses it if the volume holds more than {size}.')
+    used = ''
+    try:
+        state = incus.call('GET', f'{path}/state', missing=True) or {}
+        if (state.get('usage') or {}).get('used') is not None:
+            used = f', {gib(state["usage"]["used"])} used'
+    except IncusError:
+        pass
+    say(f'Before: {current or "no set size"}{used}')
+    incus.call('PATCH', path, {'config': {'size': size}})
+    say(f'After: {size}')
+    return {'message': f'The volume {pool}/{name} is {size} now',
+            'details': [{'label': 'Before', 'value': (current or 'no set size') + used},
+                        {'label': 'After', 'value': size}]}
+
+
+def act_resize_disk(incus, arguments):
+    name = (arguments.get('instance') or '').strip()
+    if not re.fullmatch(r'[A-Za-z][A-Za-z0-9-]{0,62}', name):
+        raise Failure(f'{name!r} is not an Incus instance: give its name, as the server lists it.')
+    size = size_of(arguments)
+    restart = (arguments.get('restart') or 'no').strip()
+    if restart not in ('yes', 'no'):
+        raise Failure(f'restart is yes or no, not {restart!r}.')
+    instance = incus.instance(name)
+    if not instance:
+        raise Failure(f'{incus.server} has no instance {name} in the project {incus.project}.')
+    _, root, _ = root_device(instance)
+    before = (root or {}).get('size') or 'no set size'
+    patch = grow_root(incus, name, instance, size)
+    if not patch:
+        return {'message': f'The root disk of {name} is {before} already'}
+    say(f'Growing the root disk of {name} from {before} to {size}…')
+    incus.call('PATCH', f'/1.0/instances/{name}', patch)
+    running = state_of(instance) == 'running'
+    vm = instance.get('type') == 'virtual-machine'
+    if not vm:
+        said = 'A container has the new size at once; it was not restarted.'
+    elif not running:
+        said = 'The virtual machine is stopped; it has the new size when it starts.'
+    elif restart == 'yes':
+        say(f'Restarting {name}…')
+        incus.set_state(name, 'restart')
+        said = 'The virtual machine was restarted, and its guest has the new size.'
+    else:
+        said = ('The virtual machine\'s guest sees the new size after a restart: run this again with restart=yes, '
+                'or restart it when it suits.')
+    say(said)
+    return {'message': f'The root disk of {name} is {size} now. {said}',
+            'details': [{'label': 'Before', 'value': before}, {'label': 'After', 'value': size}]}
+
+
+def act_images(incus, arguments):
+    images = incus.call('GET', '/1.0/images', query={'recursion': 1}) or []
+    rows = []
+    for image in images[:ROWS]:
+        aliases = ', '.join(alias.get('name') or '' for alias in image.get('aliases') or [])
+        described = (image.get('properties') or {}).get('description') or ''
+        rows.append({'label': aliases or described or (image.get('fingerprint') or '')[:12],
+                     'value': f'{image.get("type") or "?"} · {gib(image.get("size"))}'
+                              + (' · cached' if image.get('cached') else '')})
+    message = f'{counted(len(images), "image")} in the project {incus.project} on {incus.server}'
+    if len(images) > ROWS:
+        message += f', the first {ROWS} shown'
+    return {'message': message, 'details': rows}
+
+
+def act_networks(incus, arguments):
+    rows = [{'label': network.get('name') or '',
+             'value': f'{network.get("type") or "?"}' + (' · managed by Incus' if network.get('managed') else '')}
+            for network in incus.call('GET', '/1.0/networks', query={'recursion': 1}) or []]
+    return {'message': f'{counted(len(rows), "network")} on {incus.server}', 'details': rows[:ROWS]}
+
+
+STORAGE_NAME = r'[A-Za-z0-9][A-Za-z0-9_.-]*'
+
+
+def storage_name(arguments, what):
+    name = (arguments.get('name') or '').strip()
+    if not re.fullmatch(STORAGE_NAME, name):
+        raise Failure(f'{name!r} is not a name a {what} can have: use letters, digits, dots, dashes and underscores.')
+    return name
+
+
+def pool_of(arguments):
+    pool = (arguments.get('pool') or '').strip() or 'default'
+    if not re.fullmatch(STORAGE_NAME, pool):
+        raise Failure(f'{pool!r} is not a storage pool.')
+    return pool
+
+
+def act_volumes(incus, arguments):
+    rows = []
+    for pool in names(incus, '/1.0/storage-pools'):
+        for volume in incus.call('GET', f'/1.0/storage-pools/{pool}/volumes/custom', query={'recursion': 1}) or []:
+            size = (volume.get('config') or {}).get('size') or 'no set size'
+            users = len(volume.get('used_by') or [])
+            rows.append({'label': f'{pool}/{volume.get("name") or ""}',
+                         'value': f'{volume.get("content_type") or "filesystem"} · {size} · '
+                                  + (f'used by {counted(users, "instance")}' if users else 'unused')})
+    return {'message': f'{counted(len(rows), "custom volume")} in the project {incus.project} on {incus.server}',
+            'details': rows[:ROWS]}
+
+
+def act_create_volume(incus, arguments):
+    pool, name = pool_of(arguments), storage_name(arguments, 'volume')
+    size = optional_size(arguments)
+    config = {'size': size} if size else {}
+    incus.call('POST', f'/1.0/storage-pools/{pool}/volumes/custom', {'name': name, 'type': 'custom', 'config': config})
+    return {'message': f'Created the volume {name} in the pool {pool} on {incus.server}'}
+
+
+def act_remove_volume(incus, arguments):
+    pool, name = pool_of(arguments), storage_name(arguments, 'volume')
+    # Incus refuses a volume that an instance uses, and says so.
+    incus.call('DELETE', f'/1.0/storage-pools/{pool}/volumes/custom/{name}')
+    return {'message': f'Removed the volume {name} from the pool {pool}'}
+
+
+def act_create_pool(incus, arguments):
+    name = storage_name(arguments, 'storage pool')
+    driver = (arguments.get('driver') or 'dir').strip()
+    size = optional_size(arguments)
+    config = {}
+    if size and driver != 'dir':
+        config['size'] = size
+    say(f'Creating the {driver} pool {name}…')
+    incus.call('POST', '/1.0/storage-pools', {'name': name, 'driver': driver, 'config': config})
+    return {'message': f'Created the {driver} storage pool {name} on {incus.server}'}
+
+
+def act_remove_pool(incus, arguments):
+    name = storage_name(arguments, 'storage pool')
+    # Incus refuses a pool that still holds volumes or images.
+    incus.call('DELETE', f'/1.0/storage-pools/{name}')
+    return {'message': f'Removed the storage pool {name}'}
+
+
+def act_remove_image(incus, arguments):
+    image = (arguments.get('image') or '').strip()
+    if not image:
+        raise Failure('Name the image to remove, by its alias or the start of its fingerprint.')
+    alias = incus.call('GET', f'/1.0/images/aliases/{image}', missing=True)
+    fingerprint = (alias or {}).get('target') or ''
+    if not fingerprint:
+        found = [i.get('fingerprint') or '' for i in incus.call('GET', '/1.0/images', query={'recursion': 1}) or []
+                 if (i.get('fingerprint') or '').startswith(image)]
+        if len(found) != 1:
+            raise Failure(f'{image!r} is no alias, and the start of {counted(len(found), "fingerprint")}.')
+        fingerprint = found[0]
+    incus.call('DELETE', f'/1.0/images/{fingerprint}')
+    return {'message': f'Removed the image {image} ({fingerprint[:12]}) from {incus.server}'}
+
+
+ACTIONS = {'server': act_server, 'pools': act_pools, 'images': act_images, 'networks': act_networks,
+           'volumes': act_volumes, 'create-volume': act_create_volume, 'remove-volume': act_remove_volume,
+           'create-pool': act_create_pool, 'remove-pool': act_remove_pool, 'remove-image': act_remove_image,
+           'resize-pool': act_resize_pool, 'set-pool': act_set_pool, 'resize-volume': act_resize_volume,
+           'resize-disk': act_resize_disk}
+
+
+def act(incus, request, arguments):
+    action = request.get('action') or {}
+    name = action.get('name') or ''
+    if name not in ACTIONS:
+        raise Failure(f'There is no action {name!r}; there are {", ".join(ACTIONS)}.')
+    return ACTIONS[name](incus, action.get('arguments') or {})
+
+
+def status_of(incus, request, arguments):
+    if not request.get('id'):
+        return server_status(incus)
+    return status(incus, request, arguments)
+
+
+VERBS = {'create': create, 'status': status_of, 'destroy': destroy,
+         'start': power('start'), 'stop': power('stop'), 'list': listed,
+         'change': change, 'logs': logs, 'act': act, 'exec': run_in}
+# The verbs that are about one instance, and need its id.
+ABOUT_ONE = ('destroy', 'start', 'stop', 'change', 'logs', 'exec')
+
+
+def main():
+    verb = sys.argv[1] if len(sys.argv) == 2 else ''
+    if verb not in VERBS:
+        say(f'Usage: provision {"|".join(VERBS)}, with the request as JSON on standard input')
+        return 2
+    # berth stops a run that takes too long; SIGTERM still removes the key's directory.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(1))
+    try:
+        try:
+            request = json.load(sys.stdin)
+        except ValueError:
+            raise Failure('The request on standard input is not JSON.') from None
+        if not isinstance(request, dict):
+            raise Failure('The request on standard input is not a JSON object.')
+        if request.get('version') != PROTOCOL:
+            raise Failure(f'This plugin speaks version {PROTOCOL} of the provisioner protocol, '
+                          f'not {request.get("version")!r}: update berth.')
+        if request.get('provisioner') not in TYPES:
+            raise Failure(f'This plugin provides {", ".join(TYPES)}, not {request.get("provisioner")!r}.')
+        if verb in ABOUT_ONE and not request.get('id'):
+            raise Failure(f'{verb} needs the instance id.')
+        arguments = request.get('arguments') or {}
+        with tempfile.TemporaryDirectory(prefix='berth-incus-') as scratch:
+            incus = Incus(arguments.get('server') or '', arguments.get('project'), request.get('secrets') or {}, scratch)
+            incus.node = request.get('node') or ''
+            incus.check_trust()
+            answer = VERBS[verb](incus, request, arguments)
+    except Failure as exc:
+        say(str(exc))
+        return 1
+    if answer is not None:
+        print(json.dumps(answer))
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

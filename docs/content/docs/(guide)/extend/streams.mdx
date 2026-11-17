@@ -1,0 +1,233 @@
+---
+title: Streams
+description: "Frames, resuming, reconnecting and the events stream of the WebSockets in berthd and berth serve."
+icon: Radio
+---
+
+Anything that keeps producing output is a streaming operation, such as `sessions.attach`, `logs.follow` or `channel.listen`. A client opens one as a subscription on the [portal](/docs/api/portal), next to other calls and streams, or as a WebSocket of its own at the operation's path. The frames are the same either way. This page covers what all streams have in common. The [API reference](/docs/api) lists each stream's arguments and frames.
+
+## Opening a stream
+
+On the portal, send the operation as a request and the stream's frames follow under its number ([A stream](/docs/api/portal#a-stream)). On its own, a stream is a WebSocket opened at the path of the thing streamed. A session's
+output is at `/v1/sessions/{id}`, the channel at `/v1/channel`, and a service's
+serving connection at `/v1/services/{service}/serve`. Open it with a `GET` and
+the usual upgrade headers, on the same unix socket as the plain requests.
+
+`berth serve` passes a host's streams through under `/v1/hosts/{name}/controller`,
+so the session above is at `/v1/hosts/{name}/controller/sessions/{id}` there, with the same
+frames. Over TCP the token from `serve.token` goes in an
+`Authorization: Bearer` header. A browser cannot set a header on a WebSocket, so
+the token is also accepted as the `Sec-WebSocket-Protocol` value.
+
+What a client has to say back goes over the same socket. A client never needs a
+second request to type into a session or to resize it.
+
+## Text and binary frames
+
+Text frames are JSON, one message each. Binary frames hold only session bytes
+(and, on the workstation, a job's output bytes). Everything else is a text frame.
+
+Bytes that appear inside JSON are base64, in a field whose name ends in `_b64`.
+
+## The session stream
+
+A session has two kinds, and the binary frames differ.
+
+**A terminal.** Binary frames are the terminal's bytes in both directions. The
+server sends what the program wrote. The client sends what was typed. The attach add-on of
+xterm.js expects exactly this. A browser terminal connects directly.
+
+**A process.** Its streams are separate, so the first byte of every binary
+frame says which one:
+
+| First byte | Direction | Meaning |
+|---|---|---|
+| `0` | client to server | standard input |
+| `1` | server to client | standard output |
+| `2` | server to client | standard error |
+
+The rest of the frame is the bytes.
+
+Text frames are the same for both kinds:
+
+| Frame | From | Meaning |
+|---|---|---|
+| `{"resize":{"cols":120,"rows":40}}` | client | a terminal's new size |
+| `{"signal":"INT"}` | client | `INT`, `TERM`, `HUP` or `KILL` to the process group |
+| `{"eof":true}` | client | close a process's standard input |
+| `{"exited":{"exit_code":0}}` | server | the command ended; this is the last frame |
+| `{"dropped":{"bytes":65536}}` | server | this viewer was too slow and missed output |
+
+Any number of viewers can be connected to one session. A terminal has the size
+that the last viewer to resize it asked for.
+
+## The stream of a port
+
+[`ports.connect`](/docs/api/host/ports) is a TCP connection to a port on the
+host's loopback, `127.0.0.1`. It is at `/v1/ports/{port}`, and through
+`berth serve` at `/v1/hosts/{name}/controller/ports/{port}`. berthd connects to the port
+before the handshake, so a port that nothing listens on gives the error `503
+not_served`. It needs the role `operate` and the host
+level.
+
+Binary frames are the connection's bytes in both directions. Either side ends
+its direction with a text frame:
+
+| Frame | From | Meaning |
+|---|---|---|
+| `{"eof":true}` | client | The client sends no more. The program on the port reads the end, and what it sends still comes back |
+| `{"eof":true}` | server | The program closed its side. Bytes sent towards it still arrive |
+
+The stream ends once both sides have sent `{"eof":true}`. It ends at once when
+the client closes the WebSocket or the connection to the port breaks. A stream
+that closes before its `{"eof":true}` has lost its connection.
+`berth_api::tunnel` reads and writes such a stream like a socket.
+
+## The stream of an address on a host
+
+[`endpoints.connect`](/docs/api/host/endpoints) of berthd is a TCP connection
+to an address on one of the host's own networks, such as a container on a
+bridge. It is at `/v1/endpoints/{address}/{port}`, and its frames are those of
+the stream of a port. Only `berth serve` opens it, for an endpoint of a
+resource on a node. It does not pass it through under
+`/v1/hosts/{name}/controller`, and a portal refuses it.
+
+berthd resolves the address once, checks every address it has and connects to
+the one it checked, all before the handshake:
+
+| Error | When |
+|---|---|
+| `403 forbidden` | The address is a loopback, link-local or metadata address, or on none of the host's networks |
+| `502 unreachable`, `504 timeout` | The name does not resolve, or not in time |
+| `503 not_served`, `504 timeout` | The address refuses the connection, or doesn't answer in time |
+
+A network of the host is the subnet of an address of one of its interfaces
+that are up, without the loopback. A prefix shorter than `/8` for IPv4 or
+`/16` for IPv6 doesn't count.
+
+## The stream of an endpoint
+
+[`resources.connect`](/docs/api/serve/resources) of `berth serve` is a TCP
+connection to an endpoint of a resource, one that its provisioner reported
+([Endpoints](/docs/deploy/resources#endpoints)). It is at
+`/v1/resources/{id}/endpoints/{endpoint}`, where `endpoint` is the endpoint's
+name or its port. Its frames are those of the stream of a port.
+
+The server reads the endpoints from the resource's record, then resolves the
+address, checks it and connects, all before the handshake. It needs the role
+`operate`. What it can refuse:
+
+| Error | When |
+|---|---|
+| `404 not_found` | No such resource, or its provisioner did not report that endpoint |
+| `400 bad_request` | The endpoint is UDP |
+| `403 forbidden` | The address is one berth does not dial from the server |
+| `503 not_served`, `504 timeout` | The endpoint refuses the connection, or doesn't answer in time |
+| `502 unreachable` | The provisioner is on a node that cannot be reached |
+| `501 not_available` | The provisioner is on a node whose controller is older than `endpoints.connect` |
+
+Who dials the endpoint:
+
+| Where the provisioner is | Who dials |
+|---|---|
+| On a node | The node's controller: `ports.connect` for `127.0.0.1`, `endpoints.connect` for any other address |
+| Anywhere else | The server itself |
+
+`Portal::connect_endpoint` and `berth_api::tunnel::endpoint_tunnel` open one.
+
+## Resuming
+
+A stream that can be resumed takes `since=` and starts there. The page of each
+stream says whether it can. What `since` counts depends on the stream:
+
+| Stream | `since` is |
+|---|---|
+| a session | a byte offset from the start of the session's output |
+| the channel | a message id; messages after it come first |
+| the logs | a journal cursor from an earlier entry, or a time that `journalctl` understands |
+| a job | a byte offset into the job's output |
+
+Without `since`, a terminal starts with a replay of its current screen. A process
+starts at the beginning of its output.
+
+## Reconnecting
+
+A socket ends when the network does, when `berthd` restarts, or when the client
+closes it. To carry on where it stopped:
+
+1. Count the bytes of a session as they arrive, or remember the `id` of the last
+   channel message, or the `cursor` of the last log entry.
+2. Open the stream again with `since=` set to that value.
+3. Wait a little longer after each failure, and start over from a short wait
+   after a connection works.
+
+A session itself does not depend on the connection. It keeps running while
+nobody is connected, and its output is kept in a transcript of up to 16 MB. If
+`berthd` itself restarts, its sessions end. They are listed as ended with
+`lost: true`, and a stream of one of them can still be read from its transcript.
+
+`box serve` does the reconnecting for a service, with a backoff, so a service
+written in shell needs nothing for it.
+
+## A slow listener is dropped
+
+A client that cannot keep up does not slow the others down:
+
+- On a session, the stream carries on, the viewer misses output, and the server
+  sends a `dropped` frame with how much it missed. Read the missing range with
+  `GET /v1/sessions/{id}/output?since=OFFSET`, or reconnect with `since=`.
+- On the channel, a listener that falls 1,000 messages behind is closed. Open it
+  again with `since` set to the last id it saw.
+- On `events.follow`, `inbox.follow` and `kv.follow` of `berth serve`, a
+  follower that is too slow gets `{"dropped":{"events":12}}` and the stream
+  goes on. The number counts all the server's events it missed, also those it
+  does not follow. Read the current state again with `inbox.list`, `kv.list` or
+  `jobs.list`.
+
+## Events on your machine
+
+`berth serve` has one stream, [`events.follow`](/docs/api/serve/events), that follows several things at once. On the portal it is one subscription; on its own it is the WebSocket at:
+
+```http
+GET /v1/events
+```
+
+The first frame the client sends says what to follow. It is sent once, first:
+
+```json
+{ "hosts": ["studio"], "jobs": true, "kv": ["ui"], "topics": ["myplugin/"], "changes": ["hosts", "resources"] }
+```
+
+| Field | Follows |
+| --- | --- |
+| `hosts`, `topics` | Channel messages, by host and by topic prefix. All hosts when `hosts` is empty |
+| `jobs` | Job starts and ends |
+| `kv` | Changes in these key-value namespaces |
+| `changes` | Changes to the saved `hosts` and to `resources` |
+
+Each frame the server sends names where it came from in `source`:
+
+```json
+{ "source": "kv", "namespace": "ui", "key": "layout", "revision": 4, "value": {} }
+```
+
+| `source` | The frame also has |
+| --- | --- |
+| `channel` | The `host` and the `message` |
+| `job` | The `job` |
+| `kv` | The `namespace`, the `key`, and the `value` and `revision`, or `removed` |
+| `host` | The `host` and the `change`: `added`, `removed`, `renamed` or `changed`. A rename has the old name in `from` |
+| `resource` | The `resource` id, its `provisioner` and `kind`, and the `change`: `created`, `removed` or `changed` |
+
+A host or resource frame only names what changed. Read the rest with `hosts.get`
+or `resources.get`. A host changes when its profile is saved, as by
+`hosts.save` or an action, and a resource when its record does, as when a job
+creates it or its state is checked. A change that another berth makes in the
+store is told within a few seconds.
+
+```json
+{ "source": "host", "host": "dock", "change": "renamed", "from": "studio" }
+```
+
+Events are not resumable. After a reconnect, read what was missed with
+`inbox.list`, `kv.list`, `hosts.list` and `resources.list`, then follow again. `inbox.follow` and `kv.follow` follow one of them alone.

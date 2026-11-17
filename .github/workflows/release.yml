@@ -1,0 +1,248 @@
+name: Build
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  # berth for each system, built on that system so that its version can be
+  # run there. On Linux it carries berthd and box for the hosts, which are
+  # built for x86_64 wherever berth is; on macOS and Windows it is a client
+  # of a berth serve elsewhere.
+  binary:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            asset: berth-x86_64-linux.tar.gz
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            asset: berth-aarch64-linux.tar.gz
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            asset: berth-aarch64-macos.tar.gz
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            asset: berth-x86_64-macos.tar.gz
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: berth-x86_64-windows.zip
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      # The C runtime goes into the program, so that Windows needs nothing installed.
+      CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
+      # The bundled SQLite and ring's C are built against musl too, so that
+      # the program runs on any Linux.
+      CC_x86_64_unknown_linux_musl: musl-gcc
+      CC_aarch64_unknown_linux_musl: musl-gcc
+    steps:
+      - uses: actions/checkout@v7
+      # A tag vX.Y.Z builds version X.Y.Z. Any other build says the version in
+      # Cargo.toml, which is that of the latest release.
+      - name: The version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=${GITHUB_REF_NAME#v}
+            if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+              echo "::error::$GITHUB_REF_NAME is not a version tag such as v1.2.0 or v1.2.0-rc.1"
+              exit 1
+            fi
+            echo "BERTH_BUILD_VERSION=$version" >> "$GITHUB_ENV"
+          fi
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # On Linux the host programs are built for x86_64 as well.
+          targets: ${{ matrix.target }}${{ runner.os == 'Linux' && ',x86_64-unknown-linux-musl' || '' }}
+      - name: musl compiler
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+      # berthd and box have no C in them: on an arm runner they are linked
+      # for x86_64 by Rust's own linker.
+      - name: A linker for the host programs
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Build berth
+        run: cargo build --release --locked --target ${{ matrix.target }} -p berth
+      - name: Pack
+        run: |
+          mkdir dist
+          program=berth
+          [ "$RUNNER_OS" = Windows ] && program=berth.exe
+          cp "target/${{ matrix.target }}/release/$program" LICENSE-MIT LICENSE-APACHE dist/
+          case "${{ matrix.asset }}" in
+            *.zip) (cd dist && 7z a -tzip -bso0 "../${{ matrix.asset }}" "$program" LICENSE-MIT LICENSE-APACHE) ;;
+            *) tar -czf "${{ matrix.asset }}" -C dist "$program" LICENSE-MIT LICENSE-APACHE ;;
+          esac
+          if command -v sha256sum >/dev/null; then
+            sha256sum "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          else
+            shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          fi
+      - name: Check the versions
+        # berth, and on Linux the berthd and box it carries, all say the same.
+        run: |
+          want=${BERTH_BUILD_VERSION:-$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)}
+          programs=dist/berth
+          if [ "$RUNNER_OS" = Linux ]; then
+            cp target/host/x86_64-unknown-linux-musl/release/berthd target/host/x86_64-unknown-linux-musl/release/box dist/
+            [ "${{ matrix.target }}" = x86_64-unknown-linux-musl ] && programs="$programs dist/berthd dist/box"
+          fi
+          for program in $programs; do
+            said=$("$program" --version)
+            echo "$program: $said"
+            case "$said" in
+              "${program##*/} $want" | "${program##*/} $want "*) ;;
+              *) echo "::error::$program says $said, not $want"; exit 1 ;;
+            esac
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: berth-${{ matrix.target }}
+          path: |
+            ${{ matrix.asset }}
+            ${{ matrix.asset }}.sha256
+      - uses: actions/upload-artifact@v4
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        with:
+          name: host-programs-x86_64-linux
+          path: |
+            dist/berthd
+            dist/box
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [binary]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: berth-*
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "$GITHUB_REF_NAME" > VERSION
+          # A tag such as v0.4.0-rc.1 is a pre-release, which berth update and
+          # the install scripts pass over.
+          prerelease=
+          case "$GITHUB_REF_NAME" in *-*) prerelease=--prerelease ;; esac
+          # A release made on GitHub's page exists already, and only lacks the files.
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes $prerelease
+          gh release upload "$GITHUB_REF_NAME" --clobber berth-*.tar.gz berth-*.tar.gz.sha256 \
+            berth-*.zip berth-*.zip.sha256 install.sh install.ps1 VERSION
+  # The image holds the program the release publishes for x86_64, so it is
+  # built once. Its Dockerfile is the one berth carries to build an image of
+  # itself on a server.
+  image:
+    needs: [binary]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      # A tag vX.Y.Z builds version X.Y.Z. Any other build says the version in
+      # Cargo.toml, which is that of the latest release.
+      - name: The version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=${GITHUB_REF_NAME#v}
+            if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+              echo "::error::$GITHUB_REF_NAME is not a version tag such as v1.2.0 or v1.2.0-rc.1"
+              exit 1
+            fi
+            echo "BERTH_BUILD_VERSION=$version" >> "$GITHUB_ENV"
+          fi
+      - uses: actions/download-artifact@v4
+        with:
+          name: berth-x86_64-unknown-linux-musl
+      - name: The context
+        run: |
+          mkdir -p build/image
+          tar -xzf berth-x86_64-linux.tar.gz -C build/image berth
+          cp provision/requirements.txt build/image/
+          version=${BERTH_BUILD_VERSION:-$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)}
+          echo "BERTH_IMAGE_VERSION=$version" >> "$GITHUB_ENV"
+          echo "BERTH_IMAGE_SHA256=$(sha256sum build/image/berth | cut -d' ' -f1)" >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=edge,branch=main
+      - uses: docker/build-push-action@v6
+        with:
+          context: build/image
+          file: container/berth.Dockerfile
+          build-args: |
+            BERTH_VERSION=${{ env.BERTH_IMAGE_VERSION }}
+            BERTH_SHA256=${{ env.BERTH_IMAGE_SHA256 }}
+            BERTH_SOURCE=published
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+  # main says the version of the latest release, so that a build from it is
+  # never older than what berth update offers. A pre-release leaves it alone.
+  main:
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    needs: [release, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Set the version on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          current=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)
+          if [ "$(printf '%s\n' "$current" "$version" | sort -V | tail -n 1)" = "$current" ]; then
+            echo "main says $current, which is not older than $version"
+            exit 0
+          fi
+          sed -i "/^\[workspace.package\]/,/^\[/s/^version = \".*\"/version = \"$version\"/" Cargo.toml
+          cargo update --workspace
+          # The API documents name the version too.
+          sed -i -E "s/^( *\"version\": )\"${current//./\\.}\"\$/\1\"$version\"/" docs/openapi/*.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898283+github-actions[bot]@users.noreply.github.com'
+          git commit -am "chore(release): $version"
+          # main takes changes only as pull requests, so the version goes there as one.
+          branch="release/$version"
+          git push --force origin "HEAD:refs/heads/$branch"
+          gh pr create --base main --head "$branch" --title "chore(release): $version" \
+            --body "Sets the version on main to $version, the release that was just published. Merge it when its checks have passed."
+          # A push with this job's token starts no workflows of its own.
+          gh workflow run CI --ref "$branch"

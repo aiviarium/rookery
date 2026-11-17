@@ -1,0 +1,18 @@
+[package]
+name = "berth-tui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "The parts of berth's screens with no terminal in them"
+
+[dependencies]
+berth-api.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+vt100.workspace = true
+ratatui = { version = "=0.30.2", default-features = false }
+# Links as QR codes, for a phone; nothing but the encoder.
+qrcode = { version = "0.14", default-features = false }
+pulldown-cmark = { version = "0.13", default-features = false }
+tui-input.workspace = true

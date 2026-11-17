@@ -1,0 +1,93 @@
+---
+title: Plugins
+description: Optional software, actions and guides for hosts, switched on per host.
+icon: Blocks
+---
+
+A plugin adds optional things to a host. Each thing is a **feature**: packages, set-up steps, a guide for the agents working there, and actions on the host's overview. A plugin can have several features, each switched on by itself. Even the coding agents are plugins.
+
+## Plugins that come with berth
+
+| Plugin | Features | Adds |
+| --- | --- | --- |
+| `claude` | `claude/cli` | Claude Code, its sign-in, its update, and the desktop MCP server |
+| `codex` | `codex/cli` | Codex, its sign-in, its update, and the desktop MCP server |
+| `pi` | `pi/cli` | The Pi coding agent and its update |
+| `t3` | `t3/server` | T3 Code, a web front end that runs and supervises the coding agents |
+| `github` | `github/cli` | `gh`, its sign-in, and git set up to use its login |
+| `unity` | `unity/cli`, `unity/editor` | The Unity CLI and an editor, with sign-in, license activation and status |
+| `backup` | `backup/restic` | Nightly restic snapshots ([Backups](/docs/use/backups)) |
+
+A host gets the features listed in `devbox_plugin_features`. Unless that is set, it lists the five agent and tool features: `claude/cli`, `codex/cli`, `pi/cli`, `t3/server` and `github/cli`. Older profiles with `devbox_install_agents`, `devbox_agent_*` or `devbox_install_t3` are turned into that list when berth opens them.
+
+## Switching features on
+
+Features are off until chosen. On a host's **Features** tab they are listed in their groups next to the built-in entries. Space on a group's heading switches everything in it. The choice is stored in the profile:
+
+```json title="In studio's profile"
+{ "ansible_vars": { "devbox_plugin_features": ["unity/cli", "unity/editor"] } }
+```
+
+and reaches a running host with **Apply this configuration**.
+
+## Installing a plugin
+
+| Location | For |
+| --- | --- |
+| `plugins/ID/` in the provisioning source | Plugins that come with berth |
+| `~/.config/berth/plugins/` | Your own |
+
+The **Plugins** tab of the home screen (`6`) lists both with their features. Enter on **+ Add plugin** installs one from a package name, a `.tgz` or a folder, and `x` twice removes one of yours.
+
+<Screen name="home-plugins" alt="The Plugins tab listing the shipped plugins with their features" />
+
+From the command line:
+
+```bash
+berth plugin add @acme/berth-plugin-foo     # from a registry
+berth plugin add ./foo-1.0.0.tgz            # a tarball from npm pack
+berth plugin add ~/src/berth-plugin-foo     # a folder
+berth plugin list                                # what is found, and from where
+berth plugin remove @acme/berth-plugin-foo
+```
+
+`add` runs `npm install --ignore-scripts --prefix ~/.config/berth/plugins`, so registries and credentials come from your npm configuration. You can also copy a folder to `~/.config/berth/plugins/NAME/` by hand. Npm is not needed for that.
+
+After each change berth makes there, it writes the folder's `package.json`, npm's lock file, uploaded `.tgz` files and the folders you copied in to its [store](/docs/use/store). A machine restored from the store gets them back, and npm installs the rest. A folder you copy in by hand is in the store after berth's next change of the plugins. Remove a plugin with `berth plugin remove`, as one deleted by hand comes back from the store.
+
+### Updating a plugin
+
+```bash
+berth plugin update --check                 # which have a newer version
+berth plugin update foo                     # one, by its id or npm name
+berth plugin update                         # all of them
+```
+
+`--check` runs `npm outdated` with your npm configuration, so it asks the registry each plugin came from. `update` installs the registry's latest version and then lists the hosts that are behind. On the Plugins tab, `c` checks, `U` updates the selected plugin and `A` all of them. A plugin with a newer version says `update available: 1.0.0 → 1.1.0`.
+
+| Came from | Updated by |
+| --- | --- |
+| A registry | `berth plugin update` |
+| A `.tgz`, an `https://` address or a folder | Adding the new one again, which replaces it |
+| A folder copied by hand | Copying the new one over it |
+| berth itself | `berth update`, or a newer server image |
+
+A host keeps what it was applied with until it is applied again. After an update, `berth rollout` or `r` on the Plugins tab applies the hosts that are behind ([Updates](/docs/use/updates#bringing-hosts-up-to-date)).
+
+### On a berth server
+
+With a [berth server](/docs/use/server) set, the Plugins tab and `berth plugin list` show the server's plugins and change those, which needs the role `admin` there. The server installs a package name or an `https://` address with its own npm and npm configuration. `berth plugin add` packs a `.tgz` or a folder on your machine and sends it to the server, and `u` on the tab sends a `.tgz` chosen in the file dialog.
+
+The server's hosts can have a new plugin's features as soon as it is installed. Its Ansible tasks run on the server when a host is applied, so installing is part of set-up. A server with `serve_setup off` takes it only on its own socket ([Closing set-up](/docs/extend/serve#closing-set-up)).
+
+A plugin of yours with the same id as a built-in one replaces it. berth reads a plugin's `package.json` and hands its tasks to Ansible. It never runs the package's npm scripts.
+
+## Other install methods
+
+| Method | Plugins |
+| --- | --- |
+| USB installer, cloud seed | The release archive contains the built-in plugins, and yours when built through berth |
+| Container | Set `PLUGIN_FEATURES='["unity/cli"]'` for the build. Only plugins in the source's `plugins/` directory are in the build context |
+| Plain Ansible | Pass `devbox_plugin_features`, and `devbox_plugin_dirs` (`{"ID": "/path"}`) for plugins outside the source's `plugins/` |
+
+To write your own, see [Writing a plugin](/docs/extend/writing-plugins).

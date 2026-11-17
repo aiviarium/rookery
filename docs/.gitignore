@@ -1,0 +1,13 @@
+/node_modules
+.source
+/.next/
+/out/
+*.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
+.env*.local
+
+# the API reference, generated from docs/openapi (npm run gather)
+/content/docs/api/host/
+/content/docs/api/serve/
+/public/openapi/

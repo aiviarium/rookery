@@ -1,0 +1,23 @@
+{
+  "title": "Using berth",
+  "icon": "SquareTerminal",
+  "pages": [
+    "terminal-ui",
+    "overview",
+    "cli",
+    "types",
+    "lifecycle",
+    "nodes",
+    "server",
+    "store",
+    "access",
+    "accounts",
+    "sign-ins",
+    "secrets",
+    "registries",
+    "backups",
+    "moving",
+    "updates",
+    "upgrading"
+  ]
+}

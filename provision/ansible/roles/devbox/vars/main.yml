@@ -1,0 +1,140 @@
+---
+# berth's own actions, in the order the overview shows them. berthd reads them
+# from /etc/berth/actions.json, where the actions of the plugins follow.
+devbox_task_dir: /usr/local/lib/berth/tasks
+devbox_core_tasks:
+  - name: status
+    label: Status
+    group: Host
+    user: root
+    help: Provisioning state, services, graphics renderer, disk space and failed units, followed by the access links and what the plugins of this host report.
+    run: "{{ devbox_task_dir }}/status.sh"
+  - name: smoke
+    label: Self-Test
+    group: Host
+    user: agent
+    agent: true
+    help: "Run devbox-smoke as the agent: graphics, browser, office tools and the coding agents. The plugins of this host add their own checks."
+    run: devbox-smoke
+  - name: reboot
+    label: Reboot
+    group: Power
+    user: root
+    confirm: Restart the host? Everything running on it ends, sessions included.
+    help: Restart the host.
+    run: "{{ devbox_task_dir }}/reboot.sh"
+  - name: update
+    label: Update
+    group: Sync
+    user: root
+    help: apt update and dist-upgrade on the host, then what the plugins of this host keep up to date. Says whether a reboot is needed afterwards.
+    run: "{{ devbox_task_dir }}/update.sh"
+  - name: access
+    label: Access links and desktop password
+    group: Access
+    user: root
+    help: Links for the desktop, T3, Cockpit and SSH, and the password of the virtual desktop.
+    run: "{{ devbox_task_dir }}/access.sh"
+  - name: publish
+    label: Publish desktop and T3 on the tailnet
+    group: Access
+    user: root
+    help: Run tailscale serve on the host so the desktop and T3 get HTTPS addresses inside your tailnet.
+    run: "{{ devbox_task_dir }}/publish.sh"
+  - name: pair
+    label: Use T3 from another device
+    group: Access
+    user: root
+    help: T3 Code asks every new browser to pair once. This gives a link for the phone or computer you want to use it from; it works once, within 10 minutes. T3 has to be published on the tailnet first.
+    run: "{{ devbox_task_dir }}/pair.sh"
+  - name: secrets
+    label: Secrets and registry logins
+    group: Sync
+    user: agent
+    input: secrets
+    help: "Send this host's secrets and the logins of its registries to the agent account: tokens as environment variables or files, npm and Docker logins. Replaces what was installed before, and is followed by what the plugins of this host bring over."
+    run: /usr/local/bin/devbox-secrets
+  - name: "sign-in:status"
+    label: Show who is signed in
+    group: Sign-In
+    user: agent
+    agent: true
+    help: "The accounts the tools on this host are signed in to for the agent: the coding agents, GitHub and whatever else the plugins of this host know about."
+    run: "true"
+# The actions of a host with the controller alone, which assume nothing of a
+# desktop, its accounts or plugins.
+devbox_controller_tasks:
+  - name: status
+    label: Status
+    group: Host
+    user: root
+    help: The host, how long it has been up, the state of SSH and berthd, disk space and failed units.
+    run: "{{ devbox_task_dir }}/status.sh controller"
+  - name: reboot
+    label: Reboot
+    group: Power
+    user: root
+    confirm: Restart the host? Everything running on it ends, sessions included.
+    help: Restart the host.
+    run: "{{ devbox_task_dir }}/reboot.sh"
+  - name: update
+    label: Update
+    group: Sync
+    user: root
+    help: apt update and dist-upgrade on the host. Says whether a reboot is needed afterwards.
+    run: "{{ devbox_task_dir }}/update.sh"
+  - name: secrets
+    label: Secrets and registry logins
+    group: Sync
+    user: agent
+    input: secrets
+    help: "Send this host's secrets and the logins of its registries to the account sessions run as: tokens in ~/.config/devbox/secrets.env or as files, npm and Docker logins. Replaces what was installed before."
+    run: /usr/local/bin/devbox-secrets
+# The actions of a node, which has berth's controller and plugin features but
+# no desktop or accounts of its own. The role leaves out upgrade-server where
+# it finds no berth server's container.
+devbox_node_tasks:
+  - name: status
+    label: Status
+    group: Host
+    user: root
+    help: The node, how long it has been up, the state of SSH, berthd, the firewall and the tailnet, disk space and failed units, followed by what its features report.
+    run: "{{ devbox_task_dir }}/status.sh node"
+  - name: reboot
+    label: Reboot
+    group: Power
+    user: root
+    confirm: Restart the node? Everything running on it ends, sessions and the machines it hosts included.
+    help: Restart the node.
+    run: "{{ devbox_task_dir }}/reboot.sh"
+  - name: update
+    label: Update
+    group: Sync
+    user: root
+    help: apt update and dist-upgrade on the node, then what its features keep up to date. Says whether a reboot is needed afterwards.
+    run: "{{ devbox_task_dir }}/update.sh"
+  - name: secrets
+    label: Secrets and registry logins
+    group: Sync
+    user: agent
+    input: secrets
+    help: "Send this host's secrets and the logins of its registries to the account sessions run as: tokens in ~/.config/devbox/secrets.env or as files, npm and Docker logins. Replaces what was installed before."
+    run: /usr/local/bin/devbox-secrets
+  - name: upgrade-server
+    label: Upgrade the berth server
+    group: Server
+    user: root
+    confirm: Run the berth server in its container from the image of another version? It restarts, and its jobs end.
+    help: Run the berth server in the container on this node from the image of the version given, with the same data and the same options as the running container. With source here, the image is built on this node from the berth that runs the action, sent on standard input. It is refused when the container has an option it cannot carry over, and the old container is started again when the new one does not come up.
+    arguments:
+      - name: version
+        label: Version
+        required: true
+        help: The version of berth to run, as its image is tagged, such as 0.6.0.
+      - name: source
+        label: Source
+        default: release
+        values: [release, here]
+        help: release pulls the published image of the version. here builds berth:VERSION on this node from the berth that sends it.
+    run: "/usr/local/lib/berth/berth-server-upgrade {{ devbox_berth_server_container | quote }}"
+devbox_service_dir: /usr/local/lib/berth/services

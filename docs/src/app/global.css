@@ -1,0 +1,36 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+@import 'fumadocs-ui/css/generated/spacious.css';
+
+/* The colours of berth's terminal UI (crates/berth-tui/src/theme.rs): deep navy and harbour
+   blue. The site is dark only. The spacious layout draws the sidebar on the card
+   colour and sets each page into a panel of the background colour. */
+.dark {
+  --color-fd-background: #101216;
+  --color-fd-foreground: #d6dae3;
+  --color-fd-card: #15181e;
+  --color-fd-card-foreground: #d6dae3;
+  --color-fd-popover: #1a1d25;
+  --color-fd-popover-foreground: #d6dae3;
+  --color-fd-secondary: #1a1d25;
+  --color-fd-secondary-foreground: #d6dae3;
+  --color-fd-muted: #1a1d25;
+  --color-fd-muted-foreground: #8e95a6;
+  --color-fd-accent: #232833;
+  --color-fd-accent-foreground: #e6e9f0;
+  --color-fd-border: #282d38;
+  --color-fd-primary: #74b2ff;
+  --color-fd-primary-foreground: #101216;
+  --color-fd-ring: #74b2ff;
+}
+/* Long names in inline code, such as test names, wrap on narrow screens. */
+.prose :not(pre) > code {
+  overflow-wrap: anywhere;
+}
+/* The base theme greys the sidebar on its own. */
+.dark #nd-sidebar {
+  --color-fd-muted: #1a1d25;
+  --color-fd-secondary: #232833;
+  --color-fd-muted-foreground: #9ba2b3;
+}

@@ -1,0 +1,32 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    labels: [dependencies]
+    open-pull-requests-limit: 0
+    schedule:
+      interval: weekly
+    groups:
+      cargo:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    labels: [dependencies]
+    open-pull-requests-limit: 0
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /docs
+    labels: [dependencies]
+    open-pull-requests-limit: 0
+    schedule:
+      interval: monthly
+    groups:
+      docs:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directories: [/container, /ci]
+    labels: [dependencies]
+    open-pull-requests-limit: 0
+    schedule:
+      interval: monthly

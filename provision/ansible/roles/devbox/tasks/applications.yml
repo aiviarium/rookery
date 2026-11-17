@@ -1,0 +1,84 @@
+---
+- name: Install Mozilla signing key
+  ansible.builtin.get_url:
+    url: https://packages.mozilla.org/apt/repo-signing-key.gpg
+    dest: /usr/share/keyrings/devbox-mozilla.asc
+    mode: '0644'
+- name: Configure Firefox repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/devbox-mozilla.list
+    content: "deb [signed-by=/usr/share/keyrings/devbox-mozilla.asc] https://packages.mozilla.org/apt mozilla main\n"
+    mode: '0644'
+  register: mozilla_repo
+- name: Prefer the native Firefox package
+  ansible.builtin.copy:
+    dest: /etc/apt/preferences.d/devbox-mozilla
+    mode: '0644'
+    content: |
+      Package: firefox*
+      Pin: origin packages.mozilla.org
+      Pin-Priority: 1001
+- name: Install Firefox
+  ansible.builtin.apt:
+    name: firefox
+    state: present
+    update_cache: "{{ mozilla_repo.changed }}"
+    lock_timeout: 300
+- name: Install Python artifact and automation requirements
+  ansible.builtin.copy:
+    src: python-requirements.txt
+    dest: /opt/devbox-tools/requirements.txt
+    mode: '0644'
+- name: Install Python tools in a dedicated environment
+  ansible.builtin.pip:
+    requirements: /opt/devbox-tools/requirements.txt
+    virtualenv: /opt/devbox-tools/venv
+    virtualenv_command: /usr/bin/python3 -m venv
+- name: Install matching Playwright library
+  ansible.builtin.pip:
+    name: "playwright=={{ devbox_playwright_version }}"
+    virtualenv: /opt/devbox-tools/venv
+  when: devbox_install_playwright
+- name: Install Playwright OS dependencies
+  ansible.builtin.command: /opt/devbox-tools/venv/bin/playwright install-deps chromium
+  changed_when: false
+  when: devbox_install_playwright
+- name: Install Chromium as the agent
+  ansible.builtin.command: /opt/devbox-tools/venv/bin/playwright install chromium
+  become_user: "{{ devbox_user }}"
+  environment:
+    HOME: "{{ devbox_home }}"
+  changed_when: false
+  when: devbox_install_playwright
+- name: Check whether this machine is a container
+  ansible.builtin.command: systemd-detect-virt --container
+  register: devbox_container_kind
+  changed_when: false
+  failed_when: false
+  when: devbox_install_playwright
+# A container's processes are unconfined in the AppArmor of the machine that
+# runs it, so on Ubuntu that machine takes away the capabilities Chromium needs
+# in a user namespace, and nothing in the container can change it. Chromium
+# then sandboxes itself with its setuid helper, which it looks for beside its
+# binary and which only root may own.
+- name: Give Playwright's Chromium its sandbox helper in a container
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cache={{ devbox_home | quote }}/.cache/ms-playwright
+    for helper in "$cache"/chromium-*/chrome-linux*/chrome_sandbox; do
+      [[ -f $helper ]] || continue
+      build=${helper#"$cache"/chromium-}
+      build=${build%%/*}
+      for dir in "${helper%/*}" "$cache"/chromium_headless_shell-"$build"/chrome-headless-shell-linux*; do
+        [[ -d $dir ]] || continue
+        if ! cmp -s "$helper" "$dir/chrome-sandbox" || [[ $(stat -c %u:%g:%a "$dir/chrome-sandbox") != 0:0:4755 ]]; then
+          install -o root -g root -m 4755 "$helper" "$dir/chrome-sandbox"
+          echo "$dir/chrome-sandbox"
+        fi
+      done
+    done
+  args:
+    executable: /bin/bash
+  register: devbox_chromium_helper
+  changed_when: devbox_chromium_helper.stdout | length > 0
+  when: devbox_install_playwright and devbox_container_kind.rc == 0

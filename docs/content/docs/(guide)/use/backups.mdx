@@ -1,0 +1,113 @@
+---
+title: Backups
+description: Nightly encrypted snapshots of the agent's data with restic, through the Backup plugin.
+icon: Archive
+---
+
+The **Backup** plugin, which comes with berth, takes a restic snapshot of the agent's data every night and stores it anywhere rclone reaches: S3, Backblaze B2, SFTP and the rest. Without it, restic is installed but no destination, credentials or schedule is set up.
+
+## Set it up
+
+<Steps>
+<Step>
+
+### Switch it on
+
+On the host's **Features** tab, switch on **Backups** under System.
+
+</Step>
+<Step>
+
+### Set the repository
+
+Set `devbox_backup_repository` in the profile's `ansible_vars`, in restic's rclone form. Edit the profile with `berth host export studio > studio.json`, then `berth host import studio studio.json`:
+
+```json title="In studio's profile"
+{ "ansible_vars": { "devbox_backup_repository": "rclone:b2:my-bucket/studio" } }
+```
+
+</Step>
+<Step>
+
+### Send the two secrets
+
+The repository password and the rclone configuration go to the host as files:
+
+```bash
+berth secret set backup-password
+berth secret set rclone-conf < ~/.config/rclone/rclone.conf
+berth host set studio secret.backup-password=~/.config/berth-backup/password:0600
+berth host set studio secret.rclone-conf=~/.config/rclone/rclone.conf:0600
+berth run studio secrets
+```
+
+</Step>
+<Step>
+
+### Apply
+
+Run **Apply this configuration**. The schedule is switched on only when a repository is set.
+
+</Step>
+</Steps>
+
+<Callout type="warn">
+  Keep a copy of the repository password somewhere else. Without it the snapshots cannot be read.
+</Callout>
+
+## Actions
+
+| Action | Does |
+| --- | --- |
+| Back up now (`backup:snapshot`) | Takes a snapshot and applies the retention policy; the first run creates the repository |
+| List snapshots (`backup:list`) | The snapshots in the repository, of this host and of others that share it |
+| Restore a snapshot (`backup:restore`) | Puts a snapshot's files back where they were taken from, after confirmation |
+| Last snapshot | Part of Status. When the last snapshot was taken and when the next is due |
+
+```bash
+berth run studio backup:snapshot
+berth run studio backup:restore snapshot=latest
+```
+
+A restore writes over files in place. Files that are not in the snapshot stay as they are. It also works on a freshly set-up host that was given the same repository and secrets.
+
+## What is in a snapshot
+
+- The agent's home and everything under `/srv/agent`
+- The host's own description: `/etc/devbox`, `/etc/berth`, `/var/lib/devbox`
+
+Left out, because they can be made again:
+
+- caches, such as `.cache` and the package caches of build tools
+- downloaded dependencies and build output: `node_modules`, `target/debug` and `target/release`
+- installed runtimes
+
+The full list is `/etc/berth-backup.exclude` on the host. A plugin can leave out more of its own by installing a file of patterns in `/etc/berth-backup.exclude.d`.
+
+## Settings
+
+| Setting | Default |
+| --- | --- |
+| `devbox_backup_repository` | none; no schedule without it |
+| `devbox_backup_schedule` | `*-*-* 03:30:00`, a systemd calendar time, with up to 30 minutes of random delay |
+| `devbox_backup_keep_daily` | `7` |
+| `devbox_backup_keep_weekly` | `4` |
+| `devbox_backup_keep_monthly` | `6` |
+| `devbox_backup_system_paths` | `/etc/devbox`, `/etc/berth`, `/var/lib/devbox` |
+| `devbox_backup_exclude` | the list above |
+
+The T3 Code database needs an application-consistent copy. Stop the service or snapshot while it is idle before relying on a restore of it.
+
+## Back up berth itself
+
+This page is about the agent's data on a host. On the machine that runs berth, back up these:
+
+| What | Where |
+| --- | --- |
+| The store. It has the hosts with their passwords and machines, the registries, secrets and most settings. It also has berth's own SSH key, the server's token and your own plugins | `~/.local/share/berth/berth.db`, or the PostgreSQL database the `store` setting names |
+| The key file, when the store is encrypted | `~/.config/berth/store.key`. Keep it apart from the database |
+| The settings of this machine | `~/.config/berth/config.json` |
+
+With these, an installation can be [restored on another machine](/docs/use/store#restore-on-a-new-machine). `berth host export HOST` prints one host's profile, for a copy of that alone.
+
+Copy a SQLite store with `sqlite3 berth.db ".backup copy.db"`, which takes a consistent copy while berth runs.

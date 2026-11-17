@@ -1,0 +1,159 @@
+---
+title: Building and releasing
+description: Build berth from a checkout, run the checks and the docs, and make a release.
+icon: Hammer
+---
+
+## The repository
+
+| Folder | Holds |
+| --- | --- |
+| `crates/berth/` | `berth`. On Linux the commands and `berth serve`, in `src/local/`; on every system the screens |
+| `crates/berth-page/` | The screens in a terminal, which do everything through the API of a server |
+| `crates/berth-core/`, `berth-api/`, `berth-pty/`, `berth-tui/` | Shared libraries. `berth-tui` has the parts of the screens with no terminal in them |
+| `crates/vendor/` | The vendored `tui-input` crate |
+| `crates/berthd/`, `crates/box/` | `berthd` and `box`, built static for hosts |
+| `provision/ansible/` | The devbox role |
+| `provision/bootstrap/` | First-boot provisioning |
+| `provision/bin/` | `devbox.py` (release, seeds, ISO), `qemu.py`, `write-usb.sh` |
+| `provision/config/` | `example.json`, the profile a new host starts from |
+| `plugins/` | The plugins that come with berth |
+| `container/` | The desktop image and berth's own image |
+| `ci/` | The images and scripts for the checks and the end-to-end tests |
+| `docs/` | This site |
+| `tests/` | Python tests, and the end-to-end tests in `tests/e2e/` |
+
+## Build
+
+```bash
+rustup target add x86_64-unknown-linux-musl     # once
+cargo build --release -p berth
+cargo install --locked --path crates/berth       # into ~/.cargo/bin
+```
+
+The build first makes `berthd` and `box` as static musl binaries and places them in the role's files. It then packs the provisioning source and embeds it in `berth`. It needs Python 3 for the packing.
+
+A release build embeds release builds of `berthd` and `box`. A development or test build (`cargo build`, `cargo test`) embeds quicker ones:
+
+| Part | Profile | Built |
+| --- | --- | --- |
+| `berthd`, `box` | `host-dev` | Optimised for size, incrementally, with debug assertions |
+| berth itself | `dev` | Line numbers, no other debug information |
+
+For a debugger, `CARGO_PROFILE_DEV_DEBUG=true` gives berth's own crates full debug information.
+
+While changing the role or plugins, point berth at the checkout instead of the built-in copy:
+
+```bash
+berth config set source "$PWD"
+```
+
+## Check
+
+```bash
+cargo test --locked
+python3 -m venv .venv && .venv/bin/pip install -r provision/requirements.txt
+.venv/bin/python -m unittest discover -s tests
+ANSIBLE_CONFIG=provision/ansible.cfg .venv/bin/ansible-playbook -i localhost, provision/ansible/site.yml --syntax-check
+vale README.md docs/content/docs
+```
+
+Two of the Rust tests compare the API that berthd and `berth serve` describe with the committed documents in `docs/openapi/`. After changing a route, regenerate them. `BERTH_UPDATE_DOCS=1 cargo test` writes them.
+
+## In containers
+
+With Docker or Podman you need nothing else on your machine. `ci/run.sh` builds an image with Rust and its targets, Python with Ansible, and Vale. Everything runs in it. CI runs the same script.
+
+```bash
+ci/run.sh check              # what CI checks
+ci/run.sh check clippy vale  # some of it
+ci/run.sh e2e                # the end-to-end tests
+ci/run.sh shell              # a shell with the toolchain, the checkout at /src
+```
+
+The checkout is mounted, and files are written as you. Cargo's downloads and the target directory stay in the volumes `berth-ci-cargo` and `berth-ci-target`, so later runs are fast. `ci/run.sh clean` removes them and the images.
+
+The end-to-end tests have two test hosts, `studio` and `dock`. Each is an Ubuntu container with SSH and an operator account, and the two run in parallel. A profile is applied to a host over SSH, with the role's tasks for the accounts, the plugins and berthd. The tests then use the host through berth's commands, berthd's API and `berth serve`. Test cases that look at the same state of a host follow each other, so the state is applied once. The desktop packages, toolchains and browsers are left out. Some modules need less than that. `e2e_access` and `e2e_controller.Controller` use the bare host `dock`, which has only SSH. `e2e_provisioners` runs without a host. `e2e_restore` starts a second `berth serve` on the host `studio` and leaves the host as it is. With Docker, `ci/run.sh` also starts an engine on the test network for the Docker plugin's cases. `BERTH_CI_DOCKER` switches it on or off, and `BERTH_CI_DIND_IMAGES` names images to load into it. The test hosts and the tests are on an internal network with no way out. Each run starts from new hosts and removes them afterwards. A run ends with the time of each test and the number of playbook runs. After a failure the hosts' logs are in `build/ci/logs/`.
+
+To run one module or one test case, name it: `ci/run.sh e2e e2e_serve.Roles`. `ci/run.sh e2e --shard plain` runs one shard on a fresh host, as a CI job does. The test cases of each host are listed in order in `tests/e2e/run.py`, and cut into shards in `SHARDS` there. A new one goes after the ones whose state it uses, and into their shard.
+
+### Boot tests
+
+```bash
+ci/run.sh boot cloud                 # the cloud seed in QEMU
+ci/run.sh boot iso                   # the USB installer on a blank virtual disk
+ci/run.sh boot cloud --keep          # and leave the guest running afterwards
+ci/run.sh boot cloud -- boot_host.Reboot
+```
+
+They need `/dev/kvm`. `--tcg` runs without it, but takes hours. QEMU runs in a container of its own, `ci/boot.Dockerfile`, which also holds the package cache, the release server and the tests. The guest's disks are files under `build/boot/`. No block device is ever attached. With `--keep` the run ends with the commands to log in over SSH or to reach the serial console.
+
+| Setting | Effect |
+| --- | --- |
+| `BERTH_CI_BOOT_ISO` | An Ubuntu Server ISO already on your machine, used read-only. Without it the ISO is downloaded to `build/boot/images` |
+| `BERTH_CI_BOOT_ISO_SHA256` | The checksum it must have. Without it, Ubuntu's `SHA256SUMS` |
+| `BERTH_CI_BOOT_MEMORY`, `BERTH_CI_BOOT_CPUS` | The guest's memory in MiB and its vCPUs, 4096 and 4 by default |
+| `BERTH_CI_BOOT_SSH_PORT` | The loopback port of the guest's SSH with `--keep`, 22722 by default |
+
+The cloud image and the ISO are checked against Ubuntu's `SHA256SUMS` on every run. `build/boot/KIND/report.json` has the time of each step, the disk and memory used and how much came from the package cache. The modules are listed in order in `tests/e2e/boot.py`.
+
+## The release archive
+
+```bash
+python3 provision/bin/devbox.py release
+```
+
+writes `build/devbox-release.tar.gz` and `build/release.sha256`. The archive is deterministic for the same source files and uses an explicit allowlist: it never contains local host profiles, secrets, virtualenvs or build output. Host-specific installer images and seeds are private and must not be published.
+
+## The docs
+
+```bash
+cd docs
+npm install
+npm run dev         # http://localhost:3000
+npm run build       # static site in docs/out
+```
+
+The guide pages are MDX files in `docs/content/docs/(guide)`. The API reference is generated before every build from `docs/openapi/` by `docs/scripts/gather.mjs`. The terminal screenshots in `docs/public/screens/` are PNG files rendered with headless Chrome. They come from `docs/scripts/screens.py`, which runs the built binary against an invented set-up and a throw-away container. See the comment at its top, which also says how to render the PNG files again. Set `DOCS_BASE_PATH` when the site is served from a folder, such as `/berth` on GitHub Pages.
+
+## Releases
+
+GitHub Actions build on every push:
+
+| Workflow | Does |
+| --- | --- |
+| CI | The checks above and the end-to-end tests, both with `ci/run.sh`, and Vale. berth is built once, and the tests of each test host run in a job of their own |
+| Boot | The boot tests. `boot cloud` runs for changes to provisioning. `boot iso` runs once a week and when started by hand, because the installer takes longest and is used least |
+| Docs | The docs build, and publishing it to GitHub Pages from `main` |
+| Build | `berth` for each system as artifact `berth-<target>`, the host programs as `host-programs-x86_64-linux`, and the container image `ghcr.io/helightdev/berth`, tagged `edge` from `main` |
+
+To release, push a tag such as `v0.3.0`, or create the release on GitHub's release page with a new tag. Build then:
+
+1. Builds `berth`, `berthd` and `box` with the version of the tag, and checks that each says it. Runs `boot cloud`. When it fails, nothing is published.
+2. Publishes the release with the archives of `berth`, their checksum files, `install.sh`, `install.ps1` and `VERSION`. A release made on the page gets the files added.
+3. Pushes the image tagged `0.3.0`, `0.3` and `latest`.
+4. Opens a pull request that sets the version on `main` in `Cargo.toml`, `Cargo.lock` and `docs/openapi/`. Merge it once its checks have passed.
+
+You don't edit a version anywhere. A build from a checkout says the version in `Cargo.toml`, which is that of the latest release. That way `berth update` never offers an older version. `berth`, `berthd` and `box` take the version from `berth_api::VERSION`. A release build sets it with `BERTH_BUILD_VERSION`, and `docker build` takes the same name as a build argument.
+
+A tag with a suffix, such as `v0.4.0-rc.1`, makes a pre-release. Its programs say `0.4.0-rc.1` and its image is tagged only with that. `main` stays as it is. The install scripts and `berth update` pass over pre-releases, and `BERTH_VERSION=v0.4.0-rc.1` installs one.
+
+## On every system
+
+`berth` builds on Linux, macOS and Windows. Its installation, `berth serve` and the commands are compiled for Linux alone, in `crates/berth/src/local/`. On macOS and Windows it is the screens, `berth login` and `berth update`, a client of a server elsewhere. The program builds on the system it is for:
+
+```bash
+cargo build --release --locked -p berth
+```
+
+A release builds it on a runner of each system and checks that it says its version:
+
+| System | Target | Archive |
+| --- | --- | --- |
+| Linux x86_64 | `x86_64-unknown-linux-musl`, with berthd and box | `berth-x86_64-linux.tar.gz` |
+| Linux arm64 | `aarch64-unknown-linux-musl`, with berthd and box for x86_64 hosts | `berth-aarch64-linux.tar.gz` |
+| macOS on Apple silicon | `aarch64-apple-darwin` | `berth-aarch64-macos.tar.gz` |
+| macOS on Intel | `x86_64-apple-darwin` | `berth-x86_64-macos.tar.gz` |
+| Windows x86_64 | `x86_64-pc-windows-msvc`, with the C runtime linked in | `berth-x86_64-windows.zip` |
+
+On Windows, the build needs Rust from rustup and the Visual Studio build tools.

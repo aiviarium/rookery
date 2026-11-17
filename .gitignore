@@ -1,0 +1,24 @@
+.venv/
+__pycache__/
+*.pyc
+build/
+.env
+provision/config/*.json
+!provision/config/example.json
+# Left in a checkout from before provision/: local profiles and built programs.
+/config/
+/ansible/
+secrets/
+*.qcow2
+*.iso
+
+/target/
+/provision/ansible/roles/devbox/files/bin/
+
+*.credentials.json
+
+*.log
+.env.*
+.claude/*
+# The skills are a link to .agents/skills, which every agent reads.
+!.claude/skills

@@ -1,0 +1,10 @@
+**
+!provision/ansible/
+!provision/ansible/**
+!provision/ansible.cfg
+!provision/requirements.txt
+!container/
+!container/Dockerfile
+!container/entrypoint.sh
+!plugins/
+!plugins/**
