@@ -105,7 +105,16 @@ sudo rm -rf /home/agent/.config/devbox /home/agent/.config/systemd/user/devbox-*
 sudo systemctl daemon-reload
 ```
 
-Use the agent's own name and home if they differ from `agent`. A `managed` host has only `/etc/berth`, `/var/lib/berth`, `/usr/local/lib/berth` and `berthd`. With the backup plugin, the repository stays as it is: the apply writes its settings as `/etc/rookery-backup.conf`, and its password to `~/.config/rookery-backup/password` from the secret the profile names.
+The apply writes the SSH keys, the shell settings and the pointers in the agents' instruction files into blocks under new names, and leaves berth's blocks where they were. Remove those too, so a key the profile no longer lists stops working:
+
+```bash title="On the host"
+for file in /home/ops/.ssh/authorized_keys /home/agent/.ssh/authorized_keys /home/agent/.bashrc \
+    /home/agent/.claude/CLAUDE.md /home/agent/.codex/AGENTS.md /home/agent/.pi/agent/AGENTS.md; do
+  [ -f "$file" ] && sudo sed -i -E '/^(# |<!-- )BEGIN (DEVBOX|BERTH)\b/,/^(# |<!-- )END (DEVBOX|BERTH)\b/d' "$file"
+done
+```
+
+Use the agent's and the operator's own names and homes if they differ from `agent` and `ops`. A `managed` host has only `/etc/berth`, `/var/lib/berth`, `/usr/local/lib/berth`, `berthd`, and a `BERTH` block in the `authorized_keys` of its SSH user. With the backup plugin, the repository stays as it is: the apply writes its settings as `/etc/rookery-backup.conf`, and its password to `~/.config/rookery-backup/password` from the secret the profile names.
 
 ## 6. Machines a provisioner made
 
