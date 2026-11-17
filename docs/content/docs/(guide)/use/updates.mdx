@@ -12,12 +12,12 @@ Ubuntu security updates and Firefox's vendor updates install automatically. The 
 
 | How | Updates |
 | --- | --- |
-| **Update** on the overview, or `berth run HOST update` | `apt` update and `dist-upgrade`, then Claude Code, Codex, Pi, T3 Code and the Unity CLI to their latest versions, through their plugins |
+| **Update** on the overview, or `berth run HOST update` | `apt` update and `dist-upgrade`, then what plugins installed, such as the Unity CLI, to their latest versions |
 | **Reboot**, or `berth run HOST reboot` | Restarts the host to finish updates |
 | **Apply this configuration** | Runs the role again, which brings new or changed features and settings, berthd and box, and plugin actions and services |
 | `berth plugin update` | Your plugins, to the latest version of their registry ([Updating a plugin](/docs/extend/plugins#updating-a-plugin)) |
 
-The versions in the defaults (`devbox_claude_version`, `devbox_codex_version`, `devbox_pi_version`, `devbox_t3_version`) are the least ones, so applying the configuration again does not go back to them after an update. Claude Code's own self-update is off.
+The versions a plugin installs are the least ones, so applying the configuration again does not go back to them after an update.
 
 ## berth itself
 

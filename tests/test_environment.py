@@ -141,7 +141,7 @@ class EnvironmentTests(unittest.TestCase):
                 names += [task['name'] for task in adds['tasks']]
         self.assertEqual(len(names), len(set(names)))
         self.assertIn('backup:restore', names)
-        self.assertIn('claude:login', names)
+        self.assertIn('github:login', names)
 
     def test_core_tasks_name_installed_scripts(self):
         tasks = yaml.safe_load((ROLE / 'vars/main.yml').read_text())['devbox_core_tasks']

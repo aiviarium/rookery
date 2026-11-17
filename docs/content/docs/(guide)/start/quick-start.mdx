@@ -84,7 +84,7 @@ Once the host has an SSH address, `berth ui studio` opens its **overview**. Run 
 
 ### Sign the agents in
 
-Installing a coding agent does not sign it in. Under **Sign-In**, **Sign in to Claude Code** and the others run the tool's sign-in on the host and show its link, which you open in your own browser. See [Sign-ins](/docs/use/sign-ins).
+Installing a coding agent or a tool does not sign it in. Under **Sign-In**, **Sign in to GitHub** and the actions that other plugins add run the tool's sign-in on the host and show its link, which you open in your own browser. See [Sign-ins](/docs/use/sign-ins).
 
 </Step>
 </Steps>
@@ -95,7 +95,7 @@ Installing a coding agent does not sign it in. Under **Sign-In**, **Sign in to C
 
 ```bash
 berth host create studio --method ssh --set address=192.0.2.10 --set user=ops \
-  --feature claude/cli --generate-passwords --no-input
+  --feature github/cli --generate-passwords --no-input
 berth host apply studio
 berth host credentials studio
 ```

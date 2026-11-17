@@ -28,7 +28,7 @@ Settings of the Ansible role go under `ansible_vars`, and how berth reaches and 
   "target_disk_mode": "auto",
   "keyboard": "us",
   "ansible_vars": {
-    "devbox_plugin_features": ["claude/cli", "codex/cli", "t3/server", "github/cli"]
+    "devbox_plugin_features": ["github/cli", "unity/cli"]
   },
   "access": { "address": "studio.example.ts.net", "user": "ops", "auth": "berth" }
 }
@@ -96,7 +96,7 @@ Any `devbox_` setting of the role. The ones the terminal UI edits:
 
 | Setting | In berth | Default |
 | --- | --- | --- |
-| `devbox_plugin_features` | Features tab | `claude/cli`, `codex/cli`, `pi/cli`, `t3/server`, `github/cli` |
+| `devbox_plugin_features` | Features tab | `github/cli` |
 | `devbox_tools_*` (one per [category](/docs/reference/tools#tool-categories)) | Features tab | on |
 | `devbox_install_playwright` | Features tab | on |
 | `devbox_software_rendering` | Software graphics, Features tab | on |

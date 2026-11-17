@@ -16,7 +16,7 @@ services:
         INSTALL_SCRIPTING_TOOLS: "${INSTALL_SCRIPTING_TOOLS:-${INSTALL_DEV_TOOLS:-true}}"
         INSTALL_SCIENTIFIC_TOOLS: "${INSTALL_SCIENTIFIC_TOOLS:-${INSTALL_DEV_TOOLS:-true}}"
         INSTALL_CHROME_TOOLS: "${INSTALL_CHROME_TOOLS:-${INSTALL_DEV_TOOLS:-true}}"
-        PLUGIN_FEATURES: '${PLUGIN_FEATURES:-["claude/cli","codex/cli","pi/cli","t3/server","github/cli"]}'
+        PLUGIN_FEATURES: '${PLUGIN_FEATURES:-["github/cli"]}'
     init: true
     shm_size: 1gb
     ports:

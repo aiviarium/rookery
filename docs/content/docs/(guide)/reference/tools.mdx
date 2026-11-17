@@ -4,7 +4,7 @@ description: The development tools a host gets, how to switch categories off, an
 icon: Wrench
 ---
 
-The base is Ubuntu 26.04. The coding clients are Claude Code, Codex and Pi, with T3 Code, all from [plugins](/docs/extend/plugins).
+The base is Ubuntu 26.04. Coding agents and the tools around them, such as T3 Code, come from [plugins](/docs/extend/plugins).
 
 ## Inventory
 
@@ -47,21 +47,17 @@ Node and npm, Python, GCC, CMake and Ninja stay as base dependencies. The packag
 mise ls
 mise exec node@22 -- node --version
 box exec node --version
-box exec codex --version
+box exec gh --version
 ```
 
 ## Versions
 
 | Tool | Version | Source |
 | --- | --- | --- |
-| Claude Code | 2.1.322 | Official installer with an explicit version, fetched over HTTPS at install time |
-| T3 Code | 0.1.8 | Upstream GitHub release, checked against a SHA-256 in the defaults |
-| Codex | 0.167.1 | `@openai/codex` from npm |
-| Pi | 1.5.1 | `@earendil-works/pi-coding-agent` from npm, with `--ignore-scripts` |
 | Playwright | 1.65.0 | With its matching Chromium |
 | ansible-core | 2.21.6 | On your machine. Supports Ubuntu's Python 3.14 on hosts |
 
-Codex and Pi install under `~/.local` as the agent. Change a version in the profile's `ansible_vars` (`devbox_claude_version`, `devbox_codex_version`, `devbox_pi_version`, `devbox_t3_version`) and apply; for T3, change the checksum with the version. **Update** brings the agents to their latest versions, and these settings are the least versions, so applying again does not go back.
+A plugin chooses the versions of what it installs, and its guide says which settings change them. **Update** brings them to their latest versions, and those settings are the least versions, so applying again does not go back.
 
 Node 22 and .NET 10 use release selectors, so a clean install may get newer patches. Pin full versions in `devbox_node_versions` and `devbox_mise_tools` for closer reproduction. Ubuntu packages, npm's transitive dependencies and Python version ranges also move. The role describes how to set a host up and does not freeze its packages. Defaults for all of this are in [`defaults/main.yml`](https://github.com/helightdev/berth/blob/main/ansible/roles/devbox/defaults/main.yml).
 

@@ -6,8 +6,7 @@ berth sets up Ubuntu 26.04 desktops for coding agents on a spare laptop, a
 server or a container, and manages them from your terminal.
 
 A host runs XFCE on a virtual display that you open in a browser. Plugins add
-the agents, such as Claude Code, Codex and Pi with T3 Code as their web front
-end, and the toolchains they work with. Each host has a profile that berth
+the coding agents and the tools they work with. Each host has a profile that berth
 installs and can apply again. Once the host runs, its page in berth has the
 status, sign-ins, updates and secrets. A machine you only log in to can be
 a host too: `berth host add dock 192.0.2.4 --user ops`.

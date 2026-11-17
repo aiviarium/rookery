@@ -160,7 +160,7 @@ def make_demo(root: Path) -> dict:
 
     # The fake hash stands in for what F5 or `mkpasswd -m sha-512` would store.
     fake_hash = "$6$demo$" + "x" * 86
-    features = ["claude/cli", "codex/cli", "t3/server", "github/cli", "backup/restic"]
+    features = ["github/cli", "unity/cli", "backup/restic"]
     studio = profile(
         "studio", profile="laptop", operator_ssh_public_keys=[key], operator_password_hash=fake_hash,
         keyboard="us",
@@ -220,7 +220,7 @@ def host_files() -> dict:
     for task in core:
         task["run"] = task["run"].replace("{{ devbox_task_dir }}", task_dir)
     tasks, services, channels = core, [], []
-    features = ["claude/cli", "codex/cli", "t3/server", "github/cli", "backup/restic"]
+    features = ["github/cli", "unity/cli", "backup/restic"]
     for chosen in features:
         plugin_id, feature_id = chosen.split("/")
         package = json.loads((REPO / "plugins" / plugin_id / "package.json").read_text())

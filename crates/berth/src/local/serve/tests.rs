@@ -1368,7 +1368,7 @@ async fn the_server_is_set_up_through_the_api() {
     let features = found["features"].as_array().unwrap();
     assert!(features.iter().any(|feature| {
         feature["key"].as_str().is_some_and(|key| key.contains('/'))
-            && feature["group"] == "Coding Agents"
+            && feature["group"] == "Development Tools"
     }));
     let (_, name) = send(
         client,
@@ -1707,15 +1707,15 @@ async fn plugins_are_managed_through_the_api() {
     // The plugins that come with berth stay.
     let (status, listed) = send(client, "GET", "/v1/plugins", Value::Null).await;
     assert_eq!(status, 200, "{listed}");
-    let claude = listed["plugins"]
+    let github = listed["plugins"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|plugin| plugin["id"] == "claude")
+        .find(|plugin| plugin["id"] == "github")
         .unwrap();
-    assert_eq!(claude["origin"], "shipped");
-    assert_eq!(claude["features"][0]["id"], "cli");
-    let (status, said) = send(client, "DELETE", "/v1/plugins/claude", Value::Null).await;
+    assert_eq!(github["origin"], "shipped");
+    assert_eq!(github["features"][0]["id"], "cli");
+    let (status, said) = send(client, "DELETE", "/v1/plugins/github", Value::Null).await;
     assert_eq!(status, 409, "{said}");
     assert_eq!(
         send(client, "DELETE", "/v1/plugins/nothing", Value::Null)
@@ -1767,7 +1767,7 @@ async fn plugins_are_managed_through_the_api() {
     );
     for (id, status, says) in [
         ("hello", 400, "copy the new one"),
-        ("claude", 400, "comes with berth"),
+        ("github", 400, "comes with berth"),
         ("nothing", 404, "No plugin"),
     ] {
         let (got, said) = send(client, "POST", "/v1/plugins/update", json!({"id": id})).await;

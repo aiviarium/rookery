@@ -9,9 +9,9 @@ ARG INSTALL_DOTNET_TOOLS=true
 ARG INSTALL_SCRIPTING_TOOLS=true
 ARG INSTALL_SCIENTIFIC_TOOLS=true
 ARG INSTALL_CHROME_TOOLS=true
-# JSON list of plugin features from plugins/. The coding agents, T3 Code and
-# GitHub's CLI are among them; add for example "unity/cli".
-ARG PLUGIN_FEATURES='["claude/cli","codex/cli","pi/cli","t3/server","github/cli"]'
+# JSON list of plugin features from plugins/, such as GitHub's CLI; add for
+# example "unity/cli".
+ARG PLUGIN_FEATURES='["github/cli"]'
 ARG SOFTWARE_RENDERING=true
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates sudo dbus && rm -rf /var/lib/apt/lists/*

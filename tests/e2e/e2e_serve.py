@@ -211,7 +211,7 @@ class SetUp(unittest.TestCase):
     def test_what_a_new_host_starts_from(self):
         catalogue = self.serve.call('GET', '/v1/setup')
         self.assertIn('operator_ssh_public_keys', catalogue['template'])
-        self.assertIn('claude/cli', [feature['key'] for feature in catalogue['features']])
+        self.assertIn('github/cli', [feature['key'] for feature in catalogue['features']])
         own = self.serve.station.own_public()
         self.assertNotIn('key', catalogue)
         keys = {key['name']: key for key in self.serve.call('GET', '/v1/keys')['keys']}

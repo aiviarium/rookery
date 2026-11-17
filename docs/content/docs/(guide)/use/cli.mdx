@@ -62,7 +62,7 @@ The token comes from a [setup key](/docs/use/server#with-a-setup-key), from `--t
 
 ```bash
 berth host create studio --method cloud-seed --set operator_username=ops \
-  --set hostname=studio --feature claude/cli --generate-passwords
+  --set hostname=studio --feature github/cli --generate-passwords
 ```
 
 `berth host create --help` lists every key of `--set`. With `--no-input`, or without a terminal, a missing answer stops with status 2 and names its flag.
@@ -104,7 +104,7 @@ What changes a host runs as a job of the server, such as an apply or a roll-out.
 berth action list studio                     # what the host can do
 berth run studio status                      # run an action; its exit status is berth's
 berth run studio backup:restore snapshot=latest -y
-berth run studio claude:login                # a sign-in runs in your terminal
+berth run studio github:login                # a sign-in runs in your terminal
 ```
 
 An action's arguments are `NAME=VALUE` words, and `-y` answers its question. A required argument you leave out is asked for at a terminal. `berth action list` lists berth's own actions beside the controller's, such as `install-controller`, and says why one can't run now. A host whose type is `ssh` has none of its controller's yet.
@@ -163,7 +163,7 @@ See [Secrets](/docs/use/secrets) and [Registries](/docs/use/registries).
 | What | Command |
 | --- | --- |
 | See the plugins | `berth plugin list` |
-| See what one brings | `berth plugin show claude` |
+| See what one brings | `berth plugin show github` |
 | Install one | `berth plugin add @acme/berth-plugin-tools`, or a `.tgz` or folder of this machine, which is sent to the server |
 | Check for newer versions | `berth plugin update --check` |
 | Update them | `berth plugin update`, then `berth rollout` |

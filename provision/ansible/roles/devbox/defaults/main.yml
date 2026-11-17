@@ -20,8 +20,8 @@ devbox_reserved_names: [root, daemon, bin, sys, adm, tty, disk, lp, mail, news, 
 devbox_home: "/home/{{ devbox_user }}"
 devbox_timezone: Europe/Berlin
 devbox_geometry: 1600x900
-# The coding agents, T3 Code and GitHub's CLI are plugins in plugins/. These
-# follow from the chosen features; set devbox_plugin_features, not these.
+# The coding agents and T3 Code come from plugins. These follow from the
+# chosen features; set devbox_plugin_features, not these.
 devbox_agent_claude: "{{ 'claude/cli' in devbox_plugin_features }}"
 devbox_agent_codex: "{{ 'codex/cli' in devbox_plugin_features }}"
 devbox_agent_pi: "{{ 'pi/cli' in devbox_plugin_features }}"
@@ -101,7 +101,7 @@ devbox_tool_categories:
 # Optional additions kept outside the role, one directory each (see docs/plugins.md).
 # Names of the ones to apply, and where to look for them; a later path wins.
 # Plugin features to install, as PLUGIN/FEATURE, applied in this order.
-devbox_plugin_features: [claude/cli, codex/cli, pi/cli, t3/server, github/cli]
+devbox_plugin_features: [github/cli]
 # Where a plugin is when it is not in the source's plugins/ID directory.
 devbox_plugin_dirs: {}
 devbox_base_commands: [git, rg, jq, curl, python3, pip, uv, node, npm, gcc, g++, cmake, ninja, ffmpeg, xdotool, wmctrl, Xvfb, glxinfo, vulkaninfo]
