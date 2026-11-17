@@ -118,7 +118,6 @@ pub struct App {
     words: Spots,
     /// The rows of the last frame, for the mouse.
     hits: Vec<(Rect, usize)>,
-    started: Instant,
     size: (u16, u16),
     /// What the server keeps for setting it up, and the calls that change it.
     data: Rc<RefCell<Data>>,
@@ -205,7 +204,6 @@ impl App {
             links: vec![],
             words: vec![],
             hits: vec![],
-            started: Instant::now(),
             size: (100, 30),
             data: Rc::default(),
             admin: None,
@@ -1414,12 +1412,11 @@ impl App {
     }
 
     fn draw_home(&mut self, frame: &mut Frame, area: Rect) {
-        let [header, _, logo, main, water, footer] = Layout::vertical([
+        let [header, _, logo, main, footer] = Layout::vertical([
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(4),
             Constraint::Min(1),
-            Constraint::Length(2),
             Constraint::Length(1),
         ])
         .areas(area);
@@ -1431,13 +1428,6 @@ impl App {
         let tabs: &[&str] = if admin { &TABS } else { &[] };
         self.tab_hits = draw_header(frame, header, tabs, self.tab, device::shown(&self.server));
         frame.render_widget(Paragraph::new(theme::logo()), logo);
-        frame.render_widget(
-            Paragraph::new(theme::swell(
-                water.width,
-                self.started.elapsed().as_secs_f32(),
-            )),
-            water,
-        );
         self.hits.clear();
         if self.tab == 0 {
             return self.draw_hosts(frame, main, footer);
@@ -1566,7 +1556,7 @@ impl App {
                 ));
             }
             if !preferred.is_empty() && name == preferred {
-                line.push(Span::styled("  default", Style::new().fg(theme::STEEL)));
+                line.push(Span::styled("  default", Style::new().fg(theme::PLUMAGE)));
             }
             lines.push(Line::from(line));
         }
@@ -1843,25 +1833,17 @@ impl App {
         }
     }
 
-    /// The header, the logo and the water, behind a dialog.
+    /// The header and the logo, behind a dialog.
     fn draw_backdrop(&mut self, frame: &mut Frame, area: Rect) {
-        let [header, _, logo, _, water] = Layout::vertical([
+        let [header, _, logo, _] = Layout::vertical([
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(4),
-            Constraint::Min(1),
-            Constraint::Length(2),
+            Constraint::Min(0),
         ])
         .areas(area);
         draw_header(frame, header, &[], 0, device::shown(&self.server));
         frame.render_widget(Paragraph::new(theme::logo()), logo);
-        frame.render_widget(
-            Paragraph::new(theme::swell(
-                water.width,
-                self.started.elapsed().as_secs_f32(),
-            )),
-            water,
-        );
     }
 
     fn draw_token(&mut self, frame: &mut Frame, area: Rect) {

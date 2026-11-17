@@ -80,12 +80,11 @@ pub fn draw_header(
     context: &str,
 ) -> Vec<Rect> {
     let mut spans = vec![
-        Span::styled("▐", Style::new().fg(theme::STEEL)),
-        Span::styled("▄", Style::new().fg(theme::ACCENT)),
-        Span::styled("▌", Style::new().fg(theme::STEEL)),
+        Span::styled("▄█", Style::new().fg(theme::PLUMAGE)),
+        Span::styled("▀", Style::new().fg(theme::BILL)),
         Span::styled(" rookery  ", Style::new().fg(theme::TEXT).bold()),
     ];
-    let mut x = area.x + 11;
+    let mut x = area.x + 13;
     if SIMULATED.load(std::sync::atomic::Ordering::Relaxed) {
         spans.push(Span::styled(
             "simulated  ",

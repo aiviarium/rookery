@@ -1,6 +1,6 @@
 //! Colours and the logo.
 //!
-//! The mark is a machine moored in a rookery, between two quay walls;
+//! The mark is a rook's head in profile, with its pale bill;
 //! `docs/public/logo.svg` is the same drawing.
 //! rookery paints its own background, so the colours below are chosen against
 //! `BASE` and not against whatever the terminal happens to use.
@@ -33,13 +33,13 @@ impl Role {
     /// The colour in a terminal that shows any colour.
     pub const fn rgb(self) -> (u8, u8, u8) {
         match self {
-            Role::Text => (205, 214, 244),
-            Role::Muted => (124, 137, 176),
-            Role::Accent => (116, 178, 255),
+            Role::Text => (226, 224, 232),
+            Role::Muted => (142, 138, 156),
+            Role::Accent => (172, 156, 255),
             Role::Good => (158, 216, 140),
             Role::Warn => (240, 198, 116),
             Role::Bad => (242, 128, 150),
-            Role::Selection => (24, 31, 48),
+            Role::Selection => (28, 27, 33),
         }
     }
 
@@ -161,22 +161,24 @@ fn indexed(r: u8, g: u8, b: u8) -> u8 {
 }
 
 /// The screen.
-pub const BASE: Color = Color::Rgb(13, 17, 28);
+pub const BASE: Color = Color::Rgb(14, 14, 17);
 /// Pop-ups and the selected row.
 pub const SURFACE: Color = Role::Selection.colour();
-pub const RAISED: Color = Color::Rgb(33, 44, 70);
+pub const RAISED: Color = Color::Rgb(40, 38, 47);
 /// Panel borders.
-pub const LINE: Color = Color::Rgb(52, 66, 100);
+pub const LINE: Color = Color::Rgb(60, 57, 70);
 /// Body text.
 pub const TEXT: Color = Role::Text.colour();
 /// Secondary text.
 pub const MUTED: Color = Role::Muted.colour();
 /// Selection, values and keys.
 pub const ACCENT: Color = Role::Accent.colour();
-/// The quay of the logo.
-pub const STEEL: Color = Color::Rgb(92, 118, 170);
+/// The plumage of the mark, and quiet marks beside it.
+pub const PLUMAGE: Color = Color::Rgb(92, 86, 116);
+/// The bill of the mark.
+pub const BILL: Color = Color::Rgb(216, 210, 196);
 /// Text on an accent background.
-pub const INK: Color = Color::Rgb(13, 17, 28);
+pub const INK: Color = Color::Rgb(14, 14, 17);
 pub const GOOD: Color = Role::Good.colour();
 pub const WARN: Color = Role::Warn.colour();
 pub const BAD: Color = Role::Bad.colour();
@@ -238,67 +240,28 @@ pub fn hints(text: &str) -> Line<'static> {
     Line::from(spans)
 }
 
-/// A point on the gradient from deep water (0) to surf (1).
-fn sea(position: f32) -> Color {
-    let mix = |from: u8, to: u8| (from as f32 + (to as f32 - from as f32) * position) as u8;
-    Color::Rgb(mix(58, 150), mix(124, 204), mix(232, 255))
-}
-
-/// The logo, three rows high, with the name beside it.
+/// The mark, three rows high, with the name beside it.
 pub fn logo() -> Vec<Line<'static>> {
-    let quay = Style::new().fg(STEEL);
+    let plumage = Style::new().fg(PLUMAGE);
+    let bill = Style::new().fg(BILL);
     let muted = Style::new().fg(MUTED);
-    let row = |left: &'static str, middle: &'static str, right: &'static str, depth: f32| {
-        vec![
-            Span::styled(left, quay),
-            Span::styled(middle, Style::new().fg(sea(depth))),
-            Span::styled(right, quay),
-            Span::raw("   "),
-        ]
-    };
-    let mut name = row("█ ", "▄▄", " █", 1.0);
-    name.push(Span::styled("rookery", Style::new().fg(ACCENT).bold()));
-    let mut about = row("█ ", "██", " █", 0.6);
-    about.push(Span::styled(
-        "set up and look after agent workstations",
-        muted,
-    ));
-    let mut version = row("▀▀", "▀▀", "▀▀", 0.0);
-    version.push(Span::styled(format!("v{}", rookery_api::VERSION), muted));
+    let name = vec![
+        Span::styled(" ▄██▄  ", plumage),
+        Span::raw("   "),
+        Span::styled("rookery", Style::new().fg(ACCENT).bold()),
+    ];
+    let about = vec![
+        Span::styled("████", plumage),
+        Span::styled("▀▀ ", bill),
+        Span::raw("   "),
+        Span::styled("set up and look after hosts for coding agents", muted),
+    ];
+    let version = vec![
+        Span::styled(" ▀██▀  ", plumage),
+        Span::raw("   "),
+        Span::styled(format!("v{}", rookery_api::VERSION), muted),
+    ];
     vec![Line::from(name), Line::from(about), Line::from(version)]
-}
-
-/// Water two rows deep and `width` cells wide, `seconds` into its motion.
-///
-/// Three swells of different length travel at different speeds, two one way
-/// and one the other, so crests build, overtake each other and flatten again.
-/// The colour follows the surface: light on the crests, darker in the troughs.
-pub fn swell(width: u16, seconds: f32) -> Vec<Line<'static>> {
-    const LEVELS: [&str; 9] = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
-    let (mut crests, mut body) = (vec![], vec![]);
-    for column in 0..width {
-        let x = f32::from(column);
-        let height = 0.5 * (x * 0.17 - seconds * 1.5).sin()
-            + 0.3 * (x * 0.065 + seconds * 0.6 + 1.3).sin()
-            + 0.2 * (x * 0.43 - seconds * 2.7).sin();
-        // Crests are narrower than troughs.
-        let height = ((height + 1.0) / 2.0).clamp(0.0, 1.0).powf(1.5);
-        let eighths = 2 + (height * 13.0) as usize;
-        // Light drifting slowly through the water.
-        let shimmer = 0.06 * (x * 0.05 + seconds * 0.4).sin();
-        // One tone per column, following the surface, so neighbours blend;
-        // the water under a crest is only slightly deeper in colour.
-        let tone = 0.25 + 0.6 * height + shimmer;
-        let at = |depth: f32| sea((tone - depth).clamp(0.0, 1.0));
-        let surface = Style::new().fg(at(0.0));
-        crests.push(Span::styled(LEVELS[eighths.saturating_sub(8)], surface));
-        body.push(if eighths > 8 {
-            Span::styled("▀", Style::new().fg(at(0.05)).bg(at(0.11)))
-        } else {
-            Span::styled(LEVELS[eighths], surface)
-        });
-    }
-    vec![Line::from(crests), Line::from(body)]
 }
 
 #[cfg(test)]
@@ -320,21 +283,21 @@ mod tests {
     #[test]
     fn the_screens_and_the_command_line_share_the_accent() {
         assert_eq!(colour(Role::Accent, Depth::True), Some(ACCENT));
-        assert_eq!(sgr(Role::Accent, Depth::True), "38;2;116;178;255");
+        assert_eq!(sgr(Role::Accent, Depth::True), "38;2;172;156;255");
         assert_eq!(sgr(Role::Accent, Depth::Basic), "94");
         assert_eq!(sgr(Role::Bad, Depth::Basic), "91");
         assert_eq!(sgr(Role::Good, Depth::Basic), "32");
         assert_eq!(sgr(Role::Warn, Depth::Basic), "33");
         assert_eq!(sgr(Role::Muted, Depth::Basic), "2");
-        assert_eq!(sgr(Role::Selection, Depth::True), "48;2;24;31;48");
+        assert_eq!(sgr(Role::Selection, Depth::True), "48;2;28;27;33");
     }
 
     #[test]
     fn colours_come_near_in_256() {
         assert_eq!(indexed(0, 0, 0), 16);
         assert_eq!(indexed(255, 255, 255), 231);
-        // The accent is a light blue of the cube.
-        assert_eq!(indexed(116, 178, 255), 111);
+        // The accent is a light violet of the cube.
+        assert_eq!(indexed(172, 156, 255), 147);
         assert_eq!(indexed(128, 128, 128), 244);
     }
 

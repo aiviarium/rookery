@@ -17,7 +17,7 @@ export function Screen({ name, alt, caption }: { name: string; alt: string; capt
         alt={alt}
         width={1000}
         height={600}
-        className="h-auto w-full rounded-xl border bg-[#0d111c] shadow-lg"
+        className="h-auto w-full rounded-xl border bg-[#0e0e11] shadow-lg"
       />
       {caption && <figcaption className="mt-2 text-center text-sm text-fd-muted-foreground">{caption}</figcaption>}
     </figure>
