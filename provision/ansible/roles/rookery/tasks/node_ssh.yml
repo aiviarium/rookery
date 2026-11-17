@@ -18,7 +18,7 @@
     mode: '0700'
 # As for a workstation's operator: a block of its own for each rookery, named
 # after its key, which no later apply removes.
-- name: Give the SSH user the keys of the rookery that applies this
+- name: Give the SSH user the keys of the machine that applies this
   ansible.builtin.blockinfile:
     path: "{{ rookery_node_home }}/.ssh/authorized_keys"
     create: true
@@ -28,7 +28,7 @@
     marker: "# {mark} ROOKERY {{ rookery_ssh_public_key.split()[1] | hash('sha1') }}"
     block: "{{ rookery_ssh_public_key }}"
   when: rookery_ssh_public_key | length > 0
-- name: Check that the SSH user takes the keys of the rookery that applies this
+- name: Check that the SSH user takes the keys of the machine that applies this
   ansible.builtin.command:
     argv: [grep, -qxF, --, "{{ item }}", "{{ rookery_node_home }}/.ssh/authorized_keys"]
   loop: "{{ rookery_ssh_public_key.splitlines() }}"
@@ -38,9 +38,9 @@
   register: rookery_node_keys
   changed_when: false
   failed_when: false
-# A machine taken in may let root in with keys already, as the one the rookery
-# server recipes of 0.5 set up does for the server in its container. What
-# rookery wrote before is kept as it is.
+# A machine taken in may let root in with keys already, as the one the rookery-server
+# recipe sets up does for the server in its container. What
+# rookery wrote is kept as it is.
 - name: See whether root logs in with keys here already
   ansible.builtin.shell: |
     if [ -f /etc/ssh/sshd_config.d/00-rookery.conf ]; then

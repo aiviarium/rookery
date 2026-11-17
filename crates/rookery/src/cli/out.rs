@@ -327,7 +327,7 @@ mod tests {
             [
                 "NAME     ADDRESS      STATE",
                 "studio   192.0.2.10   \x1b[32manswers\x1b[0m",
-                "forge                  no address",
+                "forge                 no address",
             ]
         );
     }

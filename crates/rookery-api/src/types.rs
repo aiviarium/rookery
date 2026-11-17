@@ -58,7 +58,7 @@ pub struct Version {
     #[serde(default)]
     pub mode: String,
     /// What the host's configuration was last applied from, when rookery
-    /// recorded it. An older rookeryd does not say.
+    /// recorded it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub applied: Option<Applied>,
     /// What was installed on the host, by that record: `managed` when
@@ -70,24 +70,6 @@ pub struct Version {
     /// are: nothing it does reaches a real machine.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub simulated: bool,
-}
-
-impl Version {
-    /// A rookeryd's answer to `version`. A rookeryd of API 1 named the type
-    /// `level`, with the values `reachable`, `controller` and
-    /// `workstation`; its answer is read as this API's.
-    pub fn from_reply(mut reply: serde_json::Value) -> serde_json::Result<Version> {
-        if let Some(object) = reply.as_object_mut()
-            && !object.contains_key("type")
-            && let Some(level) = object.remove("level")
-        {
-            let converted = level.as_str().and_then(HostType::from_level);
-            if let Some(host_type) = converted {
-                object.insert("type".into(), serde_json::json!(host_type.name()));
-            }
-        }
-        serde_json::from_value(reply)
-    }
 }
 
 /// What rookery does with a host: what its profile means it to be, or what it
@@ -343,9 +325,8 @@ pub struct Session {
     pub command: Vec<String>,
     pub user: String,
     pub started_by: From,
-    /// The action it was started for, if any. The sessions an older
-    /// rookeryd kept on the host say `task`.
-    #[serde(default, alias = "task", skip_serializing_if = "Option::is_none")]
+    /// The action it was started for, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action: Option<String>,
     pub started: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -821,7 +802,7 @@ pub struct Acted {
 pub struct JobInfo {
     pub id: String,
     /// What it was done to, by id: `host:ID`, `provisioner:ID`,
-    /// `resource:ID` or `installation`. Empty for a job from before 0.5.
+    /// `resource:ID` or `installation`. Empty for a job recorded without one.
     #[serde(default)]
     pub subject: String,
     /// What it was done to, by name as it is called now: `host:NAME`,
@@ -1333,8 +1314,7 @@ pub struct ProvisionerInfo {
 }
 
 impl ProvisionerInfo {
-    /// What it is called: its name, or for a server from before ids, which
-    /// said none, the name it gave as its id.
+    /// What it is called: its name, or its id when it has none.
     pub fn named(&self) -> &str {
         match self.name.is_empty() {
             true => &self.id,
@@ -1850,8 +1830,7 @@ pub struct Offer {
 /// not have the host can take it over from this.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct KeptProfile {
-    /// The format of this document: 2, or 1 for one rookery 0.4.1 wrote, whose
-    /// profile has the layout before `access`.
+    /// The format of this document.
     pub format: u64,
     /// The version of the rookery that wrote it.
     pub rookery: String,
@@ -2183,17 +2162,6 @@ mod tests {
     }
 
     #[test]
-    fn a_session_an_older_rookeryd_kept_names_its_action() {
-        let kept = json!({"id": "s1", "kind": "process", "title": "", "command": [], "user": "agent",
-            "started_by": {"level": "host", "uid": 0}, "task": "status", "started": "2026-11-12T10:00:00Z"});
-        let session: Session = serde_json::from_value(kept).unwrap();
-        assert_eq!(session.action.as_deref(), Some("status"));
-        let written = json!(session);
-        assert_eq!(written["action"], "status");
-        assert!(written.get("task").is_none());
-    }
-
-    #[test]
     fn an_apply_record_carries_what_a_node_offers() {
         let record = json!({"rookery": "0.6.0", "plugins": [], "level": "node", "offers": [{
             "feature": "incus/server", "provisioners": ["vm", "container"],
@@ -2208,25 +2176,5 @@ mod tests {
             ..Applied::default()
         });
         assert!(plain.get("offers").is_none());
-    }
-
-    #[test]
-    fn the_version_of_an_older_rookeryd_is_read_with_its_type() {
-        let old = json!({"version": "0.5.1", "api": 1, "mode": "system", "level": "controller"});
-        let version = Version::from_reply(old).unwrap();
-        assert_eq!(version.host_type, Some(HostType::Managed));
-        let new = json!({"version": "0.6.0", "api": 2, "type": "ssh"});
-        assert_eq!(
-            Version::from_reply(new).unwrap().host_type,
-            Some(HostType::Ssh)
-        );
-        let without = json!({"version": "0.5.1", "api": 1});
-        assert_eq!(Version::from_reply(without).unwrap().host_type, None);
-        // What a rookeryd says now is written with the name of this API.
-        let written = json!(
-            Version::from_reply(json!({"version": "1", "api": 2, "level": "workstation"})).unwrap()
-        );
-        assert_eq!(written["type"], "workstation");
-        assert!(written.get("level").is_none());
     }
 }

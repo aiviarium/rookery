@@ -129,18 +129,6 @@ fn enter_desktop_environment(args: &[String]) {
 }
 
 fn real_main(mut args: Vec<String>) -> Result<i32, String> {
-    let name = std::path::Path::new(&args[0])
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned());
-    // The old name of `box desktop`, with `--mcp` for `box mcp`.
-    if name.as_deref() == Some("rookery-desktop") {
-        let verb = match args.iter().any(|a| a == "--mcp") {
-            true => vec!["mcp".to_owned()],
-            false => vec!["desktop".to_owned()],
-        };
-        let rest = args.split_off(1).into_iter().filter(|a| a != "--mcp");
-        args.extend(verb.into_iter().chain(rest));
-    }
     if matches!(args.get(1).map(String::as_str), Some("desktop" | "mcp")) {
         enter_desktop_environment(&args);
     }

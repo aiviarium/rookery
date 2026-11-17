@@ -13,12 +13,6 @@
     mode: '0755'
   loop: [rookeryd, box]
   register: rookery_programs
-- name: Keep the old name of the desktop command
-  ansible.builtin.file:
-    src: /usr/local/bin/box
-    dest: /usr/local/bin/rookery-desktop
-    state: link
-    force: true
 - name: Create rookeryd's directories
   ansible.builtin.file:
     path: "{{ item.path }}"
@@ -60,11 +54,6 @@
   loop_control:
     label: "{{ item.name }}"
   register: rookery_files
-# rookeryd read the actions from tasks.json before, and still would if it stayed.
-- name: Remove the file of actions of rookery 0.5
-  ansible.builtin.file:
-    path: /etc/rookery/tasks.json
-    state: absent
 # The agent's rights follow the services of plugins, so they are settled here
 # and not with the accounts.
 - name: Set what the agent may do as root

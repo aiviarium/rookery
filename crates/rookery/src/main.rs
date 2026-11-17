@@ -46,7 +46,6 @@ fn screens(global: &cli::args::Global, host: Option<&str>) -> cli::fail::Result<
     }
     let var = |name: &str| std::env::var(name).ok();
     let settings = Settings::new(settings::folder(var));
-    cli::client::take_in_remote(&settings, settings::old_folder(var).as_deref());
     let mut linked = rookery_page::device::Linked {
         server: global
             .server

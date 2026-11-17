@@ -209,57 +209,14 @@ class RenderTests(unittest.TestCase):
             builder.checked_config(path,'cloud')
             c['ansible_vars']={'rookery_bootstrap_ssh_cidr':'not a network','rookery_install_tailscale':False}; path.write_text(json.dumps(c))
             with self.assertRaises(ValueError): builder.checked_config(path,'cloud')
-    def test_a_qemu_target_is_a_cloud_one_reached_from_the_qemu_host(self):
-        with tempfile.TemporaryDirectory() as temp:
-            path=Path(temp)/'host.json'
-            c=config(); c['target']='qemu'; c['ansible_vars']={'rookery_install_tailscale':False}; path.write_text(json.dumps(c))
-            checked=builder.checked_config(path,'cloud')
-            self.assertEqual(checked['target'],'cloud')
-            self.assertEqual(checked['ansible_vars']['rookery_bootstrap_ssh_cidr'],'10.0.2.2/32')
-            self.assertEqual(builder.deployment(checked,'a'*64)['target'],'cloud')
-            # A network it names stays; laptop and cloud are left alone.
-            c['ansible_vars']={'rookery_bootstrap_ssh_cidr':'192.0.2.0/24','rookery_install_tailscale':False}; path.write_text(json.dumps(c))
-            self.assertEqual(builder.checked_config(path,'cloud')['ansible_vars']['rookery_bootstrap_ssh_cidr'],'192.0.2.0/24')
-            for kept in ['laptop','cloud']:
-                self.assertEqual(builder.retire_qemu({'target':kept}),{'target':kept})
-            c['target']='desktop'; path.write_text(json.dumps(c))
-            with self.assertRaisesRegex(ValueError,'laptop or cloud'): builder.checked_config(path,'cloud')
-    def test_a_profile_of_rookery_05_is_read_with_the_names_of_now(self):
-        with tempfile.TemporaryDirectory() as temp:
-            path=Path(temp)/'host.json'
-            c=config(); del c['target']; c['profile']='laptop'; c['level']='workstation'
-            path.write_text(json.dumps(c))
-            checked=builder.checked_config(path,'cloud')
-            self.assertEqual(checked['target'],'laptop')
-            self.assertNotIn('profile',checked); self.assertNotIn('level',checked); self.assertNotIn('type',checked)
-            self.assertEqual(builder.deployment(checked,'a'*64)['target'],'laptop')
-        self.assertEqual(builder.take_old_names({'level':'controller','profile':'cloud'}),{'type':'managed','target':'cloud'})
-        self.assertEqual(builder.take_old_names({'type':'ssh','level':'controller','target':'laptop','profile':'cloud'}),
-                         {'type':'ssh','target':'laptop'})
-    def test_bootstrap_hands_a_qemu_seed_to_the_role_as_cloud(self):
-        script=(ROOT/'provision/bootstrap/bootstrap.sh').read_text()
-        start=script.index("python3 - <<'PY'\n")+len("python3 - <<'PY'\n")
-        handover=script[start:script.index('\nPY\n',start)]
-        with tempfile.TemporaryDirectory() as temp:
-            root=Path(temp)
-            code=(handover.replace("/opt/rookery-bootstrap/deployment.json",str(root/'deployment.json'))
-                          .replace("Path('/etc/rookery')","Path(%r)"%str(root/'etc')))
-            # A seed of rookery 0.5 named the target profile.
-            for key in ('target','profile'):
-                deployment={key:'qemu','ansible_vars':{'rookery_user':'agent'}}
-                (root/'deployment.json').write_text(json.dumps(deployment))
-                subprocess.run([sys.executable,'-c',code],check=True)
-                handed=json.loads((root/'etc/host.json').read_text())
-                self.assertEqual(handed['rookery_profile'],'cloud',key)
-                self.assertEqual(handed['rookery_bootstrap_ssh_cidr'],'10.0.2.2/32',key)
-    def test_accounts_take_several_keys_and_the_operator_this_rookerys(self):
+    def test_accounts_take_several_keys_and_the_operator_the_key_of_the_builder(self):
         key=lambda byte:'ssh-ed25519 '+base64.b64encode(bytes([byte])*64).decode()
         c={**config(),'operator_ssh_public_keys':[key(1),key(1)],'agent_ssh_public_keys':[key(2),key(3)]}
         own=patch.dict(os.environ,{'ROOKERY_SSH_PUBLIC_KEY':key(4)})
         with own:
             self.assertEqual(builder.account_keys(c,'operator'),[key(1),c['operator_ssh_public_key'],key(4)])
             self.assertEqual(builder.account_keys(c,'agent'),[key(2),key(3)])
-            # An older profile cannot turn the key of rookery off.
+            # A profile cannot turn the key of rookery off.
             self.assertEqual(builder.account_keys({**c,'rookery_ssh_key':False},'operator'),[key(1),c['operator_ssh_public_key'],key(4)])
             # The seed lets the rookery in; the role keeps its key apart from the profile's.
             self.assertIn(key(4),builder.cloud_config(c,'a'*64)['users'][1]['ssh_authorized_keys'])
@@ -378,7 +335,7 @@ class RenderTests(unittest.TestCase):
             path=Path(temp)/'host.json'
             path.write_text(json.dumps(joining()))
             with self.assertRaisesRegex(ValueError,'tailnet_api_key'): builder.checked_config(path,'cloud')
-            # A key pasted into the profile, as older rookeries took it, is not read.
+            # A key pasted into the profile, is not read.
             path.write_text(json.dumps({**joining(),'tailscale_auth_key':'tskey-auth-FAKE','tailscale_auto_key':False}))
             with self.assertRaisesRegex(ValueError,'tailnet_api_key'): builder.checked_config(path,'cloud')
             pasted={**config(),'tailscale_auth_key':'tskey-auth-FAKE','tailscale_login_server':'http://hs.test:8080'}

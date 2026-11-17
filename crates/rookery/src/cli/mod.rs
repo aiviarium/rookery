@@ -12,7 +12,6 @@ pub mod follow;
 mod host;
 mod jobs;
 pub mod login;
-mod old;
 pub mod out;
 mod pages;
 mod setup;
@@ -125,7 +124,14 @@ fn help_styles() -> clap::builder::Styles {
 
 /// Run rookery with these arguments: the exit status.
 pub fn main(args: Vec<String>) -> i32 {
-    if let Some(fail) = old::refuse(&args) {
+    if args
+        .iter()
+        .skip(1)
+        .any(|arg| arg == "--token" || arg.starts_with("--token="))
+    {
+        let fail = Fail::usage(
+            "--token puts the token where other users can read it. Use --token-file FILE or --token-stdin, or keep it with rookery login URL",
+        );
         out::fail(&fail);
         return fail.status;
     }
@@ -420,20 +426,6 @@ mod tests {
         let cli = parse("session logs studio s1 --tail 50").unwrap();
         let cli2 = parse("session logs --tail=50 studio s1").unwrap();
         assert_eq!(format!("{:?}", cli.command), format!("{:?}", cli2.command));
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn the_command_line_of_a_server_of_0_5_still_starts_it() {
-        // Containers and units of rookery 0.5 run the server with --web.
-        let cli = parse("serve --listen 0.0.0.0:7777 --expose --web").unwrap();
-        assert!(matches!(cli.command, Some(Command::Serve(serve)) if serve.web && serve.expose));
-        let help = command()
-            .find_subcommand_mut("serve")
-            .unwrap()
-            .render_help()
-            .to_string();
-        assert!(!help.contains("--web"), "{help}");
     }
 
     #[test]

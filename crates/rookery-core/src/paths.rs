@@ -53,8 +53,6 @@ pub mod layout {
     pub const ROOKERYD: &str = "provision/ansible/roles/rookery/files/bin/rookeryd";
     /// The profile a new host starts from.
     pub const EXAMPLE: &str = "provision/config/example.json";
-    /// Where a source of rookery 0.2 and earlier had its builder.
-    pub(crate) const OLD_BUILDER: &str = "bin/rookery.py";
 }
 
 /// Settings that `rookery config set KEY VALUE` can change. Those [`is_local`]
@@ -375,7 +373,6 @@ impl Paths {
             settings.remove(key);
         } else if key == "source" {
             let source = fs::canonicalize(crate::discovery::expand_path(value))?;
-            older_source(&source)?;
             if !is_source(&source) {
                 return Err(format!("{} has no {}", source.display(), layout::BUILDER).into());
             }
@@ -391,10 +388,6 @@ impl Paths {
     /// The provisioning source: `ROOKERY_SOURCE`, the `source` setting, the current
     /// directory when rookery is run from a checkout, and otherwise rookery's own
     /// copy in its data directory.
-    ///
-    /// A source named in the environment or the settings that is laid out as
-    /// an older rookery's is an error rather than passed over, so changes made in
-    /// it are not left out without a word.
     pub fn source(&self) -> Result<PathBuf> {
         let configured = self.local_settings()?;
         let named = [
@@ -408,7 +401,6 @@ impl Paths {
             if is_source(&dir) {
                 return Ok(dir);
             }
-            older_source(&dir)?;
         }
         match std::env::current_dir().ok().filter(|dir| is_source(dir)) {
             Some(dir) => Ok(dir),
@@ -473,26 +465,12 @@ fn is_source(dir: &Path) -> bool {
     dir.join(layout::BUILDER).is_file()
 }
 
-/// An error for a source laid out as before `provision/` held the installer's side.
-fn older_source(dir: &Path) -> Result<()> {
-    if dir.join(layout::OLD_BUILDER).is_file() && !is_source(dir) {
-        return Err(format!(
-            "{} is a provisioning source of an older rookery, with {} where this rookery looks for {}. Update that checkout, or stop using it with: rookery config unset source (and unset ROOKERY_SOURCE)",
-            dir.display(),
-            layout::OLD_BUILDER,
-            layout::BUILDER
-        )
-        .into());
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn settings_of_earlier_versions_are_left_alone() {
+    fn settings_it_does_not_know_are_left_alone() {
         let home = tempfile::tempdir().unwrap();
         let paths = Paths {
             config_dir: home.path().join("config"),
@@ -501,13 +479,13 @@ mod tests {
         paths.prepare().unwrap();
         fs::write(
             paths.settings_file(),
-            r#"{"oauth_client_id":"rookery-cli","oauth_scope":"openid","server":"http://192.0.2.1:7777"}"#,
+            r#"{"note":"kept","extra":"openid","server":"http://192.0.2.1:7777"}"#,
         )
         .unwrap();
-        fs::write(paths.data_dir.join("oauth.json"), "{}").unwrap();
+        fs::write(paths.data_dir.join("extra.json"), "{}").unwrap();
         assert_eq!(paths.settings().unwrap()["server"], "http://192.0.2.1:7777");
         paths.set("default_host", "studio").unwrap();
-        assert_eq!(paths.settings().unwrap()["oauth_client_id"], "rookery-cli");
+        assert_eq!(paths.settings().unwrap()["note"], "kept");
     }
 
     #[test]
@@ -540,25 +518,11 @@ mod tests {
         assert_eq!(paths.settings().unwrap()["default_host"], "laptop");
         assert!(paths.set("source", home.path().to_str().unwrap()).is_err());
 
-        // A checkout of an older rookery is named as one, not passed over.
-        let old = home.path().join("old");
-        fs::create_dir_all(old.join("bin")).unwrap();
-        fs::write(old.join(layout::OLD_BUILDER), "").unwrap();
-        let said = paths.set("source", old.to_str().unwrap()).unwrap_err();
-        assert!(said.to_string().contains("older rookery"), "{said}");
-        let mut settings = paths.local_settings().unwrap();
-        settings.insert("source".into(), json!(old));
-        fs::write(paths.settings_file(), Value::Object(settings).to_string()).unwrap();
-        assert!(
-            paths
-                .source()
-                .unwrap_err()
-                .to_string()
-                .contains("older rookery")
-        );
-        fs::create_dir_all(old.join("provision/bin")).unwrap();
-        fs::write(old.join(layout::BUILDER), "").unwrap();
-        assert_eq!(paths.source().unwrap(), old);
+        let source = home.path().join("source");
+        fs::create_dir_all(source.join("provision/bin")).unwrap();
+        fs::write(source.join(layout::BUILDER), "").unwrap();
+        paths.set("source", source.to_str().unwrap()).unwrap();
+        assert_eq!(paths.source().unwrap(), fs::canonicalize(&source).unwrap());
     }
 
     fn scratch() -> (tempfile::TempDir, Paths) {

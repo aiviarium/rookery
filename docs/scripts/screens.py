@@ -211,7 +211,7 @@ def run(env: dict, *args: str, check=True, stdin=None) -> str:
 
 
 def host_files() -> dict:
-    """tasks.json, services.json and channels.json as the role writes them for
+    """actions.json, services.json and channels.json as the role writes them for
     the plugin features of the demo profile."""
     import yaml  # noqa: PLC0415 (only needed here)
 
@@ -249,7 +249,7 @@ def host_files() -> dict:
             channels.append({**channel, "topic": f"{plugin_id}/{channel['topic']}"})
     rookeryd = {"agent": "agent", "operator": "ops", "roots": ["/home/agent", "/srv/agent"],
               "units": ["ssh", "tailscaled", "rookeryd"], "agent_env": "/usr/local/bin/agent-env"}
-    return {"rookeryd": rookeryd, "tasks": tasks, "services": services, "channels": channels}
+    return {"rookeryd": rookeryd, "actions": tasks, "services": services, "channels": channels}
 
 
 def docker(*args: str, check=True, **kwargs):

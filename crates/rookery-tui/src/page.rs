@@ -37,7 +37,7 @@ pub struct Group<E> {
 /// The group an action is listed in.
 pub fn group_of(action: &Action) -> &str {
     match action.group.as_str() {
-        // A controller applied by an earlier rookery says System for these.
+        // System is another name for the host's own group.
         "" | "System" => HOST_GROUP,
         group => group,
     }

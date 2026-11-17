@@ -125,7 +125,7 @@ rookery_node_tasks:
     group: Server
     user: root
     confirm: Run the rookery server in its container from the image of another version? It restarts, and its jobs end.
-    help: Run the rookery server in the container on this node from the image of the version given, with the same data and the same options as the running container. With source here, the image is built on this node from the rookery that runs the action, sent on standard input. It is refused when the container has an option it cannot carry over, and the old container is started again when the new one does not come up.
+    help: Run the rookery server in the container on this node from the image of the version given, with the same data and the same options as the running container. With source here, the image is built on this node from the source that the running rookery sends on standard input. It is refused when the container has an option it cannot carry over, and the old container is started again when the new one does not come up.
     arguments:
       - name: version
         label: Version
@@ -135,6 +135,6 @@ rookery_node_tasks:
         label: Source
         default: release
         values: [release, here]
-        help: release pulls the published image of the version. here builds rookery:VERSION on this node from the rookery that sends it.
+        help: release pulls the published image of the version. here builds rookery:VERSION on this node from the source that rookery sends.
     run: "/usr/local/lib/rookery/rookery-server-upgrade {{ rookery_server_container | quote }}"
 rookery_service_dir: /usr/local/lib/rookery/services

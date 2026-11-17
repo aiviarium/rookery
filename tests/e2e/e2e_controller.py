@@ -15,7 +15,7 @@ from harness import (HOST, OPERATOR, Workstation, hand_over_operator_key, needs_
                      shell_quote, wait_for)
 
 # What the controller puts on the host, removed again at the end.
-INSTALLED = ('/usr/local/bin/rookeryd /usr/local/bin/box /usr/local/bin/rookery-desktop /usr/local/bin/rookery-secrets '
+INSTALLED = ('/usr/local/bin/rookeryd /usr/local/bin/box /usr/local/bin/rookery-secrets '
              '/usr/local/lib/rookery /etc/rookery /var/lib/rookeryd /run/rookery')
 
 
@@ -74,13 +74,13 @@ class Controller(unittest.TestCase):
         self.assertIn(f'{HOST} is a managed host now', done.stdout)
         self.assertIn(f"rookery's controller answers on {HOST}", done.stdout)
         self.assertEqual(self.station.read_profile()['type'], 'managed')
-        # The role's record keeps the older name of the type.
+        # The role's record calls the type its level.
         applied = json.loads(self.root('cat /etc/rookery/applied.json').stdout)
         self.assertEqual((applied['level'], applied['plugins']), ('controller', []))
         version = self.station.link().get('/v1/version')
         self.assertEqual(version['type'], 'managed')
         # Nothing of a workstation: no agent account, desktop or role record.
-        for absent in ('id agent', 'test -e /etc/rookery', 'test -e /var/lib/rookery/status.json',
+        for absent in ('id agent', 'test -e /etc/rookery/AGENT.md', 'test -e /var/lib/rookery/status.json',
                        'test -e /etc/sudoers.d/90-rookery-agent', 'command -v Xvnc'):
             self.assertNotEqual(self.root(absent, check=False).returncode, 0, absent)
 

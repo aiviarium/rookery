@@ -101,10 +101,10 @@ class RolePath(unittest.TestCase):
         self.assertNotIn("'yes' if", content)
         # Only when the SSH user has a key, which rookery's own is, so no apply locks rookery out.
         self.assertEqual(task['when'], 'rookery_harden_ssh and rookery_node_keys.rc == 0')
-        given = node_named('Give the SSH user the keys of the rookery that applies this')
+        given = node_named('Give the SSH user the keys of the machine that applies this')
         self.assertEqual(given['ansible.builtin.blockinfile']['path'], '{{ rookery_node_home }}/.ssh/authorized_keys')
         order = [task['name'] for task in node_tasks()]
-        self.assertLess(order.index('Give the SSH user the keys of the rookery that applies this'),
+        self.assertLess(order.index('Give the SSH user the keys of the machine that applies this'),
                         order.index('Require SSH keys, and keep root\'s login as rookery uses it'))
 
     def test_the_firewall_keeps_ssh_and_comes_last(self):
@@ -128,7 +128,7 @@ class RolePath(unittest.TestCase):
         upgrade = actions['upgrade-server']
         self.assertTrue(upgrade['run'].startswith('/usr/local/lib/rookery/rookery-server-upgrade '))
         self.assertEqual(upgrade['arguments'][0]['name'], 'version')
-        # Its source is the published image unless the rookery that runs it sends its own.
+        # Its source is the published image unless rookery sends its own source.
         source = upgrade['arguments'][1]
         self.assertEqual((source['name'], source['default'], source['values']), ('source', 'release', ['release', 'here']))
         installed = node_named("Install the helper that upgrades a rookery server's container")
@@ -181,7 +181,7 @@ class Features(unittest.TestCase):
                 # Actions are templated by the role, so they carry no Jinja of their own.
                 self.assertNotIn('{{', json.dumps(found['actions']))
 
-    def test_incus_trusts_rookerys_certificate_and_pins_its_own(self):
+    def test_incus_trusts_the_certificate_of_rookery_and_pins_its_own(self):
         manifest, found = self.feature('incus', 'server')
         self.assertEqual(found['trusts'], {'certificate': 'incus_client_cert', 'key': 'incus_client_key'})
         for provisioner in manifest['rookery']['provisioners']:
@@ -480,9 +480,9 @@ if args[:1] == ['exec'] and args[-3:] == ['rookery', 'key', 'show']:
 save()
 '''
 
-# The rookery server's container that the incus-host recipe of rookery 0.5.2 ran,
-# as docker inspect shows it on a daemon with log options in daemon.json.
-FOUND_052 = json.loads((SRC / 'tests/fixtures/rookery-server-0.5.2.json').read_text())
+# The rookery server's container that the rookery-server recipe ran, as docker
+# inspect shows it on a daemon with log options in daemon.json.
+FOUND = json.loads((SRC / 'tests/fixtures/rookery-server-container.json').read_text())
 
 
 def container(**host):
@@ -579,8 +579,8 @@ class ServerUpgrade(unittest.TestCase):
         self.assertEqual(sorted(data['containers']), ['rookery'])
         self.assertIn(['pull', 'ghcr.io/aiviarium/rookery:0.6.0'], data['calls'])
 
-    def test_a_container_of_0_5_2_on_a_daemon_with_log_options_is_carried_over(self):
-        found, old = FOUND_052['container'], FOUND_052['image']
+    def test_a_container_on_a_daemon_with_log_options_is_carried_over(self):
+        found, old = FOUND['container'], FOUND['image']
         new = dict(old, Id='sha256:new', Config=dict(old['Config'], Cmd=['serve', '--listen', '0.0.0.0:7777', '--expose']))
         done, data = self.helper(found=found, old_image=old, images={'new': new})
         self.assertEqual(done.returncode, 0, done.stderr)
@@ -594,7 +594,7 @@ class ServerUpgrade(unittest.TestCase):
         # What docker fills in for every container is not an option of this one.
         for left in ('--shm-size', '--hostname', '--user', '--privileged', 'MaskedPaths'):
             self.assertNotIn(left, words)
-        # Its command was its image's, so the new image's own runs: no --web of 0.5.2.
+        # Its command was its image's, so the new image's own runs.
         self.assertEqual(run[-1], 'ghcr.io/aiviarium/rookery:0.6.0')
         self.assertEqual(data['env_file'], '')
 

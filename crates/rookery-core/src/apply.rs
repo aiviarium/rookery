@@ -45,8 +45,8 @@ pub fn ansible_vars(config: &Value, plugin_dirs: &Value, own: &[String]) -> Valu
     // How the host joins the tailnet is rookery's to say, not the profile's:
     // the key command runs on this machine.
     if let Some(vars) = vars.as_object_mut() {
-        for rookeries in crate::tailnet::ROLE_VARS {
-            vars.remove(*rookeries);
+        for name in crate::tailnet::ROLE_VARS {
+            vars.remove(*name);
         }
         // Ansible's own variables would say how and where commands run, which
         // rookery says from `access`; a profile saved before this was checked

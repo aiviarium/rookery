@@ -235,18 +235,12 @@ pub fn push_image(global: &Global, destination: &str, tag: &str) -> Done<()> {
     Ok(())
 }
 
-/// What `rookery serve --web` says, as rookery 0.5 had a page in the browser.
-pub const WEB_GONE: &str = "--web does nothing any more: rookery has no page in the browser, and its screens are rookery ui. Take --web out of this command line";
-
 /// `rookery server …`: the server of this machine itself.
 pub fn server_command(command: args::Server) -> Done<()> {
     // Before rookery's own directories are looked for, which it never uses.
     if let args::Server::Run(run) = &command
         && (run.simulate || serve::simulate::asked())
     {
-        if run.web {
-            out::warn(WEB_GONE);
-        }
         return Ok(serve::simulate::command(run)?);
     }
     let paths = Paths::locate()?;
@@ -258,9 +252,6 @@ pub fn server_command(command: args::Server) -> Done<()> {
             }
             if run.expose {
                 words.push("--expose");
-            }
-            if run.web {
-                out::warn(WEB_GONE);
             }
             Ok(serve::command(&paths, &words)?)
         }

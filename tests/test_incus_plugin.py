@@ -464,7 +464,7 @@ class IncusPluginTests(unittest.TestCase):
         self.assertIn('web', self.server.instances)
         self.assertEqual(self.actions(), [])
 
-    def test_list_shows_only_rookerys_instances(self):
+    def test_list_shows_only_the_instances_of_rookery(self):
         self.create()
         self.server.instances['web'] = {'name': 'web', 'type': 'container', 'status': 'Stopped',
                                         'config': {}, 'files': {}}

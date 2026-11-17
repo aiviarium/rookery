@@ -71,11 +71,7 @@ pub async fn run(
 ) -> R<Json<api::Started>> {
     let request = body.map(|Json(request)| request).unwrap_or_default();
     let action = find(&state, &caller, &name)?;
-    // ROOKERY_TASK is what plugins written for rookery 0.5 read.
-    let mut env = BTreeMap::from([
-        ("ROOKERY_ACTION".to_owned(), action.name.clone()),
-        ("ROOKERY_TASK".to_owned(), action.name.clone()),
-    ]);
+    let mut env = BTreeMap::from([("ROOKERY_ACTION".to_owned(), action.name.clone())]);
     for argument in &action.arguments {
         let value = request
             .arguments

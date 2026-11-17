@@ -16,30 +16,15 @@ use std::{io::Write, path::PathBuf, process::Stdio};
 /// Where the role writes it, readable by root only.
 pub const PATH: &str = "/etc/rookery/profile.json";
 
-/// The format of the document: 4 has the host's id beside its name, and 3
-/// the profile with the fields `type` and `target`. Format 2 named them `level` and `profile`, and format 1, of
-/// rookery 0.4.1, had the layout before `access`; both are converted when they
-/// are read. A rookery refuses one newer than it knows, so a rookery of format 2
-/// asks to be updated rather than read `type` as a workstation.
+/// The format of the document: 4 has the host's id beside its name. A rookery
+/// refuses one newer than it knows, so that an older one asks to be updated
+/// rather than misread it.
 pub const FORMAT: u64 = 4;
 
-/// What a profile's `builder` held of how one rookery reached the host, or of
-/// that rookery's own machine, in the layout before `access`, and what still
-/// belongs to this machine alone: a served host names this rookery's server,
-/// and a USB drive and the last action were never meant to be kept.
-const LOCAL_BUILDER: &[&str] = &[
-    "ssh_host",
-    "ssh_user",
-    "ssh_port",
-    "ssh_key",
-    "ask_become_pass",
-    "ask_pass",
-    "link",
-    "served",
-    "served_only",
-    "usb_device",
-    "manage_task",
-];
+/// What a profile's `builder` holds that belongs to this machine alone: a
+/// served host names this rookery's server, and a USB drive and the last
+/// action were never meant to be kept.
+const LOCAL_BUILDER: &[&str] = &["served", "served_only", "usb_device", "manage_task"];
 
 /// The profile as the host keeps it: as rookery holds it, without what is
 /// used once or describes only this rookery's way to the host. `access` stays
@@ -48,9 +33,6 @@ const LOCAL_BUILDER: &[&str] = &[
 /// a program of this machine.
 pub fn stored(config: &Value) -> Value {
     let mut config = config.clone();
-    // rookery makes a host's key to join the tailnet when the host needs one,
-    // so a key a profile of an older rookery held never travels.
-    rookery_api::profile::take_old_tailnet(&mut config);
     let Some(profile) = config.as_object_mut() else {
         return json!({});
     };
@@ -214,22 +196,9 @@ impl Adopted {
     }
 }
 
-/// What rookery 0.4.1 kept of the host's machine, beside the profile.
-#[derive(serde::Deserialize)]
-struct Instance {
-    provisioner: String,
-    #[serde(default)]
-    id: String,
-    token: String,
-    #[serde(default)]
-    arguments: std::collections::BTreeMap<String, String>,
-    #[serde(default)]
-    created: String,
-}
-
 /// The host's document read back as a profile for this rookery, reached with
 /// `access`: how the adopting rookery logged in, not how the one before did.
-pub fn adopted(paths: &Paths, title: &str, kept: &Value, access: &Access) -> Result<Adopted> {
+pub fn adopted(kept: &Value, access: &Access) -> Result<Adopted> {
     let format = kept["format"]
         .as_u64()
         .ok_or("Not a profile a host keeps: it says no format")?;
@@ -246,45 +215,23 @@ pub fn adopted(paths: &Paths, title: &str, kept: &Value, access: &Access) -> Res
     if !profile["builder"].is_object() {
         profile["builder"] = json!({});
     }
-    // An older rookery kept a profile of older names or of the layout before
-    // `access`; it takes those of now, and then the adopting rookery's way in.
-    crate::import::convert_profile(paths, title, &mut profile);
     profile = stored(&profile);
     if !profile["builder"].is_object() {
         profile["builder"] = json!({});
     }
     access.write(&mut profile);
-    let machine = match (&kept["machine"], &kept["instance"]) {
-        (Value::Null, Value::Null) => None,
-        (Value::Null, old) => {
-            let old: Instance = serde_json::from_value(old.clone())
-                .map_err(|error| format!("The record of the host's machine: {error}"))?;
-            Some(resource::Record {
-                id: resource::new_id()?,
-                provisioner: old.provisioner,
-                kind: crate::plugins::MACHINE.into(),
-                external_id: old.id,
-                token: old.token,
-                arguments: old.arguments,
-                created: old.created,
-                ..resource::Record::default()
-            })
-        }
-        (record, _) => Some(
+    let machine = match &kept["machine"] {
+        Value::Null => None,
+        record => Some(
             serde_json::from_value(record.clone())
                 .map_err(|error| format!("The record of the host's machine: {error}"))?,
         ),
     };
     let text = |key: &str| kept[key].as_str().unwrap_or("").to_owned();
-    let machine_type = match kept["machine"]["type"].as_str() {
-        Some(kind) => kind.to_owned(),
-        // Before provisioners had names of their own, the record named the type.
-        None => machine
-            .as_ref()
-            .map(|record| record.provisioner.clone())
-            .filter(|name| name.contains('/'))
-            .unwrap_or_default(),
-    };
+    let machine_type = kept["machine"]["type"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
     Ok(Adopted {
         profile,
         machine,
@@ -302,7 +249,7 @@ pub fn adopted(paths: &Paths, title: &str, kept: &Value, access: &Access) -> Res
 fn refused(reach: &Reach, said: &str) -> String {
     format!(
         "Could not log in to {} with this rookery's key, your SSH agent or your own keys: {said}\n\
-         Give the private key of the rookery that set the host up with --key FILE: the file keys/rookery in its data directory, or id_ed25519 there for a rookery before 0.5.\n\
+         Give the private key of the rookery that set the host up with --key FILE: the file keys/rookery in its data directory.\n\
          Or put this rookery's public key, which rookery key show prints, into ~/.ssh/authorized_keys of the operator on the machine, from its console or any login you have.",
         reach.target()
     )
@@ -390,7 +337,7 @@ pub fn read(
         return Err(match () {
             _ if login_refused(&output) => login.noted(Some(&said)).unwrap_or_else(|| refused(reach, &said)),
             _ if said.contains("No such file") => format!(
-                "{} keeps no profile at {PATH}. A host keeps it once a rookery of version 0.4.1 or later has applied it or set it up",
+                "{} keeps no profile at {PATH}. A host keeps it once a rookery has applied it or set it up",
                 reach.address
             ),
             _ => format!("Reading {PATH} on {} failed: {said}", reach.target()),
@@ -471,11 +418,9 @@ mod tests {
             "operator_username": "ops", "operator_password_hash": "$6$salt$hash",
             "operator_ssh_public_keys": ["ssh-ed25519 AAAA user"],
             "agent_username": "agent", "agent_password_hash": "$6$salt$agent",
-            "tailscale_auth_key": "tskey-auth-once", "tailscale_auto_key": false,
-            "tailscale_login_server": "https://hs.example.org",
             "secrets": [{"name": "github", "env": "GH_TOKEN"}],
             "registries": ["nexus"],
-            "ansible_vars": {"rookery_geometry": "1920x1080", "rookery_tailscale_auth_key": "tskey-old"},
+            "ansible_vars": {"rookery_geometry": "1920x1080"},
             "access": {
                 "address": "192.0.2.10", "user": "ops", "port": "2222",
                 "auth": "key:studio", "sudo": "none",
@@ -506,18 +451,6 @@ mod tests {
     #[test]
     fn what_is_used_once_or_is_this_rookerys_way_in_stays_out() {
         let kept = stored(&profile());
-        for old in [
-            "tailscale_auth_key",
-            "tailscale_auto_key",
-            "tailscale_login_server",
-        ] {
-            assert!(kept.get(old).is_none(), "{old}");
-        }
-        assert!(
-            kept["ansible_vars"]
-                .get("rookery_tailscale_auth_key")
-                .is_none()
-        );
         assert_eq!(kept["ansible_vars"]["rookery_geometry"], "1920x1080");
         assert_eq!(kept["builder"], json!({"shipped_plugins": true}));
         // How this rookery logs in, and the name of a key of its ring, mean nothing to another.
@@ -528,7 +461,6 @@ mod tests {
         // Secrets and registries travel by name; their values are never in a profile.
         assert_eq!(kept["secrets"], profile()["secrets"]);
         assert_eq!(kept["registries"], json!(["nexus"]));
-        assert!(!kept.to_string().contains("tskey"));
     }
 
     #[test]
@@ -557,11 +489,10 @@ mod tests {
 
     #[test]
     fn a_kept_profile_read_back_applies_as_the_original() {
-        let (_home, paths) = scratch();
         let original = profile();
         let mut kept = document("studio", "", &original, None);
         kept["written"] = json!("2026-11-13T10:00:00Z");
-        let back = adopted(&paths, "studio", &kept, &reached()).unwrap();
+        let back = adopted(&kept, &reached()).unwrap();
         let dirs = json!({"demo": "/p/demo"});
         let own = ["ssh-ed25519 OWN rookery".to_owned()];
         let wanted = ansible_vars(&original, &dirs, &own);
@@ -597,72 +528,11 @@ mod tests {
     }
 
     #[test]
-    fn a_profile_kept_by_rookery_041_is_taken_in_the_new_layout() {
-        let (_home, paths) = scratch();
-        // What rookery 0.4.1 wrote: the layout before access, with what it left
-        // of builder, and the record of the machine beside it.
-        let kept = json!({
-            "format": 1, "rookery": "0.4.1", "host": "studio", "written": "2026-11-13T10:00:00Z",
-            "profile": {
-                "hostname": "studio", "profile": "cloud", "operator_username": "ops",
-                "operator_ssh_public_keys": ["ssh-ed25519 AAAA user"],
-                "builder": {"ask_become_pass": true, "ask_pass": false, "shipped_plugins": true},
-            },
-            "instance": {"provisioner": "incus/vm", "id": "rookery-studio", "token": "0123abcd",
-                         "arguments": {"server": "https://192.0.2.20:8443"}, "created": "2026-11-01T09:00:00Z"},
-        });
-        let back = adopted(&paths, "studio", &kept, &reached()).unwrap();
-        assert_eq!(back.profile["builder"], json!({"shipped_plugins": true}));
-        assert_eq!(back.profile["target"], "cloud");
-        assert!(back.profile.get("profile").is_none());
-        assert_eq!(back.profile["access"]["address"], "192.0.2.10");
-        assert_eq!(back.profile["access"]["auth"], "rookery");
-        // sudo is how the adopting rookery found it, not what the old switch said.
-        assert!(back.profile["access"].get("sudo").is_none());
-        let machine = back.machine.unwrap();
-        assert_eq!(
-            (
-                machine.external_id.as_str(),
-                machine.kind.as_str(),
-                machine.token.as_str()
-            ),
-            ("rookery-studio", "machine", "0123abcd")
-        );
-        assert!(resource::valid_id(&machine.id));
-        assert_eq!(machine.arguments["server"], "https://192.0.2.20:8443");
-    }
-
-    #[test]
-    fn a_profile_kept_by_rookery_05_takes_the_names_of_now() {
-        let (_home, paths) = scratch();
-        let old = |level: &str| {
-            json!({
-                "format": 2, "rookery": "0.5.2", "host": "studio", "written": "2026-11-13T10:00:00Z",
-                "profile": {"hostname": "studio", "profile": "laptop", "level": level, "builder": {}},
-            })
-        };
-        let back = adopted(&paths, "studio", &old("workstation"), &reached()).unwrap();
-        assert_eq!(back.profile["target"], "laptop");
-        assert!(back.profile.get("profile").is_none() && back.profile.get("type").is_none());
-        assert!(back.profile.get("level").is_none());
-        let back = adopted(&paths, "studio", &old("controller"), &reached()).unwrap();
-        assert_eq!(back.profile["type"], "managed");
-        // Kept again, it is written in the format of now.
-        let again = document("studio", "", &back.profile, None);
-        assert_eq!(again["format"], 4);
-        assert_eq!(
-            (&again["profile"]["type"], &again["profile"]["target"]),
-            (&json!("managed"), &json!("laptop"))
-        );
-    }
-
-    #[test]
     fn a_newer_format_or_no_profile_is_refused() {
-        let (_home, paths) = scratch();
         let access = Reach::parse("192.0.2.10", "", None)
             .unwrap()
             .access(Auth::Ssh);
-        let adopt = |kept: Value| adopted(&paths, "studio", &kept, &access);
+        let adopt = |kept: Value| adopted(&kept, &access);
         assert!(adopt(json!({"format": FORMAT + 1, "profile": {}})).is_err());
         assert!(adopt(json!({"format": 1, "profile": []})).is_err());
         assert!(adopt(json!({"profile": {}})).is_err());
@@ -690,7 +560,7 @@ mod tests {
             ..resource::Record::default()
         };
         let kept = document("old", "", &profile(), Some(&record));
-        let back = adopted(&paths, "studio", &kept, &reached()).unwrap();
+        let back = adopted(&kept, &reached()).unwrap();
         let place = Place::own(&paths, "studio").unwrap();
         save(&paths, &place, &back).unwrap();
         assert_eq!(place.load(&paths).unwrap().unwrap(), back.profile);
@@ -706,13 +576,7 @@ mod tests {
         let other = resource::of_place(&paths, &attic).unwrap().unwrap();
         assert_ne!(other.record.id, record.id);
         // Adopted again without a machine, the old record goes.
-        let bare = adopted(
-            &paths,
-            "studio",
-            &document("old", "", &profile(), None),
-            &reached(),
-        )
-        .unwrap();
+        let bare = adopted(&document("old", "", &profile(), None), &reached()).unwrap();
         save(&paths, &place, &bare).unwrap();
         assert!(resource::of_place(&paths, &place).unwrap().is_none());
     }

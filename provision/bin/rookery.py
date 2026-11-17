@@ -33,8 +33,6 @@ RELEASE_SOURCES = [
     'crates/vendor/README.md',
 ]
 TARGETS = {'laptop', 'cloud'}
-# Where a QEMU guest on the user-mode network sees the machine it runs on.
-QEMU_HOST = '10.0.2.2/32'
 DEFAULT_OPERATOR = 'ops'
 # Names Ubuntu already uses for system accounts or groups; useradd refuses them.
 RESERVED_NAMES = set('''
@@ -110,16 +108,15 @@ def check_public_key(value, account):
 
 
 def rookery_keys():
-    """The public keys of the rookery that builds this, one to a line, which the operator
+    """The public keys of the machine that builds this, one to a line, which the operator
     always takes: rookery's own, the one replacing it while it rotates, and a key of
     rookery's that the profile logs in with."""
     return [key.strip() for key in os.environ.get('ROOKERY_SSH_PUBLIC_KEY', '').splitlines() if key.strip()]
 
 
 def account_keys(config, account, rookery=True):
-    """The public keys an account takes: the profile's list, the single key of
-    an older profile, and for the operator the key of the rookery that builds
-    this. An older profile's `rookery_ssh_key` no longer leaves that key out."""
+    """The public keys an account takes: the profile's list, its single key, and
+    for the operator the key of the machine that builds this."""
     listed = config.get(f'{account}_ssh_public_keys') or []
     if not isinstance(listed, list) or not all(isinstance(key, str) for key in listed):
         raise ValueError(f'{account}_ssh_public_keys must be a list of keys')
@@ -144,24 +141,11 @@ def release_delivered():
     return os.environ.get('ROOKERY_RELEASE_DELIVERED') == '1'
 
 
-def take_old_names(c):
-    """A profile of rookery 0.5 or earlier with the names its fields have now:
-    `type` for `level`, whose values were reachable, controller and
-    workstation, and `target` for `profile`. What a later rookery wrote stays."""
-    c = dict(c)
-    level = c.pop('level', None)
-    if level is not None and 'type' not in c:
-        host_type = {'reachable': 'ssh', 'controller': 'managed', 'workstation': None}.get(level, level)
-        if host_type is not None:
-            c['type'] = host_type
-    if isinstance(c.get('profile'), str):
-        c.setdefault('target', c.pop('profile'))
-        c.pop('profile', None)
-    # rookery makes a host's key to join the tailnet and gives it to the seed
-    # itself; what older rookeries kept of joining in other ways is not read.
-    for key in ('tailscale_auth_key', 'tailscale_auto_key', 'tailscale_login_server'):
-        c.pop(key, None)
-    return c
+def without_pasted_tailnet_keys(c):
+    """The profile without keys for joining the tailnet; rookery makes the host's key
+    and gives it to the seed itself, so a pasted one is not read."""
+    return {key: value for key, value in c.items()
+            if key not in ('tailscale_auth_key', 'tailscale_auto_key', 'tailscale_login_server')}
 
 
 # The role's variables of joining the tailnet, which rookery sets and a profile cannot.
@@ -184,26 +168,12 @@ def tailnet_given():
     return {'key': key, 'login_server': server}
 
 
-def retire_qemu(c):
-    """A profile of the qemu target there once was, as the cloud one it is now.
-    That target let SSH in only from the QEMU host when no recovery network was
-    named, so it gets that network rather than SSH open to every address."""
-    if c.get('target') != 'qemu':
-        return c
-    c = dict(c, target='cloud')
-    variables = dict(c.get('ansible_vars') or {})
-    if not variables.get('rookery_bootstrap_ssh_cidr'):
-        variables['rookery_bootstrap_ssh_cidr'] = QEMU_HOST
-    c['ansible_vars'] = variables
-    return c
-
-
 def checked_config(path, kind):
     """Load a host profile and reject anything that could not produce a working seed."""
     c = json.loads(Path(path).read_text())
     if not isinstance(c, dict):
         raise ValueError('Configuration must be a JSON object')
-    c = retire_qemu(take_old_names(c))
+    c = without_pasted_tailnet_keys(c)
     if not HOSTNAME.fullmatch(text(c, 'hostname')):
         raise ValueError('Invalid hostname: use lowercase letters, digits and hyphens, starting with a letter')
     if text(c, 'target') not in TARGETS:

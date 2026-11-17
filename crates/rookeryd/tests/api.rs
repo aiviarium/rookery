@@ -437,7 +437,7 @@ async fn actions_run_as_steps_with_arguments() {
          "arguments": [{"name": "who", "required": true}, {"name": "how-loud", "default": "quiet"},
                        {"name": "pick", "choices": "echo one; echo; echo 'two words'"}],
          "run": "printf '%s|%s\\n' \"$ROOKERY_ARG_WHO\" \"$ROOKERY_ARG_HOW_LOUD\"; exit 2"},
-        {"name": "plug:extra", "extends": ["greet"], "run": "echo extra for $ROOKERY_ACTION and $ROOKERY_TASK"},
+        {"name": "plug:extra", "extends": ["greet"], "run": "echo extra for $ROOKERY_ACTION again"},
         {"name": "plug:last", "extends": ["greet", "other"], "run": "exit 5"},
         {"name": "private", "run": "echo host only"},
         {"name": "feed", "input": "secrets", "run": "cat"},
@@ -466,7 +466,7 @@ async fn actions_run_as_steps_with_arguments() {
     let done: Value = host.post("/v1/actions/greet?wait=10s", &run).await.unwrap();
     assert_eq!(
         text(&done["stdout_b64"]),
-        "it's \"me\" $HOME; ls|quiet\nextra for greet and greet\n"
+        "it's \"me\" $HOME; ls|quiet\nextra for greet again\n"
     );
     assert_eq!(done["exit_code"], 2);
     let steps: Vec<(String, i64)> = done["steps"]
@@ -1067,9 +1067,10 @@ async fn services_answer_calls_through_their_socket() {
 
 #[tokio::test]
 async fn a_restart_ends_sessions_and_keeps_their_transcripts() {
-    // What the role of rookery 0.5 wrote is read until there is the file of now.
-    let mut daemon =
-        Daemon::start(&[("tasks.json", json!([{"name": "one", "run": "echo first"}]))]);
+    let mut daemon = Daemon::start(&[(
+        "actions.json",
+        json!([{"name": "one", "run": "echo first"}]),
+    )]);
     let mut host = daemon.host().await;
     let started: Value = host
         .post(

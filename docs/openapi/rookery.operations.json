@@ -812,7 +812,7 @@
             ]
           },
           "applied": {
-            "description": "The rookery version its configuration was last applied with, when its\nrookeryd says. An older rookeryd does not, nor does a host not applied\nsince.",
+            "description": "The rookery version its configuration was last applied with, when its\nrookeryd says, which it does for a host applied since.",
             "type": [
               "string",
               "null"
@@ -1051,7 +1051,7 @@
             ]
           },
           "subject": {
-            "description": "What it was done to, by id: `host:ID`, `provisioner:ID`,\n`resource:ID` or `installation`. Empty for a job from before 0.5.",
+            "description": "What it was done to, by id: `host:ID`, `provisioner:ID`,\n`resource:ID` or `installation`. Empty for a job recorded without one.",
             "type": "string"
           },
           "subject_name": {
@@ -2303,7 +2303,7 @@
       "Session": {
         "properties": {
           "action": {
-            "description": "The action it was started for, if any. The sessions an older\nrookeryd kept on the host say `task`.",
+            "description": "The action it was started for, if any.",
             "type": [
               "string",
               "null"
@@ -2560,7 +2560,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Applied",
-                "description": "What the host's configuration was last applied from, when rookery\nrecorded it. An older rookeryd does not say."
+                "description": "What the host's configuration was last applied from, when rookery\nrecorded it."
               },
               {
                 "type": "null"

@@ -3,7 +3,7 @@
 # one of its seed, or rookery's command for one. Without either the play stops
 # here, before it changes anything, with what rookery said is missing. A host
 # on the tailnet already needs no key, and one with rookery_tailnet_optional
-# goes on without the tailnet, as rookery 0.5 did.
+# goes on without the tailnet.
 - name: Inspect Tailscale enrollment
   ansible.builtin.command: tailscale status --json
   register: rookery_tailnet_status

@@ -63,7 +63,7 @@ class OwnKeyOnly:
         runner = Path(pwd.getpwuid(os.getuid()).pw_dir) / '.ssh'
         self.assertEqual(list(runner.glob('id_*')), [])
 
-    def test_the_operator_takes_rookerys_key_apart_and_sudo_needs_no_password(self):
+    def test_the_operator_takes_the_key_of_rookery_apart_and_sudo_needs_no_password(self):
         own = self.keyed.own_public()
         keys = f'/home/{OPERATOR}/.ssh/authorized_keys'
         # The profile lists no key; rookery's has a block of its own that no apply removes.

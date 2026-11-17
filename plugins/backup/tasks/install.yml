@@ -13,7 +13,7 @@
       # Managed by rookery's backup plugin. Read by /usr/local/sbin/rookery-backup.
       REPOSITORY={{ rookery_backup_repository | default('') | quote }}
       AGENT_HOME={{ rookery_home | quote }}
-      PATHS=({{ ([rookery_home, '/srv/agent'] + (rookery_backup_system_paths | default(['/etc/rookery', '/etc/rookery', '/var/lib/rookery']))) | map('quote') | join(' ') }})
+      PATHS=({{ ([rookery_home, '/srv/agent'] + (rookery_backup_system_paths | default(['/etc/rookery', '/var/lib/rookery']))) | map('quote') | join(' ') }})
       KEEP_DAILY={{ rookery_backup_keep_daily | default(7) | int }}
       KEEP_WEEKLY={{ rookery_backup_keep_weekly | default(4) | int }}
       KEEP_MONTHLY={{ rookery_backup_keep_monthly | default(6) | int }}

@@ -433,44 +433,6 @@ pub fn minimal(host_type: crate::HostType, access: &Access) -> Value {
     config
 }
 
-/// Give a profile of rookery 0.5 or earlier the names fields have now:
-/// `level` (`reachable`, `controller`, `workstation`) becomes `type`
-/// (`ssh`, `managed`, a workstation left unsaid), and `profile`, what the
-/// host is installed on, becomes `target`. What a later rookery wrote stays.
-/// The ways of joining the tailnet rookery has no more go too
-/// ([`take_old_tailnet`]), so a pasted key is never read again. Says whether
-/// it changed the profile.
-pub fn take_old_names(config: &mut Value) -> bool {
-    let mut changed = take_old_tailnet(config).is_some();
-    let Some(profile) = config.as_object_mut() else {
-        return false;
-    };
-    if let Some(level) = profile.remove("level") {
-        changed = true;
-        if !profile.contains_key("type") {
-            match level
-                .as_str()
-                .map(|text| (text, crate::HostType::from_level(text)))
-            {
-                Some((_, Some(crate::HostType::Workstation))) => {}
-                Some((_, Some(host_type))) => {
-                    profile.insert("type".into(), json!(host_type.name()));
-                }
-                // One rookery never wrote is kept, so that problems() names it.
-                _ => {
-                    profile.insert("type".into(), level);
-                }
-            }
-        }
-    }
-    if profile.get("profile").is_some_and(Value::is_string) {
-        let target = profile.remove("profile").unwrap_or_default();
-        changed = true;
-        profile.entry("target").or_insert(target);
-    }
-    changed
-}
-
 /// Whether `name` can be a setting of the role in a profile's
 /// `ansible_vars`: `rookery_` and a word. Ansible's own variables, such as
 /// `ansible_connection` or `ansible_ssh_common_args`, say how and where
@@ -614,91 +576,6 @@ pub fn problems(config: &Value) -> Vec<String> {
     problems
 }
 
-/// What a profile of rookery 0.4 said under `builder` of how it is reached,
-/// taken out of there by [`take_builder_access`].
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct OldAccess {
-    /// `builder.ssh_key`: the path of a private key on the machine that ran rookery.
-    pub key_file: String,
-    /// `builder.ask_pass`: Ansible asked for an SSH password.
-    pub ask_pass: bool,
-}
-
-/// The fields of `builder` that `access` took over.
-const OLD_ACCESS: &[&str] = &[
-    "ssh_host",
-    "ssh_user",
-    "ssh_port",
-    "ssh_key",
-    "ask_become_pass",
-    "ask_pass",
-    "link",
-];
-
-/// Move the access fields of an older profile from `builder` into `access`,
-/// leaving `access.auth` to the caller, which knows what the key file was.
-/// What `access` has already stays. `None` when there was nothing to move.
-pub fn take_builder_access(config: &mut Value) -> Option<OldAccess> {
-    let builder = config.get_mut("builder")?.as_object_mut()?;
-    if !OLD_ACCESS.iter().any(|key| builder.contains_key(*key)) {
-        return None;
-    }
-    let mut taken = serde_json::Map::new();
-    for key in OLD_ACCESS {
-        if let Some(value) = builder.remove(*key) {
-            taken.insert((*key).to_owned(), value);
-        }
-    }
-    let text = |key: &str| match taken.get(key) {
-        Some(Value::String(text)) => text.trim().to_owned(),
-        Some(Value::Number(number)) => number.to_string(),
-        _ => String::new(),
-    };
-    // Older profiles stored the switches as the strings "true" and "false".
-    let switch = |key: &str| match taken.get(key) {
-        Some(Value::Bool(on)) => Some(*on),
-        Some(Value::String(text)) if text == "true" || text == "false" => Some(text == "true"),
-        _ => None,
-    };
-    let mut access = Access::of(config);
-    let had_access = config["access"].is_object();
-    for (field, key) in [
-        (&mut access.address, "ssh_host"),
-        (&mut access.user, "ssh_user"),
-        (&mut access.port, "ssh_port"),
-    ] {
-        if field.is_empty() {
-            *field = text(key);
-        }
-    }
-    if access.sudo.is_none() {
-        access.sudo = switch("ask_become_pass");
-    }
-    if access.link.is_none()
-        && let Some(Value::Array(words)) = taken.get("link")
-    {
-        access.link = Some(
-            words
-                .iter()
-                .filter_map(|word| word.as_str().map(str::to_owned))
-                .collect(),
-        );
-    }
-    let old = OldAccess {
-        key_file: text("ssh_key"),
-        ask_pass: switch("ask_pass").unwrap_or(false),
-    };
-    // An access object written by a later rookery keeps its own way of logging in.
-    let auth = config["access"]["auth"].clone();
-    access.write(config);
-    if had_access && auth.is_string() {
-        config["access"]["auth"] = auth;
-    } else if let Some(access) = config["access"].as_object_mut() {
-        access.remove("auth");
-    }
-    Some(old)
-}
-
 /// The secret that holds the API key of the tailnet's control server. rookery
 /// uses it itself, to create enrollment keys, and never gives it to a host.
 pub const TAILNET_API_KEY: &str = "tailnet_api_key";
@@ -709,51 +586,6 @@ pub fn joins_tailnet(config: &Value) -> bool {
     config["ansible_vars"]["rookery_install_tailscale"]
         .as_bool()
         .unwrap_or(true)
-}
-
-/// What a profile of an older rookery said of joining the tailnet in ways
-/// rookery has no more.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct OldTailnet {
-    /// It held an enrollment key pasted into it.
-    pub pasted: bool,
-    /// It was to be joined by hand: rookery was not to make its key.
-    pub by_hand: bool,
-}
-
-/// Take out of a profile what older rookeries kept of joining the tailnet: a
-/// pasted enrollment key (`tailscale_auth_key`, also as the role's variable),
-/// the switch for keys rookery makes (`tailscale_auto_key`), which is always on
-/// now, and a login server of the host's own (`tailscale_login_server`), as
-/// rookery makes keys only at the one of its settings. Says what there was, or
-/// `None` when there was nothing.
-pub fn take_old_tailnet(config: &mut Value) -> Option<OldTailnet> {
-    let joins = joins_tailnet(config);
-    let profile = config.as_object_mut()?;
-    let filled = |value: &Option<Value>| {
-        value
-            .as_ref()
-            .and_then(Value::as_str)
-            .is_some_and(|key| !key.is_empty())
-    };
-    let key = profile.remove("tailscale_auth_key");
-    let switch = profile.remove("tailscale_auto_key");
-    let server = profile.remove("tailscale_login_server");
-    let variable = profile
-        .get_mut("ansible_vars")
-        .and_then(Value::as_object_mut)
-        .and_then(|vars| vars.remove("rookery_tailscale_auth_key"));
-    if key.is_none() && switch.is_none() && server.is_none() && variable.is_none() {
-        return None;
-    }
-    let pasted = filled(&key) || filled(&variable);
-    // Older profiles stored the switch as a string too.
-    let automatic = matches!(&switch, Some(Value::Bool(true)))
-        || matches!(&switch, Some(Value::String(text)) if text == "true");
-    Some(OldTailnet {
-        pasted,
-        by_hand: joins && !automatic,
-    })
 }
 
 /// Where a QEMU guest on the user-mode network sees the machine it runs on.
@@ -807,65 +639,6 @@ mod tests {
         assert!(!joins_tailnet(
             &json!({"ansible_vars": {"rookery_install_tailscale": false}})
         ));
-    }
-
-    #[test]
-    fn a_pasted_key_and_the_switch_of_older_profiles_are_dropped_on_reading() {
-        let mut pasted = json!({
-            "hostname": "studio",
-            "tailscale_auth_key": "tskey-auth-kFAKE-0000",
-            "tailscale_auto_key": false,
-            "tailscale_login_server": "https://hs.example.org",
-            "ansible_vars": {"rookery_geometry": "1x1", "rookery_tailscale_auth_key": "tskey-auth-kFAKE-1111"},
-        });
-        assert!(take_old_names(&mut pasted));
-        assert_eq!(
-            pasted,
-            json!({"hostname": "studio", "ansible_vars": {"rookery_geometry": "1x1"}})
-        );
-        assert!(!take_old_names(&mut pasted));
-        let said = |mut config: Value| take_old_tailnet(&mut config);
-        assert_eq!(
-            said(json!({"tailscale_auth_key": "tskey-auth-kFAKE-0000"})),
-            Some(OldTailnet {
-                pasted: true,
-                by_hand: true
-            })
-        );
-        // A host that was to be joined by hand joins with rookery's key from now on.
-        assert_eq!(
-            said(json!({"tailscale_auto_key": false, "tailscale_auth_key": ""})),
-            Some(OldTailnet {
-                pasted: false,
-                by_hand: true
-            })
-        );
-        assert_eq!(
-            said(json!({"tailscale_auto_key": "true"})),
-            Some(OldTailnet {
-                pasted: false,
-                by_hand: false
-            })
-        );
-        // Without Tailscale nobody was joining it by hand.
-        assert_eq!(
-            said(
-                json!({"tailscale_auto_key": false, "ansible_vars": {"rookery_install_tailscale": false}})
-            ),
-            Some(OldTailnet {
-                pasted: false,
-                by_hand: false
-            })
-        );
-        assert_eq!(
-            said(json!({"tailscale_login_server": "https://hs.example.org"})),
-            Some(OldTailnet {
-                pasted: false,
-                by_hand: true
-            })
-        );
-        assert_eq!(said(json!({"hostname": "studio"})), None);
-        assert_eq!(said(json!([])), None);
     }
 
     #[test]
@@ -927,39 +700,6 @@ mod tests {
         assert!(!settle_after_apply(&mut container));
         let mut managed = json!({"type": "managed", "access": {"address": "192.0.2.4", "user": "ops", "sudo": "password"}});
         assert!(!settle_after_apply(&mut managed));
-    }
-
-    #[test]
-    fn the_access_fields_move_out_of_builder_once() {
-        let mut old = json!({"builder": {
-            "ssh_host": "192.0.2.10", "ssh_user": "ops", "ssh_port": "2222",
-            "ssh_key": "~/.ssh/studio", "ask_become_pass": "true", "ask_pass": false,
-            "iso": "/x.iso"
-        }});
-        let taken = take_builder_access(&mut old).unwrap();
-        assert_eq!(taken.key_file, "~/.ssh/studio");
-        assert_eq!(
-            old,
-            json!({"builder": {"iso": "/x.iso"},
-                   "access": {"address": "192.0.2.10", "user": "ops", "port": "2222", "sudo": "password"}})
-        );
-        assert!(take_builder_access(&mut old).is_none());
-        let access = Access::of(&old);
-        assert_eq!((access.auth, access.sudo), (Auth::Rookery, Some(true)));
-        // A link moves too, and sudo left unsaid stays so.
-        let mut container =
-            json!({"builder": {"link": ["docker", "exec", "-i", "c", "rookeryd", "connect"]}});
-        take_builder_access(&mut container).unwrap();
-        assert_eq!(Access::of(&container).link.unwrap().len(), 6);
-        assert!(container["access"]["sudo"].is_null());
-        // What a later rookery wrote stays.
-        let mut both = json!({"access": {"address": "192.0.2.20", "auth": "key:deploy"},
-                              "builder": {"ssh_host": "192.0.2.10"}});
-        take_builder_access(&mut both).unwrap();
-        assert_eq!(
-            both["access"],
-            json!({"address": "192.0.2.20", "auth": "key:deploy"})
-        );
     }
 
     #[test]
@@ -1072,36 +812,6 @@ mod tests {
         let mut keyed = json!({"type": "node",
             "access": {"address": "192.0.2.20", "user": "root", "auth": "ssh", "sudo": "password"}});
         assert!(!settle_after_apply(&mut keyed));
-    }
-
-    #[test]
-    fn a_profile_of_rookery_05_takes_the_names_of_now() {
-        for (level, written) in [
-            ("reachable", json!("ssh")),
-            ("controller", json!("managed")),
-            ("workstation", Value::Null),
-            ("server", json!("server")),
-        ] {
-            let mut old =
-                json!({"level": level, "profile": "cloud", "access": {"address": "192.0.2.4"}});
-            assert!(take_old_names(&mut old), "{level}");
-            assert_eq!(old["type"], written, "{level}");
-            assert_eq!(old["target"], "cloud");
-            assert!(old.get("level").is_none() && old.get("profile").is_none());
-            assert!(!take_old_names(&mut old), "{level}");
-        }
-        // What a later rookery wrote wins, and the old field goes.
-        let mut both = json!({"type": "managed", "level": "reachable", "target": "laptop", "profile": "cloud"});
-        assert!(take_old_names(&mut both));
-        assert_eq!(both, json!({"type": "managed", "target": "laptop"}));
-        // A profile of now is left as it is.
-        let mut now = json!({"type": "ssh", "target": "cloud", "builder": {}});
-        assert!(!take_old_names(&mut now));
-        assert_eq!(
-            now,
-            json!({"type": "ssh", "target": "cloud", "builder": {}})
-        );
-        assert!(!take_old_names(&mut json!([])));
     }
 
     #[test]

@@ -261,7 +261,6 @@ fn copy(
         .into());
     }
     let _serve = hold_serve(paths)?;
-    // Opened as every command opens it, so the files of an older rookery are in it first.
     let from = store::shared(paths)?;
     let to = Store::connect_trusting(&target, installation.ca.as_deref())?;
     let report = store::copy(&from, &to, into_existing)?;
@@ -466,7 +465,12 @@ mod tests {
         s.run(&["encrypt"]).unwrap();
         let store = store::shared(&s.paths).unwrap();
         store
-            .write(kind::PROFILE, "served:http://192.0.2.7:7777", "depot", b"{}")
+            .write(
+                kind::PROFILE,
+                "served:http://192.0.2.7:7777",
+                "depot",
+                b"{}",
+            )
             .unwrap();
         store
             .put("ui", "k", &serde_json::json!(1), store::When::Always)

@@ -27,7 +27,7 @@ class Apply(unittest.TestCase):
         self.assertIn('secrets', [task['name'] for task in tasks])
         print(f'\n  first apply: {self.station.apply_seconds:.0f}s, {recap}', end=' ')
 
-    def test_the_operator_takes_rookerys_own_key(self):
+    def test_the_operator_takes_the_key_of_rookery(self):
         own = self.station.own_public()
         self.assertTrue(own.startswith('ssh-ed25519 '), own)
         self.assertEqual(own, self.station.own_key.with_suffix('.pub').read_text().strip())

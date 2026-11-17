@@ -608,7 +608,7 @@ mod tests {
         }
     }
 
-    fn fleet(
+    fn hosts_at(
         log: &std::rc::Rc<std::cell::RefCell<Vec<String>>>,
         hosts: &[(&str, &str)],
     ) -> Vec<Box<dyn Target>> {
@@ -687,7 +687,7 @@ mod tests {
     #[test]
     fn hosts_go_in_turn_and_current_ones_are_left() {
         let log = Default::default();
-        let mut targets = fleet(&log, &[("a", "1"), ("b", "2"), ("c", "1")]);
+        let mut targets = hosts_at(&log, &[("a", "1"), ("b", "2"), ("c", "1")]);
         let mut out = vec![];
         let report = run(&mut targets, &Rollout::default(), &now, &mut out);
         assert!(report.ok);
@@ -719,7 +719,7 @@ mod tests {
     #[test]
     fn the_first_failure_stops_the_rest() {
         let log = Default::default();
-        let mut targets = fleet(&log, &[("a", "1"), ("b", "1"), ("c", "1")]);
+        let mut targets = hosts_at(&log, &[("a", "1"), ("b", "1"), ("c", "1")]);
         // b fails applying; c is not touched.
         let failing = Fake {
             name: "b".into(),
@@ -747,7 +747,7 @@ mod tests {
     #[test]
     fn a_bad_update_finishes_the_host_and_stops_the_next() {
         let log = Default::default();
-        let mut targets = fleet(&log, &[("a", "1"), ("b", "1")]);
+        let mut targets = hosts_at(&log, &[("a", "1"), ("b", "1")]);
         let options = Rollout {
             update: true,
             ..Default::default()

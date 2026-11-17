@@ -209,25 +209,3 @@ fn screenshot_output() {
     let v: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["mimeType"], "image/png");
 }
-
-#[test]
-fn rookery_desktop_name() {
-    let env = Env::new();
-    let links = tempfile::tempdir().unwrap();
-    let link = links.path().join("rookery-desktop");
-    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_box"), &link).unwrap();
-    let mut cmd = env.command(&link);
-    cmd.arg("--mcp");
-    let r = exchange(
-        cmd,
-        &(json!({"jsonrpc": "2.0", "id": 1, "method": "ping"}).to_string() + "\n"),
-    );
-    assert_eq!(r[0]["result"], json!({}));
-    let out = env
-        .command(&link)
-        .args(["click", "--args", "{\"x\":1,\"y\":2}"])
-        .output()
-        .unwrap();
-    assert!(String::from_utf8_lossy(&out.stdout).contains("ok"));
-    assert!(env.log().contains("mousemove --sync 1 2 click 1"));
-}

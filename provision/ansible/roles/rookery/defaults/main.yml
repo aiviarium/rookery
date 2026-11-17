@@ -11,7 +11,7 @@ rookery_agent_privileges: ""
 rookery_operator_user: ops
 rookery_operator_password_hash: ""
 rookery_operator_ssh_public_key: ""
-# The public keys of the rookery that applies this, one to a line: its own key, the
+# The public keys of the machine that applies this, one to a line: its own key, the
 # one replacing it while it rotates, and a key of its that the profile logs in
 # with. The operator always takes them.
 rookery_ssh_public_key: ""
@@ -110,8 +110,8 @@ rookery_install_playwright: true
 rookery_install_docker: true
 rookery_install_tailscale: true
 # An apply of a host off the tailnet goes on without it when rookery cannot
-# make the host's key, rather than stop. rookery sets it once for the hosts of
-# rookery 0.5 that it never joined by itself; it joins them once it can.
+# make the host's key, rather than stop. A profile sets it for a host that
+# joins the tailnet later; rookery joins the host once it can.
 rookery_tailnet_optional: false
 # Web console on port 9090, reachable over the tailnet or an SSH tunnel.
 rookery_install_cockpit: true

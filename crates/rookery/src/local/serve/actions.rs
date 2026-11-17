@@ -1161,7 +1161,7 @@ fn upgrade_server_action(seen: &Seen) -> Action {
         )),
         (HostType::Node, None) => None,
         (other, _) => Some(format!(
-            "{} is a host of the type {other}: only a node's controller upgrades a rookery server it runs. A server of rookery 0.5, and one on no node, is updated by its recipe: {}",
+            "{} is a host of the type {other}: only a node's controller upgrades a rookery server it runs. A server on no node is updated by its recipe: {}",
             seen.name,
             rookery_api::compat::UPGRADE_DOCS
         )),
@@ -2255,7 +2255,7 @@ fn adopt(state: Arc<Serve>, _: String, act: Act) -> Run {
                     sudo: read.sudo_asked.then_some(true),
                     ..profile::Access::default()
                 };
-                let adopted = kept::adopted(paths, &place.title(), &read.kept, &access)?;
+                let adopted = kept::adopted(&read.kept, &access)?;
                 kept::save(paths, &place, &adopted)?;
                 Ok((read, adopted))
             });

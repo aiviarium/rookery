@@ -83,34 +83,6 @@ class Profiles(unittest.TestCase):
         self.assertNotIn('depot', station.rookery('ls').stdout)
         self.assertNotEqual(station.rookery('host', 'export', 'depot', check=False).returncode, 0)
 
-    def test_the_hosts_of_an_older_rookery_move_into_the_store(self):
-        station = Workstation('older-hosts', ssh_key=False, trust=False)
-        hosts = station.rookery_dir / 'hosts'
-        hosts.mkdir(parents=True, mode=0o700)
-        # A profile of rookery 0.4, which kept how it is reached under builder.
-        old = profile(hostname='attic', builder={'ssh_host': '192.0.2.60', 'shipped_plugins': True})
-        old.pop('access')
-        (hosts / 'attic.json').write_text(json.dumps(old))
-        (hosts / 'attic.credentials.json').write_text(json.dumps({OPERATOR: 'made-up-password'}))
-        (hosts / 'attic.instance.lock').write_text('')
-        mirrored = station.data / 'rookery/served/http---192-0-2-7-7777/hosts'
-        mirrored.mkdir(parents=True)
-        (mirrored / 'depot.json').write_text('{}')
-        moved = station.rookery('ls', '-o', 'json')
-        self.assertIn(('attic', '192.0.2.60'), [(host['name'], host['address']) for host in json.loads(moved.stdout)])
-        self.assertIn('moved 1 host into rookery', moved.stderr)
-        self.assertFalse(hosts.exists())
-        self.assertTrue((station.rookery_dir / 'migrated/hosts/attic.json').is_file())
-        self.assertFalse((station.data / 'rookery/served').exists())
-        # It is kept in the layout of now; without a key file it logs in as it did.
-        self.assertEqual(station.read_profile('attic'), {
-            **old, 'builder': {'shipped_plugins': True}, 'access': {'address': '192.0.2.60', 'auth': 'ssh'}})
-        shown = json.loads(station.rookery('host', 'credentials', 'attic', '-o', 'json').stdout)
-        self.assertEqual(shown['credentials'], {OPERATOR: 'made-up-password'})
-        # Once is enough.
-        self.assertNotIn('moved', station.rookery('ls').stderr)
-
-
 @needs_e2e
 class Screens(unittest.TestCase):
     """The screens start with a server in rookery itself, show the host and what

@@ -144,10 +144,10 @@
       loop_control:
         label: "{{ item.user }}"
       register: rookery_authorized_keys
-    # Each rookery that applies this keeps its keys in a block of its own, named
+    # Each machine that applies this keeps its keys in a block of its own, named
     # after its own key, which no later apply removes, so a change to the
     # profile's keys never locks it out.
-    - name: Give the operator the keys of the rookery that applies this
+    - name: Give the operator the keys of the machine that applies this
       ansible.builtin.blockinfile:
         path: "/home/{{ rookery_operator_user }}/.ssh/authorized_keys"
         create: true
@@ -171,7 +171,7 @@
       loop_control:
         label: "{{ item.item.user }}"
       when: item.item.key | length > 0 or item.stat.exists
-    - name: Check that the operator takes the keys of the rookery that applies this
+    - name: Check that the operator takes the keys of the machine that applies this
       ansible.builtin.command:
         argv: [grep, -qxF, --, "{{ item }}", "/home/{{ rookery_operator_user }}/.ssh/authorized_keys"]
       loop: "{{ rookery_ssh_public_key.splitlines() }}"

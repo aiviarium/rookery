@@ -437,7 +437,7 @@ def read_context(context):
 
 
 def build(name, version, context):
-    """The node's action with source=here: the image of the rookery that sent
+    """The node's action with source=here: the image built from the source that rookery sent
     `context`, as rookery:VERSION, and then the container from it."""
     if not VERSION.match(version):
         raise Refused(f'{version!r} is not a version of rookery, such as 0.6.0')

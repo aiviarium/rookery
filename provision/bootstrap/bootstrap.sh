@@ -90,12 +90,7 @@ import json, os
 from pathlib import Path
 d=json.loads(Path('/opt/rookery-bootstrap/deployment.json').read_text())
 p=Path('/etc/rookery'); p.mkdir(parents=True,exist_ok=True)
-# The role names the target by its older name, as did the seeds of rookery 0.5.
-v=d['ansible_vars']; v['rookery_profile']=d.get('target', d.get('profile'))
-# A seed of the qemu kind there once was is a cloud host that SSH reaches only from the QEMU host.
-if v['rookery_profile']=='qemu':
-    v['rookery_profile']='cloud'
-    v['rookery_bootstrap_ssh_cidr']=v.get('rookery_bootstrap_ssh_cidr') or '10.0.2.2/32'
+v=d['ansible_vars']; v['rookery_profile']=d['target']
 (p/'host.json').write_text(json.dumps(v))
 os.chmod(p/'host.json',0o600)
 PY

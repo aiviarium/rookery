@@ -21,7 +21,7 @@ class Commands(unittest.TestCase):
         self.assertEqual(secrets['label'], 'Secrets and registry logins')
         self.assertRegex(self.station.rookery('action', 'list', HOST).stdout, r'(?m)^secrets\s+')
 
-    def test_a_task_runs_and_its_exit_code_is_rookerys(self):
+    def test_a_task_runs_and_its_exit_code_is_the_one_rookery_shows(self):
         self.assertEqual(self.station.rookery('run', HOST, 'sign-in:status').returncode, 0)
         missing = self.station.rookery('run', HOST, 'nothing-like-this', check=False)
         self.assertEqual(missing.returncode, 2)

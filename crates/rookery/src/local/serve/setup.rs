@@ -86,14 +86,10 @@ pub async fn save_profile(
     if !profile.is_object() {
         return Err(bad("A profile is an object"));
     }
-    // A caller of an older layout: its access fields are read as now. A key
-    // file it names is on another machine, so the server logs in with its own.
+    // A key file a caller names is on another machine, so the server logs in with its own.
     if let Some(builder) = profile.get_mut("builder").and_then(Value::as_object_mut) {
         builder.remove("ssh_key");
     }
-    rookery_core::import::convert_layout(&state.paths, &name, &mut profile);
-    // An older caller's pasted tailnet key is never stored: rookery makes the keys.
-    rookery_api::profile::take_old_tailnet(&mut profile);
     // A workstation's has its set-up's part; a host of another type, only how it is reached.
     let problems = rookery_api::profile::problems(&profile);
     if !problems.is_empty() {

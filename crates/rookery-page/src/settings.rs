@@ -38,11 +38,6 @@ pub fn folder(var: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
     Some(base(&var)?.join("rookery"))
 }
 
-/// Where rookery-remote kept its server and token, before rookery took it in.
-pub fn old_folder(var: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
-    Some(base(&var)?.join("rookery-remote"))
-}
-
 pub struct Settings {
     dir: Option<PathBuf>,
 }
@@ -111,87 +106,6 @@ impl Settings {
         let text = serde_json::to_string_pretty(&Value::Object(kept))? + "\n";
         private_write(&file, text.as_bytes())
     }
-
-    /// Take in the server and token rookery-remote kept in `old`, once. When
-    /// rookery has no server, or the same one without a token, they become
-    /// rookery's and the old file goes. When rookery uses another server, or the
-    /// same with another token, the file stays, and that is said once.
-    pub fn take_in(&self, old: Option<&Path>) -> std::io::Result<TakenIn> {
-        let Some(old) = old else {
-            return Ok(TakenIn::Nothing);
-        };
-        let file = old.join("settings.json");
-        let Ok(bytes) = std::fs::read(&file) else {
-            return Ok(TakenIn::Nothing);
-        };
-        let kept: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-        let text = |key: &str| kept[key].as_str().unwrap_or("").trim().to_owned();
-        let (server, token) = (text("server"), text("token"));
-        // A file that names no server holds nothing to take in, and is left as it is.
-        if server.is_empty() {
-            return Ok(TakenIn::Nothing);
-        }
-        let same =
-            |one: &str, other: &str| one.trim_end_matches('/') == other.trim_end_matches('/');
-        let taken = match (self.get(SERVER), self.get(TOKEN)) {
-            (None, _) => {
-                self.set(&[(SERVER, &server), (TOKEN, &token)])?;
-                TakenIn::Taken(server)
-            }
-            (Some(ours), None) if same(&ours, &server) && !token.is_empty() => {
-                self.set(&[(TOKEN, &token)])?;
-                TakenIn::Taken(server)
-            }
-            // Its contents are rookery's already.
-            (Some(ours), ours_token)
-                if same(&ours, &server)
-                    && (token.is_empty() || ours_token.as_deref() == Some(&token)) =>
-            {
-                TakenIn::Same
-            }
-            (Some(ours), _) => {
-                if self.get(NOTED).as_deref() == Some(server.as_str()) {
-                    return Ok(TakenIn::Nothing);
-                }
-                self.set(&[(NOTED, &server)])?;
-                return Ok(TakenIn::Left {
-                    theirs: server,
-                    ours,
-                    file,
-                });
-            }
-        };
-        for gone in [file.clone(), file.with_extension("json.partial")] {
-            match std::fs::remove_file(&gone) {
-                Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
-                _ => {}
-            }
-        }
-        let _ = std::fs::remove_dir(old);
-        Ok(taken)
-    }
-}
-
-/// The setting that remembers which server of rookery-remote's settings was
-/// said to be left, so it is said once.
-const NOTED: &str = "rookery_remote_noted";
-
-/// What became of rookery-remote's settings.
-#[derive(Debug, PartialEq, Eq)]
-pub enum TakenIn {
-    /// There were none, or they were said to be left before.
-    Nothing,
-    /// rookery uses their server and token now; the old file is gone.
-    Taken(String),
-    /// rookery had them already; the old file is gone.
-    Same,
-    /// rookery uses another server, or the same with another token: the file
-    /// stays where it is.
-    Left {
-        theirs: String,
-        ours: String,
-        file: PathBuf,
-    },
 }
 
 /// Make the folder of the settings, which only its owner can open.
@@ -267,98 +181,6 @@ mod tests {
         assert_eq!(left, "{not json");
     }
 
-    fn remote(scratch: &Path, text: &str) -> PathBuf {
-        let old = scratch.join("rookery-remote");
-        std::fs::create_dir_all(&old).unwrap();
-        std::fs::write(old.join("settings.json"), text).unwrap();
-        old
-    }
-
-    #[test]
-    fn rookery_remotes_server_is_taken_in_once() {
-        let scratch = tempfile::tempdir().unwrap();
-        let old = remote(
-            scratch.path(),
-            r#"{"server": "https://studio.example", "token": "s3cret"}"#,
-        );
-        let settings = Settings::new(Some(scratch.path().join("rookery")));
-        assert_eq!(
-            settings.take_in(Some(&old)).unwrap(),
-            TakenIn::Taken("https://studio.example".into())
-        );
-        assert_eq!(settings.get(TOKEN).as_deref(), Some("s3cret"));
-        assert!(!old.exists());
-        assert_eq!(settings.take_in(Some(&old)).unwrap(), TakenIn::Nothing);
-    }
-
-    #[test]
-    fn rookery_remotes_token_for_rookerys_own_server_is_taken_in() {
-        let scratch = tempfile::tempdir().unwrap();
-        let settings = Settings::new(Some(scratch.path().join("rookery")));
-        settings.set(&[(SERVER, "https://studio.example")]).unwrap();
-        let old = remote(
-            scratch.path(),
-            r#"{"server": "https://studio.example/", "token": "s3cret"}"#,
-        );
-        assert_eq!(
-            settings.take_in(Some(&old)).unwrap(),
-            TakenIn::Taken("https://studio.example/".into())
-        );
-        assert_eq!(settings.get(TOKEN).as_deref(), Some("s3cret"));
-        assert!(!old.exists());
-
-        // The same server and token are rookery's already: the file goes.
-        let old = remote(
-            scratch.path(),
-            r#"{"server": "https://studio.example", "token": "s3cret"}"#,
-        );
-        assert_eq!(settings.take_in(Some(&old)).unwrap(), TakenIn::Same);
-        assert!(!old.exists());
-    }
-
-    #[test]
-    fn rookery_remotes_other_server_is_left_and_said_once() {
-        let scratch = tempfile::tempdir().unwrap();
-        let settings = Settings::new(Some(scratch.path().join("rookery")));
-        settings
-            .set(&[(SERVER, "https://studio.example"), (TOKEN, "mine")])
-            .unwrap();
-        for other in [
-            r#"{"server": "https://forge.example", "token": "other"}"#,
-            r#"{"server": "https://studio.example", "token": "other"}"#,
-        ] {
-            let old = remote(scratch.path(), other);
-            let file = old.join("settings.json");
-            let taken = settings.take_in(Some(&old)).unwrap();
-            assert!(
-                matches!(&taken, TakenIn::Left { file: left, ours, .. }
-                if *left == file && ours == "https://studio.example"),
-                "{taken:?}"
-            );
-            // The file stays, and is not spoken of again.
-            assert!(file.exists());
-            assert_eq!(settings.take_in(Some(&old)).unwrap(), TakenIn::Nothing);
-            assert_eq!(settings.get(TOKEN).as_deref(), Some("mine"));
-            assert_eq!(
-                settings.get(SERVER).as_deref(),
-                Some("https://studio.example")
-            );
-            std::fs::remove_dir_all(&old).unwrap();
-        }
-    }
-
-    #[test]
-    fn a_file_of_rookery_remote_with_no_server_is_left_as_it_is() {
-        let scratch = tempfile::tempdir().unwrap();
-        let settings = Settings::new(Some(scratch.path().join("rookery")));
-        for text in ["{not json", r#"{"token": "s3cret"}"#] {
-            let old = remote(scratch.path(), text);
-            assert_eq!(settings.take_in(Some(&old)).unwrap(), TakenIn::Nothing);
-            assert!(old.join("settings.json").exists());
-        }
-        assert_eq!(settings.get(TOKEN), None);
-    }
-
     #[cfg(unix)]
     #[test]
     fn only_the_owner_can_read_them() {
@@ -399,13 +221,6 @@ mod tests {
                 ("HOME", "/home/ada")
             ])),
             Some(PathBuf::from("/scratch/c/rookery"))
-        );
-        assert_eq!(
-            old_folder(env(&[
-                ("XDG_CONFIG_HOME", "/scratch/c"),
-                ("HOME", "/home/ada")
-            ])),
-            Some(PathBuf::from("/scratch/c/rookery-remote"))
         );
         let home = match cfg!(target_os = "macos") {
             true => "/home/ada/Library/Application Support/rookery",

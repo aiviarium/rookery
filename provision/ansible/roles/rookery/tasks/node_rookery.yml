@@ -47,7 +47,7 @@
     mode: '0755'
   when: rookery_manage_firewall
 # A machine taken in may let SSH in from some addresses only, by rules made by
-# hand such as those of the incus-host recipe of 0.5. Those stay and are not
+# hand, such as those of the incus-host recipe. Those stay and are not
 # widened: SSH stays open to them and to where this apply came from.
 - name: Read the firewall's rules
   ansible.builtin.command: ufw show added

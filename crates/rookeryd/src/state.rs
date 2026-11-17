@@ -60,11 +60,7 @@ impl Loaded {
         let mut problems = vec![];
         let loaded = Loaded {
             rookeryd: read(dir, "rookeryd.json", &mut problems),
-            actions: match dir.join("actions.json").exists() {
-                true => read(dir, "actions.json", &mut problems),
-                // What a role of rookery 0.5 wrote, until the host is applied again.
-                false => read(dir, "tasks.json", &mut problems),
-            },
+            actions: read(dir, "actions.json", &mut problems),
             services: read(dir, "services.json", &mut problems),
             topics: read(dir, "channels.json", &mut problems),
         };

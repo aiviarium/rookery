@@ -345,7 +345,7 @@ def named(name, task_file):
 @unittest.skipUnless(yaml, 'Run with the Ansible venv Python for YAML checks')
 class Operator(unittest.TestCase):
     """The operator always has sudo without a password, keys only for SSH, and
-    the key of the rookery that applies the role."""
+    the key of the machine that applies the role."""
 
     def test_the_sudoers_file_is_always_written_and_never_removed(self):
         task = named('Configure operator passwordless administration', 'accounts.yml')
@@ -412,7 +412,7 @@ class Operator(unittest.TestCase):
         self.assertEqual(agent['passwordauthentication'], 'yes')
 
     def test_the_keys_of_rookery_have_a_block_no_apply_removes(self):
-        task = named('Give the operator the keys of the rookery that applies this', 'accounts.yml')
+        task = named('Give the operator the keys of the machine that applies this', 'accounts.yml')
         module = task['ansible.builtin.blockinfile']
         self.assertEqual(module['block'], '{{ rookery_ssh_public_key }}')
         self.assertIn('ROOKERY', module['marker'])
@@ -421,7 +421,7 @@ class Operator(unittest.TestCase):
         # It is in place before the profile's keys are, and checked after.
         names = [task['name'] for task in tasks('accounts.yml')]
         self.assertLess(names.index(task['name']), names.index('Configure account authorized public keys'))
-        check = named('Check that the operator takes the keys of the rookery that applies this', 'accounts.yml')
+        check = named('Check that the operator takes the keys of the machine that applies this', 'accounts.yml')
         self.assertLess(names.index('Configure account authorized public keys'), names.index(check['name']))
         # Each of them, one to a line: rookery's own, the one replacing it, and the one the profile logs in with.
         self.assertEqual(check['ansible.builtin.command']['argv'][:4], ['grep', '-qxF', '--', '{{ item }}'])

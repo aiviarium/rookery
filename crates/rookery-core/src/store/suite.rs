@@ -96,15 +96,12 @@ on_each_backend!(
     a_rename_changes_the_label_alone,
     what_belongs_to_a_thing_goes_with_it,
     a_change_moves_messages_cursors_and_jobs,
-    a_store_of_names_takes_ids_once,
     renames_keep_what_belongs_and_refers,
     sealed_values_round_trip,
     a_sealed_store_without_its_key_says_so,
     plain_rows_are_read_with_a_key_loaded,
     resealing_keeps_the_times,
     resealing_refuses_a_table_that_changed,
-    the_old_files_go_into_an_empty_store,
-    sealed_profiles_of_an_older_rookery_take_the_names_of_now,
     a_copy_takes_every_table_as_it_is_and_back,
     a_copy_into_a_store_that_has_rows_keeps_them,
 );
@@ -1080,199 +1077,6 @@ fn a_change_moves_messages_cursors_and_jobs(place: &Place) {
     assert_eq!(found.map(|job| job.id), Some("j1".into()));
 }
 
-/// A store as rookery kept it before ids: a host with its passwords and its
-/// machine, a node's provisioner with a certificate of its own, a registry
-/// with its login, secrets all share, a job and a message.
-fn store_of_names(store: &Store) {
-    let json = |value: Value| value.to_string().into_bytes();
-    let rows: Vec<(&str, &str, Vec<u8>)> = vec![
-        (
-            kind::PROFILE,
-            "studio",
-            json(
-                json!({"access": {"address": "192.0.2.10", "auth": "key:deploy"},
-            "registries": ["nexus"], "secrets": [{"name": "github", "env": "GH_TOKEN"}]}),
-            ),
-        ),
-        (
-            kind::PROFILE,
-            "forge",
-            json(json!({"type": "node", "access": {"address": "192.0.2.20"}})),
-        ),
-        (kind::CREDENTIALS, "studio", json(json!({"ops": "made-up"}))),
-        (
-            kind::PROVISIONER_ENTRY,
-            "lab",
-            json(json!({"type": "fake/vm", "node": "forge"})),
-        ),
-        (
-            kind::REGISTRY,
-            "nexus",
-            json(json!({"type": "nexus", "url": "https://nexus.example"})),
-        ),
-        (
-            kind::KEY,
-            "deploy",
-            json(json!({"private": "x", "public": "ssh-ed25519 AAAA"})),
-        ),
-        (
-            kind::KEY,
-            "deploy.pending",
-            json(json!({"private": "y", "public": "ssh-ed25519 BBBB"})),
-        ),
-        (kind::SECRET, "github", b"ghp".to_vec()),
-        (kind::SECRET, "api_token", b"shared".to_vec()),
-        (kind::SECRET, "registry/nexus", b"pw".to_vec()),
-        (kind::SECRET, "sudo/studio", b"sudo".to_vec()),
-        (
-            kind::SECRET,
-            "provisioner/lab/server_cert",
-            b"lab-cert".to_vec(),
-        ),
-        (kind::SECRET, "registry/gone", b"orphan".to_vec()),
-        (
-            kind::RESOURCE,
-            "r-k3x9p2qa",
-            json(json!({"id": "r-k3x9p2qa", "provisioner": "lab",
-            "kind": "machine", "name": "studio", "host": "studio", "token": "t"})),
-        ),
-        (kind::SPEC, "r-k3x9p2qa", b"spec".to_vec()),
-    ];
-    for (kind, name, value) in rows {
-        store.write(kind, OWN, name, &value).unwrap();
-    }
-    store
-        .add_job(&Job {
-            id: "j1".into(),
-            host: "studio, forge".into(),
-            what: "settings".into(),
-            started: rfc3339(unix_now()),
-            output_path: "/tmp/j1.log".into(),
-            subject: "provisioner:lab".into(),
-            action: "settings".into(),
-            ..Job::default()
-        })
-        .unwrap();
-    store
-        .take_in("studio", &message(1, "a", Keep::Log))
-        .unwrap();
-}
-
-fn a_store_of_names_takes_ids_once(place: &Place) {
-    let store = place.open().with_keys(Some(keys()), None);
-    store_of_names(&store);
-    // The plugin's provisioner takes api_token, which lab had from those all share.
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::create_dir(dir.path().join("fake")).unwrap();
-    std::fs::write(
-        dir.path().join("fake/package.json"),
-        r#"{"name": "rookery-plugin-fake", "rookery": {"provisioners": [
-            {"id": "vm", "label": "Fake VM", "command": "bin/provision", "protocol": 2,
-             "secrets": ["api_token", "server_cert"],
-             "kinds": [{"id": "machine", "setup": "apply"}]}]}}"#,
-    )
-    .unwrap();
-    std::fs::create_dir(dir.path().join("fake/bin")).unwrap();
-    std::fs::write(dir.path().join("fake/bin/provision"), "").unwrap();
-    let plugins = crate::plugins::load(&[dir.path().to_owned()]);
-    assert_eq!(plugins.len(), 1);
-    let taken = crate::import::take_in_ids(&store, &plugins).unwrap();
-    assert_eq!(taken.copied, ["lab: api_token"]);
-    assert_eq!(taken.dropped, ["api_token"]);
-    let id = |kind: &str, name: &str| store.id_of(kind, OWN, name).unwrap().unwrap();
-    let (studio, forge, lab) = (
-        id(kind::PROFILE, "studio"),
-        id(kind::PROFILE, "forge"),
-        id(kind::PROVISIONER_ENTRY, "lab"),
-    );
-    let (nexus, github, deploy) = (
-        id(kind::REGISTRY, "nexus"),
-        id(kind::SECRET, "github"),
-        id(kind::KEY, "deploy"),
-    );
-    let read = |kind: &str, name: &str| store.read(kind, OWN, name).unwrap();
-    let json = |kind: &str, name: &str| store.read_json(kind, OWN, name).unwrap().unwrap();
-    let profile = json(kind::PROFILE, &studio);
-    assert_eq!(profile["registries"], json!([nexus]));
-    assert_eq!(profile["secrets"][0]["name"], github.as_str());
-    assert_eq!(profile["access"]["auth"], format!("key:{deploy}"));
-    assert_eq!(json(kind::PROVISIONER_ENTRY, &lab)["node"], forge.as_str());
-    assert_eq!(json(kind::CREDENTIALS, &studio)["ops"], "made-up");
-    // Owned secrets are under their owners; the one all shared went once lab had a copy.
-    assert_eq!(
-        read(kind::SECRET, &format!("{nexus}/login")).unwrap(),
-        b"pw"
-    );
-    assert_eq!(
-        read(kind::SECRET, &format!("{studio}/sudo")).unwrap(),
-        b"sudo"
-    );
-    assert_eq!(
-        read(kind::SECRET, &format!("{lab}/server_cert")).unwrap(),
-        b"lab-cert"
-    );
-    assert_eq!(
-        read(kind::SECRET, &format!("{lab}/api_token")).unwrap(),
-        b"shared"
-    );
-    assert_eq!(store.id_of(kind::SECRET, OWN, "api_token").unwrap(), None);
-    assert_eq!(
-        read(kind::KEY, &format!("{deploy}/pending")).unwrap(),
-        br#"{"private":"y","public":"ssh-ed25519 BBBB"}"#
-    );
-    let labels: Vec<String> = store
-        .labels(kind::SECRET, OWN)
-        .unwrap()
-        .into_iter()
-        .map(|found| found.name)
-        .collect();
-    assert_eq!(labels, ["github"]);
-    // The resource has an id of the new shape and refers by id.
-    let resources = store.entries(kind::RESOURCE, OWN).unwrap();
-    let (resource, value) = &resources[0];
-    assert!(ids::is_id(resource));
-    let record: Value = serde_json::from_slice(value).unwrap();
-    assert_eq!(
-        (record["provisioner"].as_str(), record["host"].as_str()),
-        (Some(lab.as_str()), Some(studio.as_str()))
-    );
-    assert_eq!(read(kind::SPEC, resource).unwrap(), b"spec");
-    let job = store.job("j1").unwrap().unwrap();
-    assert_eq!(job.subject, format!("provisioner:{lab}"));
-    assert_eq!(job.host, format!("{studio}, {forge}"));
-    assert_eq!(all(&store)[0].host, studio);
-    // Nothing is left under a name, and every row of a thing has its label.
-    let left: Vec<_> = all_names(&store)
-        .into_iter()
-        .filter(|(kind, _, name)| {
-            kind != "meta"
-                && ["studio", "forge", "lab", "nexus", "github", "deploy"].contains(&name.as_str())
-        })
-        .collect();
-    assert!(left.is_empty(), "{left:?}");
-
-    // Again, with its marker gone, it changes nothing.
-    let before = store.export(Table::State).unwrap();
-    store
-        .forget(kind::META, OWN, crate::import::IDS_MARKER)
-        .unwrap();
-    let again = crate::import::take_in_ids(&store, &plugins).unwrap();
-    assert_eq!((again.given, again.copied.len()), (0, 0));
-    let Rows::State(mut after) = store.export(Table::State).unwrap() else {
-        panic!()
-    };
-    let Rows::State(mut before) = before else {
-        panic!()
-    };
-    for rows in [&mut before, &mut after] {
-        rows.retain(|row| row.kind != "meta");
-        for row in rows.iter_mut() {
-            row.updated.clear();
-        }
-    }
-    assert_eq!(after, before);
-}
-
 fn renames_keep_what_belongs_and_refers(place: &Place) {
     let home = tempfile::tempdir().unwrap();
     let paths = crate::paths::Paths {
@@ -1845,112 +1649,6 @@ async fn the_store_can_be_called_from_async_code() {
     }
 }
 
-/// An installation pointed at a new database takes in the files it has.
-fn the_old_files_go_into_an_empty_store(place: &Place) {
-    let dir = tempfile::tempdir().unwrap();
-    let paths = crate::paths::Paths {
-        config_dir: dir.path().join("config"),
-        data_dir: dir.path().join("data"),
-    };
-    std::fs::create_dir_all(&paths.config_dir).unwrap();
-    std::fs::write(
-        paths.settings_file(),
-        r#"{"default_host": "studio", "registries": {"hub": {"type": "docker", "url": "ghcr.io"}}}"#,
-    )
-    .unwrap();
-    std::fs::write(
-        paths.config_dir.join("secrets.json"),
-        r#"{"github": "ghp-made-up"}"#,
-    )
-    .unwrap();
-    let installation = Installation {
-        target: place.target(),
-        key_file: paths.config_dir.join("store.key"),
-        ca: None,
-    };
-    let store = place.open();
-    crate::import::run(&paths, &installation, &store).unwrap();
-    // Each has an id of its own, and its name as its label.
-    let github = store.id_of(kind::SECRET, OWN, "github").unwrap().unwrap();
-    assert_eq!(
-        store.read(kind::SECRET, OWN, &github).unwrap().unwrap(),
-        b"ghp-made-up"
-    );
-    let registries: Vec<String> = store
-        .labels(kind::REGISTRY, OWN)
-        .unwrap()
-        .into_iter()
-        .map(|found| found.name)
-        .collect();
-    assert_eq!(registries, ["hub"]);
-    assert_eq!(
-        store
-            .read(kind::SETTING, OWN, "default_host")
-            .unwrap()
-            .unwrap(),
-        b"studio"
-    );
-    assert!(paths.config_dir.join("migrated/secrets.json").exists());
-    assert_eq!(
-        std::fs::read_to_string(paths.settings_file()).unwrap(),
-        "{}\n"
-    );
-}
-
-/// Profiles of rookery 0.5, sealed and in any scope, are given the names of now
-/// once, with nothing else changed.
-fn sealed_profiles_of_an_older_rookery_take_the_names_of_now(place: &Place) {
-    let store = place.open().with_keys(Some(keys()), None);
-    let old = |level: &str| {
-        json!({"level": level, "profile": "cloud", "access": {"address": "192.0.2.4"}}).to_string()
-    };
-    store
-        .write(kind::PROFILE, OWN, "forge", old("reachable").as_bytes())
-        .unwrap();
-    store
-        .write(kind::PROFILE, OWN, "studio", old("workstation").as_bytes())
-        .unwrap();
-    store
-        .write(
-            kind::PROFILE,
-            "served:http://192.0.2.7:7777",
-            "depot",
-            old("controller").as_bytes(),
-        )
-        .unwrap();
-    let now = br#"{"type":"ssh","target":"laptop"}"#;
-    store.write(kind::PROFILE, OWN, "annex", now).unwrap();
-    let before = stored_row(&store, kind::PROFILE, OWN, "annex");
-    assert_eq!(crate::import::take_in_names(&store).unwrap(), 3);
-    let read = |scope: &str, name: &str| {
-        store
-            .read_json(kind::PROFILE, scope, name)
-            .unwrap()
-            .unwrap()
-    };
-    assert_eq!(
-        read(OWN, "forge"),
-        json!({"type": "ssh", "target": "cloud", "access": {"address": "192.0.2.4"}})
-    );
-    assert_eq!(
-        read(OWN, "studio"),
-        json!({"target": "cloud", "access": {"address": "192.0.2.4"}})
-    );
-    assert_eq!(
-        read("served:http://192.0.2.7:7777", "depot")["type"],
-        "managed"
-    );
-    assert!(stored_row(&store, kind::PROFILE, OWN, "forge").sealed);
-    assert_eq!(stored_row(&store, kind::PROFILE, OWN, "annex"), before);
-    assert!(
-        store
-            .names(kind::META, OWN)
-            .unwrap()
-            .contains(&crate::import::NAMES_MARKER.to_owned())
-    );
-    assert_eq!(crate::import::take_in_names(&store).unwrap(), 0);
-}
-
 /// A store with something in every table: messages, a cursor, values at a
 /// later revision, jobs, sealed and plain state, and a rookery server's scope.
 fn filled(store: &Store) {
@@ -2007,7 +1705,12 @@ fn filled(store: &Store) {
     let row = stored_row(&sealed, kind::SECRET, OWN, "api");
     store.backend().put_state(&row).unwrap();
     store
-        .write(kind::PROFILE, "served:http://192.0.2.7:7777", "depot", b"{}")
+        .write(
+            kind::PROFILE,
+            "served:http://192.0.2.7:7777",
+            "depot",
+            b"{}",
+        )
         .unwrap();
 }
 

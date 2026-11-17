@@ -304,7 +304,7 @@ async fn a_browser_and_a_client_of_rookery_0_5_are_told_what_to_do() {
     tokio::spawn(async move { axum::serve(listener, router).await });
     let connect = || async { tokio::net::TcpStream::connect(address).await.unwrap() };
 
-    // The address the recipes of 0.5 printed answers without a token, and says only what to run.
+    // The bare address answers without a token, and says only what to run.
     let mut client = Client::over(connect().await).await.unwrap();
     let front = client
         .send("GET", "/", &[], Default::default())
@@ -318,17 +318,20 @@ async fn a_browser_and_a_client_of_rookery_0_5_are_told_what_to_do() {
     let refused = client.get::<Value>("/v1/hosts").await.unwrap_err();
     assert_eq!(refused.status(), 401);
 
-    // A call only rookery 0.5 makes says that the client is older.
+    // A call the server has no operation for is refused by name.
     let socket = client::websocket_at(connect().await, "rookery", "/v1/portal", "s3cret-token")
         .await
         .unwrap();
     let portal = rookery_api::portal::Portal::over(socket);
-    let old = portal
-        .call("tasks.list", Some("studio"), Value::Null, None)
+    let missing = portal
+        .call("hosts.nothing", Some("studio"), Value::Null, None)
         .await
         .unwrap_err();
-    assert_eq!(old.status(), 404);
-    assert!(old.to_string().contains("a call of rookery 0.5"), "{old}");
+    assert_eq!(missing.status(), 404);
+    assert!(
+        missing.to_string().contains("No operation hosts.nothing"),
+        "{missing}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1581,11 +1584,6 @@ async fn the_server_is_set_up_through_the_api() {
             .unwrap()
             .contains("does not answer")
     );
-    // A key pasted by an older caller is not kept.
-    let pasted = json!({"builder": {}, "access": {"address": "192.0.2.7"}, "tailscale_auth_key": "tskey-auth-kFAKE-0000", "tailscale_auto_key": false});
-    send(client, "PUT", "/v1/hosts/studio/profile", pasted).await;
-    let (_, kept) = send(client, "GET", "/v1/hosts/studio/profile", Value::Null).await;
-    assert!(!kept.to_string().contains("tailscale_a"), "{kept}");
     // A seed of a host that joins the tailnet is refused, with what to do,
     // while the server has no API key of the tailnet to make its key with.
     // It is a refusal before anything began, which the command line exits 3 for.
@@ -4276,7 +4274,7 @@ async fn a_host_seen_to_be_a_workstation_never_gets_the_controller_alone() {
     // The host's record is a workstation's, whatever its profile here says.
     std::fs::write(
         host.dir.path().join("etc/applied.json"),
-        json!({"rookery": "0.5.0", "plugins": []}).to_string(),
+        json!({"rookery": "0.6.0", "plugins": []}).to_string(),
     )
     .unwrap();
     let served = served().await;

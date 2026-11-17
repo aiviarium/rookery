@@ -10,8 +10,7 @@ mod sqlite;
 mod suite;
 
 pub use installation::{
-    Installation, default_file, hold_lock, keep_before_converting, open_converting, shared,
-    wait_lock,
+    Installation, default_file, hold_lock, keep_before_converting, shared, wait_lock,
 };
 pub use postgres::PostgresBackend;
 pub use sqlite::SqliteBackend;
@@ -27,9 +26,6 @@ use std::sync::{Mutex, MutexGuard};
 pub mod kind {
     pub const PROFILE: &str = "profile";
     pub const CREDENTIALS: &str = "credentials";
-    /// The record of a host's machine of rookery before 0.5, which an import
-    /// turns into a resource.
-    pub const INSTANCE: &str = "instance";
     /// What a provisioner made for rookery, by its id.
     pub const RESOURCE: &str = "resource";
     /// A resource's specification, by the resource's id.
@@ -243,14 +239,14 @@ pub struct Job {
     pub id: String,
     /// The hosts it is about, for a reader.
     pub host: String,
-    /// The action, as rows from before `action` was kept say it.
+    /// The action, as rows kept without `action` say it.
     pub what: String,
     pub started: String,
     pub ended: Option<String>,
     pub exit_code: Option<i32>,
     pub output_path: String,
     /// `host:NAME`, `provisioner:NAME`, `resource:ID` or `installation`;
-    /// empty in rows from before it was kept.
+    /// empty in rows kept without it.
     pub subject: String,
     pub action: String,
     /// The caller's token: the same one again for the same subject and
@@ -264,7 +260,7 @@ pub struct Job {
 
 impl Job {
     pub fn json(&self) -> Value {
-        // Rows from before actions were kept say it as what they did.
+        // A row kept without an action says what it did.
         let action = match self.action.is_empty() {
             true => &self.what,
             false => &self.action,
@@ -282,7 +278,7 @@ fn arguments_text(arguments: &[String]) -> Option<String> {
     (!arguments.is_empty()).then(|| json!(arguments).to_string())
 }
 
-/// A job's arguments from its column; none in rows from before it was kept.
+/// A job's arguments from its column; none in rows kept without it.
 fn arguments_from(text: Option<String>) -> Vec<String> {
     text.and_then(|text| serde_json::from_str(&text).ok())
         .unwrap_or_default()

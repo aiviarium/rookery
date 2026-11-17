@@ -98,7 +98,7 @@ class TailnetTaskTests(unittest.TestCase):
     def calls_made(self):
         return self.calls.read_text().splitlines() if self.calls.exists() else []
 
-    def test_a_host_off_the_tailnet_without_a_way_to_a_key_stops_with_rookerys_words(self):
+    def test_a_host_off_the_tailnet_without_a_way_to_a_key_stops_with_the_words_of_rookery(self):
         problem = 'studio joins the tailnet at Tailscale, and rookery cannot make its key. rookery secret set tailnet_api_key'
         done = self.run_tasks('tailnet_check.yml', LOGGED_OUT, rookery_tailnet_problem=problem)
         self.assertNotEqual(done.returncode, 0)
@@ -108,7 +108,7 @@ class TailnetTaskTests(unittest.TestCase):
         self.assertIn('secret tailnet_api_key', done.stdout)
         self.assertIn('rookery_install_tailscale to false', done.stdout)
 
-    def test_a_host_of_rookery_0_5_that_was_never_joined_goes_on_without_the_tailnet(self):
+    def test_a_host_marked_tailnet_optional_goes_on_without_the_tailnet(self):
         problem = 'studio joins the tailnet at Tailscale, and rookery cannot make its key. rookery secret set tailnet_api_key'
         done = self.run_tasks('tailnet.yml', LOGGED_OUT, rookery_tailnet_problem=problem,
                               rookery_tailnet_optional=True)
@@ -161,8 +161,3 @@ class OneRepository(unittest.TestCase):
         self.assertEqual(set(role), set(recipe))
         for dest, content in role.items():
             self.assertEqual(content.replace('ansible_facts.distribution_release', "ansible_facts['distribution_release']"), recipe[dest])
-
-    def test_the_list_of_earlier_rookerys_goes(self):
-        tasks = yaml.safe_load((ROLE / 'tasks/tailscale.yml').read_text())
-        removed = [task for task in tasks if task.get('ansible.builtin.file', {}).get('state') == 'absent']
-        self.assertIn('/etc/apt/sources.list.d/rookery-tailscale.list', removed[0]['loop'])

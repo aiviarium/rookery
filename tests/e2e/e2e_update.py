@@ -7,19 +7,14 @@ Update and ShippedChanged use the extended state of the host
 (harness.extended()), which applied `up` 1.0.0 from the registry and the
 shipped `shipit`; Update leaves `up` at 2.0.0 and the host current, which
 ShippedChanged starts from. UpdateServed uses the shared state of rookery serve
-(harness.served_extended()), which applied `served` 1.0.0. FromRookery052 needs
-no host: it opens a store that rookery 0.5.2 wrote."""
+(harness.served_extended()), which applied `served` 1.0.0."""
 import json
-import shutil
 import unittest
-from pathlib import Path
 
 from harness import (AGENT, HOST, SCRATCH, Workstation, extended, light_vars, needs_e2e, package_registry,
                      plugin_version, random_text, served_extended, unb64, wait_for)
 
 PACKAGE = 'rookery-plugin-up'
-# A store rookery 0.5.2 wrote, with made-up hosts and fake keys.
-STORE_052 = Path(__file__).resolve().parents[2] / 'crates/rookery-core/tests/fixtures/store-0.5.2.db'
 
 
 def version_of(applied, plugin):
@@ -243,38 +238,3 @@ class UpdateServed(unittest.TestCase):
         kept.check(self, run)
         self.assertEqual(self.serve.call('GET', '/v1/kv/update/mark')['value'], {'mark': mark})
         self.assertEqual(run('id -un').strip(), AGENT)
-
-
-@needs_e2e
-class FromRookery052(unittest.TestCase):
-    """The first start of this rookery on the store of rookery 0.5.2 copies it,
-    converts it and says so once; the next start says nothing."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.station = Workstation('from-0.5.2', ssh_key=False, trust=False)
-        cls.store = cls.station.data / 'rookery/rookery.db'
-        cls.store.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        shutil.copy(STORE_052, cls.store)
-        cls.store.chmod(0o600)
-
-    def test_the_store_is_copied_converted_and_left_alone_after(self):
-        first = self.station.rookery('host', 'export', 'studio')
-        copy = self.store.with_name('rookery.db.rookery-0.5.2-schema-4')
-        self.assertIn(f'a copy of it as rookery 0.5.2 left it is in {copy}', first.stderr)
-        self.assertIn('3 profiles say type for level and target for profile now', first.stderr)
-        self.assertEqual(copy.stat().st_mode & 0o777, 0o600)
-        studio = json.loads(first.stdout)
-        self.assertNotIn('level', studio)
-        self.assertNotIn('tailscale_auth_key', studio)
-        annex = json.loads(self.station.rookery('host', 'export', 'annex').stdout)
-        self.assertEqual(annex['type'], 'managed')
-        self.assertTrue(annex['ansible_vars']['rookery_tailnet_optional'])
-        # The next start finds nothing to convert or copy.
-        copy.unlink()
-        again = self.station.rookery('host', 'export', 'studio')
-        self.assertEqual(json.loads(again.stdout), studio)
-        self.assertNotIn('rookery:', again.stderr)
-        self.assertFalse(copy.exists())
-        secrets = self.station.rookery('secret', 'list').stdout
-        self.assertIn('tailnet_api_key', secrets)

@@ -112,7 +112,7 @@ class Access(unittest.TestCase):
     def authorized(self):
         return self.root(f'cat {AUTHORIZED}').stdout
 
-    def test_1_first_contact_installs_rookerys_key_with_a_password_used_once(self):
+    def test_1_first_contact_installs_the_key_of_rookery_with_a_password_used_once(self):
         refused = self.logs_in()
         self.assertNotEqual(refused.returncode, 0, refused.stdout)
         own = self.station.own_public()
@@ -149,7 +149,7 @@ class Access(unittest.TestCase):
             self.set_auth('rookery')
         self.rookery('key', 'remove', 'deploy', '-y')
 
-    def test_3_a_password_goes_through_rookerys_askpass_helper(self):
+    def test_3_a_password_goes_through_the_askpass_helper_of_rookery(self):
         self.set_auth('password')
         try:
             # Without a stored password nobody can type one: it fails, and asks no program.
@@ -180,7 +180,7 @@ class Access(unittest.TestCase):
         self.assertIn(fingerprint(new), accepted.stdout)
         self.assertEqual(self.logs_in().stdout.strip(), OPERATOR)
 
-    def test_5_a_rotation_replaces_rookerys_key_on_the_host(self):
+    def test_5_a_rotation_replaces_the_key_of_rookery_on_the_host(self):
         before = self.station.own_public()
         rotated = self.rookery('key', 'rotate', 'rookery', '-y', timeout=300)
         self.assertIn(f'{HOST} takes the new key', rotated.stdout)

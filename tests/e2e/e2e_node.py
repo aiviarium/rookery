@@ -93,7 +93,7 @@ class Node(unittest.TestCase):
 
     # What the workstations of the tests before this one left on `forge`: a node
     # is not applied over a workstation that rookery set up, so it goes first.
-    LEFT = ('pkill -x rookeryd; userdel -r agent; rm -rf /etc/rookery /var/lib/rookeryd /etc/rookery /var/lib/rookery '
+    LEFT = ('pkill -x rookeryd; userdel -r agent; rm -rf /etc/rookery /var/lib/rookeryd /var/lib/rookery '
             '/etc/sudoers.d/90-rookery-agent /etc/ssh/sshd_config.d/00-rookery.conf; true')
 
     @classmethod

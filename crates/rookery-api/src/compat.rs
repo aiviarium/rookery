@@ -10,11 +10,7 @@ pub const NEEDS_HOST_API: u32 = 2;
 
 /// Where updating from an older rookery is explained.
 pub const UPGRADE_DOCS: &str =
-    "https://github.com/aiviarium/rookery/blob/main/docs/content/docs/(guide)/use/upgrading.mdx";
-
-/// The operations of rookery 0.5 that this server does not have, which only a
-/// client of that version still calls.
-pub const OLDER_OPS: &[&str] = &["tasks.list", "tasks.run", "tasks.choices", "actions.act"];
+    "https://github.com/aiviarium/rookery/blob/main/docs/content/docs/(guide)/use/updates.mdx";
 
 /// Why a client refuses to work with the server at `url`, which says it is
 /// rookery `version` of `api`; `None` when the server is new enough.
@@ -52,17 +48,6 @@ pub fn controller_is_older(host: &str, version: &str, host_type: HostType) -> St
         "The controller on {host} is rookery {version}, older than this rookery {VERSION}. Update it with {}",
         controller_update(host, host_type)
     )
-}
-
-/// What the server answers a client that calls an operation it does not
-/// have: for one of an older rookery, that the client is older.
-pub fn no_operation(name: &str) -> String {
-    match OLDER_OPS.contains(&name) {
-        true => format!(
-            "No operation {name}: it is a call of rookery 0.5, and this server is rookery {VERSION}. Update rookery where this call comes from: {UPGRADE_DOCS}"
-        ),
-        false => format!("No operation {name}"),
-    }
 }
 
 #[cfg(test)]
@@ -103,19 +88,5 @@ mod tests {
             said.ends_with("rookery run annex install-controller"),
             "{said}"
         );
-    }
-
-    #[test]
-    fn a_call_of_an_older_client_says_so() {
-        assert_eq!(no_operation("hosts.nothing"), "No operation hosts.nothing");
-        assert!(no_operation("tasks.list").contains("a call of rookery 0.5"));
-        // None of them is an operation now.
-        for name in OLDER_OPS {
-            assert!(
-                crate::ops::find(crate::ops::SERVE, name).is_none(),
-                "{name}"
-            );
-            assert!(crate::ops::find(crate::ops::HOST, name).is_none(), "{name}");
-        }
     }
 }

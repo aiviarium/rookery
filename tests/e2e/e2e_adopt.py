@@ -98,7 +98,7 @@ class Adopt(unittest.TestCase):
         self.station.root_on_host('rm -f /usr/local/bin/rookeryd.away')
         adopter.link().get('/v1/version')
         self.assertEqual(block(self.station, marker(own)), [own])
-        # The rookery that set the host up keeps its access.
+        # The machine that set the host up keeps its access.
         self.assertEqual(block(self.station, marker(old_own)), [old_own])
         self.assertEqual(self.station.ssh(OPERATOR, 'id -un', key=self.station.own_key).stdout.strip(), OPERATOR)
         # The apply as the operator settled how it logs in.

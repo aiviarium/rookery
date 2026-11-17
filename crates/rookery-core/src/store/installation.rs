@@ -75,7 +75,7 @@ impl Installation {
     }
 
     /// Open the store with its keys, finishing or undoing a key change that
-    /// was interrupted. A SQLite store an older rookery wrote is copied first
+    /// was interrupted. A SQLite store of an older schema is copied first
     /// ([`keep_before_converting`]).
     pub fn open(&self) -> crate::Result<Store> {
         let _held = self.hold_converting()?;
@@ -179,8 +179,7 @@ fn beside(file: &Path, suffix: &str) -> PathBuf {
 type Opened = Mutex<HashMap<(PathBuf, PathBuf), Arc<Store>>>;
 
 /// The store of this installation, opened once per process and data
-/// directory. The first open in a process takes in what older versions of
-/// rookery kept in files, so nothing reads the store before that is done.
+/// directory.
 pub fn shared(paths: &Paths) -> crate::Result<Arc<Store>> {
     static OPENED: OnceLock<Opened> = OnceLock::new();
     let opened = OPENED.get_or_init(Default::default);
@@ -192,68 +191,14 @@ pub fn shared(paths: &Paths) -> crate::Result<Arc<Store>> {
     if let Some(store) = opened.get(&key) {
         return Ok(store.clone());
     }
-    let store = Arc::new(open_converting(paths)?);
+    let store = Arc::new(Installation::of(paths).open()?);
     opened.insert(key, store.clone());
     Ok(store)
 }
 
-/// Open the installation's store and take in what older versions kept. A
-/// store an older rookery wrote is copied first, as it was, for that rookery to
-/// go back to: once converted it reads it no more.
-pub fn open_converting(paths: &Paths) -> crate::Result<Store> {
-    let installation = Installation::of(paths);
-    // Held until the imports are done too, which convert it as well.
-    let _held = installation.hold_converting()?;
-    let store = installation.open_held()?;
-    if let Target::Postgres(_) = installation.target
-        && let Some(old) = older_writer(&store)?
-    {
-        eprintln!(
-            "rookery: rookery {} converts the store in PostgreSQL that rookery {old} wrote, which rookery {old} cannot read afterwards. Going back needs a dump made before, with pg_dump: {}",
-            rookery_api::VERSION,
-            rookery_api::compat::UPGRADE_DOCS
-        );
-    }
-    crate::import::run(paths, &installation, &store)?;
-    Ok(store)
-}
-
-/// The version of rookery that last took the store in, when it is older than
-/// this one: a marker of this rookery's imports is missing.
-fn older_writer(store: &Store) -> crate::Result<Option<String>> {
-    let names = store.names(super::kind::META, super::OWN)?;
-    // A store no rookery took in yet is a new one.
-    if !names.iter().any(|name| name == crate::import::MARKER) {
-        return Ok(None);
-    }
-    if crate::import::MARKERS
-        .iter()
-        .all(|marker| names.iter().any(|name| name == marker))
-    {
-        return Ok(None);
-    }
-    let mut versions: Vec<String> = vec![];
-    for name in &names {
-        if let Some(value) = store.read_json(super::kind::META, super::OWN, name)?
-            && let Some(version) = value["version"].as_str()
-        {
-            versions.push(version.to_owned());
-        }
-    }
-    versions.sort_by_key(|version| version_key(version));
-    Ok(Some(versions.pop().unwrap_or_else(|| "0.5".into())))
-}
-
-fn version_key(version: &str) -> Vec<u64> {
-    version
-        .split(|c: char| !c.is_ascii_digit())
-        .filter_map(|part| part.parse().ok())
-        .collect()
-}
-
 /// Before this rookery converts a SQLite store an older one wrote, for the
 /// first time, a consistent copy of it goes beside it, named for the schema
-/// and the rookery it had, in place of any copy made before. The key file is
+/// it had, in place of any copy made before. The key file is
 /// not copied: the copy opens with the same one. Says what it did, or why
 /// not, and nothing when the store needs no conversion.
 pub fn keep_before_converting(file: &Path) -> crate::Result<Option<String>> {
@@ -271,50 +216,18 @@ pub fn keep_before_converting(file: &Path) -> crate::Result<Option<String>> {
     if schema == 0 || schema as usize > super::sqlite::MIGRATIONS.len() {
         return Ok(None);
     }
-    // A sealed store's values are not text, and then say no version.
-    let markers: Vec<(String, Vec<u8>)> = match db.prepare(
-        "SELECT name, value FROM state WHERE kind = 'meta' AND scope = '' AND name LIKE 'import:%'",
-    ) {
-        Ok(mut statement) => statement
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
-            .collect::<rusqlite::Result<_>>()?,
-        // A schema older than the table of state.
-        Err(_) => vec![],
-    };
-    // An older schema, or a store an older rookery took in: one that has the
-    // first import's marker and lacks one of this rookery's. A store with none
-    // was made by this rookery, as a copy or before its first import.
-    let marked = |marker: &str| markers.iter().any(|(name, _)| name == marker);
-    let older = (schema as usize) < super::sqlite::MIGRATIONS.len()
-        || (marked(crate::import::MARKER) && !crate::import::MARKERS.iter().all(|m| marked(m)));
-    if !older {
+    // A schema older than this rookery's: the migrations convert it.
+    if schema as usize == super::sqlite::MIGRATIONS.len() {
         return Ok(None);
     }
-    let mut versions: Vec<String> = markers
-        .iter()
-        .filter_map(|(_, value)| {
-            serde_json::from_slice::<serde_json::Value>(value).ok()?["version"]
-                .as_str()
-                .map(str::to_owned)
-        })
-        .collect();
-    versions.sort_by_key(|version| version_key(version));
-    let old = versions.pop();
-    let suffix = match &old {
-        Some(version) => format!("rookery-{version}-schema-{schema}"),
-        None => format!("schema-{schema}"),
-    };
+    let suffix = format!("schema-{schema}");
     let copy = beside(file, &suffix);
     let dir = file.parent().unwrap_or(Path::new("."));
     let wal = PathBuf::from(format!("{}-wal", file.display()));
     let size = fs::metadata(file)?.len() + fs::metadata(wal).map_or(0, |wal| wal.len());
-    let named = match &old {
-        Some(version) => format!("rookery {version}"),
-        None => "the older rookery".to_owned(),
-    };
     if free_space(dir).is_some_and(|free| free < size + size / 10) {
         return Ok(Some(format!(
-            "{} has no room for a copy of the store ({size} bytes), so none was made before rookery {} converts it. {named} cannot read it afterwards: {}",
+            "{} has no room for a copy of the store ({size} bytes), so none was made before rookery {} converts it. The older rookery cannot read it afterwards: {}",
             dir.display(),
             rookery_api::VERSION,
             rookery_api::compat::UPGRADE_DOCS
@@ -334,7 +247,7 @@ pub fn keep_before_converting(file: &Path) -> crate::Result<Option<String>> {
     if let Err(error) = db.execute("VACUUM INTO ?1", [partial.to_string_lossy()]) {
         let _ = fs::remove_file(&partial);
         return Ok(Some(format!(
-            "No copy of the store was made before rookery {} converts it ({error}). {named} cannot read it afterwards: {}",
+            "No copy of the store was made before rookery {} converts it ({error}). The older rookery cannot read it afterwards: {}",
             rookery_api::VERSION,
             rookery_api::compat::UPGRADE_DOCS
         )));
@@ -351,15 +264,13 @@ pub fn keep_before_converting(file: &Path) -> crate::Result<Option<String>> {
         let Some(rest) = name.strip_prefix(&prefix) else {
             continue;
         };
-        let earlier = (rest.starts_with("rookery-") || rest.starts_with("schema-"))
-            && rest.contains("schema-")
-            && !rest.ends_with(".partial");
+        let earlier = rest.starts_with("schema-") && !rest.ends_with(".partial");
         if earlier && entry.path() != copy {
             let _ = fs::remove_file(entry.path());
         }
     }
     Ok(Some(format!(
-        "before rookery {} converts the store, a copy of it as {named} left it is in {}. {named} needs that copy to go back: {}",
+        "before rookery {} converts the store, a copy of it as the older rookery left it is in {}. The older rookery needs that copy to go back: {}",
         rookery_api::VERSION,
         copy.display(),
         rookery_api::compat::UPGRADE_DOCS

@@ -537,9 +537,8 @@ def _enter_extended():
 
 def plain():
     """The host applied from the workstation again without the extended
-    state's plugins, as an older rookery left it: joined to the tailnet by hand,
-    with that rookery's profile, which held a pasted key and had rookery's keys
-    switched off, and no API key of the tailnet. `first` is that apply,
+    state's plugins: joined to the tailnet by hand, with a profile that holds
+    a pasted key and has rookery's keys switched off, and no API key of the tailnet. `first` is that apply,
     `nodes` and `after` Headscale's nodes before and after it, and `before`
     the newest Headscale key after the host joined. Then the host leaves the tailnet, and `refused` is
     the apply that finds it off the tailnet with no way to a key."""

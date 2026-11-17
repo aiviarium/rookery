@@ -32,31 +32,6 @@ pub fn settings() -> Settings {
     Settings::new(settings::folder(|name| std::env::var(name).ok()))
 }
 
-/// Take in what rookery-remote kept, once, before a server is looked for, and
-/// say what became of it. Nothing is lost: its file goes only once rookery has
-/// what was in it.
-pub fn take_in_remote(kept: &Settings, old: Option<&std::path::Path>) {
-    use super::out;
-    match kept.take_in(old) {
-        Ok(settings::TakenIn::Taken(server)) => out::note(format!(
-            "rookery-remote's server is rookery's now: {server}"
-        )),
-        Ok(settings::TakenIn::Left { theirs, ours, file }) => out::note(format!(
-            "rookery-remote's settings in {} name the server {theirs}, and rookery uses {ours}: the file is left as it is. To use {theirs}: rookery login {theirs}",
-            file.display()
-        )),
-        Ok(settings::TakenIn::Nothing | settings::TakenIn::Same) => {}
-        Err(error) => out::warn(format!(
-            "rookery-remote's settings were not taken in, and are left as they are: {error}"
-        )),
-    }
-}
-
-/// rookery-remote's folder of settings for this user.
-pub fn remote_folder() -> Option<std::path::PathBuf> {
-    settings::old_folder(|name| std::env::var(name).ok())
-}
-
 fn variable(name: &str) -> Option<String> {
     std::env::var(name)
         .ok()
@@ -109,7 +84,6 @@ impl Client {
     /// Reach the server this run uses.
     pub fn open(global: &Global) -> Result<Client> {
         let kept = settings();
-        take_in_remote(&kept, remote_folder().as_deref());
         Client::open_in(global, &kept)
     }
 

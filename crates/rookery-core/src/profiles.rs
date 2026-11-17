@@ -183,10 +183,7 @@ impl Place {
             Place::Stored { scope, id, .. } => {
                 let store = store::shared(paths)?;
                 let mut profile: Option<Value> = store.read_json(kind::PROFILE, scope, id)?;
-                // A row an older rookery or rookery server wrote after the store's
-                // names were converted is read with the names of now.
                 if let Some(profile) = &mut profile {
-                    rookery_api::profile::take_old_names(profile);
                     refs::to_names(&store, scope, profile)?;
                 }
                 Ok(profile)
@@ -195,9 +192,6 @@ impl Place {
                 Ok(data) => {
                     let mut profile: Value = serde_json::from_slice(&data)
                         .map_err(|error| format!("{}: {error}", path.display()))?;
-                    // A profile of an older rookery is read in the layout of now;
-                    // the file keeps the old one until the user saves.
-                    crate::import::convert_profile(paths, &self.title(), &mut profile);
                     let store = store::shared(paths)?;
                     refs::to_names(&store, OWN, &mut profile)?;
                     Ok(Some(profile))
@@ -386,7 +380,6 @@ pub fn list(paths: &Paths, scope: &str) -> Result<Vec<(Place, Value)>> {
         let Ok(mut profile) = serde_json::from_slice(&value) else {
             continue;
         };
-        rookery_api::profile::take_old_names(&mut profile);
         refs::to_names(&store, scope, &mut profile)?;
         found.push((Place::at(scope, &host.id, &host.name), profile));
     }
@@ -940,11 +933,12 @@ mod tests {
         );
         // Only a workstation is given a hostname by rookery.
         let forge = Place::own(&paths, "forge").unwrap();
-        forge.save(
-            &paths,
-            &json!({"type": "ssh", "access": {"address": "192.0.2.30"}}),
-        )
-        .unwrap();
+        forge
+            .save(
+                &paths,
+                &json!({"type": "ssh", "access": {"address": "192.0.2.30"}}),
+            )
+            .unwrap();
         assert_eq!(
             error(rename(&paths, &forge, "annex", true)),
             "forge is a host of the type ssh, and only a workstation is given its hostname by rookery"

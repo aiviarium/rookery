@@ -176,8 +176,7 @@ pub struct HostInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     /// The rookery version its configuration was last applied with, when its
-    /// rookeryd says. An older rookeryd does not, nor does a host not applied
-    /// since.
+    /// rookeryd says, which it does for a host applied since.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub applied: Option<String>,
     /// What changed since then, when the server would apply something else now.
@@ -283,7 +282,7 @@ pub(super) fn job_info(paths: &rookery_core::paths::Paths, job: store::Job) -> J
         id: job.id,
         subject: job.subject,
         subject_name,
-        // Rows from before actions were kept say it as what they did.
+        // A job kept without an action says what it did.
         action: match job.action.is_empty() {
             true => job.what,
             false => job.action,
@@ -411,7 +410,7 @@ pub fn router(state: Arc<Serve>, guarded: bool) -> Router {
             );
         }
     }
-    // Not behind the guard: an address in a browser, as the recipes of rookery 0.5 printed it.
+    // Not behind the guard, so that an address typed into a browser gets an answer.
     router = router.route("/", get(front));
     // Added after the guard, which they are not behind: they check their key themselves.
     router = router.merge(keyed_routes().split_for_parts().0);
@@ -618,7 +617,7 @@ async fn portal(
             None => (ops::SERVE, String::new()),
         };
         let op = ops::find(table, name)
-            .ok_or_else(|| (code::NOT_FOUND, rookery_api::compat::no_operation(name)))?;
+            .ok_or_else(|| (code::NOT_FOUND, format!("No operation {name}")))?;
         if !op.server_only.is_empty() {
             return Err((code::FORBIDDEN, op.server_only.into()));
         }

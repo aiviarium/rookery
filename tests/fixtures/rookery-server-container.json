@@ -1,5 +1,5 @@
 {
- "_about": "docker inspect of a rookery 0.5.2 server container that the incus-host recipe of 0.5.2 ran, on a Docker daemon with max-size and max-file in daemon.json; paths, ids and the group are made up",
+ "_about": "docker inspect of a rookery server container that the rookery-server recipe ran, on a Docker daemon with max-size and max-file in daemon.json; paths, ids and the group are made up",
  "container": {
   "Config": {
    "AttachStderr": true,

@@ -493,7 +493,7 @@
         "description": "The profile a host keeps of itself, at `/etc/rookery/profile.json`: the\nprofile as rookery holds it, without the enrollment key and without its\n`access`, how the rookery that wrote it reaches the host. A rookery that does\nnot have the host can take it over from this.",
         "properties": {
           "format": {
-            "description": "The format of this document: 2, or 1 for one rookery 0.4.1 wrote, whose\nprofile has the layout before `access`.",
+            "description": "The format of this document.",
             "format": "int64",
             "minimum": 0,
             "type": "integer"
@@ -1068,7 +1068,7 @@
       "Session": {
         "properties": {
           "action": {
-            "description": "The action it was started for, if any. The sessions an older\nrookeryd kept on the host say `task`.",
+            "description": "The action it was started for, if any.",
             "type": [
               "string",
               "null"
@@ -1527,7 +1527,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/Applied",
-                "description": "What the host's configuration was last applied from, when rookery\nrecorded it. An older rookeryd does not say."
+                "description": "What the host's configuration was last applied from, when rookery\nrecorded it."
               },
               {
                 "type": "null"

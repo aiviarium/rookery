@@ -1,6 +1,6 @@
 """The rookery server recipe's container, run end to end by ansible-playbook
 against a fake docker: a first run, a run over a container that the
-incus-host recipe of rookery 0.5.2 made, and a second run that changes nothing."""
+recipe made, and a second run that changes nothing."""
 import json
 import os
 import shutil
@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from test_node import FAKE_DOCKER, FOUND_052, PLAYBOOK, UPGRADE, image, write_program, yaml
+from test_node import FAKE_DOCKER, FOUND, PLAYBOOK, UPGRADE, image, write_program, yaml
 
 SRC = Path(__file__).resolve().parents[1]
 RECIPE = SRC / 'recipes/rookery-server'
@@ -93,7 +93,7 @@ if args[:1] == ['run']:
         images = {'new': new, 'sha256:new': new, 'ghcr.io/aiviarium/rookery': new}
         containers = {}
         if found:
-            images.update({found['Image']: FOUND_052['image'], found['Config']['Image']: FOUND_052['image']})
+            images.update({found['Image']: FOUND['image'], found['Config']['Image']: FOUND['image']})
             containers['rookery'] = found
         self.state.write_text(json.dumps({'containers': containers, 'images': images}))
 
@@ -112,7 +112,7 @@ if args[:1] == ['run']:
         return [call for call in data['calls'] if call[0] == 'run']
 
     def test_an_update_over_the_incus_host_recipes_container_keeps_what_it_reached(self):
-        self.docker(found=FOUND_052['container'])
+        self.docker(found=FOUND['container'])
         done, data = self.apply('-e', 'rookery_server_node=true', '-e', 'rookery_server_update=true')
         [run] = self.runs(data)
         words = ' '.join(run)
@@ -133,7 +133,7 @@ if args[:1] == ['run']:
         self.assertRegex(done.stdout, r'localhost\s*: ok=\d+\s+changed=0\b')
 
     def test_a_run_without_an_update_keeps_the_image(self):
-        self.docker(found=FOUND_052['container'])
+        self.docker(found=FOUND['container'])
         done, data = self.apply()
         self.assertNotIn('pull', [call[0] for call in data['calls']])
         [run] = self.runs(data)

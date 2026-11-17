@@ -1,6 +1,6 @@
 """Joining a tailnet at a Headscale server, with a key rookery creates when the
-host needs one, through rookery and through rookery serve; and a host an older
-rookery left joined by hand, which stays as it is. The test host runs the real
+host needs one, through rookery and through rookery serve; and a host joined
+by hand, which stays as it is. The test host runs the real
 tailscale client.
 
 Each is a shared state of the host, which leaves the tailnet before the next
@@ -81,8 +81,7 @@ class AutomaticKey(Joined, unittest.TestCase):
 
 @needs_e2e
 class JoinedByHand(unittest.TestCase):
-    """A host joined by hand, with the profile of an older rookery that held a
-    pasted key, and no API key of the tailnet on the workstation."""
+    """A host joined by hand, with a profile that holds a pasted key, and no API key of the tailnet on the workstation."""
 
     @classmethod
     def setUpClass(cls):

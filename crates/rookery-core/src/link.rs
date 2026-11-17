@@ -273,12 +273,9 @@ impl Link {
         self.call("GET", path, None).await
     }
 
-    /// What the host's controller says of itself, read as this API says it
-    /// also from a rookeryd of an older API.
+    /// What the host's controller says of itself.
     pub async fn version(&self) -> client::Result<rookery_api::Version> {
-        let reply: Value = self.get("/v1/version").await?;
-        rookery_api::Version::from_reply(reply)
-            .map_err(|error| Error::Transport(format!("version: {error}")))
+        self.get("/v1/version").await
     }
 
     pub async fn post<T: DeserializeOwned>(&self, path: &str, body: &Value) -> client::Result<T> {

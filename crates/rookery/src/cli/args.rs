@@ -995,10 +995,6 @@ pub struct ServerRun {
     /// Allow an address other than this machine's own.
     #[arg(long, requires = "listen")]
     pub expose: bool,
-    /// Taken and left unused: the page in the browser of rookery 0.5 is gone,
-    /// and containers and units of that version still name it.
-    #[arg(long, hide = true)]
-    pub web: bool,
     /// Run a simulated server to test an application against: the real API on a scratch store, with hosts and provisioners that reach no machine.
     #[arg(long)]
     pub simulate: bool,

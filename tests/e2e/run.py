@@ -56,7 +56,7 @@ HOSTS = {
         'e2e_tailnet.AutomaticKey',
         'e2e_update.Update',
         'e2e_update.ShippedChanged',
-        # plain(): without them, joined by hand by an older rookery.
+        # plain(): without them, joined by hand.
         'e2e_plugins.PluginRemoved',
         'e2e_tailnet.JoinedByHand',
         # served(): rookery serve, applying nothing.
@@ -77,10 +77,9 @@ HOSTS = {
     ],
     # The bare host first: the ways rookery logs in, and rookery's controller
     # alone, which leave it as they found it. Then a host that only ever
-    # takes rookery's own key. The provisioners' tests and the one of a store
-    # of rookery 0.5.2 need no host at all. Last, a node, which stays one.
-    'forge': ['e2e_access', 'e2e_controller.Controller', 'e2e_own_key', 'e2e_provisioners',
-             'e2e_update.FromRookery052', 'e2e_node'],
+    # takes rookery's own key. The provisioners' tests need no host at all.
+    # Last, a node, which stays one.
+    'forge': ['e2e_access', 'e2e_controller.Controller', 'e2e_own_key', 'e2e_provisioners', 'e2e_node'],
 }
 
 
@@ -100,7 +99,7 @@ SHARDS = {
     'plain': ['e2e_plugins.PluginRemoved', 'e2e_tailnet.JoinedByHand'],
     'served-extended': ['e2e_tailnet.ThroughTheServer', 'e2e_serve.ApplyJob', 'e2e_client.ClientApply',
                         'e2e_update.UpdateServed'],
-    'forge': ['e2e_access', 'e2e_provisioners', 'e2e_update.FromRookery052'],
+    'forge': ['e2e_access', 'e2e_provisioners'],
     'controller': ['e2e_controller.Controller'],
     'own-key': ['e2e_own_key'],
     'node': ['e2e_node'],

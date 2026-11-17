@@ -3,14 +3,6 @@
 # is tailnet.yml's. The key and the list have the names Tailscale's own
 # installer and rookery's server recipe give them, as apt refuses two lists of
 # the same repository with different keys.
-- name: Remove the Tailscale repository of earlier rookeries, kept under other names
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: absent
-  loop:
-    - /etc/apt/sources.list.d/rookery-tailscale.list
-    - /usr/share/keyrings/rookery-tailscale.gpg
-  register: tailscale_old_repo
 - name: Add Tailscale package signing key
   ansible.builtin.get_url:
     url: https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_facts.distribution_release }}.noarmor.gpg
@@ -26,4 +18,4 @@
   ansible.builtin.apt:
     name: tailscale
     state: present
-    update_cache: "{{ tailscale_repo.changed or tailscale_old_repo.changed }}"
+    update_cache: "{{ tailscale_repo.changed }}"
