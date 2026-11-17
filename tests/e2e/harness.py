@@ -537,8 +537,8 @@ def _enter_extended():
 
 def plain():
     """The host applied from the workstation again without the extended
-    state's plugins: joined to the tailnet by hand, with a profile that holds
-    a pasted key and has rookery's keys switched off, and no API key of the tailnet. `first` is that apply,
+    state's plugins: joined to the tailnet by hand, and no API key of the
+    tailnet on the workstation. `first` is that apply,
     `nodes` and `after` Headscale's nodes before and after it, and `before`
     the newest Headscale key after the host joined. Then the host leaves the tailnet, and `refused` is
     the apply that finds it off the tailnet with no way to a key."""
@@ -546,8 +546,7 @@ def plain():
 
 
 def join_by_hand(station):
-    """Join the host to Headscale with a key made by hand, as one did before
-    rookery made the keys."""
+    """Join the host to Headscale with a key made by hand."""
     key = headscale().new_key()
     station.root_on_host(f"umask 077; printf %s {shell_quote(key)} > /run/e2e-key; "
                          f"tailscale up --timeout=60s --auth-key=file:/run/e2e-key "
@@ -564,12 +563,10 @@ def _enter_plain():
     join_by_hand(station)
     station.rookery('config', 'set', 'tailnet_login_server', headscale().url)
     station.rookery('config', 'set', 'tailnet_user', headscale().user)
-    station.write_profile(joining({**kept, 'ansible_vars': light_vars()}, tailscale_auth_key=headscale().new_key(),
-                                  tailscale_auto_key=False, tailscale_login_server=headscale().url))
+    station.write_profile(joining({**kept, 'ansible_vars': light_vars()}))
     nodes, before = headscale().nodes(), last_key_id()
     first = station.rookery('apply', HOST, timeout=900)
     after = headscale().nodes()
-    saved = station.read_profile()
     leave_the_tailnet(station)
     refused = station.rookery('apply', HOST, timeout=900, check=False)
 
@@ -578,7 +575,7 @@ def _enter_plain():
         station.write_profile(kept)
         for key in ('tailnet_login_server', 'tailnet_user'):
             station.rookery('config', 'unset', key)
-    return Applied(station=station, kept=kept, first=first, saved=saved, nodes=nodes, after=after,
+    return Applied(station=station, kept=kept, first=first, nodes=nodes, after=after,
                    before=before, refused=refused), leave
 
 

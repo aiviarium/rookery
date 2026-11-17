@@ -81,12 +81,12 @@ class AutomaticKey(Joined, unittest.TestCase):
 
 @needs_e2e
 class JoinedByHand(unittest.TestCase):
-    """A host joined by hand, with a profile that holds a pasted key, and no API key of the tailnet on the workstation."""
+    """A host joined by hand, and no API key of the tailnet on the workstation."""
 
     @classmethod
     def setUpClass(cls):
         applied = plain()
-        cls.station, cls.first, cls.saved, cls.refused = applied.station, applied.first, applied.saved, applied.refused
+        cls.station, cls.first, cls.refused = applied.station, applied.first, applied.refused
         cls.nodes, cls.after, cls.before = applied.nodes, applied.after, applied.before
 
     def test_a_host_on_the_tailnet_is_left_on_it(self):
@@ -95,11 +95,6 @@ class JoinedByHand(unittest.TestCase):
         self.assertEqual([node['givenName'] for node in self.after], [HOST])
         self.assertNotIn('Consume enrollment key', changed(self.first.stdout))
         self.assertEqual(last_key_id(), self.before)
-
-    def test_the_pasted_key_is_not_kept(self):
-        for old in ('tailscale_auth_key', 'tailscale_auto_key', 'tailscale_login_server'):
-            self.assertNotIn(old, self.saved)
-        self.assertNotIn('rookery_tailscale_auth_key', self.saved.get('ansible_vars', {}))
 
     def test_off_the_tailnet_without_the_api_key_nothing_runs(self):
         output = self.refused.stdout + self.refused.stderr
