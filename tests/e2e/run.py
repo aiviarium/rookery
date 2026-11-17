@@ -48,7 +48,7 @@ HOSTS = {
         'e2e_secrets',
         'e2e_local',
         'e2e_controller.OnAWorkstation',
-        # Another berth adopts the host, applies the profile it kept and goes again.
+        # Another rookery adopts the host, applies the profile it kept and goes again.
         'e2e_adopt.Adopt',
         # extended(): three plugins and the tailnet, applied twice.
         'e2e_apply.Again',
@@ -56,10 +56,10 @@ HOSTS = {
         'e2e_tailnet.AutomaticKey',
         'e2e_update.Update',
         'e2e_update.ShippedChanged',
-        # plain(): without them, joined by hand by an older berth.
+        # plain(): without them, joined by hand by an older rookery.
         'e2e_plugins.PluginRemoved',
         'e2e_tailnet.JoinedByHand',
-        # served(): berth serve, applying nothing.
+        # served(): rookery serve, applying nothing.
         'e2e_serve.Routes',
         'e2e_serve.Portal',
         'e2e_serve.Roles',
@@ -72,15 +72,15 @@ HOSTS = {
         'e2e_serve.ApplyJob',
         'e2e_client.ClientApply',
         'e2e_update.UpdateServed',
-        # Its own berth serve on the same host, restored from its store: applies nothing.
+        # Its own rookery serve on the same host, restored from its store: applies nothing.
         'e2e_restore',
     ],
-    # The bare host first: the ways berth logs in, and berth's controller
+    # The bare host first: the ways rookery logs in, and rookery's controller
     # alone, which leave it as they found it. Then a host that only ever
-    # takes berth's own key. The provisioners' tests and the one of a store
-    # of berth 0.5.2 need no host at all. Last, a node, which stays one.
+    # takes rookery's own key. The provisioners' tests and the one of a store
+    # of rookery 0.5.2 need no host at all. Last, a node, which stays one.
     'dock': ['e2e_access', 'e2e_controller.Controller', 'e2e_own_key', 'e2e_provisioners',
-             'e2e_update.FromBerth052', 'e2e_node'],
+             'e2e_update.FromRookery052', 'e2e_node'],
 }
 
 
@@ -88,7 +88,7 @@ HOSTS = {
 # shard starts from a fresh host, so it pays for the first apply and the
 # states it uses; one state is never cut in two. The shards `studio` and
 # `dock` are the tests that make no apply but the first: ci/plan.py runs them
-# for any change to berth, and the others only for changes to what the role
+# for any change to rookery, and the others only for changes to what the role
 # is given (its SEAM) on a pull request.
 SHARDS = {
     'studio': ['e2e_apply.Apply', 'e2e_host', 'e2e_secrets', 'e2e_local', 'e2e_controller.OnAWorkstation',
@@ -100,7 +100,7 @@ SHARDS = {
     'plain': ['e2e_plugins.PluginRemoved', 'e2e_tailnet.JoinedByHand'],
     'served-extended': ['e2e_tailnet.ThroughTheServer', 'e2e_serve.ApplyJob', 'e2e_client.ClientApply',
                         'e2e_update.UpdateServed'],
-    'dock': ['e2e_access', 'e2e_provisioners', 'e2e_update.FromBerth052'],
+    'dock': ['e2e_access', 'e2e_provisioners', 'e2e_update.FromRookery052'],
     'controller': ['e2e_controller.Controller'],
     'own-key': ['e2e_own_key'],
     'node': ['e2e_node'],
@@ -232,11 +232,11 @@ def unnamed():
 
 
 def run_here(names, everything):
-    """Run the tests in this process, against the host of BERTH_E2E_HOST."""
+    """Run the tests in this process, against the host of ROOKERY_E2E_HOST."""
     global harness
     import harness  # noqa: PLC0415 (it reads the host from the environment)
-    if not harness.BERTH.is_file():
-        sys.exit(f'No {harness.BERTH}: build berth first')
+    if not harness.ROOKERY.is_file():
+        sys.exit(f'No {harness.ROOKERY}: build rookery first')
     if everything and (missing := unnamed()):
         sys.exit('Not in HOSTS of tests/e2e/run.py: ' + ', '.join(missing))
     loader = unittest.TestLoader()
@@ -256,15 +256,15 @@ def run_here(names, everything):
             print(f'  {seconds:7.1f}s  {name}')
     print(f'\nEnd-to-end tests on {harness.HOST} took {time.monotonic() - started:.0f}s: '
           f'{counted["apply"]} playbook runs ({counted["apply_seconds"]:.0f}s), '
-          f'{counted["workstation"]} workstations, {counted["serve"]} berth serve', flush=True)
+          f'{counted["workstation"]} workstations, {counted["serve"]} rookery serve', flush=True)
     return result.wasSuccessful()
 
 
 def main():
-    if os.environ.get('BERTH_E2E_CHILD'):
-        if os.environ.get('BERTH_E2E') != '1':
+    if os.environ.get('ROOKERY_E2E_CHILD'):
+        if os.environ.get('ROOKERY_E2E') != '1':
             sys.exit('The end-to-end tests run in their containers: ci/run.sh e2e')
-        sys.exit(0 if run_here(sys.argv[1:], os.environ.get('BERTH_E2E_CHILD') == 'all') else 1)
+        sys.exit(0 if run_here(sys.argv[1:], os.environ.get('ROOKERY_E2E_CHILD') == 'all') else 1)
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--shard', choices=SHARDS, help='run the tests of this shard only')
     parser.add_argument('--shards', action='store_true', help='print the names of the shards as JSON')
@@ -283,7 +283,7 @@ def main():
     if args.host_of:
         print(host_of_shard(args.host_of))
         return
-    if os.environ.get('BERTH_E2E') != '1':
+    if os.environ.get('ROOKERY_E2E') != '1':
         sys.exit('The end-to-end tests run in their containers: ci/run.sh e2e')
     names = args.names
     groups = {}
@@ -301,10 +301,10 @@ def main():
     for host, listed in groups.items():
         if not listed:
             continue
-        env = {**os.environ, 'BERTH_E2E_HOST': host, 'BERTH_E2E_CHILD': 'some' if names else 'all'}
+        env = {**os.environ, 'ROOKERY_E2E_HOST': host, 'ROOKERY_E2E_CHILD': 'some' if names else 'all'}
         # The other hosts take the operator's keys from a folder of their own (ci/compose.yml).
         if host != next(iter(HOSTS)):
-            env['BERTH_E2E_SEED'] = f'{env.get("BERTH_E2E_SEED", "/seed")}/{host}'
+            env['ROOKERY_E2E_SEED'] = f'{env.get("ROOKERY_E2E_SEED", "/seed")}/{host}'
         output = None if not running else tempfile.TemporaryFile('w+')
         process = subprocess.Popen([sys.executable, __file__, *listed], env=env, stdout=output,
                                    stderr=subprocess.STDOUT if output else None)

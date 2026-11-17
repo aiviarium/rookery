@@ -14,7 +14,7 @@ The USB installer is the Ubuntu Server 26.04 ISO with the host's profile built i
 
 - `python3` and `xorriso` on your machine
 - A USB drive large enough for the image
-- An official Ubuntu 26.04 Server amd64 ISO, or let berth download it
+- An official Ubuntu 26.04 Server amd64 ISO, or let Rookery download it
 
 ## Build and write
 
@@ -24,7 +24,7 @@ The USB installer is the Ubuntu Server 26.04 ISO with the host's profile built i
 ### Create the host
 
 ```bash
-berth garage-laptop
+rookery garage-laptop
 ```
 
 It opens on **Install**. Choose **USB installer** under **How To Install**, and keep **Target** at `laptop`. **Hostname** is the name the machine gets. F4 generates one.
@@ -34,9 +34,9 @@ It opens on **Install**. Choose **USB installer** under **How To Install**, and 
 
 ### Optionally, join the tailnet
 
-**Tailscale** is on **Install** too. With it on, berth makes a one-use key through the control server's API each time it builds the installer, from the secret `tailnet_api_key` ([joining the tailnet](/docs/use/access#joining-the-tailnet)). Tailnets that require tags take them from `berth config set tailnet_tags tag:devbox`. For a Headscale server, see [Headscale](/docs/use/access#headscale).
+**Tailscale** is on **Install** too. With it on, Rookery makes a one-use key through the control server's API each time it builds the installer, from the secret `tailnet_api_key` ([joining the tailnet](/docs/use/access#joining-the-tailnet)). Tailnets that require tags take them from `rookery config set tailnet_tags tag:rookery`. For a Headscale server, see [Headscale](/docs/use/access#headscale).
 
-The key lasts 24 hours. When berth builds the image, it says until when the image can join the tailnet. A machine installed later is set up without the tailnet, and the next apply from berth joins it.
+The key lasts 24 hours. When Rookery builds the image, it says until when the image can join the tailnet. A machine installed later is set up without the tailnet, and the next apply from Rookery joins it.
 
 </Step>
 <Step>
@@ -71,9 +71,9 @@ Wired DHCP is always configured. To add Wi-Fi, switch **Wi-Fi** on under **Insta
 
 ### Build and write
 
-Press Enter on **Run · USB installer**. berth saves the profile and opens the host's overview with its action **Build the USB installer**. Its dialog takes the drive to write and your `sudo` password for writing it. The help of the drive lists the USB drives connected now. When one drive is connected, it's filled in. Leave the drive empty to build the ISO alone. The build and the writing run as a job, whose output fills a panel.
+Press Enter on **Run · USB installer**. Rookery saves the profile and opens the host's overview with its action **Build the USB installer**. Its dialog takes the drive to write and your `sudo` password for writing it. The help of the drive lists the USB drives connected now. When one drive is connected, it's filled in. Leave the drive empty to build the ISO alone. The build and the writing run as a job, whose output fills a panel.
 
-The installer is built on the machine the server runs on, which writes one of its own drives. berth on your machine does it with the server inside berth, or with a `berth serve` of yours there. From another machine the action is listed as unavailable, with that reason.
+The installer is built on the machine the server runs on, which writes one of its own drives. Rookery on your machine does it with the server inside Rookery, or with a `rookery serve` of yours there. From another machine the action is listed as unavailable, with that reason.
 
 </Step>
 </Steps>
@@ -81,11 +81,11 @@ The installer is built on the machine the server runs on, which writes one of it
 The same from the command line:
 
 ```bash
-berth host iso garage-laptop                     # downloads the ISO when none is set
-berth host iso garage-laptop --write /dev/sdX    # and writes it, after asking
+rookery host iso garage-laptop                     # downloads the ISO when none is set
+rookery host iso garage-laptop --write /dev/sdX    # and writes it, after asking
 ```
 
-The image is `~/.local/share/berth/build/HOSTNAME-autoinstall.iso`. To write it by hand, use the script from the provisioning source. It accepts only a whole USB disk that is large enough and has no system mount on it, and unmounts anything else first:
+The image is `~/.local/share/rookery/build/HOSTNAME-autoinstall.iso`. To write it by hand, use the script from the provisioning source. It accepts only a whole USB disk that is large enough and has no system mount on it, and unmounts anything else first:
 
 ```bash
 sudo provision/bin/write-usb.sh HOSTNAME-autoinstall.iso /dev/sdX
@@ -98,9 +98,9 @@ sudo provision/bin/write-usb.sh HOSTNAME-autoinstall.iso /dev/sdX
 3. Follow progress over SSH, or on the console:
 
 ```bash title="On the host"
-sudo journalctl -u devbox-provision -f
-cat /var/lib/devbox/provision-state
-sudo systemctl start devbox-provision.service     # start it again after a failure
+sudo journalctl -u rookery-provision -f
+cat /var/lib/rookery/provision-state
+sudo systemctl start rookery-provision.service     # start it again after a failure
 ```
 
 `configured` means the role finished. The `ready` marker means Ansible converged, not that every acceptance test passed. If a dependency fails, the state is `failed` and a timer retries. The success marker is only written after a successful run.
@@ -137,17 +137,17 @@ A serial comes from `udevadm info --query=property --name=/dev/nvme0n1`. The dis
 
 The ISO keeps the source image's boot configuration through `xorriso` replay and patches GRUB to install automatically. It embeds the seed and the release archive. The bootstrap checks the archive against the digest in the seed.
 
-The USB drive and its seed can still hold credentials after the installed copies have been used. The enrollment key berth puts in it works once and for 24 hours. Secure Boot with the remastered image has not been qualified.
+The USB drive and its seed can still hold credentials after the installed copies have been used. The enrollment key Rookery puts in it works once and for 24 hours. Secure Boot with the remastered image has not been qualified.
 
-## Without berth
+## Without Rookery
 
 From a source checkout, copy `provision/config/example.json` to `provision/config/local.json` (ignored by git), fill it in, and run the builder directly:
 
 ```bash
-python3 provision/bin/devbox.py render --config provision/config/local.json
-python3 provision/bin/devbox.py iso --config provision/config/local.json \
+python3 provision/bin/rookery.py render --config provision/config/local.json
+python3 provision/bin/rookery.py iso --config provision/config/local.json \
   --iso /path/to/ubuntu-26.04-live-server-amd64.iso \
   --sha256 THE_VERIFIED_SHA256        # optional: fail if the ISO differs
 ```
 
-The output is `build/HOSTNAME-autoinstall.iso`. The builder refuses to replace an existing image without `--overwrite`. berth always rebuilds it. Password hashes for a hand-written profile come from `mkpasswd -m sha-512`. In JSON, Wi-Fi is `wifi_enabled: true` and a `wifi` object with `ssid`, `password` and optionally `interface`.
+The output is `build/HOSTNAME-autoinstall.iso`. The builder refuses to replace an existing image without `--overwrite`. Rookery always rebuilds it. Password hashes for a hand-written profile come from `mkpasswd -m sha-512`. In JSON, Wi-Fi is `wifi_enabled: true` and a `wifi` object with `ssid`, `password` and optionally `interface`.

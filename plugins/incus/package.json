@@ -1,24 +1,24 @@
 {
-  "name": "berth-plugin-incus",
+  "name": "rookery-plugin-incus",
   "version": "0.2.0",
   "displayName": "Incus",
-  "description": "Virtual machines and containers on an Incus server for berth hosts.",
+  "description": "Virtual machines and containers on an Incus server for rookery hosts.",
   "license": "MIT OR Apache-2.0",
   "keywords": [
-    "berth-plugin"
+    "rookery-plugin"
   ],
   "files": [
     "bin",
     "tasks",
     "guide.md"
   ],
-  "berth": {
+  "rookery": {
     "features": [
       {
         "id": "server",
         "group": "Servers",
         "label": "Incus server",
-        "description": "Install Incus on a node and set it up for berth's machines: the bridge incusbr0 for the guests, a storage pool in a directory, and the API on port 8444 for clients it trusts by certificate. berth's own client certificate is trusted, and berth registers the provisioners incus/vm and incus/container of this node after the apply. An Incus that is set up already keeps its pools, networks and trust. The settings are devbox_incus_* in the profile's ansible_vars; the guide has them.",
+        "description": "Install Incus on a node and set it up for rookery's machines: the bridge incusbr0 for the guests, a storage pool in a directory, and the API on port 8444 for clients it trusts by certificate. rookery's own client certificate is trusted, and rookery registers the provisioners incus/vm and incus/container of this node after the apply. An Incus that is set up already keeps its pools, networks and trust. The settings are rookery_incus_* in the profile's ansible_vars; the guide has them.",
         "summary": "Incus (`incus`) hosts virtual machines and containers here, on the bridge `incusbr0`.",
         "types": [
           "node"
@@ -51,14 +51,14 @@
       {
         "id": "vm",
         "label": "Incus virtual machine",
-        "description": "A KVM guest on an Incus server, set up from berth's cloud seed. The server needs KVM.",
+        "description": "A KVM guest on an Incus server, set up from rookery's cloud seed. The server needs KVM.",
         "command": "bin/provision",
         "protocol": 2,
         "verbs": ["list"],
         "secrets": ["incus_client_cert", "incus_client_key", {"name": "incus_server_cert", "required": false}],
         "arguments": [
           {"name": "server", "label": "Incus server", "required": true, "help": "The address of the Incus server's API, such as https://192.0.2.10:8443."},
-          {"name": "project", "label": "Project", "default": "default", "help": "The Incus project berth makes its machines in and looks at."}
+          {"name": "project", "label": "Project", "default": "default", "help": "The Incus project rookery makes its machines in and looks at."}
         ],
         "kinds": [
           {
@@ -81,7 +81,7 @@
             "label": "Virtual machine from an image",
             "verbs": ["start", "stop", "change", "logs", "exec"],
             "arguments": [
-              {"name": "image", "label": "Image", "default": "ubuntu/24.04", "help": "The image on images.linuxcontainers.org to start from, such as debian/12 or alpine/3.20. It becomes no berth host: nothing of berth is put in it."},
+              {"name": "image", "label": "Image", "default": "ubuntu/24.04", "help": "The image on images.linuxcontainers.org to start from, such as debian/12 or alpine/3.20. It becomes no rookery host: nothing of rookery is put in it."},
               {"name": "user_data", "label": "Cloud-init user data", "kind": "text", "help": "What cloud-init does on its first boot, such as packages to install and users to add, for an image that has cloud-init. Empty leaves the image as it is."},
               {"name": "cpus", "label": "CPUs", "default": "2", "kind": "resource", "help": "How many CPUs the virtual machine gets."},
               {"name": "memory", "label": "Memory", "default": "2GiB", "kind": "resource", "help": "How much memory it gets, such as 2GiB."},
@@ -167,7 +167,7 @@
             "label": "Instance",
             "plural": "Instances",
             "group": "Storage",
-            "help": "The machines and instances berth made with the provisioner, whose actions are on the page of each.",
+            "help": "The machines and instances rookery made with the provisioner, whose actions are on the page of each.",
             "key": ["instance"],
             "kinds": ["machine", "instance"],
             "item": [
@@ -176,7 +176,7 @@
           }
         ],
         "actions": [
-          {"name": "server", "label": "Check the server", "group": "Server", "changes": false, "help": "Ask the Incus server for its version, its kernel and its storage drivers, and whether it trusts berth's client certificate."},
+          {"name": "server", "label": "Check the server", "group": "Server", "changes": false, "help": "Ask the Incus server for its version, its kernel and its storage drivers, and whether it trusts rookery's client certificate."},
           {"name": "pools", "label": "Storage pools", "group": "Storage", "changes": false, "help": "The storage pools of the server as a table: each one's driver, source, size, used and free space, and whether it can grow, or why not."},
           {"name": "images", "label": "Cached images", "group": "Storage", "changes": false, "help": "The images the server keeps in its project, with their sizes. Incus fetches one from images.linuxcontainers.org when a machine first needs it."},
           {"name": "networks", "label": "Networks", "group": "Server", "changes": false, "help": "The networks of the server a machine can be attached to."},
@@ -225,7 +225,7 @@
            ]},
           {"name": "resize-disk", "label": "Grow root disk", "group": "Storage", "help": "Grow the root disk of an instance. One that has its root disk from a profile gets one of its own. A container has the new size at once; a virtual machine's guest sees it after a restart, which happens only with restart=yes.",
            "arguments": [
-             {"name": "instance", "label": "Instance", "default": "", "help": "The instance's name as the server lists it, such as berth-studio for the host studio."},
+             {"name": "instance", "label": "Instance", "default": "", "help": "The instance's name as the server lists it, such as rookery-studio for the host studio."},
              {"name": "size", "label": "Size", "default": "", "help": "The new size of its root disk, larger than it is now, such as 80GiB."},
              {"name": "restart", "label": "Restart", "default": "no", "kind": "boolean", "values": ["no", "yes"], "help": "Whether to restart a running virtual machine so that its guest sees the new size. A container needs no restart."}
            ]}
@@ -234,14 +234,14 @@
       {
         "id": "container",
         "label": "Incus container",
-        "description": "A system container on an Incus server, set up from berth's cloud seed. Nesting is turned on so that the guest's systemd comes up.",
+        "description": "A system container on an Incus server, set up from rookery's cloud seed. Nesting is turned on so that the guest's systemd comes up.",
         "command": "bin/provision",
         "protocol": 2,
         "verbs": ["list"],
         "secrets": ["incus_client_cert", "incus_client_key", {"name": "incus_server_cert", "required": false}],
         "arguments": [
           {"name": "server", "label": "Incus server", "required": true, "help": "The address of the Incus server's API, such as https://192.0.2.10:8443."},
-          {"name": "project", "label": "Project", "default": "default", "help": "The Incus project berth makes its machines in and looks at."}
+          {"name": "project", "label": "Project", "default": "default", "help": "The Incus project rookery makes its machines in and looks at."}
         ],
         "kinds": [
           {
@@ -264,7 +264,7 @@
             "label": "Container from an image",
             "verbs": ["start", "stop", "change", "logs", "exec"],
             "arguments": [
-              {"name": "image", "label": "Image", "default": "ubuntu/24.04", "help": "The image on images.linuxcontainers.org to start from, such as debian/12 or alpine/3.20. It becomes no berth host: nothing of berth is put in it."},
+              {"name": "image", "label": "Image", "default": "ubuntu/24.04", "help": "The image on images.linuxcontainers.org to start from, such as debian/12 or alpine/3.20. It becomes no rookery host: nothing of rookery is put in it."},
               {"name": "user_data", "label": "Cloud-init user data", "kind": "text", "help": "What cloud-init does on its first boot, such as packages to install and users to add, for an image that has cloud-init. Empty leaves the image as it is."},
               {"name": "cpus", "label": "CPUs", "default": "2", "kind": "resource", "help": "How many CPUs the container gets."},
               {"name": "memory", "label": "Memory", "default": "2GiB", "kind": "resource", "help": "How much memory it gets, such as 2GiB."},
@@ -351,7 +351,7 @@
             "label": "Instance",
             "plural": "Instances",
             "group": "Storage",
-            "help": "The machines and instances berth made with the provisioner, whose actions are on the page of each.",
+            "help": "The machines and instances rookery made with the provisioner, whose actions are on the page of each.",
             "key": ["instance"],
             "kinds": ["machine", "instance"],
             "item": [
@@ -360,7 +360,7 @@
           }
         ],
         "actions": [
-          {"name": "server", "label": "Check the server", "group": "Server", "changes": false, "help": "Ask the Incus server for its version, its kernel and its storage drivers, and whether it trusts berth's client certificate."},
+          {"name": "server", "label": "Check the server", "group": "Server", "changes": false, "help": "Ask the Incus server for its version, its kernel and its storage drivers, and whether it trusts rookery's client certificate."},
           {"name": "pools", "label": "Storage pools", "group": "Storage", "changes": false, "help": "The storage pools of the server as a table: each one's driver, source, size, used and free space, and whether it can grow, or why not."},
           {"name": "images", "label": "Cached images", "group": "Storage", "changes": false, "help": "The images the server keeps in its project, with their sizes. Incus fetches one from images.linuxcontainers.org when a machine first needs it."},
           {"name": "networks", "label": "Networks", "group": "Server", "changes": false, "help": "The networks of the server a machine can be attached to."},
@@ -409,7 +409,7 @@
            ]},
           {"name": "resize-disk", "label": "Grow root disk", "group": "Storage", "help": "Grow the root disk of an instance. One that has its root disk from a profile gets one of its own. A container has the new size at once; a virtual machine's guest sees it after a restart, which happens only with restart=yes.",
            "arguments": [
-             {"name": "instance", "label": "Instance", "default": "", "help": "The instance's name as the server lists it, such as berth-studio for the host studio."},
+             {"name": "instance", "label": "Instance", "default": "", "help": "The instance's name as the server lists it, such as rookery-studio for the host studio."},
              {"name": "size", "label": "Size", "default": "", "help": "The new size of its root disk, larger than it is now, such as 80GiB."},
              {"name": "restart", "label": "Restart", "default": "no", "kind": "boolean", "values": ["no", "yes"], "help": "Whether to restart a running virtual machine so that its guest sees the new size. A container needs no restart."}
            ]}

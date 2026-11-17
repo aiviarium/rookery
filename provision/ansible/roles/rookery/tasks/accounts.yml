@@ -1,0 +1,179 @@
+---
+- name: Configure operator account
+  ansible.builtin.user:
+    name: "{{ rookery_operator_user }}"
+    shell: /bin/bash
+    create_home: true
+    groups: sudo
+    append: true
+    password: "{{ rookery_operator_password_hash if rookery_operator_password_hash else omit }}"
+  no_log: true
+  when: rookery_profile != 'container'
+- name: Read the operator's password field
+  ansible.builtin.getent:
+    database: shadow
+    key: "{{ rookery_operator_user }}"
+  no_log: true
+  when: rookery_profile != 'container' and not rookery_operator_password_hash
+# Without PAM, sshd refuses key logins to an account whose password field starts
+# with `!`, which is how useradd and cloud-init lock one. `*` allows no password
+# either, and sshd takes keys for it with and without PAM.
+- name: Lock the operator's password so its keys still log in
+  ansible.builtin.user:
+    name: "{{ rookery_operator_user }}"
+    password: '*'
+  no_log: true
+  when: >-
+    rookery_profile != 'container' and not rookery_operator_password_hash
+    and (ansible_facts.getent_shadow[rookery_operator_user][0] | default('')) is match('^(!|$)')
+# rookery looks after the host as the operator, so sudo never asks it for a password.
+- name: Configure operator passwordless administration
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/99-rookery-operator
+    content: "{{ rookery_operator_user }} ALL=(ALL:ALL) NOPASSWD: ALL\n"
+    owner: root
+    group: root
+    mode: '0440'
+    validate: /usr/sbin/visudo -cf %s
+  when: rookery_profile != 'container'
+- name: Create the agent account
+  ansible.builtin.user:
+    name: "{{ rookery_user }}"
+    home: "{{ rookery_home }}"
+    shell: /bin/bash
+    create_home: true
+    password: "{{ rookery_agent_password_hash if rookery_agent_password_hash else '!' }}"
+    password_lock: "{{ not (rookery_agent_password_hash | length > 0) }}"
+  no_log: true
+# `rookery_agent_privileges` is full, limited or none. A profile from before it
+# existed says only whether sudo asks for a password, and keeps that meaning.
+- name: Settle what the agent may do as root
+  ansible.builtin.set_fact:
+    rookery_privileges: "{{ rookery_agent_privileges if rookery_agent_privileges | length > 0 else ('full' if rookery_agent_passwordless_sudo else 'password') }}"
+- name: Read agent identity
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ rookery_user }}"
+- name: Set runtime identity
+  ansible.builtin.set_fact:
+    rookery_uid: "{{ ansible_facts.getent_passwd[rookery_user][1] }}"
+    rookery_bind: "{{ '0.0.0.0' if rookery_profile == 'container' else '127.0.0.1' }}"
+- name: Create managed root directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - /etc/rookery
+    - /var/lib/rookery
+    - /opt/rookery-tools
+    - /srv/agent
+- name: Create agent directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ rookery_user }}"
+    group: "{{ rookery_user }}"
+    mode: '0700'
+  loop:
+    - "{{ rookery_home }}/.local/bin"
+    - "{{ rookery_home }}/.config/tigervnc"
+    - "{{ rookery_home }}/.config/systemd/user"
+    - "{{ rookery_home }}/.config/autostart"
+    - "{{ rookery_home }}/.local/share/applications"
+    - "{{ rookery_home }}/.t3"
+    - "{{ rookery_home }}/.claude"
+    - "{{ rookery_home }}/.codex"
+    - "{{ rookery_home }}/.pi/agent"
+    - "{{ rookery_home }}/.config/mise"
+    - "{{ rookery_home }}/Desktop"
+    - "{{ rookery_home }}/Downloads"
+    - /srv/agent/workspaces
+    - /srv/agent/artifacts
+    - /srv/agent/shared
+- name: Add tool paths to interactive shells
+  ansible.builtin.copy:
+    dest: /etc/profile.d/rookery.sh
+    mode: '0644'
+    content: |
+      if [ "$(id -un)" = "{{ rookery_user }}" ]; then
+        export PATH="{{ rookery_tool_path }}:$PATH"
+        if [ -r "$HOME/.config/rookery/secrets.env" ]; then . "$HOME/.config/rookery/secrets.env"; fi
+      fi
+      export DISABLE_AUTOUPDATER=1
+- name: Add tool paths to non-login interactive agent shells
+  ansible.builtin.blockinfile:
+    path: "{{ rookery_home }}/.bashrc"
+    create: true
+    owner: "{{ rookery_user }}"
+    group: "{{ rookery_user }}"
+    mode: '0644'
+    marker: '# {mark} ROOKERY TOOLS'
+    block: |
+      export PATH="{{ rookery_tool_path }}:$PATH"
+      export DISABLE_AUTOUPDATER=1
+      if [ -r "$HOME/.config/rookery/secrets.env" ]; then . "$HOME/.config/rookery/secrets.env"; fi
+- name: Provide fd command
+  ansible.builtin.file:
+    src: /usr/bin/fdfind
+    dest: /usr/local/bin/fd
+    state: link
+- name: Manage account SSH access
+  vars:
+    rookery_ssh_accounts: >-
+      {{ [{'user': rookery_user, 'key': rookery_agent_ssh_public_key, 'rookery': ''}]
+         + ([] if rookery_profile == 'container' else
+            [{'user': rookery_operator_user, 'key': rookery_operator_ssh_public_key,
+              'rookery': rookery_ssh_public_key}]) }}
+  block:
+    - name: Create account SSH directories
+      ansible.builtin.file:
+        path: "/home/{{ item.user }}/.ssh"
+        state: directory
+        owner: "{{ item.user }}"
+        group: "{{ item.user }}"
+        mode: '0700'
+      loop: "{{ rookery_ssh_accounts }}"
+      loop_control:
+        label: "{{ item.user }}"
+      when: (item.key ~ item.rookery) | length > 0
+    - name: Check existing authorized keys
+      ansible.builtin.stat:
+        path: "/home/{{ item.user }}/.ssh/authorized_keys"
+      loop: "{{ rookery_ssh_accounts }}"
+      loop_control:
+        label: "{{ item.user }}"
+      register: rookery_authorized_keys
+    # Each rookery that applies this keeps its keys in a block of its own, named
+    # after its own key, which no later apply removes, so a change to the
+    # profile's keys never locks it out.
+    - name: Give the operator the keys of the rookery that applies this
+      ansible.builtin.blockinfile:
+        path: "/home/{{ rookery_operator_user }}/.ssh/authorized_keys"
+        create: true
+        owner: "{{ rookery_operator_user }}"
+        group: "{{ rookery_operator_user }}"
+        mode: '0600'
+        marker: "# {mark} ROOKERY {{ rookery_ssh_public_key.split()[1] | hash('sha1') }}"
+        block: "{{ rookery_ssh_public_key }}"
+      when: rookery_profile != 'container' and rookery_ssh_public_key | length > 0
+    - name: Configure account authorized public keys
+      ansible.builtin.blockinfile:
+        path: "/home/{{ item.item.user }}/.ssh/authorized_keys"
+        create: true
+        state: "{{ 'present' if item.item.key | length > 0 else 'absent' }}"
+        owner: "{{ item.item.user }}"
+        group: "{{ item.item.user }}"
+        mode: '0600'
+        marker: '# {mark} ROOKERY'
+        block: "{{ item.item.key }}"
+      loop: "{{ rookery_authorized_keys.results }}"
+      loop_control:
+        label: "{{ item.item.user }}"
+      when: item.item.key | length > 0 or item.stat.exists
+    - name: Check that the operator takes the keys of the rookery that applies this
+      ansible.builtin.command:
+        argv: [grep, -qxF, --, "{{ item }}", "/home/{{ rookery_operator_user }}/.ssh/authorized_keys"]
+      loop: "{{ rookery_ssh_public_key.splitlines() }}"
+      changed_when: false
+      when: rookery_profile != 'container'

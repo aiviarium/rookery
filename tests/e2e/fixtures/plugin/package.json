@@ -1,11 +1,11 @@
 {
-  "name": "berth-plugin-e2e",
+  "name": "rookery-plugin-e2e",
   "version": "1.0.0",
   "displayName": "End-to-end",
-  "description": "A plugin for berth's end-to-end tests: a task, a service and a topic.",
+  "description": "A plugin for rookery's end-to-end tests: a task, a service and a topic.",
   "license": "MIT OR Apache-2.0",
-  "keywords": ["berth-plugin"],
-  "berth": {
+  "keywords": ["rookery-plugin"],
+  "rookery": {
     "features": [
       {
         "id": "hello",
@@ -24,7 +24,7 @@
             "arguments": [
               {"name": "name", "label": "Whom to greet", "required": true, "choices": "printf 'ada\\ngrace\\n'"}
             ],
-            "run": "echo \"hello $BERTH_ARG_NAME from $(id -un)\""
+            "run": "echo \"hello $ROOKERY_ARG_NAME from $(id -un)\""
           },
           {
             "name": "status",
@@ -40,7 +40,7 @@
             "description": "Answers each call with its method and body.",
             "user": "agent",
             "agent": true,
-            "run": "exec box serve e2e/echo -- /usr/local/bin/berth-e2e-echo",
+            "run": "exec box serve e2e/echo -- /usr/local/bin/rookery-e2e-echo",
             "methods": [{"name": "say", "description": "The method and the body, back."}]
           }
         ],

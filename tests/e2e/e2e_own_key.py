@@ -1,9 +1,9 @@
-"""A host that takes nothing but the key of berth, as when that key is added
+"""A host that takes nothing but the key of rookery, as when that key is added
 at a cloud provider: no key of the user's in the profile or in ~/.ssh, no
 ssh-agent, and a profile from before the operator always had sudo without a
-password and the key of berth. Once straight from a workstation, first as an
+password and the key of rookery. Once straight from a workstation, first as an
 account of the machine's own whose sudo asks for a password and then as the
-operator that apply set up, and once from a berth serve on that workstation,
+operator that apply set up, and once from a rookery serve on that workstation,
 which has only the same key, with a terminal client using it.
 
 It runs on a test host of its own, `dock`, which nothing else applies a profile to: run.py
@@ -15,7 +15,7 @@ import pwd
 import unittest
 from pathlib import Path
 
-from harness import (AGENT, HOST, OPERATOR, SEED, SRC, BerthdLink, Serve, Workstation, _provisioned,
+from harness import (AGENT, HOST, OPERATOR, SEED, SRC, RookerydLink, Serve, Workstation, _provisioned,
                      ansible_recap, changed_tasks, hand_over_operator_key, light_vars, needs_e2e, random_text,
                      shell_quote, wait_for)
 
@@ -25,32 +25,32 @@ def bare_profile(template):
     profile = json.loads(json.dumps(template))
     profile.update({'hostname': HOST, 'target': 'cloud', 'keyboard': 'us', 'ansible_vars': light_vars()})
     profile['builder'] = {'shipped_plugins': True}
-    profile['access'] = {'address': HOST, 'user': OPERATOR, 'auth': 'berth'}
+    profile['access'] = {'address': HOST, 'user': OPERATOR, 'auth': 'rookery'}
     return profile
 
 
 def keyed():
-    """The workstation whose berth key is the only one the host takes, made once."""
+    """The workstation whose rookery key is the only one the host takes, made once."""
     if 'own-key' not in _provisioned:
         station = Workstation('own-key', ssh_key=False)
         # The key the host takes from its provider, and nothing else of the run's.
         hand_over_operator_key(station.own_public())
         station.own_key_file()
-        wait_for('the operator taking the key of berth', lambda: station.ssh(
+        wait_for('the operator taking the key of rookery', lambda: station.ssh(
             OPERATOR, 'true', key=station.own_key, check=False).returncode == 0)
         _provisioned['own-key'] = station
     return _provisioned['own-key']
 
 
 class OwnKeyOnly:
-    """What has to work with nothing but berth's key. `station` runs berth,
+    """What has to work with nothing but rookery's key. `station` runs rookery,
     `keyed` is the workstation whose key is on the host."""
 
     station: Workstation
     keyed: Workstation
 
-    def berth(self, *args, **kwargs):
-        return self.station.berth(*args, **kwargs)
+    def rookery(self, *args, **kwargs):
+        return self.station.rookery(*args, **kwargs)
 
     def root_on_host(self, command):
         return self.keyed.ssh(OPERATOR, f'sudo -n sh -c {shell_quote(command)}', key=self.keyed.own_key).stdout
@@ -63,15 +63,15 @@ class OwnKeyOnly:
         runner = Path(pwd.getpwuid(os.getuid()).pw_dir) / '.ssh'
         self.assertEqual(list(runner.glob('id_*')), [])
 
-    def test_the_operator_takes_berths_key_apart_and_sudo_needs_no_password(self):
+    def test_the_operator_takes_rookerys_key_apart_and_sudo_needs_no_password(self):
         own = self.keyed.own_public()
         keys = f'/home/{OPERATOR}/.ssh/authorized_keys'
-        # The profile lists no key; berth's has a block of its own that no apply removes.
-        profiles = self.root_on_host(f"sed -n '/BEGIN DEVBOX/,/END DEVBOX/p' {keys}")
+        # The profile lists no key; rookery's has a block of its own that no apply removes.
+        profiles = self.root_on_host(f"sed -n '/BEGIN ROOKERY/,/END ROOKERY/p' {keys}")
         self.assertEqual([line for line in profiles.splitlines() if not line.startswith('#')], [])
-        berths = self.root_on_host(f"sed -n '/BEGIN BERTH/,/END BERTH/p' {keys}")
-        self.assertIn(own, berths.splitlines())
-        sudoers = self.root_on_host('cat /etc/sudoers.d/99-devbox-operator')
+        rookeries = self.root_on_host(f"sed -n '/BEGIN ROOKERY/,/END ROOKERY/p' {keys}")
+        self.assertIn(own, rookeries.splitlines())
+        sudoers = self.root_on_host('cat /etc/sudoers.d/99-rookery-operator')
         self.assertIn(f'{OPERATOR} ALL=(ALL:ALL) NOPASSWD: ALL', sudoers)
         # A password field sshd takes keys for, with PAM or without.
         self.assertFalse(self.root_on_host(f'getent shadow {OPERATOR}').split(':')[1].startswith('!'))
@@ -85,21 +85,21 @@ class OwnKeyOnly:
         self.assertEqual(changed_tasks(self.second_apply.stdout), [])
 
     def test_tasks_are_listed_and_run(self):
-        self.assertRegex(self.berth('action', 'list', HOST).stdout, r'(?m)^secrets\s+')
-        self.assertEqual(self.berth('run', HOST, 'sign-in:status').returncode, 0)
+        self.assertRegex(self.rookery('action', 'list', HOST).stdout, r'(?m)^secrets\s+')
+        self.assertEqual(self.rookery('run', HOST, 'sign-in:status').returncode, 0)
 
     def test_commands_run_as_each_account(self):
         for user, name in (('agent', AGENT), ('operator', OPERATOR), ('root', 'root')):
-            done = self.berth('exec', HOST, '--user', user, '--', 'id', '-un')
+            done = self.rookery('exec', HOST, '--user', user, '--', 'id', '-un')
             self.assertEqual(done.stdout.strip(), name, user)
-        done = self.berth('exec', HOST, '--', 'sh', '-c', 'cat; exit 4', input='typed\n', check=False)
+        done = self.rookery('exec', HOST, '--', 'sh', '-c', 'cat; exit 4', input='typed\n', check=False)
         self.assertEqual((done.returncode, done.stdout), (4, 'typed\n'))
 
     def test_sessions_are_kept_and_attached_to(self):
         marker = random_text('own-key')
-        self.berth('exec', HOST, '--keep', '--', 'echo', marker)
-        line = next(line for line in self.berth('session', 'list', HOST).stdout.splitlines() if marker in line)
-        self.assertEqual(self.berth('session', 'logs', HOST, line.split()[0]).stdout.strip(), marker)
+        self.rookery('exec', HOST, '--keep', '--', 'echo', marker)
+        line = next(line for line in self.rookery('session', 'list', HOST).stdout.splitlines() if marker in line)
+        self.assertEqual(self.rookery('session', 'logs', HOST, line.split()[0]).stdout.strip(), marker)
         terminal = self.station.terminal('session', 'attach', HOST)
         try:
             terminal.pump(2)
@@ -112,23 +112,23 @@ class OwnKeyOnly:
 
     def test_secrets_are_sent_to_the_agent(self):
         value = random_text('own-key-secret')
-        self.berth('secret', 'set', 'own-key-token', input=value + '\n')
-        self.berth('host', 'set', HOST, 'secret.own-key-token=OWN_KEY_TOKEN')
+        self.rookery('secret', 'set', 'own-key-token', input=value + '\n')
+        self.rookery('host', 'set', HOST, 'secret.own-key-token=OWN_KEY_TOKEN')
         try:
-            sent = self.berth('run', HOST, 'secrets')
+            sent = self.rookery('run', HOST, 'secrets')
             self.assertNotIn(value, sent.stdout + sent.stderr)
-            env = self.root_on_host(f'cat /home/{AGENT}/.config/devbox/secrets.env')
+            env = self.root_on_host(f'cat /home/{AGENT}/.config/rookery/secrets.env')
             self.assertIn(f'export OWN_KEY_TOKEN={value}', env)
         finally:
-            self.berth('host', 'set', HOST, 'secret.own-key-token=')
-            self.berth('run', HOST, 'secrets')
+            self.rookery('host', 'set', HOST, 'secret.own-key-token=')
+            self.rookery('run', HOST, 'secrets')
 
 
 @needs_e2e
 class Direct(OwnKeyOnly, unittest.TestCase):
-    """berth on a workstation whose own key is the only way in. Its first
+    """rookery on a workstation whose own key is the only way in. Its first
     apply is as an account of the machine's own whose sudo asks for a
-    password, as on a machine berth did not make; the second is as the
+    password, as on a machine rookery did not make; the second is as the
     operator the first set up, which takes no password any more."""
 
     OWNER = 'owner'
@@ -143,21 +143,21 @@ class Direct(OwnKeyOnly, unittest.TestCase):
         # The password goes on standard input, never into argv.
         cls.station.ssh(OPERATOR, 'sudo -n chpasswd', key=cls.station.own_key, input=f'{owner}:{cls.password}\n')
         (SEED / f'{owner}.pub').write_text(cls.station.own_public() + '\n')
-        wait_for('the account taking the key of berth', lambda: cls.station.ssh(
+        wait_for('the account taking the key of rookery', lambda: cls.station.ssh(
             owner, 'true', key=cls.station.own_key, check=False).returncode == 0)
         template = json.loads((SRC / 'provision/config/example.json').read_text())
         # Switches a profile could have once. Both are ignored now: the operator gets
-        # sudo without a password and the key of berth, its only way in.
-        template.update(operator_passwordless_sudo=False, berth_ssh_key=False)
+        # sudo without a password and the key of rookery, its only way in.
+        template.update(operator_passwordless_sudo=False, rookery_ssh_key=False)
         profile = bare_profile(template)
         profile['access'].update(user=owner, sudo='password')
         cls.station.write_profile(profile)
         typed = cls.password + '\n'
-        cls.first_apply = cls.station.berth('apply', HOST, '--sudo-password-stdin', input=typed, timeout=900)
+        cls.first_apply = cls.station.rookery('apply', HOST, '--sudo-password-stdin', input=typed, timeout=900)
         cls.owner_profile = cls.station.read_profile()
         profile['access']['user'] = OPERATOR
         cls.station.write_profile(profile)
-        cls.second_apply = cls.station.berth('apply', HOST, '--sudo-password-stdin', input=typed, timeout=900)
+        cls.second_apply = cls.station.rookery('apply', HOST, '--sudo-password-stdin', input=typed, timeout=900)
         cls.operator_profile = cls.station.read_profile()
 
     @classmethod
@@ -175,14 +175,14 @@ class Direct(OwnKeyOnly, unittest.TestCase):
 
     def test_an_apply_as_the_operator_settles_the_profile(self):
         self.assertEqual(self.operator_profile['access'],
-                         {'address': HOST, 'user': OPERATOR, 'auth': 'berth', 'sudo': 'none'})
-        # berth reaches the host now without a password.
-        done = self.station.berth('exec', HOST, '--', 'id', '-un', input='')
+                         {'address': HOST, 'user': OPERATOR, 'auth': 'rookery', 'sudo': 'none'})
+        # rookery reaches the host now without a password.
+        done = self.station.rookery('exec', HOST, '--', 'id', '-un', input='')
         self.assertEqual(done.stdout.strip(), AGENT)
 
     def test_plain_ssh_and_the_files_of_the_agent(self):
-        self.assertEqual(self.berth('ssh', HOST, '--', 'id -un').stdout.strip(), OPERATOR)
-        link = BerthdLink(self.station)
+        self.assertEqual(self.rookery('ssh', HOST, '--', 'id -un').stdout.strip(), OPERATOR)
+        link = RookerydLink(self.station)
         path = f'/home/{AGENT}/own-key.txt'
         content = random_text('written').encode()
         status, _ = link.request('PUT', f'/v1/files?path={path}&overwrite=true', content)
@@ -193,7 +193,7 @@ class Direct(OwnKeyOnly, unittest.TestCase):
 
 @needs_e2e
 class Served(OwnKeyOnly, unittest.TestCase):
-    """A berth serve whose own key is the only way in, and a terminal client
+    """A rookery serve whose own key is the only way in, and a terminal client
     with neither key nor profile of its own. The server runs on the
     workstation of Direct, whose key it shares."""
 
@@ -204,9 +204,9 @@ class Served(OwnKeyOnly, unittest.TestCase):
         catalogue = cls.serve.call('GET', '/v1/setup')
         cls.serve.call('PUT', f'/v1/hosts/{HOST}/profile', bare_profile(catalogue['template']))
         cls.station = Workstation('own-key-client', ssh_key=False)
-        cls.station.berth('login', cls.serve.url, '--token-stdin', input=cls.serve.token)
-        cls.first_apply = cls.station.berth('apply', HOST, input='', timeout=900)
-        cls.second_apply = cls.station.berth('apply', HOST, input='', timeout=900)
+        cls.station.rookery('login', cls.serve.url, '--token-stdin', input=cls.serve.token)
+        cls.first_apply = cls.station.rookery('apply', HOST, input='', timeout=900)
+        cls.second_apply = cls.station.rookery('apply', HOST, input='', timeout=900)
 
     @classmethod
     def tearDownClass(cls):
@@ -214,7 +214,7 @@ class Served(OwnKeyOnly, unittest.TestCase):
 
     def test_the_server_hands_out_its_key_and_no_sudo_switch(self):
         keys = self.serve.call('GET', '/v1/keys')['keys']
-        self.assertEqual([key['name'] for key in keys], ['berth'])
+        self.assertEqual([key['name'] for key in keys], ['rookery'])
         self.assertEqual(keys[0]['public'], self.keyed.own_public())
         self.assertEqual(keys[0]['hosts'], [HOST])
         self.assertNotIn('PRIVATE KEY', json.dumps(keys))

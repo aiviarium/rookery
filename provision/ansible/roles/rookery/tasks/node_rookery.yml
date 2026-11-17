@@ -1,0 +1,90 @@
+---
+# A node's features, rookery's controller with the node's actions, its
+# firewall and the record of the apply, which says what the features offer.
+- name: Apply the features of the node
+  ansible.builtin.import_tasks: plugins.yml
+- name: See whether a rookery server runs here in a container
+  ansible.builtin.command: docker container inspect --format {% raw %}'{{.Config.Image}}'{% endraw %} {{ rookery_server_container | quote }}
+  register: rookery_node_server
+  changed_when: false
+  failed_when: false
+- name: Describe the node's actions and units to rookeryd
+  ansible.builtin.set_fact:
+    # Rebooting asks systemd, and only a node with a rookery server's container can upgrade it.
+    rookery_tasks: >-
+      {{ (rookery_node_tasks
+          | rejectattr('name', 'equalto', 'reboot' if ansible_facts.service_mgr != 'systemd' else '')
+          | rejectattr('name', 'equalto', 'upgrade-server' if rookery_node_server.rc != 0 else '')
+          | list) + rookery_plugin_tasks }}
+    rookery_controller_units: "{{ ['ssh', 'rookeryd', 'ufw'] + (['tailscaled'] if rookery_install_tailscale else []) + rookery_node_units + rookery_service_units }}"
+    rookery_controller_roots: ["{{ rookery_node_home }}"]
+    rookery_controller_systemd: "{{ ansible_facts.service_mgr == 'systemd' }}"
+- name: Install the helper that takes in secrets
+  ansible.builtin.copy:
+    src: secrets.py
+    dest: /usr/local/bin/rookery-secrets
+    mode: '0755'
+- name: Install rookeryd, box and what they read
+  ansible.builtin.import_tasks: rookery.yml
+- name: Install the helper that upgrades a rookery server's container
+  ansible.builtin.copy:
+    src: rookery-server-upgrade.py
+    dest: /usr/local/lib/rookery/rookery-server-upgrade
+    mode: '0755'
+- name: Say who starts rookeryd on a node without systemd
+  ansible.builtin.debug:
+    msg: This node has no systemd, so nothing here starts rookeryd by itself. Something on the host has to run /usr/local/bin/rookeryd, as the init of a container does.
+  when: not rookery_controller_systemd | bool
+
+# ── The firewall ────────────────────────────────────────────────────────────
+
+# Last, once the features have said what they open. The address this apply
+# came from keeps SSH, so the run never locks rookery out.
+- name: Install the node's firewall helper
+  ansible.builtin.copy:
+    src: node-firewall.sh
+    dest: /usr/local/sbin/rookery-node-firewall
+    mode: '0755'
+  when: rookery_manage_firewall
+# A machine taken in may let SSH in from some addresses only, by rules made by
+# hand such as those of the incus-host recipe of 0.5. Those stay and are not
+# widened: SSH stays open to them and to where this apply came from.
+- name: Read the firewall's rules
+  ansible.builtin.command: ufw show added
+  register: rookery_node_ufw_added
+  changed_when: false
+  failed_when: false
+  when: rookery_manage_firewall
+- name: Keep SSH as limited as it was
+  ansible.builtin.set_fact:
+    rookery_node_ssh_limited: >-
+      {{ rookery_ssh_from == 'any'
+         and (rookery_node_ufw_added.stdout_lines | default([]) | select('match', '^ufw allow from [^ ]+ to any port 22( proto tcp)?$') | list | length > 0)
+         and (rookery_node_ufw_added.stdout_lines | default([]) | select('match', '^ufw allow (in )?(22|22/tcp|ssh|OpenSSH)( |$)') | list | length == 0) }}
+  when: rookery_manage_firewall
+- name: Say that SSH stays limited
+  ansible.builtin.debug:
+    msg: SSH stays open only to the addresses the firewall's own rules name, and to the address this apply came from. Delete those rules by hand to open it to every address.
+  when: rookery_manage_firewall and rookery_node_ssh_limited | bool
+- name: Set the node's firewall
+  ansible.builtin.command: /usr/local/sbin/rookery-node-firewall
+  args:
+    stdin: "{{ rookery_node_firewall | join('\n') }}"
+  register: rookery_node_firewall_set
+  changed_when: rookery_node_firewall_set.stdout | length > 0
+  when: rookery_manage_firewall
+  vars:
+    rookery_node_firewall: >-
+      {{ (([] if rookery_node_ssh_limited | bool else [('allow 22/tcp' if rookery_ssh_from == 'any' else 'allow from ' ~ rookery_ssh_from ~ ' to any port 22 proto tcp')])
+          + (['allow from ' ~ rookery_apply_from ~ ' to any port 22 proto tcp'] if rookery_apply_from | length > 0 and (rookery_ssh_from != 'any' or rookery_node_ssh_limited | bool) else [])
+          + (['allow from ' ~ rookery_bootstrap_ssh_cidr ~ ' to any port 22 proto tcp'] if rookery_bootstrap_ssh_cidr | length > 0 else [])
+          + (['allow in on tailscale0 to any port 22 proto tcp', 'allow 41641/udp'] if rookery_install_tailscale else [])
+          + rookery_firewall_rules) | unique }}
+- name: Say what the firewall changed
+  ansible.builtin.debug:
+    msg: "{{ rookery_node_firewall_set.stdout_lines }}"
+  when: rookery_node_firewall_set is changed
+
+# Last, so a run that failed leaves the host recorded as it was before.
+- name: Record what this configuration came from
+  ansible.builtin.import_tasks: applied.yml

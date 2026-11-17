@@ -232,7 +232,7 @@ class Handler(BaseHTTPRequestHandler):
                        # A guest that runs Docker has its bridge too, which sorts first.
                        'docker0': {'addresses': [{'family': 'inet', 'address': '172.17.0.1', 'scope': 'global'}]},
                        # So does the role's dummy interface, once the role has run.
-                       'devbox0': {'addresses': [{'family': 'inet', 'address': '192.0.2.2', 'scope': 'global'}]},
+                       'rookery0': {'addresses': [{'family': 'inet', 'address': '192.0.2.2', 'scope': 'global'}]},
                        # One the guest made itself has no name on the server's side.
                        'dummy0': {'host_name': '',
                                   'addresses': [{'family': 'inet', 'address': '192.0.2.3', 'scope': 'global'}]},
@@ -295,7 +295,7 @@ class IncusPluginTests(unittest.TestCase):
         cls.client_cert, cls.client_key = certificate(
             directory, 'client', ['basicConstraints=critical,CA:TRUE', 'keyUsage=digitalSignature,keyCertSign'])
         cls.other_cert, _ = certificate(directory, 'other', [])
-        cls.archive = directory / 'devbox-release.tar.gz'
+        cls.archive = directory / 'rookery-release.tar.gz'
         cls.archive.write_bytes(b'release archive ' * 1000)
         cls.sha = hashlib.sha256(cls.archive.read_bytes()).hexdigest()
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -335,7 +335,7 @@ class IncusPluginTests(unittest.TestCase):
 
     def create(self, provisioner='container', host='studio-2', token='0b6d', **fields):
         return self.run_verb('create', provisioner, host=host, token=token,
-                             labels={'berth-host': host, 'berth-instance': token},
+                             labels={'rookery-host': host, 'rookery-instance': token},
                              seed={'user_data': '#cloud-config\n{}\n', 'meta_data': f'instance-id: {token}\n',
                                    'archive': {'path': str(self.archive), 'sha256': self.sha}}, **fields)
 
@@ -345,17 +345,17 @@ class IncusPluginTests(unittest.TestCase):
     def test_container_takes_the_release_before_its_first_start(self):
         code, answer, err = self.create()
         self.assertEqual(code, 0, err)
-        self.assertEqual(answer, {'id': 'berth-studio-2', 'endpoints': [], 'address': '192.0.2.50'})
+        self.assertEqual(answer, {'id': 'rookery-studio-2', 'endpoints': [], 'address': '192.0.2.50'})
         self.assertEqual(self.actions(), [
-            ('create', 'berth-studio-2', 'container'),
-            ('push', '/opt/devbox-bootstrap', 'directory', 'Stopped', '0700'),
-            ('push', '/opt/devbox-bootstrap/release.tar.gz', 'file', 'Stopped', '0600'),
-            ('start', 'berth-studio-2', False)])
-        instance = self.server.instances['berth-studio-2']
-        self.assertEqual(instance['files']['/opt/devbox-bootstrap/release.tar.gz'], self.archive.read_bytes())
+            ('create', 'rookery-studio-2', 'container'),
+            ('push', '/opt/rookery-bootstrap', 'directory', 'Stopped', '0700'),
+            ('push', '/opt/rookery-bootstrap/release.tar.gz', 'file', 'Stopped', '0600'),
+            ('start', 'rookery-studio-2', False)])
+        instance = self.server.instances['rookery-studio-2']
+        self.assertEqual(instance['files']['/opt/rookery-bootstrap/release.tar.gz'], self.archive.read_bytes())
         self.assertEqual(instance['config'], {
             'limits.cpu': '4', 'limits.memory': '8GiB', 'cloud-init.user-data': '#cloud-config\n{}\n',
-            'user.berth-host': 'studio-2', 'user.berth-instance': '0b6d', 'security.nesting': 'true'})
+            'user.rookery-host': 'studio-2', 'user.rookery-instance': '0b6d', 'security.nesting': 'true'})
         self.assertEqual(instance['devices'], {'root': {'type': 'disk', 'path': '/', 'pool': 'default', 'size': '60GiB'}})
         source = instance['request']['source']
         self.assertEqual((source['server'], source['protocol'], source['alias']),
@@ -363,19 +363,19 @@ class IncusPluginTests(unittest.TestCase):
         self.assertFalse(instance['request']['start'])
         self.assertIn(('client-cert', True), self.server.events)
         self.assertNotIn(('client-cert', False), self.server.events)
-        for line in ['Creating berth-studio-2…', 'Copying the release…', 'Starting…']:
+        for line in ['Creating rookery-studio-2…', 'Copying the release…', 'Starting…']:
             self.assertIn(line, err)
 
     def test_vm_starts_before_the_release_is_copied(self):
         code, answer, err = self.create('vm', arguments={'network': 'lan', 'cpus': '8'})
         self.assertEqual(code, 0, err)
-        self.assertEqual(answer['id'], 'berth-studio-2')
+        self.assertEqual(answer['id'], 'rookery-studio-2')
         self.assertEqual(self.actions(), [
-            ('create', 'berth-studio-2', 'virtual-machine'),
-            ('start', 'berth-studio-2', False),
-            ('push', '/opt/devbox-bootstrap', 'directory', 'Running', '0700'),
-            ('push', '/opt/devbox-bootstrap/release.tar.gz', 'file', 'Running', '0600')])
-        instance = self.server.instances['berth-studio-2']
+            ('create', 'rookery-studio-2', 'virtual-machine'),
+            ('start', 'rookery-studio-2', False),
+            ('push', '/opt/rookery-bootstrap', 'directory', 'Running', '0700'),
+            ('push', '/opt/rookery-bootstrap/release.tar.gz', 'file', 'Running', '0600')])
+        instance = self.server.instances['rookery-studio-2']
         self.assertNotIn('security.nesting', instance['config'])
         self.assertEqual(instance['config']['limits.cpu'], '8')
         self.assertEqual(instance['devices']['eth0'], {'type': 'nic', 'name': 'eth0', 'network': 'lan'})
@@ -385,17 +385,17 @@ class IncusPluginTests(unittest.TestCase):
         self.server.events.clear()
         code, answer, err = self.create(host='studio-2')
         self.assertEqual(code, 0, err)
-        self.assertEqual(answer['id'], 'berth-studio-2')
+        self.assertEqual(answer['id'], 'rookery-studio-2')
         self.assertEqual(self.actions(), [])
         self.assertEqual(len(self.server.instances), 1)
 
     def test_a_name_taken_by_someone_else_is_refused(self):
-        self.server.instances['berth-studio-2'] = {'name': 'berth-studio-2', 'type': 'container',
+        self.server.instances['rookery-studio-2'] = {'name': 'rookery-studio-2', 'type': 'container',
                                                    'status': 'Running', 'config': {}, 'files': {}}
         code, _, err = self.create()
         self.assertEqual(code, 1)
-        self.assertIn('already has an instance named berth-studio-2', err)
-        self.assertIn('other than berth', err)
+        self.assertIn('already has an instance named rookery-studio-2', err)
+        self.assertIn('other than rookery', err)
 
     def test_a_missing_image_is_named(self):
         code, _, err = self.create(arguments={'image': 'ubuntu/missing/cloud'})
@@ -404,13 +404,13 @@ class IncusPluginTests(unittest.TestCase):
 
     def test_status_follows_the_instance(self):
         self.create()
-        self.assertEqual(self.run_verb('status', id='berth-studio-2')[1], {'state': 'running', 'endpoints': [], 'address': '192.0.2.50'})
-        self.assertEqual(self.run_verb('stop', id='berth-studio-2')[:2], (0, {}))
-        self.assertIn(('stop', 'berth-studio-2', True), self.server.events)
-        self.assertEqual(self.run_verb('status', id='berth-studio-2')[1], {'state': 'stopped', 'endpoints': []})
-        self.assertEqual(self.run_verb('start', id='berth-studio-2')[:2], (0, {}))
-        self.assertEqual(self.run_verb('status', id='berth-studio-2')[1]['state'], 'running')
-        self.assertEqual(self.run_verb('status', id='berth-gone')[1], {'state': 'gone'})
+        self.assertEqual(self.run_verb('status', id='rookery-studio-2')[1], {'state': 'running', 'endpoints': [], 'address': '192.0.2.50'})
+        self.assertEqual(self.run_verb('stop', id='rookery-studio-2')[:2], (0, {}))
+        self.assertIn(('stop', 'rookery-studio-2', True), self.server.events)
+        self.assertEqual(self.run_verb('status', id='rookery-studio-2')[1], {'state': 'stopped', 'endpoints': []})
+        self.assertEqual(self.run_verb('start', id='rookery-studio-2')[:2], (0, {}))
+        self.assertEqual(self.run_verb('status', id='rookery-studio-2')[1]['state'], 'running')
+        self.assertEqual(self.run_verb('status', id='rookery-gone')[1], {'state': 'gone'})
 
     def logs(self, **fields):
         """What logs writes, which is not JSON."""
@@ -425,8 +425,8 @@ class IncusPluginTests(unittest.TestCase):
     def test_logs_are_the_latest_console_lines(self):
         self.create()
         console = ''.join(f'[  OK  ] Started unit-{n}.service.\r\n' for n in range(150))
-        self.server.instances['berth-studio-2']['console'] = console.encode()
-        code, out, err = self.logs(id='berth-studio-2')
+        self.server.instances['rookery-studio-2']['console'] = console.encode()
+        code, out, err = self.logs(id='rookery-studio-2')
         self.assertEqual(code, 0, err)
         self.assertEqual(len(out.splitlines()), 100)
         self.assertEqual(out.splitlines()[-1], '[  OK  ] Started unit-149.service.')
@@ -434,43 +434,43 @@ class IncusPluginTests(unittest.TestCase):
 
     def test_logs_read_cloud_init_output_when_the_console_is_empty(self):
         self.create()
-        self.server.instances['berth-studio-2']['files']['/var/log/cloud-init-output.log'] = \
+        self.server.instances['rookery-studio-2']['files']['/var/log/cloud-init-output.log'] = \
             b'Cloud-init v. 25.1 running modules:config\nCloud-init v. 25.1 finished\n'
-        code, out, err = self.logs(id='berth-studio-2')
+        code, out, err = self.logs(id='rookery-studio-2')
         self.assertEqual(code, 0, err)
         self.assertEqual(out, 'Cloud-init v. 25.1 running modules:config\nCloud-init v. 25.1 finished\n')
 
     def test_logs_of_a_vm_without_its_agent_are_empty_and_of_one_gone_fail(self):
         self.create('vm')
-        self.server.instances['berth-studio-2']['status'] = 'Stopped'
-        self.assertEqual(self.logs(id='berth-studio-2')[:2], (0, ''))
-        code, _, err = self.logs(id='berth-gone')
+        self.server.instances['rookery-studio-2']['status'] = 'Stopped'
+        self.assertEqual(self.logs(id='rookery-studio-2')[:2], (0, ''))
+        code, _, err = self.logs(id='rookery-gone')
         self.assertEqual(code, 1)
         self.assertIn('no longer', err)
 
     def test_destroy_stops_and_deletes_and_is_fine_when_gone(self):
         self.create()
         self.server.events.clear()
-        self.assertEqual(self.run_verb('destroy', id='berth-studio-2')[:2], (0, {}))
-        self.assertEqual(self.actions(), [('stop', 'berth-studio-2', True), ('delete', 'berth-studio-2', 'Stopped')])
-        self.assertEqual(self.run_verb('destroy', id='berth-studio-2')[:2], (0, {}))
+        self.assertEqual(self.run_verb('destroy', id='rookery-studio-2')[:2], (0, {}))
+        self.assertEqual(self.actions(), [('stop', 'rookery-studio-2', True), ('delete', 'rookery-studio-2', 'Stopped')])
+        self.assertEqual(self.run_verb('destroy', id='rookery-studio-2')[:2], (0, {}))
 
-    def test_destroy_leaves_an_instance_berth_did_not_make(self):
+    def test_destroy_leaves_an_instance_rookery_did_not_make(self):
         self.server.instances['web'] = {'name': 'web', 'type': 'container', 'status': 'Running',
                                         'config': {'user.owner': 'someone'}, 'files': {}}
         code, _, err = self.run_verb('destroy', id='web')
         self.assertEqual(code, 1)
-        self.assertIn('not made by berth', err)
+        self.assertIn('not made by rookery', err)
         self.assertIn('web', self.server.instances)
         self.assertEqual(self.actions(), [])
 
-    def test_list_shows_only_berths_instances(self):
+    def test_list_shows_only_rookerys_instances(self):
         self.create()
         self.server.instances['web'] = {'name': 'web', 'type': 'container', 'status': 'Stopped',
                                         'config': {}, 'files': {}}
         code, answer, err = self.run_verb('list')
         self.assertEqual(code, 0, err)
-        self.assertEqual(answer, {'resources': [{'id': 'berth-studio-2', 'kind': 'machine', 'name': 'studio-2',
+        self.assertEqual(answer, {'resources': [{'id': 'rookery-studio-2', 'kind': 'machine', 'name': 'studio-2',
                                                  'host': 'studio-2', 'state': 'running'}]})
         # A provisioner lists the instances of its own type.
         self.assertEqual(self.run_verb('list', 'vm')[1], {'resources': []})
@@ -478,7 +478,7 @@ class IncusPluginTests(unittest.TestCase):
     def test_an_instance_is_any_image_with_its_own_user_data_and_no_host(self):
         def make(name='web_1', token='7f3a', **arguments):
             return self.run_verb('create', 'container', kind='instance', name=name, token=token,
-                                 labels={'berth-resource': 'r1', 'berth-token': token},
+                                 labels={'rookery-resource': 'r1', 'rookery-token': token},
                                  arguments={'image': 'debian/12', 'user_data': '#cloud-config\npackages: [nginx]\n',
                                             **arguments})
         code, answer, err = make()
@@ -488,9 +488,9 @@ class IncusPluginTests(unittest.TestCase):
         self.assertTrue(made['start'])
         self.assertEqual(made['source']['alias'], 'debian/12')
         self.assertEqual(made['config']['cloud-init.user-data'], '#cloud-config\npackages: [nginx]\n')
-        self.assertEqual(made['config']['user.berth-resource'], 'r1')
-        self.assertNotIn('user.berth-host', made['config'])
-        # Nothing of berth is copied into it.
+        self.assertEqual(made['config']['user.rookery-resource'], 'r1')
+        self.assertNotIn('user.rookery-host', made['config'])
+        # Nothing of rookery is copied into it.
         self.assertEqual([e for e in self.server.events if e[0] == 'push'], [])
         # Asked again with its token, it is the same one.
         self.assertEqual(make()[1]['id'], 'web-1')
@@ -503,9 +503,9 @@ class IncusPluginTests(unittest.TestCase):
         self.create()
         listed = self.run_verb('list')[1]['resources']
         self.assertEqual(sorted((r['id'], r['kind'], r['host']) for r in listed),
-                         [('berth-studio-2', 'machine', 'studio-2'), ('web-1', 'instance', '')])
+                         [('rookery-studio-2', 'machine', 'studio-2'), ('web-1', 'instance', '')])
         self.assertEqual([r['id'] for r in self.run_verb('list', kind='instance')[1]['resources']], ['web-1'])
-        # berth changes and removes it as one of its own.
+        # rookery changes and removes it as one of its own.
         self.assertEqual(self.run_verb('change', id='web-1', arguments={'cpus': '2', 'memory': '1GiB'})[0], 0)
         self.assertEqual(self.server.instances['web-1']['config']['limits.memory'], '1GiB')
         # What is fixed when it is made is refused before anything is changed.
@@ -521,7 +521,7 @@ class IncusPluginTests(unittest.TestCase):
         code, answer, err = self.run_verb('status')
         self.assertEqual(code, 0, err)
         self.assertEqual(answer['state'], 'ready')
-        self.assertEqual(answer['message'], f'Incus 6.18 answers at {self.address} and trusts berth')
+        self.assertEqual(answer['message'], f'Incus 6.18 answers at {self.address} and trusts rookery')
         self.assertEqual(answer['values'], {'pool': ['default', 'disk', 'fast'], 'network': ['eth0', 'incusbr0'],
                                             'instance': []})
         rows = {row['label']: row['value'] for row in answer['details']}
@@ -532,7 +532,7 @@ class IncusPluginTests(unittest.TestCase):
         self.server.pools['fast']['used_by'] = ['/1.0/profiles/default', '/1.0/instances/web?project=default']
         self.server.volumes[('default', 'data')] = {'name': 'data', 'config': {'size': '10GiB'}, 'used': 2 * gib,
                                                     'content_type': 'filesystem',
-                                                    'used_by': ['/1.0/instances/berth-studio?project=default']}
+                                                    'used_by': ['/1.0/instances/rookery-studio?project=default']}
         self.server.volumes[('fast', 'disk')] = {'name': 'disk', 'config': {}, 'content_type': 'block',
                                                  'used_by': []}
         code, answer, err = self.run_verb('status')
@@ -553,9 +553,9 @@ class IncusPluginTests(unittest.TestCase):
         volumes = {(row['key']['pool'], row['key']['volume']): row for row in collections['volumes']}
         self.assertEqual(volumes[('default', 'data')]['columns'],
                          {'pool': 'default', 'type': 'filesystem', 'size': '10GiB', 'used': '2.0 GiB',
-                          'used_by': 'berth-studio'})
+                          'used_by': 'rookery-studio'})
         self.assertEqual(volumes[('default', 'data')]['unavailable'],
-                         {'remove-volume': 'Incus refuses it while berth-studio uses it'})
+                         {'remove-volume': 'Incus refuses it while rookery-studio uses it'})
         self.assertEqual(volumes[('fast', 'disk')]['columns']['size'], 'no set size')
         self.assertEqual(volumes[('fast', 'disk')]['unavailable'], {})
         self.assertEqual(collections['images'], [{
@@ -569,7 +569,7 @@ class IncusPluginTests(unittest.TestCase):
 
     def test_the_manifest_declares_the_collections_status_gives(self):
         manifest = json.loads((PLUGIN / 'package.json').read_text())
-        for provisioner in manifest['berth']['provisioners']:
+        for provisioner in manifest['rookery']['provisioners']:
             actions = {action['name']: action for action in provisioner['actions']}
             declared = {collection['id']: collection for collection in provisioner['collections']}
             self.assertEqual(sorted(declared), ['images', 'instances', 'pools', 'volumes'])
@@ -612,7 +612,7 @@ class IncusPluginTests(unittest.TestCase):
         code, answer, err = self.run_verb('act', action={'name': 'networks'})
         self.assertEqual(answer['details'][0], {'label': 'incusbr0', 'value': 'bridge · managed by Incus'})
         code, answer, err = self.run_verb('act', action={'name': 'server'})
-        self.assertIn('trusts berth', answer['message'])
+        self.assertIn('trusts rookery', answer['message'])
         code, _, err = self.run_verb('act', action={'name': 'wipe'})
         self.assertEqual(code, 1)
         self.assertIn("no action 'wipe'", err)
@@ -756,21 +756,21 @@ class IncusPluginTests(unittest.TestCase):
     def test_resize_disk_grows_the_root_disk_and_restarts_a_vm_only_when_asked(self):
         self.assertEqual(self.create('vm')[0], 0)
         self.server.events.clear()
-        code, answer, err = self.act('resize-disk', instance='berth-studio-2', size='80GiB')
+        code, answer, err = self.act('resize-disk', instance='rookery-studio-2', size='80GiB')
         self.assertEqual(code, 0, err)
-        self.assertEqual(self.server.instances['berth-studio-2']['devices']['root']['size'], '80GiB')
+        self.assertEqual(self.server.instances['rookery-studio-2']['devices']['root']['size'], '80GiB')
         self.assertIn('sees the new size after a restart: run this again with restart=yes', answer['message'])
         self.assertEqual(answer['details'], [{'label': 'Before', 'value': '60GiB'}, {'label': 'After', 'value': '80GiB'}])
         self.assertFalse([e for e in self.server.events if e[0] in ('restart', 'stop', 'start')])
-        code, answer, err = self.act('resize-disk', instance='berth-studio-2', size='100GiB', restart='yes')
+        code, answer, err = self.act('resize-disk', instance='rookery-studio-2', size='100GiB', restart='yes')
         self.assertEqual(code, 0, err)
-        self.assertIn(('restart', 'berth-studio-2', False), self.server.events)
+        self.assertIn(('restart', 'rookery-studio-2', False), self.server.events)
         self.assertIn('was restarted', answer['message'])
         # It only grows.
-        code, _, err = self.act('resize-disk', instance='berth-studio-2', size='50GiB')
+        code, _, err = self.act('resize-disk', instance='rookery-studio-2', size='50GiB')
         self.assertEqual(code, 1)
-        self.assertIn('is 100GiB, and berth only grows it', err)
-        code, _, err = self.act('resize-disk', instance='berth-studio-2', size='120GiB', restart='maybe')
+        self.assertIn('is 100GiB, and rookery only grows it', err)
+        code, _, err = self.act('resize-disk', instance='rookery-studio-2', size='120GiB', restart='maybe')
         self.assertEqual(code, 1)
         self.assertIn("restart is yes or no, not 'maybe'", err)
         code, _, err = self.act('resize-disk', instance='nowhere', size='120GiB')
@@ -795,20 +795,20 @@ class IncusPluginTests(unittest.TestCase):
 
     def test_change_leaves_a_disk_that_was_not_given_anew(self):
         self.assertEqual(self.create()[0], 0)
-        self.assertEqual(self.act('resize-disk', instance='berth-studio-2', size='100GiB')[0], 0)
+        self.assertEqual(self.act('resize-disk', instance='rookery-studio-2', size='100GiB')[0], 0)
         self.server.events.clear()
-        # berth's record still says 60GiB, which it sends with every change.
-        code, _, err = self.run_verb('change', id='berth-studio-2', changed=['memory'],
+        # rookery's record still says 60GiB, which it sends with every change.
+        code, _, err = self.run_verb('change', id='rookery-studio-2', changed=['memory'],
                                      arguments={'memory': '4GiB', 'disk': '60GiB'})
         self.assertEqual(code, 0, err)
-        self.assertEqual(self.server.instances['berth-studio-2']['devices']['root']['size'], '100GiB')
-        code, _, err = self.run_verb('change', id='berth-studio-2', changed=['disk'], arguments={'disk': '80GiB'})
+        self.assertEqual(self.server.instances['rookery-studio-2']['devices']['root']['size'], '100GiB')
+        code, _, err = self.run_verb('change', id='rookery-studio-2', changed=['disk'], arguments={'disk': '80GiB'})
         self.assertEqual(code, 1)
-        self.assertIn('berth only grows it', err)
+        self.assertIn('rookery only grows it', err)
 
     def test_change_sets_new_limits_and_grows_the_disk(self):
         self.create()
-        code, answer, err = self.run_verb('change', id='berth-studio-2',
+        code, answer, err = self.run_verb('change', id='rookery-studio-2',
                                           arguments={'cpus': '2', 'memory': '4GiB', 'disk': '80GiB'})
         self.assertEqual(code, 0, err)
         self.assertEqual(answer, {'state': 'running', 'endpoints': []})
@@ -819,17 +819,17 @@ class IncusPluginTests(unittest.TestCase):
                                         'config': {}, 'files': {}}
         code, _, err = self.run_verb('change', id='web', arguments={'cpus': '1'})
         self.assertEqual(code, 1)
-        self.assertIn('not made by berth', err)
+        self.assertIn('not made by rookery', err)
 
     def test_proxy_devices_are_endpoints_on_the_server(self):
         self.create()
-        self.server.instances['berth-studio-2']['expanded_devices'] = {
+        self.server.instances['rookery-studio-2']['expanded_devices'] = {
             'root': {'type': 'disk', 'path': '/', 'pool': 'default'},
             'web': {'type': 'proxy', 'listen': 'tcp:0.0.0.0:8080', 'connect': 'tcp:127.0.0.1:80'},
             'dns': {'type': 'proxy', 'listen': 'udp:192.0.2.1:5353', 'connect': 'udp:127.0.0.1:53'},
             'Socket': {'type': 'proxy', 'listen': 'unix:/run/web.sock', 'connect': 'tcp:127.0.0.1:80'},
         }
-        code, answer, err = self.run_verb('status', id='berth-studio-2')
+        code, answer, err = self.run_verb('status', id='rookery-studio-2')
         self.assertEqual(code, 0, err)
         # The fake answers on this machine's loopback, so its addresses are this machine's.
         self.assertEqual(answer['endpoints'], [
@@ -839,7 +839,7 @@ class IncusPluginTests(unittest.TestCase):
 
     def test_a_command_runs_in_the_instance_with_its_output_and_exit_status(self):
         self.create()
-        code, answer, err = self.run_verb('exec', id='berth-studio-2', command=['sh', '-c', 'echo hi; exit 2'])
+        code, answer, err = self.run_verb('exec', id='rookery-studio-2', command=['sh', '-c', 'echo hi; exit 2'])
         self.assertEqual(code, 0, err)
         self.assertEqual(answer, {'exit_code': 2})
         self.assertIn('hi from web\none warning\n', err)
@@ -848,14 +848,14 @@ class IncusPluginTests(unittest.TestCase):
         self.assertEqual((exec_[2]['record-output'], exec_[2]['interactive']), (True, False))
         self.assertEqual({e[1] for e in self.server.events if e[0] == 'log-delete'}, {'exec_1.stdout', 'exec_1.stderr'})
         for fields, said in [({'stdin': 'x'}, 'without standard input'), ({'command': 'ls'}, 'list of words')]:
-            code, _, err = self.run_verb('exec', id='berth-studio-2', **{'command': ['ls'], **fields})
+            code, _, err = self.run_verb('exec', id='rookery-studio-2', **{'command': ['ls'], **fields})
             self.assertEqual(code, 1)
             self.assertIn(said, err)
 
     def test_logs_are_the_last_lines_of_the_console(self):
         self.create()
-        self.server.instances['berth-studio-2']['console'] = ''.join(f'line {n}\n' for n in range(1, 6)).encode()
-        code, out, err = self.logs(id='berth-studio-2', tail=2)
+        self.server.instances['rookery-studio-2']['console'] = ''.join(f'line {n}\n' for n in range(1, 6)).encode()
+        code, out, err = self.logs(id='rookery-studio-2', tail=2)
         self.assertEqual(code, 0, err)
         self.assertEqual(out, 'line 4\nline 5\n')
 
@@ -882,14 +882,14 @@ class IncusPluginTests(unittest.TestCase):
         self.assertIn('is not trusted here', err)
 
     def test_an_unreachable_server_is_said_plainly(self):
-        code, _, err = self.run_verb('status', id='berth-studio-2', arguments={'server': 'https://127.0.0.1:1'})
+        code, _, err = self.run_verb('status', id='rookery-studio-2', arguments={'server': 'https://127.0.0.1:1'})
         self.assertEqual(code, 1)
         self.assertIn('Cannot reach the Incus server at https://127.0.0.1:1', err)
 
     def test_names_are_what_incus_accepts(self):
         code, answer, err = self.create(host='lab_box' + 'x' * 70, token='t2')
         self.assertEqual(code, 0, err)
-        self.assertRegex(answer['id'], r'^berth-lab-boxx+$')
+        self.assertRegex(answer['id'], r'^rookery-lab-boxx+$')
         self.assertEqual(len(answer['id']), 63)
 
 

@@ -1,7 +1,7 @@
-"""berth serve over TCP: its routes and the portal, the roles of access
+"""rookery serve over TCP: its routes and the portal, the roles of access
 tokens, setting the server up through the API, and applying as a job.
 
-All but ApplyJob use berth serve as harness.served() starts it. ApplyJob
+All but ApplyJob use rookery serve as harness.served() starts it. ApplyJob
 looks at the job of the server's own shared state (harness.served_extended())."""
 import json
 import unittest
@@ -42,11 +42,11 @@ class Routes(unittest.TestCase):
         tasks = self.serve.call('GET', f'/v1/hosts/{HOST}/controller/actions')
         self.assertIn('secrets', [task['name'] for task in tasks])
         path = f'/v1/hosts/{HOST}/controller/files?path=/home/{AGENT}/through-serve.txt&overwrite=true'
-        status, _ = self.serve.request('PUT', path, b'written through berth serve',
+        status, _ = self.serve.request('PUT', path, b'written through rookery serve',
                                        headers={'Content-Type': 'application/octet-stream'})
         self.assertEqual(status, 200)
         status, read, _ = self.serve.request('GET', path.split('&')[0], raw=True)
-        self.assertEqual((status, read), (200, b'written through berth serve'))
+        self.assertEqual((status, read), (200, b'written through rookery serve'))
         status, _ = self.serve.request('GET', '/v1/hosts/nowhere/controller/sessions')
         self.assertEqual(status, 404)
 
@@ -81,11 +81,11 @@ class Routes(unittest.TestCase):
         self.serve.call('DELETE', f'/v1/inbox/{HOST}/{number}/done')
         self.assertFalse(arrived()[0]['done'])
         # The command line marks it the same way.
-        berth = self.serve.station.berth
-        self.assertIn(f'Message {number} of {HOST} is done', berth('inbox', 'done', HOST, str(number)).stdout)
+        rookery = self.serve.station.rookery
+        self.assertIn(f'Message {number} of {HOST} is done', rookery('inbox', 'done', HOST, str(number)).stdout)
         self.assertTrue(arrived()[0]['done'])
-        self.assertNotIn(body['note'], berth('inbox', 'list', HOST, '--topic', 'e2e/inbox').stdout)
-        berth('inbox', 'reopen', HOST, str(number))
+        self.assertNotIn(body['note'], rookery('inbox', 'list', HOST, '--topic', 'e2e/inbox').stdout)
+        rookery('inbox', 'reopen', HOST, str(number))
         self.assertFalse(arrived()[0]['done'])
 
 
@@ -127,7 +127,7 @@ class Portal(unittest.TestCase):
 
 @needs_e2e
 class Roles(unittest.TestCase):
-    """Access tokens of the issuer berth serve trusts, with the role they name."""
+    """Access tokens of the issuer rookery serve trusts, with the role they name."""
 
     @classmethod
     def setUpClass(cls):
@@ -150,18 +150,18 @@ class Roles(unittest.TestCase):
         order = ['view', 'operate', 'admin']
         for role in order:
             for method, path, body, needed in asked:
-                status, answer = self.status(f'openid berth:{role}', method, path, body)
+                status, answer = self.status(f'openid rookery:{role}', method, path, body)
                 allowed = order.index(role) >= order.index(needed)
                 self.assertEqual(status == 200, allowed, (role, method, path, status, answer))
                 if not allowed:
                     self.assertEqual(status, 403, answer)
 
     def test_the_caller_is_told_its_role(self):
-        status, access = self.status('berth:operate', 'GET', '/v1/access', subject='grace')
+        status, access = self.status('rookery:operate', 'GET', '/v1/access', subject='grace')
         self.assertEqual((status, access['role'], access['subject']), (200, 'operate', 'grace'))
 
     def test_the_portal_asks_for_each_operation(self):
-        portal = self.serve.portal(self.issuer.token('berth:view'))
+        portal = self.serve.portal(self.issuer.token('rookery:view'))
         try:
             self.assertTrue(portal.result('hosts.list'))
             refused = portal.call('sessions.start', data={'kind': 'process', 'command': 'true'}, host=HOST)
@@ -180,7 +180,7 @@ class Roles(unittest.TestCase):
             'signed with another key': {'key': Ed25519PrivateKey.generate()},
         }
         for what, token in bad.items():
-            status, answer = self.status('berth:admin', 'GET', '/v1/hosts', **token)
+            status, answer = self.status('rookery:admin', 'GET', '/v1/hosts', **token)
             self.assertEqual(status, 401, (what, answer))
         status, answer = self.status('openid profile', 'GET', '/v1/hosts')
         self.assertEqual(status, 403, answer)
@@ -215,10 +215,10 @@ class SetUp(unittest.TestCase):
         own = self.serve.station.own_public()
         self.assertNotIn('key', catalogue)
         keys = {key['name']: key for key in self.serve.call('GET', '/v1/keys')['keys']}
-        self.assertEqual(keys['berth']['public'], own)
+        self.assertEqual(keys['rookery']['public'], own)
         self.assertNotIn('PRIVATE KEY', json.dumps(keys))
         name = self.serve.call('POST', '/v1/setup/generate', {'what': 'hostname'})['value']
-        self.assertRegex(name, r'^devbox-')
+        self.assertRegex(name, r'^rookery-')
         made = self.serve.call('POST', '/v1/setup/generate', {'what': 'password', 'host': 'draft', 'user': 'ops'})
         self.assertTrue(made['value'].startswith('$6$') and made['password'], made)
         hashed = self.serve.call('POST', '/v1/setup/generate', {'what': 'password', 'password': 'correct horse'})
@@ -227,11 +227,11 @@ class SetUp(unittest.TestCase):
     def test_a_host_is_made_seeded_and_removed(self):
         profile = provisioned().read_profile()
         # A seed of a host that joins the tailnet needs a key no test network can make.
-        apart = {**profile.get('ansible_vars', {}), 'devbox_install_tailscale': False}
+        apart = {**profile.get('ansible_vars', {}), 'rookery_install_tailscale': False}
         self.serve.call('PUT', '/v1/hosts/cloud-2/profile', {
             **profile, 'hostname': 'cloud-2', 'builder': {}, 'access': {}, 'ansible_vars': apart,
             'operator_password_hash': '$6$e2e$' + 'x' * 86,
-            'release_url': 'https://192.0.2.30/berth-release.tar.gz'})
+            'release_url': 'https://192.0.2.30/rookery-release.tar.gz'})
         self.assertFalse(self.serve.call('GET', '/v1/hosts/cloud-2')['reachable'])
         seed = self.serve.call('POST', '/v1/hosts/cloud-2/actions/seed')['result']['user_data']
         own = self.serve.station.own_public().split()[1]
@@ -252,7 +252,7 @@ class SetUp(unittest.TestCase):
             session = self.serve.call('POST', f'/v1/hosts/{HOST}/actions/secrets', expect=202)['session']
             wait_for('the secrets action to end', lambda: self.serve.call(
                 'GET', f'/v1/hosts/{HOST}/controller/sessions/{session["id"]}').get('exit_code') == 0)
-            env = provisioned().root_on_host(f'cat /home/{AGENT}/.config/devbox/secrets.env').stdout
+            env = provisioned().root_on_host(f'cat /home/{AGENT}/.config/rookery/secrets.env').stdout
             self.assertIn(f'export SERVER_TOKEN={value}', env)
         finally:
             profile['secrets'] = kept
@@ -269,7 +269,7 @@ class SetUp(unittest.TestCase):
 @needs_e2e
 class ApplyJob(unittest.TestCase):
     """Applying as a job of the server, followed over the portal: the second
-    apply of the shared state of berth serve (harness.served_extended())."""
+    apply of the shared state of rookery serve (harness.served_extended())."""
 
     @classmethod
     def setUpClass(cls):
@@ -296,7 +296,7 @@ class ApplyJob(unittest.TestCase):
 class ClosedSetUp(unittest.TestCase):
     def test_set_up_can_be_closed_to_the_network(self):
         station = Workstation('closed', ssh_key=False)
-        closed = Serve(station, env={'BERTH_SERVE_SETUP': 'off'})
+        closed = Serve(station, env={'ROOKERY_SERVE_SETUP': 'off'})
         try:
             self.assertEqual(closed.call('GET', '/v1/access'), {'role': 'operate', 'setup': False})
             status, answer = closed.request('PUT', '/v1/secrets/x', {'value': 'y'})

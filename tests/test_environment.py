@@ -20,7 +20,7 @@ try:
 except ImportError:
     serialization = None
 
-ROLE = Path(__file__).resolve().parents[1] / 'provision/ansible/roles/devbox'
+ROLE = Path(__file__).resolve().parents[1] / 'provision/ansible/roles/rookery'
 
 
 @unittest.skipUnless(jinja2 and yaml, 'Run with the Ansible venv Python for template checks')
@@ -33,18 +33,18 @@ class EnvironmentTests(unittest.TestCase):
         self.templates.filters['to_json'] = json.dumps
         self.templates.filters['bool'] = bool
         self.templates.tests['match'] = lambda value, pattern: re.match(pattern, value) is not None
-        self.defaults['devbox_privileges'] = 'full'
-        self.defaults['devbox_home'] = self.templates.from_string(self.defaults['devbox_home']).render(self.defaults)
-        self.defaults['devbox_tool_path'] = self.templates.from_string(self.defaults['devbox_tool_path']).render(self.defaults)
+        self.defaults['rookery_privileges'] = 'full'
+        self.defaults['rookery_home'] = self.templates.from_string(self.defaults['rookery_home']).render(self.defaults)
+        self.defaults['rookery_tool_path'] = self.templates.from_string(self.defaults['rookery_tool_path']).render(self.defaults)
 
     def test_shell_and_service_environment_agree_for_all_profiles(self):
         for profile in ['laptop', 'cloud', 'container']:
             for software in [True, False]:
                 with self.subTest(profile=profile, software=software):
-                    values = dict(self.defaults, devbox_profile=profile,
-                                  devbox_software_rendering=software,
-                                  devbox_uid='1001', devbox_bind='127.0.0.1',
-                                  devbox_lvp_icd='/usr/share/vulkan/icd.d/lvp_icd.json')
+                    values = dict(self.defaults, rookery_profile=profile,
+                                  rookery_software_rendering=software,
+                                  rookery_uid='1001', rookery_bind='127.0.0.1',
+                                  rookery_lvp_icd='/usr/share/vulkan/icd.d/lvp_icd.json')
                     shell = self.templates.get_template('environment.j2').render(values)
                     result = subprocess.run(
                         ['/bin/bash', '-c', shell + '\n/usr/bin/env -0'],
@@ -54,7 +54,7 @@ class EnvironmentTests(unittest.TestCase):
                     service = dict(line.split('=', 1) for line in
                                    self.templates.get_template('t3.env.j2').render(values).splitlines()
                                    if line and not line.startswith('#'))
-                    for key in ['PATH', 'DISPLAY', 'XAUTHORITY', 'DEVBOX_SOFTWARE_RENDERING']:
+                    for key in ['PATH', 'DISPLAY', 'XAUTHORITY', 'ROOKERY_SOFTWARE_RENDERING']:
                         self.assertEqual(actual[key], service[key])
                     self.assertIn('/home/agent/.local/share/mise/shims', actual['PATH'])
                     if software:
@@ -67,41 +67,41 @@ class EnvironmentTests(unittest.TestCase):
                         self.assertNotIn('VK_DRIVER_FILES', service)
 
     def test_custom_agent_paths_reach_shell_and_service(self):
-        values=dict(self.defaults,devbox_user='robot',devbox_home='/home/robot',
-                    devbox_profile='cloud',devbox_uid='1003',devbox_bind='127.0.0.1',
-                    devbox_lvp_icd='/usr/share/vulkan/icd.d/lvp_icd.json')
-        values['devbox_tool_path']=values['devbox_tool_path'].replace('/home/agent','/home/robot')
+        values=dict(self.defaults,rookery_user='robot',rookery_home='/home/robot',
+                    rookery_profile='cloud',rookery_uid='1003',rookery_bind='127.0.0.1',
+                    rookery_lvp_icd='/usr/share/vulkan/icd.d/lvp_icd.json')
+        values['rookery_tool_path']=values['rookery_tool_path'].replace('/home/agent','/home/robot')
         shell=self.templates.get_template('environment.j2').render(values)
         service=self.templates.get_template('t3.env.j2').render(values)
-        self.assertIn('export DEVBOX_USER=robot',shell)
+        self.assertIn('export ROOKERY_USER=robot',shell)
         for rendered in [shell,service]:
-            self.assertIn('/home/robot/.config/devbox.Xauthority',rendered)
+            self.assertIn('/home/robot/.config/rookery.Xauthority',rendered)
             self.assertNotIn('/home/agent',rendered)
 
     def test_tool_categories_select_only_their_runtime_tools(self):
         import copy
-        categories = self.defaults['devbox_tool_categories']
+        categories = self.defaults['rookery_tool_categories']
         for selected in [None, 'all'] + [category['name'] for category in categories]:
             with self.subTest(selected=selected):
                 values = copy.deepcopy(self.defaults)
                 expected = {'node'}
-                for category in values['devbox_tool_categories']:
+                for category in values['rookery_tool_categories']:
                     category['enabled'] = selected == 'all' or category['name'] == selected
                     if category['enabled']:
                         expected.update(category['tools'])
                 manifest = tomllib.loads(self.templates.get_template('mise.toml.j2').render(values))
                 self.assertEqual(set(manifest['tools']), expected)
-                self.assertEqual(manifest['tools']['node'][0], self.defaults['devbox_node_versions'][0])
+                self.assertEqual(manifest['tools']['node'][0], self.defaults['rookery_node_versions'][0])
 
 
     def feature(self, description, plugin='demo', label='Demo'):
-        text = self.templates.get_template('berth-feature.json.j2').render(
-            devbox_feature=description, devbox_plugin_id=plugin, devbox_plugin_label=label)
+        text = self.templates.get_template('rookery-feature.json.j2').render(
+            rookery_feature=description, rookery_plugin_id=plugin, rookery_plugin_label=label)
         return json.loads(text)
 
     def test_a_feature_becomes_tasks_services_and_topics(self):
         adds = self.feature({'id': 'main', 'actions': [
-            {'name': 'hello', 'run': 'echo "$BERTH_ARG_WHO" \'x\'', 'agent': True,
+            {'name': 'hello', 'run': 'echo "$ROOKERY_ARG_WHO" \'x\'', 'agent': True,
              'arguments': [{'name': 'who', 'required': True}]},
             {'name': 'part', 'extends': 'status', 'user': 'root', 'run': 'true'},
             {'name': 'wipe', 'group': 'System', 'terminal': True, 'confirm': 'Sure?',
@@ -117,7 +117,7 @@ class EnvironmentTests(unittest.TestCase):
         hello = tasks['demo:hello']
         self.assertEqual((hello['user'], hello['agent'], hello['group'], hello['extends'], hello['label']),
                          ('agent', True, 'Demo', [], 'hello'))
-        self.assertEqual(hello['run'], 'echo "$BERTH_ARG_WHO" \'x\'')
+        self.assertEqual(hello['run'], 'echo "$ROOKERY_ARG_WHO" \'x\'')
         self.assertEqual(hello['arguments'], [{'name': 'who', 'required': True}])
         self.assertEqual((tasks['demo:part']['extends'], tasks['demo:part']['user']), (['status'], 'root'))
         wipe = tasks['demo:wipe']
@@ -135,7 +135,7 @@ class EnvironmentTests(unittest.TestCase):
         names = []
         for package in sorted(plugins.glob('*/package.json')):
             data = json.loads(package.read_text())
-            for feature in data['berth'].get('features', []):
+            for feature in data['rookery'].get('features', []):
                 adds = self.feature(feature, package.parent.name, data.get('displayName', package.parent.name))
                 self.assertEqual(len(adds['tasks']), len(feature.get('actions', [])), package)
                 names += [task['name'] for task in adds['tasks']]
@@ -144,7 +144,7 @@ class EnvironmentTests(unittest.TestCase):
         self.assertIn('github:login', names)
 
     def test_core_tasks_name_installed_scripts(self):
-        tasks = yaml.safe_load((ROLE / 'vars/main.yml').read_text())['devbox_core_tasks']
+        tasks = yaml.safe_load((ROLE / 'vars/main.yml').read_text())['rookery_core_tasks']
         names = [task['name'] for task in tasks]
         self.assertEqual(names, ['status', 'smoke', 'reboot', 'update', 'access', 'publish', 'pair',
                                  'secrets', 'sign-in:status'])
@@ -152,7 +152,7 @@ class EnvironmentTests(unittest.TestCase):
             with self.subTest(task=task['name']):
                 self.assertIn(task['user'], ['agent', 'root'])
                 self.assertTrue(task['label'] and task['help'] and task['group'])
-                if task['run'].startswith('{{ devbox_task_dir }}/'):
+                if task['run'].startswith('{{ rookery_task_dir }}/'):
                     self.assertTrue((ROLE / 'files/tasks' / task['run'].rsplit('/', 1)[1]).is_file())
         by_name = {task['name']: task for task in tasks}
         self.assertEqual(by_name['secrets']['input'], 'secrets')
@@ -165,8 +165,8 @@ class EnvironmentTests(unittest.TestCase):
         for level in ['full', 'password', 'limited', 'none']:
             with self.subTest(level=level):
                 text = self.templates.get_template('sudoers-agent.j2').render(
-                    devbox_user='agent', devbox_privileges=level,
-                    devbox_agent_units=['berth-svc-demo-helper.service'])
+                    rookery_user='agent', rookery_privileges=level,
+                    rookery_agent_units=['rookery-svc-demo-helper.service'])
                 rules = [line for line in text.splitlines() if line and not line.startswith(('#', 'Defaults'))]
                 if level == 'full':
                     self.assertEqual(rules, ['agent ALL=(ALL:ALL) NOPASSWD: ALL'])
@@ -178,31 +178,31 @@ class EnvironmentTests(unittest.TestCase):
                     self.assertTrue(all(rule.startswith('agent ALL=(root) NOPASSWD: /usr/bin/') for rule in rules))
                     self.assertNotIn('ALL=(ALL', text)
                     self.assertIn('/usr/bin/apt-get install *', text)
-                    self.assertIn('/usr/bin/systemctl restart berth-svc-demo-helper.service', text)
+                    self.assertIn('/usr/bin/systemctl restart rookery-svc-demo-helper.service', text)
                     # Nothing but package commands and the named units.
                     commands = [command.strip() for rule in rules for command in rule.split('NOPASSWD:')[1].split(',')]
                     for command in commands:
                         self.assertRegex(command, r'^/usr/bin/(apt|apt-get) (-y )?(update|install \*|(upgrade|dist-upgrade|full-upgrade|autoremove)( -y)?)$'
-                                                  r'|^/usr/bin/systemctl restart berth-svc-[a-z0-9_-]+\.service$')
+                                                  r'|^/usr/bin/systemctl restart rookery-svc-[a-z0-9_-]+\.service$')
                 if visudo:
                     with tempfile.NamedTemporaryFile('w', suffix='.sudoers') as file:
                         file.write(text)
                         file.flush()
                         subprocess.run([visudo, '-cf', file.name], check=True, capture_output=True)
 
-    def test_units_for_berthd_and_plugin_services(self):
-        unit = self.templates.get_template('berthd.service.j2').render()
-        self.assertIn('ExecStart=/usr/local/bin/berthd\n', unit)
+    def test_units_for_rookeryd_and_plugin_services(self):
+        unit = self.templates.get_template('rookeryd.service.j2').render()
+        self.assertIn('ExecStart=/usr/local/bin/rookeryd\n', unit)
         self.assertIn('ExecReload=/bin/kill -HUP $MAINPID', unit)
-        values = dict(devbox_user='agent', devbox_home='/home/agent', devbox_service_dir='/usr/local/lib/berth/services')
-        as_agent = self.templates.get_template('berth-service.service.j2').render(
+        values = dict(rookery_user='agent', rookery_home='/home/agent', rookery_service_dir='/usr/local/lib/rookery/services')
+        as_agent = self.templates.get_template('rookery-service.service.j2').render(
             values, item={'name': 'demo/helper', 'user': 'agent'})
         self.assertIn('User=agent', as_agent)
-        self.assertIn('ExecStart=/usr/local/bin/agent-env /bin/bash /usr/local/lib/berth/services/demo-helper.sh', as_agent)
-        as_root = self.templates.get_template('berth-service.service.j2').render(
+        self.assertIn('ExecStart=/usr/local/bin/agent-env /bin/bash /usr/local/lib/rookery/services/demo-helper.sh', as_agent)
+        as_root = self.templates.get_template('rookery-service.service.j2').render(
             values, item={'name': 'demo/manager', 'user': 'root'})
         self.assertNotIn('User=', as_root)
-        self.assertIn('After=berthd.service', as_root)
+        self.assertIn('After=rookeryd.service', as_root)
 
 def apparmor_glob(pattern):
     """A regular expression for an AppArmor attachment with * and {a,b}."""
@@ -231,7 +231,7 @@ class ChromiumSandboxTests(unittest.TestCase):
 
     def test_the_apparmor_profile_covers_both_playwright_browsers(self):
         content = self.task('host.yml', "Allow Playwright's Chromium to sandbox itself")['ansible.builtin.copy']['content']
-        content = jinja2.Template(content).render(devbox_home='/home/agent')
+        content = jinja2.Template(content).render(rookery_home='/home/agent')
         attach = re.search(r'^profile \S+ (\S+) flags', content, re.M).group(1)
         matches = apparmor_glob(attach).match
         for binary in [f'{self.BROWSER}/chrome', f'{self.HEADLESS}/chrome-headless-shell',
@@ -243,16 +243,16 @@ class ChromiumSandboxTests(unittest.TestCase):
 
     def test_the_profile_is_loaded_only_through_the_machines_own_apparmor(self):
         load = self.task('host.yml', 'Load the Chromium AppArmor profile')
-        self.assertIn('devbox_apparmor_interface.stat.exists', load['when'])
+        self.assertIn('rookery_apparmor_interface.stat.exists', load['when'])
         check = self.task('host.yml', "Check for an AppArmor interface of this machine's own")
         self.assertEqual(check['ansible.builtin.stat']['path'], '/sys/kernel/security/apparmor')
 
     def helper_script(self, home):
         task = self.task('applications.yml', "Give Playwright's Chromium its sandbox helper in a container")
-        self.assertIn('devbox_container_kind.rc == 0', task['when'])
+        self.assertIn('rookery_container_kind.rc == 0', task['when'])
         templates = jinja2.Environment(undefined=jinja2.StrictUndefined)
         templates.filters['quote'] = shlex.quote
-        return templates.from_string(task['ansible.builtin.shell']).render(devbox_home=str(home))
+        return templates.from_string(task['ansible.builtin.shell']).render(rookery_home=str(home))
 
     def test_containers_get_the_setuid_helper_beside_both_browsers_once(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -345,18 +345,18 @@ def named(name, task_file):
 @unittest.skipUnless(yaml, 'Run with the Ansible venv Python for YAML checks')
 class Operator(unittest.TestCase):
     """The operator always has sudo without a password, keys only for SSH, and
-    the key of the berth that applies the role."""
+    the key of the rookery that applies the role."""
 
     def test_the_sudoers_file_is_always_written_and_never_removed(self):
         task = named('Configure operator passwordless administration', 'accounts.yml')
         self.assertEqual(task['ansible.builtin.copy']['content'],
-                         '{{ devbox_operator_user }} ALL=(ALL:ALL) NOPASSWD: ALL\n')
+                         '{{ rookery_operator_user }} ALL=(ALL:ALL) NOPASSWD: ALL\n')
         # The container has no operator; nothing else keeps the file away.
-        self.assertEqual(task['when'], "devbox_profile != 'container'")
+        self.assertEqual(task['when'], "rookery_profile != 'container'")
         for task in tasks('accounts.yml'):
             module = task.get('ansible.builtin.file', {})
-            self.assertFalse(module.get('state') == 'absent' and 'sudoers.d/99-devbox-operator' in module.get('path', ''))
-        self.assertNotIn('devbox_operator_passwordless_sudo', (ROLE / 'defaults/main.yml').read_text())
+            self.assertFalse(module.get('state') == 'absent' and 'sudoers.d/99-rookery-operator' in module.get('path', ''))
+        self.assertNotIn('rookery_operator_passwordless_sudo', (ROLE / 'defaults/main.yml').read_text())
 
     def test_a_password_locked_with_a_bang_becomes_a_star(self):
         task = named("Lock the operator's password so its keys still log in", 'accounts.yml')
@@ -367,13 +367,13 @@ class Operator(unittest.TestCase):
             with self.subTest(field=field):
                 self.assertEqual(re.match(pattern, field) is not None, replaced)
         # A password from the profile is left to the task that sets it.
-        self.assertIn('not devbox_operator_password_hash', task['when'])
+        self.assertIn('not rookery_operator_password_hash', task['when'])
 
     def test_the_operator_logs_in_with_keys_only_whatever_the_hardening(self):
         task = named('Let the operator log in over SSH with keys only', 'host.yml')
         self.assertNotIn('when', task)
         content = task['ansible.builtin.copy']['content']
-        self.assertTrue(content.startswith('Match User {{ devbox_operator_user }}\n'))
+        self.assertTrue(content.startswith('Match User {{ rookery_operator_user }}\n'))
         for line in ('AuthenticationMethods publickey', 'PasswordAuthentication no', 'KbdInteractiveAuthentication no'):
             self.assertIn(line, content)
         # Nothing the role writes for sshd lets only some accounts in.
@@ -382,14 +382,14 @@ class Operator(unittest.TestCase):
             for keyword in ('AllowUsers', 'AllowGroups', 'DenyUsers', 'DenyGroups'):
                 self.assertNotIn(keyword, text, name)
         restart = named('Apply SSH server settings', 'host.yml')
-        self.assertIn('devbox_sshd_operator.changed', restart['when'])
+        self.assertIn('rookery_sshd_operator.changed', restart['when'])
 
     @unittest.skipUnless((shutil.which('sshd') or Path('/usr/sbin/sshd').exists()) and serialization,
                          'needs sshd and cryptography')
     def test_sshd_reads_the_operator_block_as_its_own(self):
         sshd = shutil.which('sshd') or '/usr/sbin/sshd'
         task = named('Let the operator log in over SSH with keys only', 'host.yml')
-        block = task['ansible.builtin.copy']['content'].replace('{{ devbox_operator_user }}', 'ops')
+        block = task['ansible.builtin.copy']['content'].replace('{{ rookery_operator_user }}', 'ops')
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             # Made here rather than with ssh-keygen, which needs an account in the password database.
@@ -411,21 +411,21 @@ class Operator(unittest.TestCase):
         # The block ends with its file, so other accounts keep the server's settings.
         self.assertEqual(agent['passwordauthentication'], 'yes')
 
-    def test_the_keys_of_berth_have_a_block_no_apply_removes(self):
-        task = named('Give the operator the keys of the berth that applies this', 'accounts.yml')
+    def test_the_keys_of_rookery_have_a_block_no_apply_removes(self):
+        task = named('Give the operator the keys of the rookery that applies this', 'accounts.yml')
         module = task['ansible.builtin.blockinfile']
-        self.assertEqual(module['block'], '{{ devbox_berth_ssh_public_key }}')
-        self.assertIn('BERTH', module['marker'])
+        self.assertEqual(module['block'], '{{ rookery_ssh_public_key }}')
+        self.assertIn('ROOKERY', module['marker'])
         self.assertIn('hash', module['marker'])
         self.assertNotIn('state', module)
         # It is in place before the profile's keys are, and checked after.
         names = [task['name'] for task in tasks('accounts.yml')]
         self.assertLess(names.index(task['name']), names.index('Configure account authorized public keys'))
-        check = named('Check that the operator takes the keys of the berth that applies this', 'accounts.yml')
+        check = named('Check that the operator takes the keys of the rookery that applies this', 'accounts.yml')
         self.assertLess(names.index('Configure account authorized public keys'), names.index(check['name']))
-        # Each of them, one to a line: berth's own, the one replacing it, and the one the profile logs in with.
+        # Each of them, one to a line: rookery's own, the one replacing it, and the one the profile logs in with.
         self.assertEqual(check['ansible.builtin.command']['argv'][:4], ['grep', '-qxF', '--', '{{ item }}'])
-        self.assertEqual(check['loop'], '{{ devbox_berth_ssh_public_key.splitlines() }}')
+        self.assertEqual(check['loop'], '{{ rookery_ssh_public_key.splitlines() }}')
         self.assertNotIn('failed_when', check)
         # Both come before any change to the SSH server.
         workstation = (ROLE / 'tasks/workstation.yml').read_text()

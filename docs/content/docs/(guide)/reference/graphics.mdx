@@ -8,8 +8,8 @@ The agent's desktop renders on the CPU by default and works without a GPU. A hos
 
 | | CPU (default) | GPU |
 | --- | --- | --- |
-| Setting | `devbox_software_rendering: true` | `devbox_software_rendering: false` |
-| In berth | **Software graphics** on | **Software graphics** off |
+| Setting | `rookery_software_rendering: true` | `rookery_software_rendering: false` |
+| In Rookery | **Software graphics** on | **Software graphics** off |
 | OpenGL | Mesa llvmpipe | Mesa on the first usable `/dev/dri/renderD*` |
 | Vulkan | Mesa lavapipe | Mesa |
 | Needs | Nothing | An Intel or AMD GPU with Mesa drivers; apply and reboot |
@@ -33,7 +33,7 @@ box exec glxinfo -B
 box exec vulkaninfo --summary
 ```
 
-`box exec devbox-smoke` checks llvmpipe on the shared desktop and in Xvfb and lavapipe enumeration, and saves the graphics reports next to its screenshots.
+`box exec rookery-smoke` checks llvmpipe on the shared desktop and in Xvfb and lavapipe enumeration, and saves the graphics reports next to its screenshots.
 
 ## Separate displays
 
@@ -46,7 +46,7 @@ box exec xvfb-run -a /path/to/Unity -batchmode -force-glcore \
   -projectPath /srv/agent/workspaces/example -quit -logFile -
 ```
 
-The Unity line shows the form of the call. berth does not install or test Unity there. It selects OpenGL explicitly, because software Vulkan support varies between applications.
+The Unity line shows the form of the call. Rookery does not install or test Unity there. It selects OpenGL explicitly, because software Vulkan support varies between applications.
 
 In the container, Compose runs everything under an init process (`init: true`) so Xvfb jobs and their children are reaped. With `docker run`, pass `--init`. Do not make `xvfb-run` PID 1.
 

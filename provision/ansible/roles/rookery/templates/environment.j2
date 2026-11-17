@@ -1,0 +1,23 @@
+# Managed shell-compatible environment. Runtime values are not credentials.
+export DISPLAY=:1
+export XAUTHORITY={{ rookery_home }}/.config/rookery.Xauthority
+export XDG_RUNTIME_DIR={{ '/tmp/rookery-runtime' if rookery_profile == 'container' else '/run/user/' ~ rookery_uid }}
+export ROOKERY_BIND={{ rookery_bind }}
+export ROOKERY_GEOMETRY={{ rookery_geometry }}
+export ROOKERY_PROFILE={{ rookery_profile }}
+export DISABLE_AUTOUPDATER=1
+export PATH={{ rookery_tool_path }}
+export ROOKERY_SOFTWARE_RENDERING={{ '1' if rookery_software_rendering else '0' }}
+{% if rookery_software_rendering %}
+export LIBGL_ALWAYS_SOFTWARE=1
+export GALLIUM_DRIVER=llvmpipe
+export __GLX_VENDOR_LIBRARY_NAME=mesa
+export VK_DRIVER_FILES={{ rookery_lvp_icd }}
+{% endif %}
+
+export ROOKERY_COCKPIT={{ '1' if rookery_install_cockpit and rookery_profile != 'container' else '0' }}
+export ROOKERY_USER={{ rookery_user }}
+export ROOKERY_PASSWORDLESS_SUDO={{ '1' if rookery_privileges == 'full' else '0' }}
+export ROOKERY_AGENT_PRIVILEGES={{ rookery_privileges }}
+# What the owner installed with rookery for this account, if anything.
+if [ -r "$HOME/.config/rookery/secrets.env" ]; then . "$HOME/.config/rookery/secrets.env"; fi

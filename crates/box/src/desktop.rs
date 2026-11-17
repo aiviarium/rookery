@@ -1,6 +1,6 @@
 //! The desktop tools: `scrot`, `xdotool` and `xclip` behind one lock, as `desktop.py` did.
 
-use berth_api::b64;
+use rookery_api::b64;
 use serde_json::{Value, json};
 use std::io::Read;
 use std::os::fd::AsRawFd;
@@ -124,7 +124,7 @@ fn textarg<'a>(args: &'a Value, key: &str, limit: usize) -> Result<&'a str, Stri
 pub fn folder() -> PathBuf {
     match std::env::var_os("XDG_RUNTIME_DIR") {
         Some(dir) => PathBuf::from(dir),
-        None => PathBuf::from(format!("/tmp/devbox-{}", unsafe { libc::getuid() })),
+        None => PathBuf::from(format!("/tmp/rookery-{}", unsafe { libc::getuid() })),
     }
 }
 
@@ -189,7 +189,7 @@ pub fn perform(name: &str, args: &Value) -> Result<ToolResult, String> {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.subsec_nanos());
             let dir =
-                std::env::temp_dir().join(format!("devbox-shot-{}-{nanos}", std::process::id()));
+                std::env::temp_dir().join(format!("rookery-shot-{}-{nanos}", std::process::id()));
             std::fs::create_dir(&dir).map_err(|e| e.to_string())?;
             let path = dir.join("screen.png");
             let result = run(&["scrot", &path.to_string_lossy()])
@@ -287,7 +287,7 @@ pub fn handle(request: &Value) -> Option<Value> {
                 .filter(|v| ["2024-11-05", "2025-03-26", "2025-06-18"].contains(v))
                 .unwrap_or("2024-11-05");
             json!({"protocolVersion": version, "capabilities": {"tools": {}},
-                   "serverInfo": {"name": "box", "version": berth_api::VERSION}})
+                   "serverInfo": {"name": "box", "version": rookery_api::VERSION}})
         }
         Some("ping") => json!({}),
         Some("tools/list") => {

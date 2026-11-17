@@ -1,9 +1,9 @@
 //! `box serve SERVICE -- COMMAND…`
 
 use crate::net::socket;
-use berth_api::client::{self, Frame, encode_path};
-use berth_api::{CallFrame, Level};
 use futures_util::{SinkExt, StreamExt};
+use rookery_api::client::{self, Frame, encode_path};
+use rookery_api::{CallFrame, Level};
 use serde_json::{Value, json};
 use std::process::Stdio;
 use std::time::Duration;
@@ -30,7 +30,7 @@ pub async fn serve(mut args: Vec<String>) -> Result<i32, String> {
                 eprintln!("box serve: serving {service}");
                 delay = 1;
                 run_calls(ws, &command).await;
-                eprintln!("box serve: disconnected from berthd");
+                eprintln!("box serve: disconnected from rookeryd");
             }
             Err((403 | 404, message)) => return Err(message),
             Err((_, message)) => eprintln!("box serve: {message}"),
@@ -83,8 +83,8 @@ async fn handler(command: &[String], call: &CallFrame) -> Result<Value, String> 
     let mut child = tokio::process::Command::new(&command[0])
         .args(&command[1..])
         .arg(&call.method)
-        .env("BERTH_CALLER_LEVEL", level)
-        .env("BERTH_CALLER_UID", call.from.uid.to_string())
+        .env("ROOKERY_CALLER_LEVEL", level)
+        .env("ROOKERY_CALLER_UID", call.from.uid.to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

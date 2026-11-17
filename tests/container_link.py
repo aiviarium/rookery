@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Reach the berthd of a running container from outside, the way berth does:
-HTTP over the standard input and output of `docker exec -i CONTAINER berthd connect`.
+"""Reach the rookeryd of a running container from outside, the way rookery does:
+HTTP over the standard input and output of `docker exec -i CONTAINER rookeryd connect`.
 
     python3 tests/container_link.py CONTAINER
 
@@ -27,9 +27,9 @@ class Pipe:
 
 def call(container, method, path, body=None):
     data = b'' if body is None else json.dumps(body).encode()
-    head = (f'{method} {path} HTTP/1.1\r\nHost: berth\r\nConnection: close\r\n'
+    head = (f'{method} {path} HTTP/1.1\r\nHost: rookery\r\nConnection: close\r\n'
             f'Content-Type: application/json\r\nContent-Length: {len(data)}\r\n\r\n')
-    link = subprocess.Popen(['docker', 'exec', '-i', container, 'berthd', 'connect'],
+    link = subprocess.Popen(['docker', 'exec', '-i', container, 'rookeryd', 'connect'],
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         link.stdin.write(head.encode() + data)
@@ -56,9 +56,9 @@ def main():
             break
         except RuntimeError as error:
             if attempt == 59:
-                sys.exit(f'berthd did not answer: {error}')
+                sys.exit(f'rookeryd did not answer: {error}')
             time.sleep(1)
-    print(f'berthd {version["version"]}, api {version["api"]}, {version.get("mode", "")} mode')
+    print(f'rookeryd {version["version"]}, api {version["api"]}, {version.get("mode", "")} mode')
 
     session = call(container, 'POST', '/v1/sessions?wait=30s',
                    {'kind': 'process', 'command': 'echo hi; echo problem >&2; exit 3'})

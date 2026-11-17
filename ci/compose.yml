@@ -10,10 +10,10 @@
 # docker     a Docker engine (docker:dind) for the tests of the Docker plugin
 #
 # The e2e network is internal: nothing on it reaches beyond it.
-name: ${BERTH_CI_PROJECT:-berth-ci}
+name: ${ROOKERY_CI_PROJECT:-rookery-ci}
 
 x-dev: &dev
-  image: ${BERTH_CI_DEV_IMAGE:-berth-ci-dev}
+  image: ${ROOKERY_CI_DEV_IMAGE:-rookery-ci-dev}
   build:
     context: ..
     dockerfile: ci/dev.Dockerfile
@@ -22,25 +22,25 @@ x-dev: &dev
   security_opt: [label=disable]
   environment:
     PYTHONDONTWRITEBYTECODE: "1"
-    CARGO_INCREMENTAL: ${BERTH_CI_INCREMENTAL:-0}
+    CARGO_INCREMENTAL: ${ROOKERY_CI_INCREMENTAL:-0}
     CI: ${CI:-}
 
 services:
   dev:
     <<: *dev
     profiles: [dev]
-    user: ${BERTH_CI_USER:-1000:1000}
+    user: ${ROOKERY_CI_USER:-1000:1000}
     volumes:
       - ..:/src
-      - ${BERTH_CI_TARGET:-target}:/src/target
-      - ${BERTH_CI_CARGO:-cargo}:/cache/cargo
+      - ${ROOKERY_CI_TARGET:-target}:/src/target
+      - ${ROOKERY_CI_CARGO:-cargo}:/cache/cargo
     environment:
       PYTHONDONTWRITEBYTECODE: "1"
-      CARGO_INCREMENTAL: ${BERTH_CI_INCREMENTAL:-0}
+      CARGO_INCREMENTAL: ${ROOKERY_CI_INCREMENTAL:-0}
       CI: ${CI:-}
       # Set by ci/run.sh while the postgres service runs; the store's tests
       # skip PostgreSQL without it.
-      BERTH_TEST_POSTGRES: ${BERTH_CI_POSTGRES:-}
+      ROOKERY_TEST_POSTGRES: ${ROOKERY_CI_POSTGRES:-}
 
   # The database the store's tests use, empty at each start and gone after.
   # Its password is made up: it is reachable only from the project's network.
@@ -48,16 +48,16 @@ services:
     image: postgres:17-alpine
     profiles: [dev]
     environment:
-      POSTGRES_USER: berth
-      POSTGRES_PASSWORD: berth-ci
-      POSTGRES_DB: berth
+      POSTGRES_USER: rookery
+      POSTGRES_PASSWORD: rookery-ci
+      POSTGRES_DB: rookery
     tmpfs: [/var/lib/postgresql/data]
 
-  # The tests' side: berth as it was built, Ansible and SSH, without the
+  # The tests' side: rookery as it was built, Ansible and SSH, without the
   # toolchain of the dev image (ci/runner.Dockerfile).
   runner:
     <<: *dev
-    image: ${BERTH_CI_RUNNER_IMAGE:-berth-ci-runner}
+    image: ${ROOKERY_CI_RUNNER_IMAGE:-rookery-ci-runner}
     build:
       context: ..
       dockerfile: ci/runner.Dockerfile
@@ -69,18 +69,18 @@ services:
     depends_on: [studio, dock, headscale]
     volumes:
       - ..:/src:ro
-      - ${BERTH_CI_TARGET:-target}:/src/target:ro
+      - ${ROOKERY_CI_TARGET:-target}:/src/target:ro
       - seed:/seed
     environment:
       PYTHONDONTWRITEBYTECODE: "1"
-      BERTH_E2E: "1"
-      BERTH_E2E_HOST: studio
+      ROOKERY_E2E: "1"
+      ROOKERY_E2E_HOST: studio
       # Set by ci/run.sh while the docker service runs; the Docker case skips
       # without it.
-      BERTH_E2E_DOCKER_HOST: ${BERTH_CI_DOCKER_HOST:-}
+      ROOKERY_E2E_DOCKER_HOST: ${ROOKERY_CI_DOCKER_HOST:-}
 
   studio:
-    image: ${BERTH_CI_HOST_IMAGE:-berth-ci-host}
+    image: ${ROOKERY_CI_HOST_IMAGE:-rookery-ci-host}
     build:
       context: ..
       dockerfile: ci/host.Dockerfile
@@ -91,18 +91,18 @@ services:
       - seed:/seed:ro
 
   dock:
-    image: ${BERTH_CI_HOST_IMAGE:-berth-ci-host}
+    image: ${ROOKERY_CI_HOST_IMAGE:-rookery-ci-host}
     profiles: [e2e]
     hostname: dock
     networks: [e2e]
     environment:
-      BERTH_CI_SEED: /seed/dock
+      ROOKERY_CI_SEED: /seed/dock
     volumes:
       - seed:/seed:ro
 
   # A Headscale server for joining a tailnet, with nothing of the internet:
   # its DERP map names a relay that does not exist. At start it makes the user
-  # `berth` and an API key, and hands the key out over plain HTTP:
+  # `rookery` and an API key, and hands the key out over plain HTTP:
   #
   #   login server  http://headscale:8080 (its API is there too, under /api/v1)
   #   API key       GET http://headscale:8081/api-key (empty until it is ready)
@@ -165,7 +165,7 @@ services:
         busybox httpd -p 8081 -h /www
         headscale serve &
         until headscale users list >/dev/null 2>&1; do sleep 0.2; done
-        headscale users create berth >/dev/null
+        headscale users create rookery >/dev/null
         headscale apikeys create --expiration 1d >/www/api-key.new
         mv /www/api-key.new /www/api-key
         echo "headscale: ready"
@@ -175,9 +175,9 @@ services:
   # machine's engine). It is on the internal e2e network only and publishes no
   # port, so TLS is off: only the containers of this network reach it. It has
   # no way out either, so an image it needs is loaded into it by ci/run.sh
-  # (BERTH_CI_DIND_IMAGES). It is started only when a run asks for it.
+  # (ROOKERY_CI_DIND_IMAGES). It is started only when a run asks for it.
   docker:
-    image: ${BERTH_CI_DIND_IMAGE:-docker:dind}
+    image: ${ROOKERY_CI_DIND_IMAGE:-docker:dind}
     profiles: [docker]
     hostname: docker
     privileged: true
@@ -198,7 +198,7 @@ networks:
 # The caches have fixed names, so every project shares them.
 volumes:
   target:
-    name: berth-ci-target
+    name: rookery-ci-target
   cargo:
-    name: berth-ci-cargo
+    name: rookery-ci-cargo
   seed:

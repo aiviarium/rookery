@@ -11,30 +11,30 @@ types of provisioner:
 Register a provisioner of a type for each Incus server, under a name of your
 own and with the server as its setting:
 
-    berth provisioner add ovh-incus incus/vm server=https://192.0.2.10:8443
+    rookery provisioner add ovh-incus incus/vm server=https://192.0.2.10:8443
 
-Both start from an Ubuntu cloud image and set themselves up from berth's cloud
+Both start from an Ubuntu cloud image and set themselves up from Rookery's cloud
 seed. Because the plugin copies the release into the machine itself, the profile
-doesn't need a `release_url`. berth runs the plugin where berth runs and talks to the Incus API
+doesn't need a `release_url`. Rookery runs the plugin where Rookery runs and talks to the Incus API
 over HTTPS. The `incus` command doesn't have to be installed there.
 
-The machine is named `berth-HOST`, such as `berth-studio`. The plugin marks
-it with `user.berth-host` and `user.berth-instance`. It lists and deletes only
+The machine is named `rookery-HOST`, such as `rookery-studio`. The plugin marks
+it with `user.rookery-host` and `user.rookery-instance`. It lists and deletes only
 machines with these marks.
 
-While berth waits for a new machine to answer on SSH, it shows the latest lines
+While Rookery waits for a new machine to answer on SSH, it shows the latest lines
 of the machine's console log. When the console has none, the plugin reads
 cloud-init's output in the machine instead.
 
 ## An Incus server on a node
 
-The feature `incus/server` installs Incus on a [node](https://github.com/helightdev/berth/blob/main/docs/content/docs/%28guide%29/use/nodes.mdx),
-a server that berth applies without a desktop, and sets it up for berth's
-machines. berth then registers the provisioners `NODE-incus-vm` and
+The feature `incus/server` installs Incus on a [node](https://github.com/aiviarium/rookery/blob/main/docs/content/docs/%28guide%29/use/nodes.mdx),
+a server that Rookery applies without a desktop, and sets it up for Rookery's
+machines. Rookery then registers the provisioners `NODE-incus-vm` and
 `NODE-incus-container` for it, so the steps of the next section are done for
 you. List it among the node's features:
 
-    "ansible_vars": {"devbox_plugin_features": ["incus/server"]}
+    "ansible_vars": {"rookery_plugin_features": ["incus/server"]}
 
 | Part | Set-up |
 | --- | --- |
@@ -43,21 +43,21 @@ you. List it among the node's features:
 | Storage | A pool named `default` with the driver `dir`, in a folder on the node's root file system |
 | Default profile | Nesting is on. A container's systemd needs it, and so does Docker in a guest |
 | API | `[::]:8444`, open in the node's firewall on the tailnet, to the address the apply came from, and to Docker's bridge |
-| Trust | berth's client certificate. berth makes it once, as the secrets `incus_client_cert` and `incus_client_key`. The certificate goes to the node, and the key stays with berth |
+| Trust | Rookery's client certificate. Rookery makes it once, as the secrets `incus_client_cert` and `incus_client_key`. The certificate goes to the node, and the key stays with Rookery |
 
 The settings go in the profile's `ansible_vars`:
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `devbox_incus_virtual_machines` | `true` | Install QEMU, and offer `incus/vm`. The node needs KVM |
-| `devbox_incus_pool` | `default` | The storage pool's name |
-| `devbox_incus_pool_driver` | `dir` | `dir`, `btrfs`, `zfs` or `lvm` |
-| `devbox_incus_pool_source` | empty | An existing folder, btrfs file system, ZFS pool or LVM volume group. Never a disk |
-| `devbox_incus_bridge` | `incusbr0` | The guests' bridge |
-| `devbox_incus_bridge_address` | `10.77.0.1/24` | The node's address on the bridge. It must not be a network the node is on already |
-| `devbox_incus_api_address` | empty | Where the API listens. Empty keeps the address Incus has, or `[::]:8444` when it has none |
-| `devbox_incus_api_interfaces` | `[tailscale0]` | The interfaces the firewall opens the API on |
-| `devbox_incus_api_from` | the apply's address | An address or network the firewall opens the API to besides |
+| `rookery_incus_virtual_machines` | `true` | Install QEMU, and offer `incus/vm`. The node needs KVM |
+| `rookery_incus_pool` | `default` | The storage pool's name |
+| `rookery_incus_pool_driver` | `dir` | `dir`, `btrfs`, `zfs` or `lvm` |
+| `rookery_incus_pool_source` | empty | An existing folder, btrfs file system, ZFS pool or LVM volume group. Never a disk |
+| `rookery_incus_bridge` | `incusbr0` | The guests' bridge |
+| `rookery_incus_bridge_address` | `10.77.0.1/24` | The node's address on the bridge. It must not be a network the node is on already |
+| `rookery_incus_api_address` | empty | Where the API listens. Empty keeps the address Incus has, or `[::]:8444` when it has none |
+| `rookery_incus_api_interfaces` | `[tailscale0]` | The interfaces the firewall opens the API on |
+| `rookery_incus_api_from` | the apply's address | An address or network the firewall opens the API to besides |
 
 The feature does not erase a disk. Making a storage pool on a disk would, so
 it never does: it makes a pool in a folder, or uses the source you name. For
@@ -67,56 +67,56 @@ a pool on a disk of its own, create it on the node first and name it:
 
 An Incus that has a storage pool is set up already, and the feature keeps it
 as it is. Its pools, networks, profiles and trusted clients stay. Only an API
-address, when it has none, and berth's certificate are added. A server the
+address, when it has none, and Rookery's certificate are added. A server the
 `incus-host` recipe set up is taken in so, with its guests. A
 provisioner registered there by hand becomes the node's.
 
-berth reaches the API at the address it has for the node, and pins the
+Rookery reaches the API at the address it has for the node, and pins the
 server's certificate. The fingerprint is in the apply's output.
 
-## Let the server trust berth
+## Let the server trust Rookery
 
 Incus accepts a client whose certificate is in its trust store. Make a key and
-a certificate for berth:
+a certificate for Rookery:
 
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
-      -days 3650 -subj /CN=berth -keyout berth.key -out berth.crt
+      -days 3650 -subj /CN=rookery -keyout rookery.key -out rookery.crt
 
-Copy `berth.crt` to the server and add it to the trust store there:
+Copy `rookery.crt` to the server and add it to the trust store there:
 
-    incus config trust add-certificate berth.crt
+    incus config trust add-certificate rookery.crt
 
-Then store both files as berth secrets and delete the copies:
+Then store both files as Rookery secrets and delete the copies:
 
-    berth secret set incus_client_cert < berth.crt
-    berth secret set incus_client_key < berth.key
+    rookery secret set incus_client_cert < rookery.crt
+    rookery secret set incus_client_key < rookery.key
 
-By default berth checks the server's certificate against the system's
+By default Rookery checks the server's certificate against the system's
 certificate authorities. Incus makes its own certificate when it's installed,
-which those don't know. Store that certificate as a third secret, and berth then
+which those don't know. Store that certificate as a third secret, and Rookery then
 accepts exactly that certificate and no other:
 
-    berth secret set incus_server_cert < server.crt
+    rookery secret set incus_server_cert < server.crt
 
 On the server the certificate is `/var/lib/incus/server.crt`.
 
 Every Incus provisioner shares these three secrets. A provisioner for another
 server may be given its own instead:
 
-    berth secret set provisioner/lab-incus/incus_server_cert < lab-server.crt
+    rookery secret set provisioner/lab-incus/incus_server_cert < lab-server.crt
 
 The action `secrets` on the provisioner's page sets them too.
 
 ## Arguments
 
-In berth each argument has a short label, and its row's Information panel
+In Rookery each argument has a short label, and its row's Information panel
 says what it means. The server is on the Install tab. CPUs, memory and disk
 size are under Machine on the Settings tab.
 
-`server` and `project` are the provisioner's own arguments. berth keeps them as
+`server` and `project` are the provisioner's own arguments. Rookery keeps them as
 its settings, which every machine and action uses unless the call gives a value:
 
-    berth provisioner set ovh-incus server=https://192.0.2.10:8443
+    rookery provisioner set ovh-incus server=https://192.0.2.10:8443
 
 | Argument | Default | Meaning |
 | --- | --- | --- |
@@ -137,20 +137,20 @@ console log Incus keeps, or cloud-init's output when the console has none.
 
 ## Instances
 
-An instance is a plain container or virtual machine that doesn't become a berth
+An instance is a plain container or virtual machine that doesn't become a Rookery
 host. It starts from any image on `https://images.linuxcontainers.org`, such as
-`debian/12`, and berth puts nothing of its own in it. Cloud-init user data that
+`debian/12`, and Rookery puts nothing of its own in it. Cloud-init user data that
 you paste sets it up on its first boot, if the image has cloud-init.
 
 Make one with **+ New resource from an image** under the hosts. Or use the
 provisioner's action New container from an image, or New virtual machine from
 an image for a provisioner of virtual machines. Both open a form laid out like a host's set-up, with every field on a row. Or:
 
-    berth provisioner run ovh-incus new-instance name=web image=debian/12
+    rookery provisioner run ovh-incus new-instance name=web image=debian/12
 
-berth keeps it as a resource with a page of its own. There it starts, stops,
+Rookery keeps it as a resource with a page of its own. There it starts, stops,
 changes and removes it, and shows its console log. The plugin marks it with
-`user.berth-resource` and `user.berth-token`. Only `cpus`, `memory` and `disk`
+`user.rookery-resource` and `user.rookery-token`. Only `cpus`, `memory` and `disk`
 change in place: a change to another argument is refused, so make a new
 instance for it.
 
@@ -172,8 +172,8 @@ endpoint, named after the device. A proxy device is a port of the Incus server
 that leads into the instance, such as `listen: tcp:0.0.0.0:8080`. A device that
 listens on every address is reported at the server's host name from `server`.
 An instance's own address is its address; Incus does not say which of its
-ports serve anything, so those are no endpoints. berth opens a tunnel to an
-endpoint with `resources.connect`. For a provisioner a node registers, berth
+ports serve anything, so those are no endpoints. Rookery opens a tunnel to an
+endpoint with `resources.connect`. For a provisioner a node registers, Rookery
 names the node in each request. The node's controller then dials, so a device
 that listens on every address is reported at the node's `127.0.0.1`.
 
@@ -185,12 +185,12 @@ comes with some.
 
 ## Actions
 
-The provisioner's page in berth, and `berth provisioner show NAME`, list these
+The provisioner's page in Rookery, and `rookery provisioner show NAME`, list these
 actions:
 
 | Action | What it does |
 | --- | --- |
-| `server` | Says the server's version, its kernel and storage drivers, and whether it trusts berth. |
+| `server` | Says the server's version, its kernel and storage drivers, and whether it trusts Rookery. |
 | `pools` | A table of the storage pools with the driver, source, size, used and free space of each, and whether it can grow. |
 | `images` | The images the server keeps in the project, with their sizes. |
 | `networks` | The networks a machine can be attached to. |
@@ -216,9 +216,9 @@ A size is a whole number and a unit with no space between them, such as
 plugin checks a size before it sends anything to Incus.
 
 ```bash
-berth provisioner run ovh-incus pools
-berth provisioner run ovh-incus resize-pool pool=default size=200GiB
-berth provisioner run ovh-incus resize-disk instance=berth-studio size=100GiB restart=yes
+rookery provisioner run ovh-incus pools
+rookery provisioner run ovh-incus resize-pool pool=default size=200GiB
+rookery provisioner run ovh-incus resize-disk instance=rookery-studio size=100GiB restart=yes
 ```
 
 ### Growing a pool
@@ -270,7 +270,7 @@ the profile stays as it is. The plugin only grows a root disk.
 | Stopped virtual machine | Has the new size when it starts |
 
 A machine's `change` grows its disk too, when `disk` is given anew. It leaves a
-disk that `resize-disk` grew as it is, though berth's record still shows the
+disk that `resize-disk` grew as it is, though Rookery's record still shows the
 size it was made with.
 
 ## Limits
@@ -278,13 +278,13 @@ size it was made with.
 - A container needs nesting for its systemd to come up. The plugin turns on
   `security.nesting` for each container it makes.
 - In a container on an Ubuntu server, Chromium can't sandbox itself in a user
-  namespace. berth gives the Chromium that comes with Playwright its setuid
+  namespace. Rookery gives the Chromium that comes with Playwright its setuid
   sandbox helper instead. A Chromium that the agent installs itself has none,
   so it can't start sandboxed. A virtual machine doesn't have this limit.
 - A virtual machine needs KVM on the server. Without it Incus refuses to start
   the machine.
 - The server needs to reach `https://images.linuxcontainers.org` to download the
   image the first time.
-- Once it's set up, berth reaches the machine through the tailnet when it has
-  joined one. Without the tailnet, berth reaches it over SSH at the address
+- Once it's set up, Rookery reaches the machine through the tailnet when it has
+  joined one. Without the tailnet, Rookery reaches it over SSH at the address
   Incus reports.

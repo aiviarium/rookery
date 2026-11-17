@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Terminal screenshots for the documentation, in docs/public/screens/.
 
-Runs the built berth binary (target/debug/berth) in a pseudo-terminal against an
-invented set-up, its screens with the server inside berth, and writes what the terminal shows as PNG, in the UI's colours.
+Runs the built rookery binary (target/debug/rookery) in a pseudo-terminal against an
+invented set-up, its screens with the server inside rookery, and writes what the terminal shows as PNG, in the UI's colours.
 Each picture is drawn as SVG first, then rendered by headless Chrome at twice the
 size with JetBrains Mono (docs/scripts/fonts, SIL OFL) embedded, so the text looks
 the same wherever the PNG is shown. Only the PNGs are kept.
@@ -11,14 +11,14 @@ Nothing comes from your own machine: HOME, the XDG directories and the runtime
 directory point into a scratch directory, the PATH starts with stand-ins for
 tailscale, nmcli, lsblk, ssh-add and sudo that report invented machines, and the
 one host the pictures connect to, `studio`, is a throw-away Ubuntu container
-running berthd. No other host is contacted.
+running rookeryd. No other host is contacted.
 
     python3 -m venv /tmp/screens-venv && /tmp/screens-venv/bin/pip install pyte pyyaml
-    cargo build                     # berth, and the static berthd and box it embeds
+    cargo build                     # rookery, and the static rookeryd and box it embeds
     /tmp/screens-venv/bin/python docs/scripts/screens.py [--only NAME…] [--keep]
 
 Needs Chrome or Chromium (set CHROME to its path if it is not on the PATH). To
-render SVG files that already exist, without berth or Docker:
+render SVG files that already exist, without rookery or Docker:
 
     python3 docs/scripts/screens.py --from-svg DIR [--only NAME…]
 
@@ -53,12 +53,12 @@ except ImportError:  # only the --from-svg mode works without it
     pyte = None
 
 REPO = Path(__file__).resolve().parents[2]
-BERTH = REPO / "target/debug/berth"
+ROOKERY = REPO / "target/debug/rookery"
 OUT = REPO / "docs/public/screens"
-CONTAINER = "berth-demo-studio"
+CONTAINER = "rookery-demo-studio"
 IMAGE = "ubuntu:26.04"
 
-# The theme of the UI (crates/berth-tui/src/theme.rs); used for the frame and for cells that
+# The theme of the UI (crates/rookery-tui/src/theme.rs); used for the frame and for cells that
 # keep the terminal's default colours, such as plain command output.
 BASE = "#0d111c"
 TEXT = "#cdd6f4"
@@ -164,20 +164,20 @@ def make_demo(root: Path) -> dict:
     studio = profile(
         "studio", profile="laptop", operator_ssh_public_keys=[key], operator_password_hash=fake_hash,
         keyboard="us",
-        ansible_vars={"devbox_plugin_features": features},
+        ansible_vars={"rookery_plugin_features": features},
         builder={},
         access={"address": "100.64.0.12", "user": "ops", "sudo": "none",
-                # The demo host is the container; a real profile reaches berthd over SSH.
-                "link": ["docker", "exec", "-i", CONTAINER, "berthd", "connect"]},
+                # The demo host is the container; a real profile reaches rookeryd over SSH.
+                "link": ["docker", "exec", "-i", CONTAINER, "rookeryd", "connect"]},
     )
     cloud = profile(
         "cloud-1", profile="cloud", operator_ssh_public_keys=[key], keyboard="us",
-        ansible_vars={"devbox_plugin_features": features[:4]},
+        ansible_vars={"rookery_plugin_features": features[:4]},
         builder={},
     )
     laptop = profile(
         "garage-laptop", profile="laptop", operator_ssh_public_keys=[key], keyboard="us",
-        ansible_vars={"devbox_plugin_features": features[:4]},
+        ansible_vars={"rookery_plugin_features": features[:4]},
         builder={},
         access={"address": "192.0.2.31", "user": "ops"},
     )
@@ -187,27 +187,27 @@ def make_demo(root: Path) -> dict:
     # Registries and a secret, through the commands; nothing is contacted.
     run(env, "registry", "add", "nexus", "nexus", "https://nexus.example.com", "--user", "ci-user")
     run(env, "registry", "add-repo", "nexus", "npm", "npm-group")
-    run(env, "registry", "add-repo", "nexus", "raw", "berth-releases")
+    run(env, "registry", "add-repo", "nexus", "raw", "rookery-releases")
     run(env, "registry", "add-repo", "nexus", "docker", "docker-hosted", "--address", "nexus.example.com:8083")
     run(env, "registry", "add", "ghcr", "docker", "ghcr.io", "--user", "demo-user")
     run(env, "secret", "set", "github", stdin="github_pat_demo_not_a_real_token\n")
     run(env, "secret", "set", "backup-password", stdin="correct-horse-demo\n")
     for host in ("studio", "cloud-1"):
         run(env, "host", "set", host, "secret.github=GH_TOKEN", "registry.nexus=on")
-    run(env, "host", "set", "studio", "secret.backup-password=~/.config/berth-backup/password:0600")
+    run(env, "host", "set", "studio", "secret.backup-password=~/.config/rookery-backup/password:0600")
     return env
 
 
 def run(env: dict, *args: str, check=True, stdin=None) -> str:
-    done = subprocess.run([str(BERTH), *args], env=env, cwd=env["HOME"], input=stdin,
+    done = subprocess.run([str(ROOKERY), *args], env=env, cwd=env["HOME"], input=stdin,
                           capture_output=True, text=True)
     if check and done.returncode != 0:
-        raise SystemExit(f"berth {' '.join(args)} failed: {done.stderr}")
+        raise SystemExit(f"rookery {' '.join(args)} failed: {done.stderr}")
     return done.stdout
 
 
 # ---------------------------------------------------------------------------
-# The host: a container with berthd and what the role would have written
+# The host: a container with rookeryd and what the role would have written
 
 
 def host_files() -> dict:
@@ -215,18 +215,18 @@ def host_files() -> dict:
     the plugin features of the demo profile."""
     import yaml  # noqa: PLC0415 (only needed here)
 
-    task_dir = "/usr/local/lib/berth/tasks"
-    core = yaml.safe_load((REPO / "provision/ansible/roles/devbox/vars/main.yml").read_text())["devbox_core_tasks"]
+    task_dir = "/usr/local/lib/rookery/tasks"
+    core = yaml.safe_load((REPO / "provision/ansible/roles/rookery/vars/main.yml").read_text())["rookery_core_tasks"]
     for task in core:
-        task["run"] = task["run"].replace("{{ devbox_task_dir }}", task_dir)
+        task["run"] = task["run"].replace("{{ rookery_task_dir }}", task_dir)
     tasks, services, channels = core, [], []
     features = ["github/cli", "unity/cli", "backup/restic"]
     for chosen in features:
         plugin_id, feature_id = chosen.split("/")
         package = json.loads((REPO / "plugins" / plugin_id / "package.json").read_text())
         label = package.get("displayName", plugin_id)
-        feature = next(f for f in package["berth"]["features"] if f["id"] == feature_id)
-        # The same as templates/berth-feature.json.j2.
+        feature = next(f for f in package["rookery"]["features"] if f["id"] == feature_id)
+        # The same as templates/rookery-feature.json.j2.
         for action in feature.get("actions", []):
             extends = action.get("extends", [])
             tasks.append({
@@ -247,9 +247,9 @@ def host_files() -> dict:
             services.append({"name": f"{plugin_id}/{service['name']}", **service})
         for channel in feature.get("channels", []):
             channels.append({**channel, "topic": f"{plugin_id}/{channel['topic']}"})
-    berthd = {"agent": "agent", "operator": "ops", "roots": ["/home/agent", "/srv/agent"],
-              "units": ["ssh", "tailscaled", "berthd"], "agent_env": "/usr/local/bin/agent-env"}
-    return {"berthd": berthd, "tasks": tasks, "services": services, "channels": channels}
+    rookeryd = {"agent": "agent", "operator": "ops", "roots": ["/home/agent", "/srv/agent"],
+              "units": ["ssh", "tailscaled", "rookeryd"], "agent_env": "/usr/local/bin/agent-env"}
+    return {"rookeryd": rookeryd, "tasks": tasks, "services": services, "channels": channels}
 
 
 def docker(*args: str, check=True, **kwargs):
@@ -260,29 +260,29 @@ def start_host(scratch: Path) -> bool:
     if not shutil.which("docker") or docker("image", "inspect", IMAGE, check=False).returncode:
         print(f"no docker or no {IMAGE} image: skipping the pictures of a connected host")
         return False
-    binaries = REPO / "provision/ansible/roles/devbox/files/bin"
-    if not (binaries / "berthd").is_file():
-        print("no static berthd (cargo build): skipping the pictures of a connected host")
+    binaries = REPO / "provision/ansible/roles/rookery/files/bin"
+    if not (binaries / "rookeryd").is_file():
+        print("no static rookeryd (cargo build): skipping the pictures of a connected host")
         return False
     docker("rm", "-f", CONTAINER, check=False)
     docker("run", "-d", "--name", CONTAINER, "--hostname", "studio", IMAGE, "sleep", "infinity")
     sh = lambda script: docker("exec", CONTAINER, "sh", "-c", script)  # noqa: E731
     sh("useradd -m -s /bin/bash agent && useradd -m -s /bin/bash ops"
-       " && mkdir -p /etc/berth /srv/agent/workspaces /srv/agent/artifacts /usr/local/lib/berth/tasks"
+       " && mkdir -p /etc/rookery /srv/agent/workspaces /srv/agent/artifacts /usr/local/lib/rookery/tasks"
        " && chown -R agent: /srv/agent")
-    for program in ("berthd", "box"):
+    for program in ("rookeryd", "box"):
         docker("cp", str(binaries / program), f"{CONTAINER}:/usr/local/bin/{program}")
-    files = scratch / "etc-berth"
+    files = scratch / "etc-rookery"
     files.mkdir(exist_ok=True)
     for name, value in host_files().items():
         (files / f"{name}.json").write_text(json.dumps(value, indent=2) + "\n")
-        docker("cp", str(files / f"{name}.json"), f"{CONTAINER}:/etc/berth/{name}.json")
-    docker("exec", "-d", CONTAINER, "berthd")
+        docker("cp", str(files / f"{name}.json"), f"{CONTAINER}:/etc/rookery/{name}.json")
+    docker("exec", "-d", CONTAINER, "rookeryd")
     for _ in range(100):
-        if docker("exec", CONTAINER, "test", "-S", "/run/berth/control.sock", check=False).returncode == 0:
+        if docker("exec", CONTAINER, "test", "-S", "/run/rookery/control.sock", check=False).returncode == 0:
             return True
         time.sleep(0.1)
-    raise SystemExit("berthd did not start in the container")
+    raise SystemExit("rookeryd did not start in the container")
 
 
 def stop_host():
@@ -502,7 +502,7 @@ def save(name: str, screen: pyte.Screen, title: str, trim=True):
 
 
 def tui(env, name, args, keys, title, cols=120, rows=30, settle=1.5):
-    term = Terminal([str(BERTH), "ui", *args], env, cols, rows, env["HOME"])
+    term = Terminal([str(ROOKERY), "ui", *args], env, cols, rows, env["HOME"])
     try:
         term.pump(settle)
         for step in keys:
@@ -518,8 +518,8 @@ def tui(env, name, args, keys, title, cols=120, rows=30, settle=1.5):
 
 def command(env, name, args, cols=96, rows=40, title=None, wait=6.0):
     """Plain output of a command, shown as typed at a prompt."""
-    shown = "berth " + " ".join(args)
-    script = f"printf '\\033[38;2;116;178;255m$\\033[0m %s\\n' {shlex_quote(shown)}; exec {BERTH} {' '.join(shlex_quote(a) for a in args)}"
+    shown = "rookery " + " ".join(args)
+    script = f"printf '\\033[38;2;116;178;255m$\\033[0m %s\\n' {shlex_quote(shown)}; exec {ROOKERY} {' '.join(shlex_quote(a) for a in args)}"
     term = Terminal(["/bin/sh", "-c", script], env, cols, rows, env["HOME"])
     try:
         term.pump(wait)
@@ -548,20 +548,20 @@ def pictures(env):
     """Name: (needs the host, how to make it). The order matters where one
     picture shows what an earlier one left behind, such as sessions."""
     return {
-        "home": (False, lambda: tui(env, "home", [], [], "berth", rows=20)),
-        "home-plugins": (False, lambda: tui(env, "home-plugins", [], ["6"], "berth: plugins")),
-        "features": (False, lambda: tui(env, "features", ["cloud-1"], SETUP + ["2"], "berth cloud-1: features", rows=34)),
-        "accounts": (False, lambda: tui(env, "accounts", ["cloud-1"], SETUP + ["3"], "berth cloud-1: settings", rows=26)),
+        "home": (False, lambda: tui(env, "home", [], [], "rookery", rows=20)),
+        "home-plugins": (False, lambda: tui(env, "home-plugins", [], ["6"], "rookery: plugins")),
+        "features": (False, lambda: tui(env, "features", ["cloud-1"], SETUP + ["2"], "rookery cloud-1: features", rows=34)),
+        "accounts": (False, lambda: tui(env, "accounts", ["cloud-1"], SETUP + ["3"], "rookery cloud-1: settings", rows=26)),
         "secrets": (False, lambda: tui(env, "secrets", ["cloud-1"], SETUP + ["3"] + ["<down>"] * SECRETS_DOWN,
-                                       "berth cloud-1: settings", rows=22)),
+                                       "rookery cloud-1: settings", rows=22)),
         "install-cloud": (False, lambda: tui(env, "install-cloud", ["cloud-1"],
                                              SETUP + ["<down>", "<down>", "<enter>", "4"],
-                                             "berth cloud-1: run", rows=34)),
+                                             "rookery cloud-1: run", rows=34)),
         "list": (False, lambda: command(env, "list", ["ls"])),
-        "overview": (True, lambda: tui(env, "overview", ["studio"], [2.5], "berth studio", rows=46)),
+        "overview": (True, lambda: tui(env, "overview", ["studio"], [2.5], "rookery studio", rows=46)),
         "terminal": (True, lambda: tui(env, "terminal", ["studio"],
                                        [2.5, "<down>", "<enter>", 1.5, "id\r", "ls --color=never /srv/agent\r", 3.0],
-                                       "berth studio: terminal", rows=20)),
+                                       "rookery studio: terminal", rows=20)),
         "actions": (True, lambda: command(env, "actions", ["action", "list", "studio"])),
         "exec": (True, lambda: command(env, "exec", ["exec", "studio", "--", "id"])),
         "sessions": (True, lambda: command(env, "sessions", ["session", "list", "studio"])),
@@ -572,7 +572,7 @@ def pictures(env):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--only", nargs="*", help="make only these pictures")
-    parser.add_argument("--demo", default="/tmp/berth-demo",
+    parser.add_argument("--demo", default="/tmp/rookery-demo",
                         help="scratch directory for the invented set-up (it is replaced)")
     parser.add_argument("--keep", action="store_true", help="leave the demo container running")
     parser.add_argument("--list", action="store_true", help="list the pictures")
@@ -595,8 +595,8 @@ def main():
     real = Path.home() / ".config"
     if root.resolve() == Path.home() or real in root.resolve().parents:
         raise SystemExit("--demo must be a scratch directory, not your home or configuration")
-    if not BERTH.is_file():
-        raise SystemExit("build berth first: cargo build")
+    if not ROOKERY.is_file():
+        raise SystemExit("build rookery first: cargo build")
     env = make_demo(root)
     chosen = pictures(env)
     if args.list:

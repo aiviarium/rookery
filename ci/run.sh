@@ -4,7 +4,7 @@
 #
 #   ci/run.sh check [CHECK…]    the checks of CI: fmt, shell-syntax, ansible-syntax,
 #                               vale, python-tests, rust-tests, clippy
-#   ci/run.sh e2e [TEST…]       build berth, start a test host and run the
+#   ci/run.sh e2e [TEST…]       build rookery, start a test host and run the
 #                               end-to-end tests against it (names as in
 #                               unittest: e2e_serve, e2e_serve.Roles)
 #   ci/run.sh e2e --shard NAME  the same for the tests of one shard, on a
@@ -18,52 +18,52 @@
 #   ci/run.sh build             build the images
 #   ci/run.sh clean             remove the images and the cache volumes
 #
-# BERTH_CI_ENGINE    docker or podman (default: whichever is found, Docker first)
-# BERTH_CI_CACHE     a directory for cargo's downloads and the target directory
+# ROOKERY_CI_ENGINE    docker or podman (default: whichever is found, Docker first)
+# ROOKERY_CI_CACHE     a directory for cargo's downloads and the target directory
 #                    instead of volumes, for a CI cache to keep
-# BERTH_CI_DOCKER    1 or 0: a Docker engine (docker:dind, privileged) on the test
+# ROOKERY_CI_DOCKER    1 or 0: a Docker engine (docker:dind, privileged) on the test
 #                    network for the Docker plugin's tests. Default: on with
 #                    Docker when no TEST is named, one is e2e_provisioners, or
 #                    the shard holds it; off with Podman, where the case is skipped
-# BERTH_CI_DIND_IMAGES  images of this machine's engine to load into that
+# ROOKERY_CI_DIND_IMAGES  images of this machine's engine to load into that
 #                    engine, separated by spaces (it has no way out to pull)
-# BERTH_CI_NO_BUILD  1: use the images as they are
-# BERTH_CI_PREBUILT  1: test the berth in the target directory as it is, with
-#                    the berthd and box it put into the role's files
-# BERTH_CI_PROJECT   the compose project (default: berth-ci)
-# BERTH_CI_INCREMENTAL  1 or 0: cargo's incremental builds (default: 1, and 0 in CI)
+# ROOKERY_CI_NO_BUILD  1: use the images as they are
+# ROOKERY_CI_PREBUILT  1: test the rookery in the target directory as it is, with
+#                    the rookeryd and box it put into the role's files
+# ROOKERY_CI_PROJECT   the compose project (default: rookery-ci)
+# ROOKERY_CI_INCREMENTAL  1 or 0: cargo's incremental builds (default: 1, and 0 in CI)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 root=$PWD
 
-engine=${BERTH_CI_ENGINE:-}
+engine=${ROOKERY_CI_ENGINE:-}
 if [[ -z $engine ]]; then
   if command -v docker >/dev/null; then engine=docker
   elif command -v podman >/dev/null; then engine=podman
   else echo "Docker or Podman is needed" >&2; exit 1
   fi
 fi
-export BERTH_CI_PROJECT=${BERTH_CI_PROJECT:-berth-ci}
+export ROOKERY_CI_PROJECT=${ROOKERY_CI_PROJECT:-rookery-ci}
 # They make a build after a small change quicker, for a larger target
 # directory. CI starts from a cache and builds once.
 if [[ -n ${CI:-} ]]; then
-  export BERTH_CI_INCREMENTAL=${BERTH_CI_INCREMENTAL:-0}
+  export ROOKERY_CI_INCREMENTAL=${ROOKERY_CI_INCREMENTAL:-0}
 else
-  export BERTH_CI_INCREMENTAL=${BERTH_CI_INCREMENTAL:-1}
+  export ROOKERY_CI_INCREMENTAL=${ROOKERY_CI_INCREMENTAL:-1}
 fi
-project=$BERTH_CI_PROJECT
+project=$ROOKERY_CI_PROJECT
 
 # The dev container writes to the checkout as its owner. Rootless Podman maps
 # root in the container to that user already.
 if [[ $engine == podman && $(id -u) != 0 ]]; then
-  export BERTH_CI_USER=0:0
+  export ROOKERY_CI_USER=0:0
 else
-  export BERTH_CI_USER="$(id -u):$(id -g)"
+  export ROOKERY_CI_USER="$(id -u):$(id -g)"
 fi
-if [[ -n ${BERTH_CI_CACHE:-} ]]; then
-  mkdir -p "$BERTH_CI_CACHE/target" "$BERTH_CI_CACHE/cargo"
-  BERTH_CI_CACHE=$(cd "$BERTH_CI_CACHE" && pwd)
-  export BERTH_CI_TARGET=$BERTH_CI_CACHE/target BERTH_CI_CARGO=$BERTH_CI_CACHE/cargo
+if [[ -n ${ROOKERY_CI_CACHE:-} ]]; then
+  mkdir -p "$ROOKERY_CI_CACHE/target" "$ROOKERY_CI_CACHE/cargo"
+  ROOKERY_CI_CACHE=$(cd "$ROOKERY_CI_CACHE" && pwd)
+  export ROOKERY_CI_TARGET=$ROOKERY_CI_CACHE/target ROOKERY_CI_CARGO=$ROOKERY_CI_CACHE/cargo
 fi
 
 # The target volume is mounted over target/: made here first, it belongs to
@@ -84,14 +84,14 @@ postgres_up() {
   trap postgres_down EXIT
   compose --profile dev up -d postgres >/dev/null
   local tries=0
-  until compose --profile dev exec -T postgres pg_isready -q -h 127.0.0.1 -U berth -d berth; do
+  until compose --profile dev exec -T postgres pg_isready -q -h 127.0.0.1 -U rookery -d rookery; do
     if ((++tries > 60)); then
       echo "PostgreSQL for the tests did not start" >&2
       return 1
     fi
     sleep 1
   done
-  export BERTH_CI_POSTGRES=postgres://berth:berth-ci@postgres:5432/berth
+  export ROOKERY_CI_POSTGRES=postgres://rookery:rookery-ci@postgres:5432/rookery
 }
 # Only rust-tests needs it: all the checks, or a list that names it.
 checks() {
@@ -105,7 +105,7 @@ checks() {
 }
 
 build() {
-  [[ ${BERTH_CI_NO_BUILD:-} == 1 ]] && return
+  [[ ${ROOKERY_CI_NO_BUILD:-} == 1 ]] && return
   compose --profile dev --profile e2e build --quiet "$@"
 }
 
@@ -119,7 +119,7 @@ e2e_down() {
 # only, since a privileged engine inside rootless Podman is not dependable.
 # The test case skips when it is left out.
 want_docker() {
-  case ${BERTH_CI_DOCKER:-} in
+  case ${ROOKERY_CI_DOCKER:-} in
     1) return 0 ;;
     0) return 1 ;;
   esac
@@ -136,16 +136,16 @@ want_docker() {
 docker_up() {
   compose --profile e2e --profile docker up -d --wait docker >/dev/null || return 1
   local image
-  for image in ${BERTH_CI_DIND_IMAGES:-}; do
+  for image in ${ROOKERY_CI_DIND_IMAGES:-}; do
     "$engine" save "$image" | compose --profile docker exec -T docker docker load >/dev/null || return 1
   done
-  export BERTH_CI_DOCKER_HOST=tcp://docker:2375
+  export ROOKERY_CI_DOCKER_HOST=tcp://docker:2375
 }
 
 e2e() {
-  # The test host and the runner have no way out, so berth is built first.
-  if [[ ${BERTH_CI_PREBUILT:-} != 1 ]]; then
-    dev cargo build --locked -p berth
+  # The test host and the runner have no way out, so rookery is built first.
+  if [[ ${ROOKERY_CI_PREBUILT:-} != 1 ]]; then
+    dev cargo build --locked -p rookery
   fi
   e2e_down
   trap e2e_down EXIT
@@ -168,7 +168,7 @@ e2e() {
   for host in "${hosts[@]}"; do
     mkdir -p "$logs/$host"
     compose --profile e2e logs --no-color "$host" >"$logs/$host/init.log" 2>&1 || true
-    compose --profile e2e cp "$host:/var/log/berth-ci/." "$logs/$host/" >/dev/null 2>&1 || true
+    compose --profile e2e cp "$host:/var/log/rookery-ci/." "$logs/$host/" >/dev/null 2>&1 || true
   done
   if ((status)); then
     echo "The end-to-end tests failed; the test hosts' logs are in ${logs#"$root"/}" >&2
@@ -193,8 +193,8 @@ case $command in
   clean)
     e2e_down
     compose --profile dev down --remove-orphans >/dev/null 2>&1 || true
-    "$engine" volume rm -f berth-ci-target berth-ci-cargo >/dev/null
-    "$engine" image rm -f berth-ci-dev berth-ci-host berth-ci-boot >/dev/null
+    "$engine" volume rm -f rookery-ci-target rookery-ci-cargo >/dev/null
+    "$engine" image rm -f rookery-ci-dev rookery-ci-host rookery-ci-boot >/dev/null
     ;;
   *) sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
 esac

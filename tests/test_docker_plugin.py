@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 PLUGIN = Path(__file__).resolve().parents[1] / 'plugins/docker'
-KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyForTestsOnly berth'
+KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyForTestsOnly rookery'
 
 # Answers by the start of the argument list. Each rule has results, [code, stdout, stderr],
 # used in turn with the last one repeating. A call that matches no rule succeeds quietly.
@@ -48,15 +48,15 @@ def inspect(labels=None, running=True, ip='172.17.0.2'):
     }]), '']
 
 
-OURS = {'berth-host': 'studio', 'berth-instance': 'tok-1'}
+OURS = {'rookery-host': 'studio', 'rookery-instance': 'tok-1'}
 
 SPEC = 'services:\n  web:\n    image: example/web:1\n    environment:\n      DB_PASSWORD: ${DB_PASSWORD}\n  db:\n    image: example/db:2\n'
 SECRET = 'hunter2-made-up-for-tests'
 COMPOSE = ['compose', '-p', 'shop']
-BERTH_LABELS = 'com.docker.compose.project=shop,berth-resource=shop,berth-token=tok-9'
+ROOKERY_LABELS = 'com.docker.compose.project=shop,rookery-resource=shop,rookery-token=tok-9'
 
 
-def ps(*services, labels=BERTH_LABELS, lines=False):
+def ps(*services, labels=ROOKERY_LABELS, lines=False):
     """What docker compose ps --format json prints for (service, state) pairs."""
     rows = [{'Name': f'shop-{name}-1', 'Service': name, 'State': state, 'Labels': labels,
              'Status': 'Up 2 minutes' if state == 'running' else 'Exited (0) 1 minute ago'}
@@ -121,9 +121,9 @@ class Provision(Harness):
     def test_manifest_has_provisioner_and_the_engine_of_a_node(self):
         package = json.loads((PLUGIN / 'package.json').read_text())
         # Its one feature is for a node; a workstation has Docker from the role.
-        self.assertEqual([(feature['id'], feature['types']) for feature in package['berth']['features']],
+        self.assertEqual([(feature['id'], feature['types']) for feature in package['rookery']['features']],
                          [('engine', ['node'])])
-        [entry] = package['berth']['provisioners']
+        [entry] = package['rookery']['provisioners']
         self.assertEqual((entry['id'], entry['protocol'], entry['command']), ('container', 2, 'bin/provision'))
         self.assertEqual(entry['verbs'], ['list'])
         self.assertNotIn('secrets', entry)
@@ -159,18 +159,18 @@ class Provision(Harness):
     def test_create_runs_systemd_container_with_labels(self):
         done = self.run_verb('create', self.create_request(), rules=self.fresh_rules())
         self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(json.loads(done.stdout), {'id': 'berth-studio', 'address': '172.17.0.2', 'port': 22})
+        self.assertEqual(json.loads(done.stdout), {'id': 'rookery-studio', 'address': '172.17.0.2', 'port': 22})
         [run] = self.argv('run')
-        for flag in (['--name', 'berth-studio'], ['--restart', 'unless-stopped'],
-                     ['--label', 'berth-host=studio'], ['--label', 'berth-instance=tok-1'],
-                     ['--volume', 'berth-studio-data:/srv/agent'], ['--stop-signal', 'SIGRTMIN+3'],
+        for flag in (['--name', 'rookery-studio'], ['--restart', 'unless-stopped'],
+                     ['--label', 'rookery-host=studio'], ['--label', 'rookery-instance=tok-1'],
+                     ['--volume', 'rookery-studio-data:/srv/agent'], ['--stop-signal', 'SIGRTMIN+3'],
                      ['--cgroupns', 'private'], ['--tmpfs', '/run']):
             self.assertIn(flag, [run[i:i + 2] for i in range(len(run) - 1)], flag)
         self.assertIn('--privileged', run)
         self.assertNotIn('--publish', run)
-        self.assertEqual(run[-2:], ['berth-docker-host:0.2.0', '/sbin/init'])
+        self.assertEqual(run[-2:], ['rookery-docker-host:0.2.0', '/sbin/init'])
         self.assertEqual(self.argv('info'), [])
-        self.assertEqual(self.argv('volume', 'create')[0][-2:], ['berth-host=studio', 'berth-studio-data'])
+        self.assertEqual(self.argv('volume', 'create')[0][-2:], ['rookery-host=studio', 'rookery-studio-data'])
 
     def test_keys_travel_on_stdin_only(self):
         done = self.run_verb('create', self.create_request(), rules=self.fresh_rules())
@@ -186,7 +186,7 @@ class Provision(Harness):
             'ssh_port': '2222', 'publish_address': '192.0.2.5', 'host': 'ssh://192.0.2.9',
             'image': 'example/host:1', 'volume': 'studio-vol'})
         self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(json.loads(done.stdout), {'id': 'berth-studio', 'address': '192.0.2.5', 'port': 2222})
+        self.assertEqual(json.loads(done.stdout), {'id': 'rookery-studio', 'address': '192.0.2.5', 'port': 2222})
         [run] = self.argv('run')
         self.assertIn('0.0.0.0:2222:22', run)
         self.assertEqual(run[-2:], ['example/host:1', '/sbin/init'])
@@ -206,23 +206,23 @@ class Provision(Harness):
         done = self.run_verb('create', self.create_request(), rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
         [build] = self.argv('build')
-        self.assertEqual(build[:3], ['build', '--tag', 'berth-docker-host:0.2.0'])
+        self.assertEqual(build[:3], ['build', '--tag', 'rookery-docker-host:0.2.0'])
 
     def test_create_is_idempotent(self):
         rules = [{'prefix': ['container', 'inspect'], 'results': [inspect(OURS, running=False), inspect(OURS)]}]
         done = self.run_verb('create', self.create_request(), rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(json.loads(done.stdout)['id'], 'berth-studio')
-        self.assertEqual(self.argv('start'), [['start', 'berth-studio']])
+        self.assertEqual(json.loads(done.stdout)['id'], 'rookery-studio')
+        self.assertEqual(self.argv('start'), [['start', 'rookery-studio']])
         self.assertEqual(self.argv('run'), [])
 
     def test_create_refuses_a_name_taken_by_a_stranger(self):
-        for labels in ({}, {'berth-host': 'studio', 'berth-instance': 'other'}):
+        for labels in ({}, {'rookery-host': 'studio', 'rookery-instance': 'other'}):
             with self.subTest(labels=labels):
                 done = self.run_verb('create', self.create_request(), rules=[
                     {'prefix': ['container', 'inspect'], 'results': [inspect(labels)]}])
                 self.assertEqual(done.returncode, 1)
-                self.assertIn('berth-studio', done.stderr)
+                self.assertIn('rookery-studio', done.stderr)
                 self.assertEqual(done.stdout, '')
                 self.assertEqual(self.argv('run'), [])
 
@@ -232,13 +232,13 @@ class Provision(Harness):
                  (MISSING, {'state': 'gone'})]
         for result, expected in cases:
             with self.subTest(expected=expected):
-                done = self.run_verb('status', {'id': 'berth-studio'},
+                done = self.run_verb('status', {'id': 'rookery-studio'},
                                      rules=[{'prefix': ['container', 'inspect'], 'results': [result]}])
                 self.assertEqual(done.returncode, 0, done.stderr)
                 self.assertEqual(json.loads(done.stdout), expected)
 
     def test_status_with_published_port_answers_the_publish_address(self):
-        done = self.run_verb('status', {'id': 'berth-studio'}, arguments={'ssh_port': '2222', 'publish_address': '192.0.2.5'},
+        done = self.run_verb('status', {'id': 'rookery-studio'}, arguments={'ssh_port': '2222', 'publish_address': '192.0.2.5'},
                              rules=[{'prefix': ['container', 'inspect'], 'results': [inspect(OURS)]}])
         self.assertEqual(json.loads(done.stdout), {'state': 'running', 'endpoints': [], 'address': '192.0.2.5'})
 
@@ -246,29 +246,29 @@ class Provision(Harness):
         console = ''.join(f'[  OK  ] Started unit-{n}.service.\n' for n in range(100))
         rules = [{'prefix': ['container', 'inspect'], 'results': [inspect(OURS)]},
                  {'prefix': ['logs'], 'results': [[0, console, '']]}]
-        done = self.run_verb('logs', {'id': 'berth-studio'}, rules=rules)
+        done = self.run_verb('logs', {'id': 'rookery-studio'}, rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(done.stdout, console)
-        self.assertEqual(self.argv('logs'), [['logs', '--tail', '100', 'berth-studio']])
+        self.assertEqual(self.argv('logs'), [['logs', '--tail', '100', 'rookery-studio']])
 
     def test_logs_read_the_journal_when_the_console_is_empty(self):
         rules = [{'prefix': ['container', 'inspect'], 'results': [inspect(OURS)]},
                  {'prefix': ['logs'], 'results': [[0, '', '']]},
-                 {'prefix': ['exec', 'berth-studio', 'journalctl'],
+                 {'prefix': ['exec', 'rookery-studio', 'journalctl'],
                   'results': [[0, 'Started ssh.service - OpenBSD Secure Shell server.\n', '']]}]
-        done = self.run_verb('logs', {'id': 'berth-studio', 'tail': 40}, rules=rules)
+        done = self.run_verb('logs', {'id': 'rookery-studio', 'tail': 40}, rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(done.stdout, 'Started ssh.service - OpenBSD Secure Shell server.\n')
-        [journal] = self.argv('exec', 'berth-studio', 'journalctl')
+        [journal] = self.argv('exec', 'rookery-studio', 'journalctl')
         self.assertEqual(journal[journal.index('--lines') + 1], '40')
         # A container without a journal has no lines, which is no failure.
         rules[2]['results'] = [[1, '', 'OCI runtime exec failed']]
         (self.state / 'seen-2').unlink(missing_ok=True)
-        done = self.run_verb('logs', {'id': 'berth-studio'}, rules=rules)
+        done = self.run_verb('logs', {'id': 'rookery-studio'}, rules=rules)
         self.assertEqual((done.returncode, done.stdout), (0, ''))
 
     def test_logs_of_a_container_that_is_gone_say_so(self):
-        done = self.run_verb('logs', {'id': 'berth-studio'},
+        done = self.run_verb('logs', {'id': 'rookery-studio'},
                              rules=[{'prefix': ['container', 'inspect'], 'results': [MISSING]}])
         self.assertEqual(done.returncode, 1)
         self.assertIn('does not exist', done.stderr)
@@ -277,62 +277,62 @@ class Provision(Harness):
     def test_start_and_stop(self):
         rules = [{'prefix': ['container', 'inspect'], 'results': [inspect(OURS)]}]
         for verb in ('start', 'stop'):
-            done = self.run_verb(verb, {'id': 'berth-studio'}, rules=rules)
+            done = self.run_verb(verb, {'id': 'rookery-studio'}, rules=rules)
             self.assertEqual(done.returncode, 0, done.stderr)
             self.assertEqual(json.loads(done.stdout), {})
         self.assertEqual(len(self.argv('start')), 1)
-        self.assertEqual(self.argv('stop')[0][-1], 'berth-studio')
+        self.assertEqual(self.argv('stop')[0][-1], 'rookery-studio')
 
     def test_destroy_removes_container_and_volume(self):
         rules = [{'prefix': ['container', 'inspect'], 'results': [inspect(OURS)]},
-                 {'prefix': ['volume', 'inspect'], 'results': [[0, json.dumps([{'Labels': {'berth-host': 'studio'}}]), '']]}]
-        done = self.run_verb('destroy', {'id': 'berth-studio'}, rules=rules)
+                 {'prefix': ['volume', 'inspect'], 'results': [[0, json.dumps([{'Labels': {'rookery-host': 'studio'}}]), '']]}]
+        done = self.run_verb('destroy', {'id': 'rookery-studio'}, rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(json.loads(done.stdout), {})
-        self.assertEqual(self.argv('rm')[0][-1], 'berth-studio')
-        self.assertEqual(self.argv('volume', 'rm'), [['volume', 'rm', 'berth-studio-data']])
+        self.assertEqual(self.argv('rm')[0][-1], 'rookery-studio')
+        self.assertEqual(self.argv('volume', 'rm'), [['volume', 'rm', 'rookery-studio-data']])
 
     def test_destroy_keeps_the_volume_when_asked(self):
         rules = [{'prefix': ['container', 'inspect'], 'results': [inspect(OURS)]}]
-        done = self.run_verb('destroy', {'id': 'berth-studio'}, arguments={'keep_volume': 'yes'}, rules=rules)
+        done = self.run_verb('destroy', {'id': 'rookery-studio'}, arguments={'keep_volume': 'yes'}, rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(len(self.argv('rm')), 1)
         self.assertEqual(self.argv('volume'), [])
 
-    def test_destroy_keeps_a_volume_berth_did_not_make(self):
+    def test_destroy_keeps_a_volume_rookery_did_not_make(self):
         rules = [{'prefix': ['container', 'inspect'], 'results': [inspect(OURS)]},
                  {'prefix': ['volume', 'inspect'], 'results': [[0, json.dumps([{'Labels': None}]), '']]}]
-        done = self.run_verb('destroy', {'id': 'berth-studio'}, rules=rules)
+        done = self.run_verb('destroy', {'id': 'rookery-studio'}, rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(self.argv('volume', 'rm'), [])
 
     def test_destroy_when_gone_succeeds(self):
         rules = [{'prefix': ['container', 'inspect'], 'results': [MISSING]},
                  {'prefix': ['volume', 'inspect'], 'results': [[1, '', 'No such volume']]}]
-        done = self.run_verb('destroy', {'id': 'berth-studio'}, rules=rules)
+        done = self.run_verb('destroy', {'id': 'rookery-studio'}, rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(self.argv('rm'), [])
 
     def test_destroy_refuses_an_unlabelled_container(self):
-        done = self.run_verb('destroy', {'id': 'berth-studio'},
+        done = self.run_verb('destroy', {'id': 'rookery-studio'},
                              rules=[{'prefix': ['container', 'inspect'], 'results': [inspect({})]}])
         self.assertEqual(done.returncode, 1)
-        self.assertIn('not created by berth', done.stderr)
+        self.assertIn('not created by rookery', done.stderr)
         self.assertEqual(self.argv('rm'), [])
 
     def test_list_shows_labelled_containers(self):
-        rules = [{'prefix': ['ps', '--all', '--filter', 'label=berth-resource'], 'results': [[0, '', '']]},
-                 {'prefix': ['ps'], 'results': [[0, 'berth-studio\nberth-studio-2\n', '']]},
-                 {'prefix': ['container', 'inspect', 'berth-studio'],
-                  'results': [inspect({'berth-host': 'studio'})]},
-                 {'prefix': ['container', 'inspect', 'berth-studio-2'],
-                  'results': [inspect({'berth-host': 'studio-2'}, running=False)]}]
+        rules = [{'prefix': ['ps', '--all', '--filter', 'label=rookery-resource'], 'results': [[0, '', '']]},
+                 {'prefix': ['ps'], 'results': [[0, 'rookery-studio\nrookery-studio-2\n', '']]},
+                 {'prefix': ['container', 'inspect', 'rookery-studio'],
+                  'results': [inspect({'rookery-host': 'studio'})]},
+                 {'prefix': ['container', 'inspect', 'rookery-studio-2'],
+                  'results': [inspect({'rookery-host': 'studio-2'}, running=False)]}]
         done = self.run_verb('list', rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(json.loads(done.stdout), {'resources': [
-            {'id': 'berth-studio', 'kind': 'machine', 'name': 'studio', 'host': 'studio', 'state': 'running'},
-            {'id': 'berth-studio-2', 'kind': 'machine', 'name': 'studio-2', 'host': 'studio-2', 'state': 'stopped'}]})
-        self.assertIn('label=berth-host', self.argv('ps')[0])
+            {'id': 'rookery-studio', 'kind': 'machine', 'name': 'studio', 'host': 'studio', 'state': 'running'},
+            {'id': 'rookery-studio-2', 'kind': 'machine', 'name': 'studio-2', 'host': 'studio-2', 'state': 'stopped'}]})
+        self.assertIn('label=rookery-host', self.argv('ps')[0])
         done = self.run_verb('list', {'kind': 'deployment'}, rules=rules)
         self.assertEqual(json.loads(done.stdout), {'resources': []})
 
@@ -345,7 +345,7 @@ class Provision(Harness):
         self.assertIn(['--runtime', 'sysbox-runc'], [run[i:i + 2] for i in range(len(run) - 1)])
         for flag in ('--privileged', '--cgroupns', '--tmpfs'):
             self.assertNotIn(flag, run)
-        self.assertEqual(run[-2:], ['berth-docker-host:0.2.0', '/sbin/init'])
+        self.assertEqual(run[-2:], ['rookery-docker-host:0.2.0', '/sbin/init'])
 
     def test_sysbox_is_refused_before_anything_is_made_where_the_engine_lacks_it(self):
         rules = self.fresh_rules() + [{'prefix': ['info'], 'results': [[0, json.dumps({'runc': {}}), '']]}]
@@ -363,7 +363,7 @@ class Provision(Harness):
         version = {'Server': {'Version': '27.1.0', 'ApiVersion': '1.46', 'Os': 'linux', 'Arch': 'amd64'}}
         rules = [{'prefix': ['version'], 'results': [[0, json.dumps(version), '']]},
                  {'prefix': ['info'], 'results': [[0, json.dumps({'runc': {}, 'sysbox-runc': {}}), '']]},
-                 {'prefix': ['ps'], 'results': [[0, 'berth-studio\n', '']]}]
+                 {'prefix': ['ps'], 'results': [[0, 'rookery-studio\n', '']]}]
         done = self.run_verb('status', rules=rules, arguments={'host': 'ssh://ops@192.0.2.9'})
         self.assertEqual(done.returncode, 0, done.stderr)
         answer = json.loads(done.stdout)
@@ -371,7 +371,7 @@ class Provision(Harness):
         self.assertEqual(answer['message'], 'Docker 27.1.0 answers at ssh://ops@192.0.2.9')
         self.assertEqual(answer['values'], {'runtime': ['privileged', 'sysbox']})
         rows = {row['label']: row['value'] for row in answer['details']}
-        self.assertEqual((rows['Engine'], rows['Runtimes'], rows['Machines berth made']),
+        self.assertEqual((rows['Engine'], rows['Runtimes'], rows['Machines rookery made']),
                          ('27.1.0', 'runc, sysbox-runc', '1'))
         # Without Sysbox only privileged is offered; one that does not answer says so.
         rules[1] = {'prefix': ['info'], 'results': [[0, json.dumps({'runc': {}}), '']]}
@@ -385,41 +385,41 @@ class Provision(Harness):
     def test_status_gives_the_images_and_volumes_as_rows_with_what_uses_them(self):
         lines = lambda *rows: [0, ''.join(json.dumps(row) + '\n' for row in rows), '']
         rules = [{'prefix': ['ps', '--all', '--no-trunc'], 'results': [lines(
-                     {'Names': 'berth-studio', 'Image': 'berth-docker:0.2.0', 'Mounts': 'berth-studio-home'},
+                     {'Names': 'rookery-studio', 'Image': 'rookery-docker:0.2.0', 'Mounts': 'rookery-studio-home'},
                      {'Names': 'web', 'Image': 'debian', 'Mounts': ''})]},
                  {'prefix': ['image', 'ls'], 'results': [lines(
-                     {'Repository': 'berth-docker', 'Tag': '0.2.0', 'ID': 'sha256:1111aaaa2222bbbb', 'Size': '812MB',
+                     {'Repository': 'rookery-docker', 'Tag': '0.2.0', 'ID': 'sha256:1111aaaa2222bbbb', 'Size': '812MB',
                       'CreatedSince': '2 days ago'},
                      {'Repository': 'debian', 'Tag': 'latest', 'ID': '3333cccc4444', 'Size': '117MB',
                       'CreatedSince': '3 weeks ago'},
                      {'Repository': '<none>', 'Tag': '<none>', 'ID': '5555dddd6666', 'Size': '80MB',
                       'CreatedSince': '2 months ago'})]},
                  {'prefix': ['volume', 'ls'], 'results': [lines(
-                     {'Name': 'berth-studio-home', 'Driver': 'local', 'Labels': 'berth-host=studio'},
+                     {'Name': 'rookery-studio-home', 'Driver': 'local', 'Labels': 'rookery-host=studio'},
                      {'Name': 'wiki-data', 'Driver': 'local', 'Labels': ''})]},
                  {'prefix': ['system', 'df'], 'results': [[0, json.dumps(
-                     {'Volumes': [{'Name': 'berth-studio-home', 'Size': '2.4GB'}]}), '']]}]
+                     {'Volumes': [{'Name': 'rookery-studio-home', 'Size': '2.4GB'}]}), '']]}]
         done = self.run_verb('status', rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
         collections = json.loads(done.stdout)['collections']
         images = {row['name']: row for row in collections['images']}
-        self.assertEqual(sorted(images), ['5555dddd6666', 'berth-docker:0.2.0', 'debian:latest'])
-        self.assertEqual(images['berth-docker:0.2.0']['columns'],
-                         {'id': '1111aaaa2222', 'size': '812MB', 'created': '2 days ago', 'used_by': 'berth-studio'})
-        self.assertEqual(images['berth-docker:0.2.0']['key'], {'image': 'berth-docker:0.2.0'})
+        self.assertEqual(sorted(images), ['5555dddd6666', 'debian:latest', 'rookery-docker:0.2.0'])
+        self.assertEqual(images['rookery-docker:0.2.0']['columns'],
+                         {'id': '1111aaaa2222', 'size': '812MB', 'created': '2 days ago', 'used_by': 'rookery-studio'})
+        self.assertEqual(images['rookery-docker:0.2.0']['key'], {'image': 'rookery-docker:0.2.0'})
         # A container that names debian uses debian:latest, which cannot be removed while it does.
         self.assertEqual(images['debian:latest']['unavailable'],
                          {'remove-image': 'Docker refuses it while web uses it'})
         self.assertEqual(images['5555dddd6666']['unavailable'], {})
         volumes = {row['name']: row for row in collections['volumes']}
-        self.assertEqual(volumes['berth-studio-home']['columns'],
-                         {'driver': 'local', 'size': '2.4GB', 'made_for': 'studio', 'used_by': 'berth-studio'})
-        self.assertIn('remove-volume', volumes['berth-studio-home']['unavailable'])
+        self.assertEqual(volumes['rookery-studio-home']['columns'],
+                         {'driver': 'local', 'size': '2.4GB', 'made_for': 'studio', 'used_by': 'rookery-studio'})
+        self.assertIn('remove-volume', volumes['rookery-studio-home']['unavailable'])
         self.assertEqual(volumes['wiki-data']['columns']['used_by'], 'nothing')
         self.assertEqual(volumes['wiki-data']['unavailable'], {})
 
     def test_the_manifest_puts_the_list_and_change_actions_in_collections(self):
-        [entry] = json.loads((PLUGIN / 'package.json').read_text())['berth']['provisioners']
+        [entry] = json.loads((PLUGIN / 'package.json').read_text())['rookery']['provisioners']
         collections = {collection['id']: collection for collection in entry['collections']}
         self.assertEqual(sorted(collections), ['images', 'volumes'])
         images, volumes = collections['images'], collections['volumes']
@@ -435,27 +435,27 @@ class Provision(Harness):
 
     def test_change_sets_new_limits(self):
         rules = [{'prefix': ['container', 'inspect'], 'results': [inspect(OURS)]}]
-        done = self.run_verb('change', {'id': 'berth-studio'}, arguments={'cpus': '2', 'memory': '1GiB'}, rules=rules)
+        done = self.run_verb('change', {'id': 'rookery-studio'}, arguments={'cpus': '2', 'memory': '1GiB'}, rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(json.loads(done.stdout), {'state': 'running', 'endpoints': []})
         self.assertEqual(self.argv('update'), [['update', '--cpus', '2', '--memory', str(1024 ** 3),
-                                                '--memory-swap', str(2 * 1024 ** 3), 'berth-studio']])
-        done = self.run_verb('change', {'id': 'berth-studio'}, rules=[
+                                                '--memory-swap', str(2 * 1024 ** 3), 'rookery-studio']])
+        done = self.run_verb('change', {'id': 'rookery-studio'}, rules=[
             {'prefix': ['container', 'inspect'], 'results': [inspect({})]}])
         self.assertEqual(done.returncode, 1)
-        self.assertIn('not created by berth', done.stderr)
+        self.assertIn('not created by rookery', done.stderr)
 
     def test_logs_are_written_as_they_come(self):
         rules = [{'prefix': ['container', 'inspect'], 'results': [inspect(OURS)]},
                  {'prefix': ['logs'], 'results': [[0, 'booted\nready\n', '']]}]
-        done = self.run_verb('logs', {'id': 'berth-studio', 'tail': 20, 'follow': True}, rules=rules)
+        done = self.run_verb('logs', {'id': 'rookery-studio', 'tail': 20, 'follow': True}, rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(done.stdout, 'booted\nready\n')
-        self.assertEqual(self.argv('logs'), [['logs', '--tail', '20', 'berth-studio'],
-                                             ['logs', '--tail', '20', '--follow', 'berth-studio']])
+        self.assertEqual(self.argv('logs'), [['logs', '--tail', '20', 'rookery-studio'],
+                                             ['logs', '--tail', '20', '--follow', 'rookery-studio']])
 
     def test_actions_answer_with_a_message_and_rows(self):
-        images = [{'Repository': 'berth-docker-host', 'Tag': '0.2.0', 'Size': '900MB', 'ID': 'a1'},
+        images = [{'Repository': 'rookery-docker-host', 'Tag': '0.2.0', 'Size': '900MB', 'ID': 'a1'},
                   {'Repository': 'ubuntu', 'Tag': '26.04', 'Size': '80MB', 'ID': 'b2'}]
         rules = [{'prefix': ['image', 'ls'], 'results': [[0, ''.join(json.dumps(i) + '\n' for i in images), '']]}]
         done = self.run_verb('act', {'action': {'name': 'images', 'arguments': {}}}, rules=rules)
@@ -467,27 +467,27 @@ class Provision(Harness):
         self.assertEqual(done.returncode, 1)
         self.assertIn('no action', done.stderr)
 
-    def test_prune_removes_only_what_berth_left_and_nothing_in_use(self):
-        images = [{'Repository': 'berth-docker-host', 'Tag': '0.2.0', 'ID': 'now'},
-                  {'Repository': 'berth-docker-host', 'Tag': '0.1.0', 'ID': 'old'},
-                  {'Repository': 'berth-docker-host', 'Tag': '0.0.9', 'ID': 'used'}]
-        volumes = [{'Name': 'berth-studio-data', 'Labels': 'berth-host=studio'},
-                   {'Name': 'berth-attic-data', 'Labels': 'berth-host=attic'}]
+    def test_prune_removes_only_what_rookery_left_and_nothing_in_use(self):
+        images = [{'Repository': 'rookery-docker-host', 'Tag': '0.2.0', 'ID': 'now'},
+                  {'Repository': 'rookery-docker-host', 'Tag': '0.1.0', 'ID': 'old'},
+                  {'Repository': 'rookery-docker-host', 'Tag': '0.0.9', 'ID': 'used'}]
+        volumes = [{'Name': 'rookery-studio-data', 'Labels': 'rookery-host=studio'},
+                   {'Name': 'rookery-attic-data', 'Labels': 'rookery-host=attic'}]
         rules = [{'prefix': ['image', 'ls'], 'results': [[0, ''.join(json.dumps(i) + '\n' for i in images), '']]},
                  {'prefix': ['volume', 'ls'], 'results': [[0, ''.join(json.dumps(v) + '\n' for v in volumes), '']]},
                  {'prefix': ['ps', '--all', '--format', '{{.Names}}', '--filter', 'ancestor=used'],
                   'results': [[0, 'someones-container\n', '']]},
-                 {'prefix': ['ps', '--all', '--format', '{{.Names}}', '--filter', 'volume=berth-studio-data'],
-                  'results': [[0, 'berth-studio\n', '']]}]
+                 {'prefix': ['ps', '--all', '--format', '{{.Names}}', '--filter', 'volume=rookery-studio-data'],
+                  'results': [[0, 'rookery-studio\n', '']]}]
         done = self.run_verb('act', {'action': {'name': 'prune', 'arguments': {'volumes': 'no'}}}, rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(self.argv('image', 'rm'), [['image', 'rm', 'berth-docker-host:0.1.0']])
+        self.assertEqual(self.argv('image', 'rm'), [['image', 'rm', 'rookery-docker-host:0.1.0']])
         self.assertEqual(self.argv('volume', 'rm'), [])
         self.assertEqual(self.argv('ls'), [])
         done = self.run_verb('act', {'action': {'name': 'prune', 'arguments': {'volumes': 'yes'}}}, rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(self.argv('volume', 'rm'), [['volume', 'rm', 'berth-attic-data']])
-        self.assertEqual(self.argv('image', 'ls')[0][:3], ['image', 'ls', 'berth-docker-host'])
+        self.assertEqual(self.argv('volume', 'rm'), [['volume', 'rm', 'rookery-attic-data']])
+        self.assertEqual(self.argv('image', 'ls')[0][:3], ['image', 'ls', 'rookery-docker-host'])
         self.assertEqual(self.argv('rm') + self.argv('container', 'rm'), [])
 
     def test_another_version_of_the_protocol_is_refused(self):
@@ -501,11 +501,11 @@ class Provision(Harness):
         self.assertEqual(self.calls(), [])
 
     def test_errors_are_one_line_and_exit_1(self):
-        done = self.run_verb('status', {'id': 'berth-studio'}, path='/nonexistent')
+        done = self.run_verb('status', {'id': 'rookery-studio'}, path='/nonexistent')
         self.assertEqual(done.returncode, 1)
         self.assertEqual(done.stderr.strip().count('\n'), 0)
         self.assertEqual(done.stdout, '')
-        done = self.run_verb('status', {'id': 'berth-studio'}, rules=[{'prefix': ['container', 'inspect'], 'results': [
+        done = self.run_verb('status', {'id': 'rookery-studio'}, rules=[{'prefix': ['container', 'inspect'], 'results': [
             [1, '', 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?']]}])
         self.assertEqual(done.returncode, 1)
         self.assertIn('daemon is not reachable', done.stderr)
@@ -522,7 +522,7 @@ class Provision(Harness):
 class Instance(Harness):
     def make(self, verb, extra=None, arguments=None, rules=None):
         request = {'kind': 'instance', 'name': 'web-1', 'token': 'tok-web', 'provisioner': 'container',
-                   'labels': {'berth-resource': 'r1', 'berth-token': 'tok-web'}}
+                   'labels': {'rookery-resource': 'r1', 'rookery-token': 'tok-web'}}
         if verb != 'create':
             request['id'] = 'web-1'
         request.update(extra or {})
@@ -530,8 +530,8 @@ class Instance(Harness):
                           'network': '', 'restart': 'no', 'cpus': '', 'memory': ''}, **(arguments or {}))
         return self.run_verb(verb, request, arguments=arguments, rules=rules)
 
-    def test_create_runs_a_plain_container_from_the_image_with_no_berth_host(self):
-        rules = [{'prefix': ['ps', '--all', '--format', '{{.Names}}', '--filter', 'label=berth-token=tok-web'], 'results': [[0, '', '']]},
+    def test_create_runs_a_plain_container_from_the_image_with_no_rookery_host(self):
+        rules = [{'prefix': ['ps', '--all', '--format', '{{.Names}}', '--filter', 'label=rookery-token=tok-web'], 'results': [[0, '', '']]},
                  {'prefix': ['container', 'inspect'], 'results': [MISSING]}]
         done = self.make('create', arguments={'command': 'sleep infinity', 'environment': f'A={SECRET}\n# note\n',
                                               'ports': '8080:80, 9000:9000', 'restart': 'unless-stopped',
@@ -540,9 +540,9 @@ class Instance(Harness):
         self.assertEqual(json.loads(done.stdout), {'id': 'web-1', 'state': 'running', 'endpoints': []})
         [call] = [c for c in self.calls() if c['args'][:1] == ['run']]
         run = call['args']
-        self.assertIn('berth-token=tok-web', run)
-        self.assertIn('berth-resource=r1', run)
-        self.assertNotIn('berth-host=', ' '.join(run))
+        self.assertIn('rookery-token=tok-web', run)
+        self.assertIn('rookery-resource=r1', run)
+        self.assertNotIn('rookery-host=', ' '.join(run))
         # A value reaches docker in its environment, and only the name is on its command line.
         self.assertEqual(run[run.index('--env') + 1], 'A')
         self.assertNotIn(SECRET, ' '.join(run))
@@ -551,7 +551,7 @@ class Instance(Harness):
         self.assertEqual(run[-3:], ['debian:12', 'sleep', 'infinity'])
 
     def test_create_again_with_its_token_is_the_same_container(self):
-        rules = [{'prefix': ['ps', '--all', '--format', '{{.Names}}', '--filter', 'label=berth-token=tok-web'],
+        rules = [{'prefix': ['ps', '--all', '--format', '{{.Names}}', '--filter', 'label=rookery-token=tok-web'],
                   'results': [[0, 'web-1\n', '']]},
                  {'prefix': ['container', 'inspect'], 'results': [inspect(OURS)]}]
         done = self.make('create', rules=rules)
@@ -559,12 +559,12 @@ class Instance(Harness):
         self.assertEqual(self.argv('run'), [])
 
     def test_a_taken_name_or_a_bad_image_is_refused(self):
-        rules = [{'prefix': ['ps', '--all', '--format', '{{.Names}}', '--filter', 'label=berth-token=tok-web'], 'results': [[0, '', '']]},
+        rules = [{'prefix': ['ps', '--all', '--format', '{{.Names}}', '--filter', 'label=rookery-token=tok-web'], 'results': [[0, '', '']]},
                  {'prefix': ['container', 'inspect'], 'results': [inspect(OURS)]}]
         done = self.make('create', rules=rules)
         self.assertEqual(done.returncode, 1)
         self.assertIn('already has a container named web-1', done.stderr)
-        empty = [{'prefix': ['ps', '--all', '--format', '{{.Names}}', '--filter', 'label=berth-token=tok-web'], 'results': [[0, '', '']]},
+        empty = [{'prefix': ['ps', '--all', '--format', '{{.Names}}', '--filter', 'label=rookery-token=tok-web'], 'results': [[0, '', '']]},
                  {'prefix': ['container', 'inspect'], 'results': [MISSING]}]
         done = self.make('create', arguments={'image': ''}, rules=empty)
         self.assertEqual(done.returncode, 1)
@@ -578,7 +578,7 @@ class Instance(Harness):
         self.assertEqual(self.argv('run'), [])
 
     def test_a_container_that_fails_to_start_is_removed(self):
-        rules = [{'prefix': ['ps', '--all', '--format', '{{.Names}}', '--filter', 'label=berth-token=tok-web'],
+        rules = [{'prefix': ['ps', '--all', '--format', '{{.Names}}', '--filter', 'label=rookery-token=tok-web'],
                   'results': [[0, '', ''], [0, 'web-1\n', '']]},
                  {'prefix': ['container', 'inspect'], 'results': [MISSING]},
                  {'prefix': ['run'], 'results': [[125, '', 'Error: port is already allocated']]}]
@@ -588,9 +588,9 @@ class Instance(Harness):
         self.assertEqual(self.argv('rm'), [['rm', '--force', 'web-1']])
 
     def test_an_instance_is_listed_beside_the_machines_and_not_as_one(self):
-        rules = [{'prefix': ['ps', '--all', '--format', '{{.Names}}', '--filter', 'label=berth-resource'], 'results': [[0, 'web-1\n', '']]},
-                 {'prefix': ['container', 'inspect', 'web-1'], 'results': [inspect({'berth-resource': 'r1'})]},
-                 {'prefix': ['container', 'inspect', 'berth-studio'], 'results': [inspect(OURS)]},
+        rules = [{'prefix': ['ps', '--all', '--format', '{{.Names}}', '--filter', 'label=rookery-resource'], 'results': [[0, 'web-1\n', '']]},
+                 {'prefix': ['container', 'inspect', 'web-1'], 'results': [inspect({'rookery-resource': 'r1'})]},
+                 {'prefix': ['container', 'inspect', 'rookery-studio'], 'results': [inspect(OURS)]},
                  {'prefix': ['ps'], 'results': [[0, '', '']]}]
         done = self.run_verb('list', {'kind': 'instance'}, rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
@@ -598,21 +598,21 @@ class Instance(Harness):
             {'id': 'web-1', 'kind': 'instance', 'name': 'web-1', 'host': '', 'state': 'running'}]})
 
     def test_the_containers_of_a_deployment_are_no_instances(self):
-        compose = {'berth-resource': 'shop', 'berth-token': 'tok-9', 'com.docker.compose.project': 'shop'}
-        rules = [{'prefix': ['ps', '--all', '--format', '{{.Names}}', '--filter', 'label=berth-resource'],
+        compose = {'rookery-resource': 'shop', 'rookery-token': 'tok-9', 'com.docker.compose.project': 'shop'}
+        rules = [{'prefix': ['ps', '--all', '--format', '{{.Names}}', '--filter', 'label=rookery-resource'],
                   'results': [[0, 'web-1\nshop-web-1\n', '']]},
-                 {'prefix': ['container', 'inspect', 'web-1'], 'results': [inspect({'berth-resource': 'r1'})]},
+                 {'prefix': ['container', 'inspect', 'web-1'], 'results': [inspect({'rookery-resource': 'r1'})]},
                  {'prefix': ['container', 'inspect', 'shop-web-1'], 'results': [inspect(compose)]},
                  {'prefix': ['ps'], 'results': [[0, '', '']]}]
         done = self.run_verb('list', {'kind': 'instance'}, rules=rules)
         self.assertEqual([r['id'] for r in json.loads(done.stdout)['resources']], ['web-1'])
         done = self.make('stop', {'id': 'shop-web-1'}, rules=rules)
         self.assertEqual(done.returncode, 1)
-        self.assertIn('was not made by berth as an instance', done.stderr)
+        self.assertIn('was not made by rookery as an instance', done.stderr)
         self.assertEqual(self.argv('stop'), [])
 
     def test_change_applies_limits_and_refuses_what_is_fixed(self):
-        rules = [{'prefix': ['container', 'inspect', 'web-1'], 'results': [inspect({'berth-resource': 'r1'})]}]
+        rules = [{'prefix': ['container', 'inspect', 'web-1'], 'results': [inspect({'rookery-resource': 'r1'})]}]
         done = self.make('change', {'changed': ['cpus']}, arguments={'cpus': '2'}, rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(self.argv('update'), [['update', '--cpus', '2', 'web-1']])
@@ -623,8 +623,8 @@ class Instance(Harness):
         self.assertIn('make a new instance', done.stderr)
         self.assertEqual(len(self.argv('update')), 1)
 
-    def test_stop_start_and_destroy_only_what_berth_made_as_an_instance(self):
-        rules = [{'prefix': ['container', 'inspect', 'web-1'], 'results': [inspect({'berth-resource': 'r1'})]}]
+    def test_stop_start_and_destroy_only_what_rookery_made_as_an_instance(self):
+        rules = [{'prefix': ['container', 'inspect', 'web-1'], 'results': [inspect({'rookery-resource': 'r1'})]}]
         self.assertEqual(self.make('stop', rules=rules).returncode, 0)
         self.assertEqual(self.argv('stop'), [['stop', '--time', '30', 'web-1']])
         self.assertEqual(self.make('start', rules=rules).returncode, 0)
@@ -634,11 +634,11 @@ class Instance(Harness):
         stranger = [{'prefix': ['container', 'inspect', 'web-1'], 'results': [inspect(OURS)]}]
         done = self.make('stop', rules=stranger)
         self.assertEqual(done.returncode, 1)
-        self.assertIn('was not made by berth as an instance', done.stderr)
+        self.assertIn('was not made by rookery as an instance', done.stderr)
 
     def published(self):
         """An instance of ours with ports published on every address, on one address and over UDP."""
-        info = json.loads(inspect({'berth-resource': 'r1'})[1])
+        info = json.loads(inspect({'rookery-resource': 'r1'})[1])
         info[0]['Config']['ExposedPorts'] = {'80/tcp': {}, '53/udp': {}}
         info[0]['NetworkSettings']['Ports'] = {
             '80/tcp': [{'HostIp': '0.0.0.0', 'HostPort': '8080'}, {'HostIp': '::', 'HostPort': '8080'}],
@@ -683,7 +683,7 @@ class Instance(Harness):
         ])
 
     def test_a_command_runs_in_the_container_with_its_input_and_exit_status(self):
-        rules = [{'prefix': ['container', 'inspect', 'web-1'], 'results': [inspect({'berth-resource': 'r1'})]},
+        rules = [{'prefix': ['container', 'inspect', 'web-1'], 'results': [inspect({'rookery-resource': 'r1'})]},
                  {'prefix': ['exec'], 'results': [[3, 'hi from web\n', '']]}]
         done = self.make('exec', {'command': ['sh', '-c', 'cat; exit 3'], 'stdin': 'select 1;\n'}, rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
@@ -695,7 +695,7 @@ class Instance(Harness):
         # Without input it reads none, and a stopped container or no command is refused.
         done = self.make('exec', {'command': ['true']}, rules=rules)
         self.assertEqual(self.argv('exec')[-1], ['exec', 'web-1', 'true'])
-        stopped = [{'prefix': ['container', 'inspect', 'web-1'], 'results': [inspect({'berth-resource': 'r1'}, running=False)]}]
+        stopped = [{'prefix': ['container', 'inspect', 'web-1'], 'results': [inspect({'rookery-resource': 'r1'}, running=False)]}]
         for extra, said in [({'command': ['true']}, 'is not running'), ({'command': 'true'}, 'list of words')]:
             done = self.make('exec', extra, rules=stopped)
             self.assertEqual(done.returncode, 1)
@@ -705,7 +705,7 @@ class Instance(Harness):
         self.assertIn('an instance does', done.stderr)
 
     def test_the_storage_actions_list_create_and_remove(self):
-        rules = [{'prefix': ['volume', 'ls'], 'results': [[0, json.dumps({'Name': 'wiki-data', 'Labels': 'berth-host=studio'}) + '\n', '']]},
+        rules = [{'prefix': ['volume', 'ls'], 'results': [[0, json.dumps({'Name': 'wiki-data', 'Labels': 'rookery-host=studio'}) + '\n', '']]},
                  {'prefix': ['ps'], 'results': [[0, '', '']]}]
         done = self.run_verb('act', {'kind': 'instance', 'action': {'name': 'volumes', 'arguments': {}}}, rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
@@ -750,7 +750,7 @@ class Deployment(Harness):
 
     def test_create_brings_the_project_up_with_the_spec_on_stdin(self):
         done = self.deploy('create', {'spec': SPEC, 'token': 'tok-9',
-                                      'labels': {'berth-resource': 'shop', 'berth-token': 'tok-9'}},
+                                      'labels': {'rookery-resource': 'shop', 'rookery-token': 'tok-9'}},
                            rules=self.create_rules())
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(json.loads(done.stdout), {'id': 'shop', 'state': 'running', 'endpoints': []})
@@ -765,10 +765,10 @@ class Deployment(Harness):
             self.assertEqual(call['stdin'], SPEC)
         for call in self.calls():
             self.assertNotIn('example/web', ' '.join(call['args']))
-        # berth's labels go on every service, in a private file of their own that does not stay.
+        # rookery's labels go on every service, in a private file of their own that does not stay.
         override = calls[1]['files'][up[6]]
         self.assertEqual(override['mode'], 0o600)
-        labels = {'berth-resource': 'shop', 'berth-token': 'tok-9'}
+        labels = {'rookery-resource': 'shop', 'rookery-token': 'tok-9'}
         self.assertEqual(json.loads(override['text']), {'services': {'web': {'labels': labels}, 'db': {'labels': labels}}})
         self.assertFalse(os.path.exists(up[6]))
         # Compose runs in an empty directory, so no compose.yaml or .env of the caller comes in.
@@ -845,7 +845,7 @@ class Deployment(Harness):
         self.assertEqual(up['args'][-3:], ['up', '-d', '--remove-orphans'])
         self.assertEqual(up['stdin'], SPEC)
         override = json.loads(list(up['files'].values())[0]['text'])
-        self.assertEqual(override['services']['web']['labels'], {'berth-resource': 'shop', 'berth-token': 'tok-9'})
+        self.assertEqual(override['services']['web']['labels'], {'rookery-resource': 'shop', 'rookery-token': 'tok-9'})
 
     def test_status_reads_both_forms_of_ps(self):
         cases = [(ps(('web', 'running'), ('db', 'running')), {'state': 'running', 'endpoints': []}),
@@ -882,13 +882,13 @@ class Deployment(Harness):
         self.assertEqual(done.returncode, 1)
         self.assertIn('something held on', done.stderr)
 
-    def test_a_project_without_berth_labels_is_left_alone(self):
+    def test_a_project_without_rookery_labels_is_left_alone(self):
         rules = [{'prefix': [*COMPOSE, 'ps'], 'results': [ps(('web', 'running'), labels='com.docker.compose.project=shop')]}]
         for verb in ('destroy', 'stop', 'change'):
             with self.subTest(verb=verb):
                 done = self.deploy(verb, {'spec': SPEC}, rules=rules)
                 self.assertEqual(done.returncode, 1)
-                self.assertIn('not created by berth', done.stderr)
+                self.assertIn('not created by rookery', done.stderr)
         self.assertEqual([c for c in self.compose() if 'ps' not in c], [])
 
     def test_start_and_stop(self):
@@ -912,16 +912,16 @@ class Deployment(Harness):
         self.assertEqual(self.compose('logs'), [[*COMPOSE, 'logs', '--no-color', '--tail', '20', '--follow'],
                                                 [*COMPOSE, 'logs', '--no-color', '--tail', 'all']])
 
-    def test_list_shows_projects_with_berth_labels(self):
+    def test_list_shows_projects_with_rookery_labels(self):
         projects = 'shop\trunning\nshop\texited\nblog\texited\n'
-        rules = [{'prefix': ['ps', '--all', '--filter', 'label=berth-resource'], 'results': [[0, projects, '']]},
+        rules = [{'prefix': ['ps', '--all', '--filter', 'label=rookery-resource'], 'results': [[0, projects, '']]},
                  {'prefix': ['ps'], 'results': [[0, '', '']]}]
         done = self.run_verb('list', {'kind': 'deployment'}, rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(json.loads(done.stdout), {'resources': [
             {'id': 'blog', 'kind': 'deployment', 'name': 'blog', 'host': '', 'state': 'stopped'},
             {'id': 'shop', 'kind': 'deployment', 'name': 'shop', 'host': '', 'state': 'running'}]})
-        self.assertEqual(self.argv('ps'), [['ps', '--all', '--filter', 'label=berth-resource', '--format',
+        self.assertEqual(self.argv('ps'), [['ps', '--all', '--filter', 'label=rookery-resource', '--format',
                                             '{{.Label "com.docker.compose.project"}}\t{{.State}}']])
         done = self.run_verb('list', rules=rules)
         self.assertEqual(len(json.loads(done.stdout)['resources']), 2)
@@ -957,7 +957,7 @@ class Deployment(Harness):
         done = self.deploy('act', {'action': {'name': 'images', 'arguments': {}}})
         self.assertEqual(done.returncode, 1)
         self.assertIn('of a deployment', done.stderr)
-        done = self.run_verb('act', {'kind': 'machine', 'id': 'berth-studio', 'action': {'name': 'services'}})
+        done = self.run_verb('act', {'kind': 'machine', 'id': 'rookery-studio', 'action': {'name': 'services'}})
         self.assertEqual(done.returncode, 1)
         self.assertIn('the kind machine has no actions', done.stderr)
         # Without an id an action is the provisioner's own.

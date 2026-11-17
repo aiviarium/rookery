@@ -1,16 +1,16 @@
 ---
 title: Deployments
-description: Run a Compose project on a Docker engine as a resource of berth, with its secrets taken from berth's store.
+description: Run a Compose project on a Docker engine as a resource of Rookery, with its secrets taken from Rookery's store.
 icon: LayoutGrid
 ---
 
-A deployment is a [resource](/docs/deploy/resources) made from a specification. berth keeps the specification in its store and hands it to the provisioner, but never reads it. A provisioner of the Docker plugin's type `docker/container` makes deployments from Compose files. The examples here use one registered as `docker` ([Register a provisioner](/docs/deploy/provisioners#register-a-provisioner)).
+A deployment is a [resource](/docs/deploy/resources) made from a specification. Rookery keeps the specification in its store and hands it to the provisioner, but never reads it. A provisioner of the Docker plugin's type `docker/container` makes deployments from Compose files. The examples here use one registered as `docker` ([Register a provisioner](/docs/deploy/provisioners#register-a-provisioner)).
 
-A deployment belongs to no host. Compose runs where berth runs, against the Docker engine of the provisioner's `host` setting, so that machine needs the `docker compose` plugin. With a [berth server](/docs/use/server) set, that is the server.
+A deployment belongs to no host. Compose runs where Rookery runs, against the Docker engine of the provisioner's `host` setting, so that machine needs the `docker compose` plugin. With a [Rookery server](/docs/use/server) set, that is the server.
 
 ## The specification
 
-Write `${VARIABLE}` where a secret goes. This file runs a PostgreSQL database for a notes app, with its password from berth:
+Write `${VARIABLE}` where a secret goes. This file runs a PostgreSQL database for a notes app, with its password from Rookery:
 
 ```yaml title="notes.compose.yaml"
 services:
@@ -31,11 +31,11 @@ Compose reads the file from an empty directory, so give a bind mount as an absol
 
 ## Deploy it
 
-Store the password as a berth secret, then deploy:
+Store the password as a Rookery secret, then deploy:
 
 ```bash
-berth secret set notes_db_password
-berth resource create notes --provisioner docker \
+rookery secret set notes_db_password
+rookery resource create notes --provisioner docker \
   --spec notes.compose.yaml --secret notes_db_password:DB_PASSWORD
 ```
 
@@ -43,7 +43,7 @@ berth resource create notes --provisioner docker \
 ▸ Creating the deployment notes with docker
 …
 ✓ docker created notes: running
-notes is r-p5x2hd7a: berth resource show r-p5x2hd7a
+notes is r-p5x2hd7a: rookery resource show r-p5x2hd7a
 ```
 
 The output of Compose follows as it runs. The last line gives the new resource's id.
@@ -53,26 +53,26 @@ The output of Compose follows as it runs. The last line gives the new resource's
 | `NAME` | The deployment's name, which is the Compose project's. Lowercase letters, digits, `-` and `_`, starting with a letter or digit |
 | `--provisioner NAME` | The provisioner that makes it, here `docker` |
 | `--spec FILE` | The Compose file. `-` reads it from standard input |
-| `--secret NAME[:VARIABLE]` | A berth secret it gets, as the variable `VARIABLE`, or as `NAME` when none is given. Give it once for each secret |
+| `--secret NAME[:VARIABLE]` | A Rookery secret it gets, as the variable `VARIABLE`, or as `NAME` when none is given. Give it once for each secret |
 | `NAME=VALUE` | Values of its arguments, such as `keep_volumes=yes`, or `host=…` for an engine other than the setting's |
 
-berth refuses before anything is made when a secret has no value, or when the name of a variable is not one a shell takes. A deployment of that name that exists already is changed instead, with the new file.
+Rookery refuses before anything is made when a secret has no value, or when the name of a variable is not one a shell takes. A deployment of that name that exists already is changed instead, with the new file.
 
 ### From the provisioner's page
 
-The Hosts tab has the row **+ New compose project**, and the provisioner's page the action of that name, `new-deployment`, on every system. Both open a form laid out like a host's set-up, with the provisioner, the name, the Compose file, the secrets and the deployment's own arguments each on a row. Enter on a row edits it, and Enter on **Run** makes the deployment. The Compose file opens in a text editor that takes the whole screen. Ctrl+S keeps the file, and Esc leaves it as it was. The file is kept in berth's store, so no file on your machine is needed. Give the secrets as `NAME` or `NAME:VARIABLE`, separated by commas. The deployment is made as a job of the provisioner, and is listed on its page when the job ends.
+The Hosts tab has the row **+ New compose project**, and the provisioner's page the action of that name, `new-deployment`, on every system. Both open a form laid out like a host's set-up, with the provisioner, the name, the Compose file, the secrets and the deployment's own arguments each on a row. Enter on a row edits it, and Enter on **Run** makes the deployment. The Compose file opens in a text editor that takes the whole screen. Ctrl+S keeps the file, and Esc leaves it as it was. The file is kept in Rookery's store, so no file on your machine is needed. Give the secrets as `NAME` or `NAME:VARIABLE`, separated by commas. The deployment is made as a job of the provisioner, and is listed on its page when the job ends.
 
 From the command line the action takes the same values:
 
 ```bash
-berth provisioner run docker new-deployment name=notes \
+rookery provisioner run docker new-deployment name=notes \
   spec="$(cat notes.compose.yaml)" secrets=notes_db_password:DB_PASSWORD --yes
 ```
 
 ## Look after it
 
 ```bash
-berth resource show notes
+rookery resource show notes
 ```
 
 ```text
@@ -85,7 +85,7 @@ Spec       5f0c1d9e8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d
 Secrets    notes_db_password as DB_PASSWORD
 Arguments  host=ssh://ops@192.0.2.10 keep_volumes=no
 
-Actions (berth resource run r-p5x2hd7a ACTION)
+Actions (rookery resource run r-p5x2hd7a ACTION)
   start              Start
   stop               Stop
   change             Change
@@ -94,14 +94,14 @@ Actions (berth resource run r-p5x2hd7a ACTION)
   pull               Pull and update
   remove             Remove the deployment
 
-Its log: berth resource logs r-p5x2hd7a [--follow]
+Its log: rookery resource logs r-p5x2hd7a [--follow]
 ```
 
 ```bash
-berth resource logs notes --follow      # every service's log
-berth resource run notes services       # each container, with its state
-berth resource run notes pull           # newer images, then up again
-berth resource run notes stop
+rookery resource logs notes --follow      # every service's log
+rookery resource run notes services       # each container, with its state
+rookery resource run notes pull           # newer images, then up again
+rookery resource run notes stop
 ```
 
 ## Change it
@@ -109,37 +109,37 @@ berth resource run notes stop
 Deploy again with the same name, or use `change`:
 
 ```bash
-berth resource create notes --provisioner docker --spec notes.compose.yaml
-berth resource set notes --spec notes.compose.yaml
-berth resource set notes keep_volumes=yes
+rookery resource create notes --provisioner docker --spec notes.compose.yaml
+rookery resource set notes --spec notes.compose.yaml
+rookery resource set notes keep_volumes=yes
 ```
 
-The plugin runs `docker compose up -d --remove-orphans` with the file. With the same file nothing changes. Without `--spec`, the file berth has is used again. The secrets stay as they are unless `--secret` is given, which replaces the whole list.
+The plugin runs `docker compose up -d --remove-orphans` with the file. With the same file nothing changes. Without `--spec`, the file Rookery has is used again. The secrets stay as they are unless `--secret` is given, which replaces the whole list.
 
 ## Remove it
 
 ```bash
-berth resource remove notes
+rookery resource remove notes
 ```
 
-berth asks `Remove the deployment notes with what it holds? [y/N]`, which `--yes` answers. The plugin runs `docker compose down`, which removes the project's named volumes too unless `keep_volumes` is `yes`. berth then forgets the record and the Compose file.
+Rookery asks `Remove the deployment notes with what it holds? [y/N]`, which `--yes` answers. The plugin runs `docker compose down`, which removes the project's named volumes too unless `keep_volumes` is `yes`. Rookery then forgets the record and the Compose file.
 
-## Secrets and what berth keeps
+## Secrets and what Rookery keeps
 
 | What | Where it is kept | Where it is shown |
 | --- | --- | --- |
-| The Compose file | In berth's store, in a row of its own, sealed when the [store is encrypted](/docs/use/store) | Only as its SHA-256, on the `Spec` line |
+| The Compose file | In Rookery's store, in a row of its own, sealed when the [store is encrypted](/docs/use/store) | Only as its SHA-256, on the `Spec` line |
 | The names of the secrets and their variables | In the resource's record | On the `Secrets` line |
-| The values of the secrets | In berth's secrets alone, never with the resource or in the file | Nowhere. Job output and logs show `[secret]` in their place |
+| The values of the secrets | In Rookery's secrets alone, never with the resource or in the file | Nowhere. Job output and logs show `[secret]` in their place |
 
-berth reads the values each time it makes, changes or acts on the deployment. They reach the plugin only on its standard input. The plugin gives them to `docker compose` only as variables of its environment, never on a command line or in a file.
+Rookery reads the values each time it makes, changes or acts on the deployment. They reach the plugin only on its standard input. The plugin gives them to `docker compose` only as variables of its environment, never on a command line or in a file.
 
 Compose puts the values into the containers as the file says. A variable in a container's environment is visible to anyone who can inspect that container on the Docker host.
 
-## With a berth server
+## With a Rookery server
 
-With a server set, `berth resource create` sends the Compose file to the server. The server keeps it and makes the deployment as a job of the subject `resource:ID`. The secrets it gets are the server's. Making, changing and removing one need the role `admin`, and reading its log `operate` ([Resources](/docs/deploy/resources#with-a-berth-server)).
+With a server set, `rookery resource create` sends the Compose file to the server. The server keeps it and makes the deployment as a job of the subject `resource:ID`. The secrets it gets are the server's. Making, changing and removing one need the role `admin`, and reading its log `operate` ([Resources](/docs/deploy/resources#with-a-rookery-server)).
 
 ## The Docker plugin's part
 
-The [Docker plugin's guide](https://github.com/helightdev/berth/blob/main/plugins/docker/guide.md#deployments) says what each verb and action does to the project. It also covers the labels `berth-resource` and `berth-token` that go on its containers. The plugin lists, changes and removes only projects whose containers have them.
+The [Docker plugin's guide](https://github.com/aiviarium/rookery/blob/main/plugins/docker/guide.md#deployments) says what each verb and action does to the project. It also covers the labels `rookery-resource` and `rookery-token` that go on its containers. The plugin lists, changes and removes only projects whose containers have them.

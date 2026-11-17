@@ -15,8 +15,8 @@ The line under the title is the host's load, CPU, memory, disk and uptime. Under
 | Group | Action | Does |
 | --- | --- | --- |
 | Host | Status | Provisioning state and services, graphics and disk space, failed units and the access links, then what plugins report |
-| | Self-Test | `devbox-smoke` as the agent, with the checks plugins add |
-| | Rename | Gives the host another name in berth, and with `hostname` its profile's hostname too |
+| | Self-Test | `rookery-smoke` as the agent, with the checks plugins add |
+| | Rename | Gives the host another name in Rookery, and with `hostname` its profile's hostname too |
 | | Duplicate | Saves a copy of the profile under another name, without what belongs to this machine |
 | | Remove | Forgets the host, and with `destroy` destroys the machine its provisioner made ([Removing a host](/docs/use/lifecycle#removing-a-host)) |
 | Power | Reboot | Restarts the host, after asking |
@@ -32,17 +32,17 @@ The line under the title is the host's load, CPU, memory, disk and uptime. Under
 | Set-Up | Change what is installed, accounts or install method | Opens the [set-up tabs](/docs/use/terminal-ui#a-host) |
 | | Apply this configuration | Runs the role again with this profile, such as after changing what is installed |
 
-When the host was applied before a plugin or berth itself changed, a **Configuration** group at the top says which, such as `claude 1.0.0 → 1.1.0`, with **Apply this configuration** below it ([Updates](/docs/use/updates#hosts-that-are-behind)).
+When the host was applied before a plugin or Rookery itself changed, a **Configuration** group at the top says which, such as `claude 1.0.0 → 1.1.0`, with **Apply this configuration** below it ([Updates](/docs/use/updates#hosts-that-are-behind)).
 
-berth's own actions on the host are listed beside its controller's, such as **Install the controller** for a host that is not a workstation. One the host's type or state rules out is marked `not now`, and the Information panel says why and what to do first. A host with the controller alone has only Status, Update, Reboot and the secrets.
+Rookery's own actions on the host are listed beside its controller's, such as **Install the controller** for a host that is not a workstation. One the host's type or state rules out is marked `not now`, and the Information panel says why and what to do first. A host with the controller alone has only Status, Update, Reboot and the secrets.
 
 Plugins add actions to these groups or bring groups of their own, such as **Backup**. They also add steps to built-in actions such as Status and Update. An action's output stays on the page.
 
-Some actions take arguments, such as which snapshot to restore. Actions that cannot be undone ask for confirmation first. When the profile says to ask for the SSH user's sudo password, berth asks once and keeps it until it closes.
+Some actions take arguments, such as which snapshot to restore. Actions that cannot be undone ask for confirmation first. When the profile says to ask for the SSH user's sudo password, Rookery asks once and keeps it until it closes.
 
 ## Panels
 
-The terminal and sign-ins run in a panel inside berth.
+The terminal and sign-ins run in a panel inside Rookery.
 
 <Screen name="terminal" alt="A terminal panel on the host, as the agent, with id and ls run in it" />
 
@@ -61,7 +61,7 @@ A long web address that runs over several rows is one link, even when the progra
 
 ## Sessions
 
-A terminal is a session of the host and keeps running when you leave it. Running sessions appear in a **Sessions** group on the overview, where Enter opens one again. `berth session list HOST` lists them, and `berth session attach HOST ID` puts your own terminal onto one ([Commands](/docs/use/cli#sessions-and-commands)).
+A terminal is a session of the host and keeps running when you leave it. Running sessions appear in a **Sessions** group on the overview, where Enter opens one again. `rookery session list HOST` lists them, and `rookery session attach HOST ID` puts your own terminal onto one ([Commands](/docs/use/cli#sessions-and-commands)).
 
 ## Unreachable hosts
 
@@ -70,10 +70,10 @@ Instead of the actions, the overview then says why, and offers:
 | Row | Does |
 | --- | --- |
 | Try again | Asks the host again what it can do, asking for the sudo password again if needed |
-| Change the SSH address | Opens the address of the host for editing. Saving it tries again. Not offered for a host that the berth server keeps for you |
-| Terminal over SSH | A plain SSH shell as the SSH user, for a host whose berthd cannot be reached |
-| Apply this configuration | Shown when berthd is missing or older than berth needs; installs or updates it |
+| Change the SSH address | Opens the address of the host for editing. Saving it tries again. Not offered for a host that the Rookery server keeps for you |
+| Terminal over SSH | A plain SSH shell as the SSH user, for a host whose rookeryd cannot be reached |
+| Apply this configuration | Shown when rookeryd is missing or older than Rookery needs; installs or updates it |
 
-A host that refused berth's login says so, and berth does not try it again by itself for a while, so the host's sshd does not turn berth's address away ([Refused logins](/docs/use/accounts#refused-logins)). **Try again** logs in once. A message that names `PerSourcePenalties` means sshd is already turning the address away: wait a minute before you try again.
+A host that refused Rookery's login says so, and Rookery does not try it again by itself for a while, so the host's sshd does not turn Rookery's address away ([Refused logins](/docs/use/accounts#refused-logins)). **Try again** logs in once. A message that names `PerSourcePenalties` means sshd is already turning the address away: wait a minute before you try again.
 
-berth's own actions stay listed below these, such as **Install berth's key**, **Host key** and **Install the controller**, as first contact is what such a host often needs. One that goes through the controller, such as sending secrets, is marked `not now`, and the Information panel gives the host's answer.
+Rookery's own actions stay listed below these, such as **Install Rookery's key**, **Host key** and **Install the controller**, as first contact is what such a host often needs. One that goes through the controller, such as sending secrets, is marked `not now`, and the Information panel gives the host's answer.

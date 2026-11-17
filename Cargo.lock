@@ -256,136 +256,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
-name = "berth"
-version = "0.5.2"
-dependencies = [
- "axum",
- "berth-api",
- "berth-core",
- "berth-page",
- "berth-tui",
- "berthd",
- "clap",
- "clap_complete",
- "crossterm",
- "futures-util",
- "jsonwebtoken",
- "libc",
- "ratatui",
- "ring",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tower",
- "tui-input",
- "utoipa",
- "utoipa-axum",
-]
-
-[[package]]
-name = "berth-api"
-version = "0.5.2"
-dependencies = [
- "futures-util",
- "http-body-util",
- "hyper",
- "hyper-util",
- "serde",
- "serde_json",
- "tokio",
- "tokio-tungstenite 0.30.0",
- "utoipa",
-]
-
-[[package]]
-name = "berth-core"
-version = "0.5.2"
-dependencies = [
- "berth-api",
- "chacha20poly1305",
- "ed25519-dalek",
- "futures-util",
- "hmac 0.12.1",
- "libc",
- "postgres",
- "rcgen",
- "rusqlite",
- "rustls",
- "serde",
- "serde_json",
- "sha1 0.10.7",
- "sha2 0.11.1",
- "tempfile",
- "tokio",
- "tokio-postgres-rustls",
- "tokio-rustls",
- "webpki-roots",
-]
-
-[[package]]
-name = "berth-page"
-version = "0.5.2"
-dependencies = [
- "berth-api",
- "berth-tui",
- "crossterm",
- "futures-util",
- "ratatui",
- "rustls",
- "rustls-native-certs",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-rustls",
- "tui-input",
- "webpki-roots",
-]
-
-[[package]]
-name = "berth-pty"
-version = "0.5.2"
-dependencies = [
- "libc",
-]
-
-[[package]]
-name = "berth-tui"
-version = "0.5.2"
-dependencies = [
- "berth-api",
- "pulldown-cmark",
- "qrcode",
- "ratatui",
- "serde",
- "serde_json",
- "tui-input",
- "vt100",
-]
-
-[[package]]
-name = "berthd"
-version = "0.5.2"
-dependencies = [
- "axum",
- "berth-api",
- "berth-pty",
- "futures-util",
- "hyper",
- "hyper-util",
- "libc",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-util",
- "tower",
- "utoipa",
- "utoipa-axum",
- "vt100",
-]
-
-[[package]]
 name = "bit-set"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -441,11 +311,11 @@ dependencies = [
 
 [[package]]
 name = "box"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
- "berth-api",
  "futures-util",
  "libc",
+ "rookery-api",
  "serde",
  "serde_json",
  "tempfile",
@@ -2549,6 +2419,136 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "rookery"
+version = "0.6.0"
+dependencies = [
+ "axum",
+ "clap",
+ "clap_complete",
+ "crossterm",
+ "futures-util",
+ "jsonwebtoken",
+ "libc",
+ "ratatui",
+ "ring",
+ "rookery-api",
+ "rookery-core",
+ "rookery-page",
+ "rookery-tui",
+ "rookeryd",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tower",
+ "tui-input",
+ "utoipa",
+ "utoipa-axum",
+]
+
+[[package]]
+name = "rookery-api"
+version = "0.6.0"
+dependencies = [
+ "futures-util",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite 0.30.0",
+ "utoipa",
+]
+
+[[package]]
+name = "rookery-core"
+version = "0.6.0"
+dependencies = [
+ "chacha20poly1305",
+ "ed25519-dalek",
+ "futures-util",
+ "hmac 0.12.1",
+ "libc",
+ "postgres",
+ "rcgen",
+ "rookery-api",
+ "rusqlite",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha1 0.10.7",
+ "sha2 0.11.1",
+ "tempfile",
+ "tokio",
+ "tokio-postgres-rustls",
+ "tokio-rustls",
+ "webpki-roots",
+]
+
+[[package]]
+name = "rookery-page"
+version = "0.6.0"
+dependencies = [
+ "crossterm",
+ "futures-util",
+ "ratatui",
+ "rookery-api",
+ "rookery-tui",
+ "rustls",
+ "rustls-native-certs",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-rustls",
+ "tui-input",
+ "webpki-roots",
+]
+
+[[package]]
+name = "rookery-pty"
+version = "0.6.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "rookery-tui"
+version = "0.6.0"
+dependencies = [
+ "pulldown-cmark",
+ "qrcode",
+ "ratatui",
+ "rookery-api",
+ "serde",
+ "serde_json",
+ "tui-input",
+ "vt100",
+]
+
+[[package]]
+name = "rookeryd"
+version = "0.6.0"
+dependencies = [
+ "axum",
+ "futures-util",
+ "hyper",
+ "hyper-util",
+ "libc",
+ "rookery-api",
+ "rookery-pty",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tower",
+ "utoipa",
+ "utoipa-axum",
+ "vt100",
 ]
 
 [[package]]

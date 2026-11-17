@@ -1,8 +1,8 @@
-"""How berth logs in to a host, against the bare test host with nothing but
+"""How rookery logs in to a host, against the bare test host with nothing but
 sshd and the operator account: first contact with a one-time password,
-berth's own key, a key added to the key ring, a password through berth's
+rookery's own key, a key added to the key ring, a password through rookery's
 askpass helper, a changed host key refused until it is accepted, and a
-rotation of berth's key. No profile is applied.
+rotation of rookery's key. No profile is applied.
 
 It runs on `dock` before e2e_own_key, which wants that host as a provider
 hands it over: at the end the operator's password, its authorized_keys, the
@@ -14,7 +14,7 @@ import time
 import unittest
 from pathlib import Path
 
-from harness import (BERTH, HOST, OPERATOR, Serve, Workstation, hand_over_operator_key, keygen, needs_e2e,
+from harness import (ROOKERY, HOST, OPERATOR, Serve, Workstation, hand_over_operator_key, keygen, needs_e2e,
                      profile, random_text, shell_quote, wait_for)
 
 # What sshd reads before the test host's own setting, which turns passwords off.
@@ -60,7 +60,7 @@ class Access(unittest.TestCase):
         # These tests fail logins on purpose, and sshd would shut their address out for it.
         cls.sshd(penalties=False)
         cls.station = Workstation('access', ssh_key=False, trust=False)
-        cls.station.write_profile(profile(access={'address': HOST, 'user': OPERATOR, 'auth': 'berth'}))
+        cls.station.write_profile(profile(access={'address': HOST, 'user': OPERATOR, 'auth': 'rookery'}))
 
     @classmethod
     def tearDownClass(cls):
@@ -91,16 +91,16 @@ class Access(unittest.TestCase):
     def root(cls, command, check=True):
         return cls.admin.ssh(OPERATOR, f'sudo -n sh -c {shell_quote(command)}', check=check)
 
-    def berth(self, *args, **kwargs):
+    def rookery(self, *args, **kwargs):
         kwargs.setdefault('input', '')
         kwargs.setdefault('timeout', 120)
-        return self.station.berth(*args, **kwargs)
+        return self.station.rookery(*args, **kwargs)
 
     def logs_in(self):
-        """What `berth ssh` does with the profile as it is: the account it
+        """What `rookery ssh` does with the profile as it is: the account it
         reached, or its failure. It runs without a terminal, so ssh can ask
         nobody for a password."""
-        return subprocess.run([str(BERTH), 'ssh', HOST, '--', 'id -un'], env=self.station.env, cwd=self.station.home,
+        return subprocess.run([str(ROOKERY), 'ssh', HOST, '--', 'id -un'], env=self.station.env, cwd=self.station.home,
                               stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60,
                               start_new_session=True)
 
@@ -112,20 +112,20 @@ class Access(unittest.TestCase):
     def authorized(self):
         return self.root(f'cat {AUTHORIZED}').stdout
 
-    def test_1_first_contact_installs_berths_key_with_a_password_used_once(self):
+    def test_1_first_contact_installs_rookerys_key_with_a_password_used_once(self):
         refused = self.logs_in()
         self.assertNotEqual(refused.returncode, 0, refused.stdout)
         own = self.station.own_public()
-        done = self.berth('key', 'trust', HOST, '--password-stdin', input=self.password + '\n')
-        self.assertIn(f'{HOST} takes the key berth now', done.stdout)
+        done = self.rookery('key', 'trust', HOST, '--password-stdin', input=self.password + '\n')
+        self.assertIn(f'{HOST} takes the key rookery now', done.stdout)
         self.assertIn(own, self.authorized())
         self.assertEqual(self.logs_in().stdout.strip(), OPERATOR)
         # The host key it met is recorded, and the password is not kept.
-        self.assertIn(fingerprint(self.original_host_key), self.berth('host', 'verify', HOST).stdout)
-        self.assertNotIn(f'ssh/{HOST}', self.berth('secret', 'list').stdout)
-        self.assertEqual(self.station.read_profile()['access']['auth'], 'berth')
+        self.assertIn(fingerprint(self.original_host_key), self.rookery('host', 'verify', HOST).stdout)
+        self.assertNotIn(f'ssh/{HOST}', self.rookery('secret', 'list').stdout)
+        self.assertEqual(self.station.read_profile()['access']['auth'], 'rookery')
         # Once it takes the key, nothing more is asked or added.
-        again = self.berth('key', 'trust', HOST)
+        again = self.rookery('key', 'trust', HOST)
         self.assertIn('already', again.stdout)
         self.assertEqual(self.authorized().count(own.split()[1]), 1)
 
@@ -133,37 +133,37 @@ class Access(unittest.TestCase):
         file = self.station.root / 'deploy'
         public = keygen(file, 'deploy@access')
         self.admin.ssh(OPERATOR, 'cat >> ~/.ssh/authorized_keys', input=public + '\n')
-        added = self.berth('key', 'import', 'deploy', str(file))
+        added = self.rookery('key', 'import', 'deploy', str(file))
         self.assertIn('Added the key deploy', added.stdout)
-        self.assertNotIn('PRIVATE KEY', added.stdout + self.berth('key', 'list').stdout)
+        self.assertNotIn('PRIVATE KEY', added.stdout + self.rookery('key', 'list').stdout)
         self.set_auth('key:deploy')
         try:
             self.assertEqual(self.logs_in().stdout.strip(), OPERATOR)
-            options = self.berth('host', 'inventory', HOST).stdout
+            options = self.rookery('host', 'inventory', HOST).stdout
             self.assertIn('keys/deploy', options)
-            self.assertNotIn('keys/berth', options)
-            refused = self.berth('key', 'remove', 'deploy', '-y', check=False)
+            self.assertNotIn('keys/rookery', options)
+            refused = self.rookery('key', 'remove', 'deploy', '-y', check=False)
             self.assertNotEqual(refused.returncode, 0)
             self.assertIn(HOST, refused.stderr)
         finally:
-            self.set_auth('berth')
-        self.berth('key', 'remove', 'deploy', '-y')
+            self.set_auth('rookery')
+        self.rookery('key', 'remove', 'deploy', '-y')
 
-    def test_3_a_password_goes_through_berths_askpass_helper(self):
+    def test_3_a_password_goes_through_rookerys_askpass_helper(self):
         self.set_auth('password')
         try:
             # Without a stored password nobody can type one: it fails, and asks no program.
             without = self.logs_in()
             self.assertNotEqual(without.returncode, 0)
-            self.berth('secret', 'set', f'ssh/{HOST}', input=self.password + '\n')
+            self.rookery('secret', 'set', f'ssh/{HOST}', input=self.password + '\n')
             self.assertEqual(self.logs_in().stdout.strip(), OPERATOR)
-            self.assertNotIn(self.password, self.berth('host', 'inventory', HOST).stdout)
+            self.assertNotIn(self.password, self.rookery('host', 'inventory', HOST).stdout)
         finally:
-            self.berth('secret', 'remove', f'ssh/{HOST}', '-y', check=False)
-            self.set_auth('berth')
+            self.rookery('secret', 'remove', f'ssh/{HOST}', '-y', check=False)
+            self.set_auth('rookery')
 
     def test_4_a_changed_host_key_is_refused_until_it_is_accepted(self):
-        recorded = self.berth('host', 'verify', HOST).stdout
+        recorded = self.rookery('host', 'verify', HOST).stdout
         self.root(f'rm -f /etc/ssh/ssh_host_* && ssh-keygen -A && {RELOAD_SSHD}')
         new = wait_for('the host showing a new host key',
                        lambda: (now := scanned()) and now != self.original_host_key and now)
@@ -171,18 +171,18 @@ class Access(unittest.TestCase):
         refused = self.logs_in()
         self.assertNotEqual(refused.returncode, 0)
         self.assertRegex(refused.stderr, r'HOST IDENTIFICATION HAS CHANGED|Host key verification failed')
-        # berth's own logins say what happened and what to do.
-        said = json.loads(self.berth('host', 'show', HOST, '-o', 'json').stdout)
+        # rookery's own logins say what happened and what to do.
+        said = json.loads(self.rookery('host', 'show', HOST, '-o', 'json').stdout)
         self.assertFalse(said['reachable'])
-        self.assertIn(f'berth host verify {HOST} --accept', said['error'])
-        self.assertEqual(self.berth('host', 'verify', HOST).stdout, recorded)
-        accepted = self.berth('host', 'verify', HOST, '--accept', '-y')
+        self.assertIn(f'rookery host verify {HOST} --accept', said['error'])
+        self.assertEqual(self.rookery('host', 'verify', HOST).stdout, recorded)
+        accepted = self.rookery('host', 'verify', HOST, '--accept', '-y')
         self.assertIn(fingerprint(new), accepted.stdout)
         self.assertEqual(self.logs_in().stdout.strip(), OPERATOR)
 
-    def test_5_a_rotation_replaces_berths_key_on_the_host(self):
+    def test_5_a_rotation_replaces_rookerys_key_on_the_host(self):
         before = self.station.own_public()
-        rotated = self.berth('key', 'rotate', 'berth', '-y', timeout=300)
+        rotated = self.rookery('key', 'rotate', 'rookery', '-y', timeout=300)
         self.assertIn(f'{HOST} takes the new key', rotated.stdout)
         after = self.station.own_public()
         self.assertNotEqual(after, before)
@@ -191,31 +191,31 @@ class Access(unittest.TestCase):
         self.assertNotIn(before.split()[1], keys)
         # The other lines stay: the deploy key the provider added.
         self.assertIn('deploy@access', keys)
-        self.assertNotIn('being replaced', self.berth('key', 'list').stdout)
+        self.assertNotIn('being replaced', self.rookery('key', 'list').stdout)
         self.assertEqual(self.logs_in().stdout.strip(), OPERATOR)
         self.assertEqual(Path(f'{self.station.own_key}.pub').read_text().strip(), after)
 
-    def test_6_automatic_logins_stop_at_a_refusal_so_sshd_does_not_shut_berth_out(self):
-        # sshd's penalties as Ubuntu has them, and a berth whose key the host does not take.
+    def test_6_automatic_logins_stop_at_a_refusal_so_sshd_does_not_shut_rookery_out(self):
+        # sshd's penalties as Ubuntu has them, and a rookery whose key the host does not take.
         self.sshd(penalties=True)
         try:
             server = Workstation('access-penalty', ssh_key=False, trust=False)
-            server.write_profile(profile(access={'address': HOST, 'user': OPERATOR, 'auth': 'berth'}))
+            server.write_profile(profile(access={'address': HOST, 'user': OPERATOR, 'auth': 'rookery'}))
             serve = Serve(server)
             try:
                 client = Workstation('access-penalty-client', ssh_key=False, trust=False)
-                client.berth('login', serve.url, '--token-stdin', input=serve.token)
+                client.rookery('login', serve.url, '--token-stdin', input=serve.token)
                 # The server's channel follower and the host list ask by themselves; each
                 # refused login would count against this address at the host's sshd.
                 for _ in range(5):
-                    client.berth('ls')
+                    client.rookery('ls')
                     time.sleep(3)
                 host = next(found for found in serve.call('GET', '/v1/hosts') if found['name'] == HOST)
                 self.assertFalse(host['reachable'])
-                self.assertIn('did not take berth', host['error'] or '')
+                self.assertIn('did not take rookery', host['error'] or '')
                 # One first contact with the password goes through.
-                done = server.berth('key', 'trust', HOST, '--password-stdin', input=self.password + '\n', timeout=120)
-                self.assertIn(f'{HOST} takes the key berth now', done.stdout, done.stderr)
+                done = server.rookery('key', 'trust', HOST, '--password-stdin', input=self.password + '\n', timeout=120)
+                self.assertIn(f'{HOST} takes the key rookery now', done.stdout, done.stderr)
                 self.assertNotIn('PerSourcePenalties', done.stdout + done.stderr)
                 self.assertEqual(self.admin.ssh(OPERATOR, 'true', check=False).returncode, 0)
             finally:

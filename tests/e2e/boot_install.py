@@ -1,4 +1,4 @@
-"""The unattended installer of berth host iso: its disk guard refused a disk with
+"""The unattended installer of rookery host iso: its disk guard refused a disk with
 another serial, erased the one it was given and left the other alone, and the
 installed system boots without the installer. boot.py ran the installer and
 noted what it saw from outside the guest; these check that and the guest."""
@@ -9,10 +9,10 @@ import unittest
 import vm
 from harness import HOST, provisioned
 
-TARGET, DECOY = 'berth-boot-target', 'berth-boot-decoy'
+TARGET, DECOY = 'rookery-boot-target', 'rookery-boot-decoy'
 
 
-@unittest.skipUnless(os.environ.get('BERTH_BOOT') == 'iso', 'after the installer ran: ci/run.sh boot iso')
+@unittest.skipUnless(os.environ.get('ROOKERY_BOOT') == 'iso', 'after the installer ran: ci/run.sh boot iso')
 class Installer(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -35,7 +35,7 @@ class Installer(unittest.TestCase):
         self.assertIn('/', mounts)
         self.assertIn('/boot/efi', mounts)
         # Nothing of the old contents is left at the start of the disk.
-        start = self.station.root_on_host('dd if=/dev/disk/by-id/virtio-berth-boot-target bs=1M count=1 status=none'
+        start = self.station.root_on_host('dd if=/dev/disk/by-id/virtio-rookery-boot-target bs=1M count=1 status=none'
                                           ' | od -An -tx1 -N4096 | grep -c "a5 a5 a5 a5 a5 a5 a5 a5"',
                                           check=False).stdout.strip()
         self.assertEqual(start, '0')

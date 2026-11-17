@@ -1,0 +1,29 @@
+---
+- name: Start without plugin contributions
+  ansible.builtin.set_fact:
+    rookery_plugin_info: []
+    rookery_plugin_commands: []
+    rookery_plugin_tasks: []
+    rookery_plugin_services: []
+    rookery_plugin_channels: []
+    # What a node's features add: the provisioners they offer, the rules of
+    # its firewall and the units whose state rookeryd reports.
+    rookery_plugin_offers: []
+    rookery_firewall_rules: []
+    rookery_node_units: []
+- name: Create the directory for detailed guides
+  ansible.builtin.file:
+    path: /etc/rookery/guides
+    state: directory
+    mode: '0755'
+- name: Apply each selected plugin feature
+  ansible.builtin.include_tasks: plugin.yml
+  loop: "{{ rookery_plugin_features }}"
+  loop_control:
+    loop_var: rookery_plugin_feature
+# rookery.yml writes these for rookeryd; the agent's guide and its sudo rules name the units.
+- name: Collect the tasks and service units of this host
+  ansible.builtin.set_fact:
+    rookery_tasks: "{{ (rookery_core_tasks | rejectattr('name', 'in', [] if rookery_install_t3 | bool else ['pair']) | list) + rookery_plugin_tasks }}"
+    rookery_agent_units: "{{ rookery_plugin_services | selectattr('user', 'equalto', 'agent') | map(attribute='name') | map('replace', '/', '-') | map('regex_replace', '^(.*)$', 'rookery-svc-\\1.service') | list }}"
+    rookery_service_units: "{{ rookery_plugin_services | map(attribute='name') | map('replace', '/', '-') | map('regex_replace', '^(.*)$', 'rookery-svc-\\1.service') | list }}"

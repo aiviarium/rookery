@@ -4,7 +4,7 @@ description: Nightly encrypted snapshots of the agent's data with restic, throug
 icon: Archive
 ---
 
-The **Backup** plugin, which comes with berth, takes a restic snapshot of the agent's data every night and stores it anywhere rclone reaches: S3, Backblaze B2, SFTP and the rest. Without it, restic is installed but no destination, credentials or schedule is set up.
+The **Backup** plugin, which comes with Rookery, takes a restic snapshot of the agent's data every night and stores it anywhere rclone reaches: S3, Backblaze B2, SFTP and the rest. Without it, restic is installed but no destination, credentials or schedule is set up.
 
 ## Set it up
 
@@ -20,10 +20,10 @@ On the host's **Features** tab, switch on **Backups** under System.
 
 ### Set the repository
 
-Set `devbox_backup_repository` in the profile's `ansible_vars`, in restic's rclone form. Edit the profile with `berth host export studio > studio.json`, then `berth host import studio studio.json`:
+Set `rookery_backup_repository` in the profile's `ansible_vars`, in restic's rclone form. Edit the profile with `rookery host export studio > studio.json`, then `rookery host import studio studio.json`:
 
 ```json title="In studio's profile"
-{ "ansible_vars": { "devbox_backup_repository": "rclone:b2:my-bucket/studio" } }
+{ "ansible_vars": { "rookery_backup_repository": "rclone:b2:my-bucket/studio" } }
 ```
 
 </Step>
@@ -34,11 +34,11 @@ Set `devbox_backup_repository` in the profile's `ansible_vars`, in restic's rclo
 The repository password and the rclone configuration go to the host as files:
 
 ```bash
-berth secret set backup-password
-berth secret set rclone-conf < ~/.config/rclone/rclone.conf
-berth host set studio secret.backup-password=~/.config/berth-backup/password:0600
-berth host set studio secret.rclone-conf=~/.config/rclone/rclone.conf:0600
-berth run studio secrets
+rookery secret set backup-password
+rookery secret set rclone-conf < ~/.config/rclone/rclone.conf
+rookery host set studio secret.backup-password=~/.config/rookery-backup/password:0600
+rookery host set studio secret.rclone-conf=~/.config/rclone/rclone.conf:0600
+rookery run studio secrets
 ```
 
 </Step>
@@ -65,8 +65,8 @@ Run **Apply this configuration**. The schedule is switched on only when a reposi
 | Last snapshot | Part of Status. When the last snapshot was taken and when the next is due |
 
 ```bash
-berth run studio backup:snapshot
-berth run studio backup:restore snapshot=latest
+rookery run studio backup:snapshot
+rookery run studio backup:restore snapshot=latest
 ```
 
 A restore writes over files in place. Files that are not in the snapshot stay as they are. It also works on a freshly set-up host that was given the same repository and secrets.
@@ -74,7 +74,7 @@ A restore writes over files in place. Files that are not in the snapshot stay as
 ## What is in a snapshot
 
 - The agent's home and everything under `/srv/agent`
-- The host's own description: `/etc/devbox`, `/etc/berth`, `/var/lib/devbox`
+- The host's own description: `/etc/rookery`, `/etc/rookery`, `/var/lib/rookery`
 
 Left out, because they can be made again:
 
@@ -82,32 +82,32 @@ Left out, because they can be made again:
 - downloaded dependencies and build output: `node_modules`, `target/debug` and `target/release`
 - installed runtimes
 
-The full list is `/etc/berth-backup.exclude` on the host. A plugin can leave out more of its own by installing a file of patterns in `/etc/berth-backup.exclude.d`.
+The full list is `/etc/rookery-backup.exclude` on the host. A plugin can leave out more of its own by installing a file of patterns in `/etc/rookery-backup.exclude.d`.
 
 ## Settings
 
 | Setting | Default |
 | --- | --- |
-| `devbox_backup_repository` | none; no schedule without it |
-| `devbox_backup_schedule` | `*-*-* 03:30:00`, a systemd calendar time, with up to 30 minutes of random delay |
-| `devbox_backup_keep_daily` | `7` |
-| `devbox_backup_keep_weekly` | `4` |
-| `devbox_backup_keep_monthly` | `6` |
-| `devbox_backup_system_paths` | `/etc/devbox`, `/etc/berth`, `/var/lib/devbox` |
-| `devbox_backup_exclude` | the list above |
+| `rookery_backup_repository` | none; no schedule without it |
+| `rookery_backup_schedule` | `*-*-* 03:30:00`, a systemd calendar time, with up to 30 minutes of random delay |
+| `rookery_backup_keep_daily` | `7` |
+| `rookery_backup_keep_weekly` | `4` |
+| `rookery_backup_keep_monthly` | `6` |
+| `rookery_backup_system_paths` | `/etc/rookery`, `/etc/rookery`, `/var/lib/rookery` |
+| `rookery_backup_exclude` | the list above |
 
 The T3 Code database needs an application-consistent copy. Stop the service or snapshot while it is idle before relying on a restore of it.
 
-## Back up berth itself
+## Back up Rookery itself
 
-This page is about the agent's data on a host. On the machine that runs berth, back up these:
+This page is about the agent's data on a host. On the machine that runs Rookery, back up these:
 
 | What | Where |
 | --- | --- |
-| The store. It has the hosts with their passwords and machines, the registries, secrets and most settings. It also has berth's own SSH key, the server's token and your own plugins | `~/.local/share/berth/berth.db`, or the PostgreSQL database the `store` setting names |
-| The key file, when the store is encrypted | `~/.config/berth/store.key`. Keep it apart from the database |
-| The settings of this machine | `~/.config/berth/config.json` |
+| The store. It has the hosts with their passwords and machines, the registries, secrets and most settings. It also has Rookery's own SSH key, the server's token and your own plugins | `~/.local/share/rookery/rookery.db`, or the PostgreSQL database the `store` setting names |
+| The key file, when the store is encrypted | `~/.config/rookery/store.key`. Keep it apart from the database |
+| The settings of this machine | `~/.config/rookery/config.json` |
 
-With these, an installation can be [restored on another machine](/docs/use/store#restore-on-a-new-machine). `berth host export HOST` prints one host's profile, for a copy of that alone.
+With these, an installation can be [restored on another machine](/docs/use/store#restore-on-a-new-machine). `rookery host export HOST` prints one host's profile, for a copy of that alone.
 
-Copy a SQLite store with `sqlite3 berth.db ".backup copy.db"`, which takes a consistent copy while berth runs.
+Copy a SQLite store with `sqlite3 rookery.db ".backup copy.db"`, which takes a consistent copy while Rookery runs.

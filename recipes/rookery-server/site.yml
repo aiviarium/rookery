@@ -1,0 +1,132 @@
+# A small machine that runs rookery's server: Docker with the server in a
+# container, a firewall, and the tailnet with TLS in front of it.
+#
+#   ./install.sh                                  on the machine itself
+#   ansible-playbook -i SERVER, -u root site.yml  from another machine
+- name: Set up a rookery server
+  hosts: all
+  become: true
+  vars_files:
+    - vars.yml
+  tasks:
+    - name: Check that the helper that updates the server's container came with the recipe
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/../../provision/ansible/roles/rookery/files/rookery-server-upgrade.py"
+      delegate_to: localhost
+      become: false
+      register: rookery_server_helper_found
+
+    - name: Stop when it did not
+      ansible.builtin.assert:
+        that: rookery_server_helper_found.stat.exists
+        fail_msg: >-
+          provision/ansible/roles/rookery/files/rookery-server-upgrade.py is not beside recipes/.
+          Download the recipe with the command in its README, which takes that file too.
+
+    - name: Check that this is an Ubuntu the recipe knows
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['distribution'] == 'Ubuntu'
+          - ansible_facts['distribution_version'] is version('24.04', '>=')
+        fail_msg: The recipe is written for Ubuntu 24.04 and later, and was run on 26.04.
+
+    - name: Install Docker and what the server needs
+      ansible.builtin.apt:
+        name:
+          - docker.io
+          - ufw
+          - curl
+          - ca-certificates
+          - unattended-upgrades
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Start Docker now and at boot
+      ansible.builtin.systemd_service:
+        name: docker.service
+        enabled: true
+        state: started
+
+    - name: Join the tailnet
+      ansible.builtin.include_tasks: ../shared/tailscale.yml
+      when: tailscale_auth_key | length > 0
+
+    # SSH is allowed before the firewall is switched on, so the run does not lock itself out.
+    - name: Allow what the server is for
+      ansible.builtin.command: "ufw {{ item }}"
+      loop: "{{ rules | select | list }}"
+      register: firewall_rule
+      changed_when: "'Skipping' not in firewall_rule.stdout"
+      vars:
+        rules:
+          - "{{ 'allow 22/tcp' if ssh_from == 'any' else 'allow from ' ~ ssh_from ~ ' to any port 22 proto tcp' }}"
+          - "{{ 'allow in on tailscale0 to any port 22 proto tcp' if tailscale_auth_key else '' }}"
+          - "{{ 'allow 41641/udp' if tailscale_auth_key else '' }}"
+          - "{{ 'allow in on tailscale0 to any port 443 proto tcp' if rookery_server_tailscale_serve | bool else '' }}"
+
+    - name: See whether the firewall is on
+      ansible.builtin.command: ufw status
+      register: firewall_state
+      changed_when: false
+
+    - name: Switch the firewall on
+      ansible.builtin.command: ufw --force enable
+      when: "'Status: active' not in firewall_state.stdout"
+      changed_when: true
+
+    # A machine the incus-host recipe of rookery 0.5 set up runs Incus, and the
+    # provisioners registered then reach it as incus-host, and Docker through
+    # its socket: the container keeps both.
+    - name: See whether this machine runs Incus
+      ansible.builtin.stat:
+        path: /var/lib/incus/server.crt
+      register: rookery_server_incus
+
+    - name: Find the group of Docker's socket
+      ansible.builtin.command: stat --format %g /var/run/docker.sock
+      register: docker_socket_group
+      changed_when: false
+      when: rookery_server_node | bool or rookery_server_incus.stat.exists
+
+    - name: Run the rookery server
+      ansible.builtin.include_tasks: ../shared/rookery-server.yml
+      vars:
+        rookery_server_helper: "{{ playbook_dir }}/../../provision/ansible/roles/rookery/files/rookery-server-upgrade.py"
+        # On a node the server reaches this machine as `node`, and its Docker
+        # engine through the socket. The server in the image is no root, so it
+        # joins the socket's group.
+        rookery_server_engine: "{{ rookery_server_node | bool or rookery_server_incus.stat.exists }}"
+        rookery_server_options: >-
+          {{ ['--publish', '127.0.0.1:' ~ rookery_server_port ~ ':7777',
+              '--volume', rookery_server_dir ~ '/config:/config',
+              '--volume', rookery_server_dir ~ '/data:/data',
+              '--volume', rookery_server_dir ~ '/ssh:/home/rookery/.ssh']
+             + (['--add-host', 'node:host-gateway'] if rookery_server_node | bool else [])
+             + (['--add-host', 'incus-host:host-gateway'] if rookery_server_incus.stat.exists else [])
+             + (['--volume', '/var/run/docker.sock:/var/run/docker.sock',
+                 '--group-add', docker_socket_group.stdout | trim] if rookery_server_engine | bool else []) }}
+
+    # Only the public half comes out of the container; rookery makes its key there.
+    - name: Read the rookery server's public key
+      ansible.builtin.command: docker exec rookery rookery key show
+      register: rookery_server_key
+      changed_when: false
+      when: rookery_server_node | bool
+
+    - name: Let the rookery server log in to this machine as root
+      ansible.builtin.blockinfile:
+        path: /root/.ssh/authorized_keys
+        create: true
+        mode: "0600"
+        marker: "# {mark} ROOKERY SERVER IN ITS CONTAINER"
+        block: "{{ rookery_server_key.stdout | trim }}"
+      when: rookery_server_node | bool
+
+    - name: Say how to use the rookery server
+      ansible.builtin.debug:
+        msg: "{{ rookery_server_handover + (rookery_server_as_node if rookery_server_node | bool else []) }}"
+      vars:
+        rookery_server_as_node:
+          - "To make this machine a node of the server, on a rookery connected to it: rookery host add NAME node --user root --type node --feature docker/engine --feature incus/server"
+          - "Then apply it: rookery apply NAME"

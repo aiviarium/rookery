@@ -22,7 +22,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-WORK = Path(os.environ.get('BERTH_BOOT_WORK', '/work'))
+WORK = Path(os.environ.get('ROOKERY_BOOT_WORK', '/work'))
 IMAGES = WORK / 'images'
 CACHE = WORK / 'cache'
 # The container, as the guest sees it.
@@ -106,13 +106,13 @@ def cloud_image():
 def server_iso():
     """The Ubuntu Server installer: the one mounted from this machine, or a
     download. Either is checked against the given SHA-256 or SHA256SUMS."""
-    expected = os.environ.get('BERTH_BOOT_ISO_SHA256') or None
+    expected = os.environ.get('ROOKERY_BOOT_ISO_SHA256') or None
     if LOCAL_ISO.is_file() and LOCAL_ISO.stat().st_size > 0:
-        name = os.environ.get('BERTH_BOOT_ISO_NAME') or LOCAL_ISO.name
+        name = os.environ.get('ROOKERY_BOOT_ISO_NAME') or LOCAL_ISO.name
         if not expected:
             expected = published(ISO_RELEASE).get(name)
         if not expected:
-            raise AssertionError(f'{name} is not in {ISO_RELEASE}SHA256SUMS: give BERTH_CI_BOOT_ISO_SHA256')
+            raise AssertionError(f'{name} is not in {ISO_RELEASE}SHA256SUMS: give ROOKERY_CI_BOOT_ISO_SHA256')
         if digest(LOCAL_ISO) != expected:
             raise AssertionError(f'{name} does not have the SHA-256 {expected}')
         say(f'{name}: from this machine, matches {expected[:12]}…')
@@ -122,7 +122,7 @@ def server_iso():
                    key=lambda name: [int(part) for part in name.split('-')[1].split('.')])
     if not names:
         raise AssertionError(f'No server installer in {ISO_RELEASE}SHA256SUMS')
-    name = os.environ.get('BERTH_BOOT_ISO_NAME') or names[-1]
+    name = os.environ.get('ROOKERY_BOOT_ISO_NAME') or names[-1]
     expected = expected or sums[name]
     return fetch(ISO_RELEASE, name, expected), expected
 
@@ -223,7 +223,7 @@ class TestSide:
     def _certificates(self):
         d = self.dir
         run('openssl', 'req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes',
-            '-keyout', d / 'ca.key', '-out', d / 'ca.crt', '-days', '3', '-subj', '/CN=berth boot tests',
+            '-keyout', d / 'ca.key', '-out', d / 'ca.crt', '-days', '3', '-subj', '/CN=rookery boot tests',
             '-addext', 'basicConstraints=critical,CA:TRUE', '-addext', 'keyUsage=critical,keyCertSign,cRLSign',
             capture_output=True)
         run('openssl', 'req', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes',
@@ -324,7 +324,7 @@ def size_of(path):
 
 
 def kvm():
-    return os.environ.get('BERTH_BOOT_TCG') != '1'
+    return os.environ.get('ROOKERY_BOOT_TCG') != '1'
 
 
 class Machine:
@@ -338,8 +338,8 @@ class Machine:
         self.dir.mkdir(parents=True, exist_ok=True)
         self.vars = self.dir / 'OVMF_VARS.fd'
         shutil.copyfile(OVMF_VARS, self.vars)
-        self.memory = int(os.environ.get('BERTH_BOOT_MEMORY') or 4096)
-        self.cpus = int(os.environ.get('BERTH_BOOT_CPUS') or min(4, os.cpu_count() or 2))
+        self.memory = int(os.environ.get('ROOKERY_BOOT_MEMORY') or 4096)
+        self.cpus = int(os.environ.get('ROOKERY_BOOT_CPUS') or min(4, os.cpu_count() or 2))
         self.disks = []
         self.cdrom = None
         self.kernel = None
@@ -352,7 +352,7 @@ class Machine:
         self.disks.append((Path(path), serial))
 
     def argv(self):
-        argv = ['qemu-system-x86_64', '-name', f'berth-boot-{self.name}', '-nodefaults',
+        argv = ['qemu-system-x86_64', '-name', f'rookery-boot-{self.name}', '-nodefaults',
                 '-machine', 'q35', '-smp', str(self.cpus), '-m', str(self.memory)]
         argv += ['-accel', 'kvm', '-cpu', 'host'] if kvm() else ['-accel', 'tcg', '-cpu', 'max']
         argv += ['-drive', f'if=pflash,format=raw,readonly=on,file={OVMF_CODE}',
@@ -514,4 +514,4 @@ class Run:
 
 
 def meta_data(hostname):
-    return json.dumps({'instance-id': f'berth-boot-{uuid.uuid4()}', 'local-hostname': hostname}) + '\n'
+    return json.dumps({'instance-id': f'rookery-boot-{uuid.uuid4()}', 'local-hostname': hostname}) + '\n'

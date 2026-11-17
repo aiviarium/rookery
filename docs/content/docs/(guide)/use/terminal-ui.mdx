@@ -1,29 +1,29 @@
 ---
 title: The terminal UI
-description: The screens of berth, the server they use, and the keys that move between them.
+description: The screens of Rookery, the server they use, and the keys that move between them.
 icon: AppWindow
 ---
 
-`berth` with no arguments opens the home screen. `berth NAME` opens a host directly, on its overview. `berth ui` and `berth ui NAME` do the same.
+`rookery` with no arguments opens the home screen. `rookery NAME` opens a host directly, on its overview. `rookery ui` and `rookery ui NAME` do the same.
 
 ```bash
-berth                  # home screen: pick a host or create one
-berth studio           # open a host directly
+rookery                  # home screen: pick a host or create one
+rookery studio           # open a host directly
 ```
 
-The screens do everything through the API of a berth server, the same one on every system. Which server that is:
+The screens do everything through the API of a Rookery server, the same one on every system. Which server that is:
 
 | When | The screens use |
 | --- | --- |
-| `--server`, or `BERTH_SERVER` is set | That server, for this run |
-| A server is kept by `berth login` | That server ([A berth server](/docs/use/server)) |
-| Neither, and a `berth serve` of yours runs on this machine | Its socket, with no token |
-| Neither, on Linux | A server inside berth itself, for as long as the screens are open |
+| `--server`, or `ROOKERY_SERVER` is set | That server, for this run |
+| A server is kept by `rookery login` | That server ([A Rookery server](/docs/use/server)) |
+| Neither, and a `rookery serve` of yours runs on this machine | Its socket, with no token |
+| Neither, on Linux | A server inside Rookery itself, for as long as the screens are open |
 | Neither, on macOS or Windows | The Connect dialog, for a server's address and its token |
 
-The server inside berth is the one `berth serve` runs, served to that berth alone over pipes in memory. It's yours, so it takes no token. It doesn't take in the hosts' channels, which is what `berth serve` is for. A host whose sudo asks for a password has it asked for in the terminal before the screens open.
+The server inside Rookery is the one `rookery serve` runs, served to that Rookery alone over pipes in memory. It's yours, so it takes no token. It doesn't take in the hosts' channels, which is what `rookery serve` is for. A host whose sudo asks for a password has it asked for in the terminal before the screens open.
 
-A job that still runs when you quit, such as an apply, would end with berth. berth waits for it instead and says so. Ctrl+C there stops it unfinished. With `berth serve` running, the screens use it, and its jobs go on after they close.
+A job that still runs when you quit, such as an apply, would end with Rookery. Rookery waits for it instead and says so. Ctrl+C there stops it unfinished. With `rookery serve` running, the screens use it, and its jobs go on after they close.
 
 ## The home screen
 
@@ -32,8 +32,8 @@ The home screen has six tabs, switched with the number keys, or with Tab and Shi
 | Tab | Holds |
 | --- | --- |
 | `1` Hosts | The server's hosts and their addresses, with a dot for whether each answered and why not. A host that still takes the old key of a [key rotation](/docs/use/accounts#rekeying) is marked `key rotation pending`. A host that is off shows `◌ stopped`. `n` creates one and `s` starts the selected one. `d` makes it the default. `x` removes it after asking whether to destroy its machine too ([Start, stop, copy and remove](/docs/use/lifecycle)). `r` asks again |
-| `2` Provisioners | The provisioners of the plugins, and whether each can be used. Enter opens the page of one, with how it is and what berth made with it, grouped by kind. Enter on one of its actions runs it. Enter on something it made opens that [resource's page](/docs/deploy/resources#in-the-terminal-ui), with its state, its actions and its log. Esc goes back a page ([Provisioners](/docs/deploy/provisioners#a-provisioners-page)) |
-| `3` Settings | The settings of `berth config list` and the SSH keys of the server's key ring to copy. Over the network, only some settings change there; on the server's own machine, every one |
+| `2` Provisioners | The provisioners of the plugins, and whether each can be used. Enter opens the page of one, with how it is and what Rookery made with it, grouped by kind. Enter on one of its actions runs it. Enter on something it made opens that [resource's page](/docs/deploy/resources#in-the-terminal-ui), with its state, its actions and its log. Esc goes back a page ([Provisioners](/docs/deploy/provisioners#a-provisioners-page)) |
+| `3` Settings | The settings of `rookery config list` and the SSH keys of the server's key ring to copy. Over the network, only some settings change there; on the server's own machine, every one |
 | `4` Registries | npm, Docker, file and Nexus registries ([Registries](/docs/use/registries)) |
 | `5` Secrets | Secret values, kept in the server's store ([Secrets](/docs/use/secrets)) |
 | `6` Plugins | Built-in and installed plugins, and adding, updating and removing your own ([Plugins](/docs/extend/plugins#updating-a-plugin)) |
@@ -63,7 +63,7 @@ The ways to install a host:
 | USB installer | Builds the unattended installer and writes it to a USB drive, on the server's own machine ([USB installer](/docs/deploy/usb)) |
 | Cloud-init seed | Renders the seed to paste into a provider's user data field ([Cloud](/docs/deploy/cloud)) |
 | Existing host over SSH | Applies the profile over SSH, or installs the controller alone on a managed host |
-| Existing host, SSH only | Saves the host, which berth only logs in to ([Host types](/docs/use/types)) |
+| Existing host, SSH only | Saves the host, which Rookery only logs in to ([Host types](/docs/use/types)) |
 
 The Settings tab has these groups, in this order:
 
@@ -92,7 +92,7 @@ The **Information** panel on the right explains the selected row. **Apply this c
 | Tab, Shift+Tab, number keys | Next or previous tab, or a tab by number; also accepts the current edit |
 | F4 | Generate a value, such as a hostname or a password hash |
 | F5 | Type a password and store its hash |
-| c | On a key of the key ring, such as **This berth's SSH key**, copy its public half to the clipboard |
+| c | On a key of the key ring, such as **This Rookery's SSH key**, copy its public half to the clipboard |
 | Alt+R | In a panel, show its links as QR codes to scan with a phone. Left and Right go to the other links, any other key closes it. Where Alt+R is taken by other software, click its hint at the bottom of the panel |
 | Ctrl+O | Copy the text of the field being edited |
 | Ctrl+S | Save the profile, as **Save** on the Run tab does |
@@ -102,18 +102,18 @@ The **Information** panel on the right explains the selected row. **Apply this c
 | q | On the hosts of the home screen, quit |
 | Ctrl+Q | In a session, leave it running. Anywhere else, quit |
 
-Tabs, rows and buttons take mouse clicks, and lists scroll with the wheel. On Plugins, `u` opens the system's file dialog to send a `.tgz` to the server. On Linux that is zenity's or kdialog's; without one, `BERTH_FILE` names the package.
+Tabs, rows and buttons take mouse clicks, and lists scroll with the wheel. On Plugins, `u` opens the system's file dialog to send a `.tgz` to the server. On Linux that is zenity's or kdialog's; without one, `ROOKERY_FILE` names the package.
 
 ## Your machine and the server
 
 The screens take what they show from the server. Of your machine they use the clipboard and the file you choose to send. The server reads what its own machine has: its keys, its plugins and its USB drives. A path in a profile, such as the Ubuntu ISO of a USB installer, is a path on the server's machine.
 
-The server and its token are kept as the settings `server` and `server_token`, in `config.json` of berth's folder of settings. Only you can read the file.
+The server and its token are kept as the settings `server` and `server_token`, in `config.json` of Rookery's folder of settings. Only you can read the file.
 
 | System | Folder |
 | --- | --- |
-| Linux | `~/.config/berth`, or under `$XDG_CONFIG_HOME` |
-| macOS | `~/Library/Application Support/berth` |
-| Windows | `%LOCALAPPDATA%\berth`. Its access list lets in you, SYSTEM and the administrators |
+| Linux | `~/.config/rookery`, or under `$XDG_CONFIG_HOME` |
+| macOS | `~/Library/Application Support/rookery` |
+| Windows | `%LOCALAPPDATA%\rookery`. Its access list lets in you, SYSTEM and the administrators |
 
-The first time berth starts its screens it takes in the server and token that `berth-remote` kept, and removes that program's file.
+The first time Rookery starts its screens it takes in the server and token that `rookery-remote` kept, and removes that program's file.

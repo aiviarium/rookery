@@ -2,28 +2,28 @@
 # restic comes with the role's packages; the feature adds rclone.
 - name: Install the backup command
   ansible.builtin.copy:
-    src: "{{ devbox_plugin_dir }}/files/backup.sh"
-    dest: /usr/local/sbin/berth-backup
+    src: "{{ rookery_plugin_dir }}/files/backup.sh"
+    dest: /usr/local/sbin/rookery-backup
     mode: '0755'
 - name: Write the backup settings
   ansible.builtin.copy:
-    dest: /etc/berth-backup.conf
+    dest: /etc/rookery-backup.conf
     mode: '0644'
     content: |
-      # Managed by berth's backup plugin. Read by /usr/local/sbin/berth-backup.
-      REPOSITORY={{ devbox_backup_repository | default('') | quote }}
-      AGENT_HOME={{ devbox_home | quote }}
-      PATHS=({{ ([devbox_home, '/srv/agent'] + (devbox_backup_system_paths | default(['/etc/devbox', '/etc/berth', '/var/lib/devbox']))) | map('quote') | join(' ') }})
-      KEEP_DAILY={{ devbox_backup_keep_daily | default(7) | int }}
-      KEEP_WEEKLY={{ devbox_backup_keep_weekly | default(4) | int }}
-      KEEP_MONTHLY={{ devbox_backup_keep_monthly | default(6) | int }}
+      # Managed by rookery's backup plugin. Read by /usr/local/sbin/rookery-backup.
+      REPOSITORY={{ rookery_backup_repository | default('') | quote }}
+      AGENT_HOME={{ rookery_home | quote }}
+      PATHS=({{ ([rookery_home, '/srv/agent'] + (rookery_backup_system_paths | default(['/etc/rookery', '/etc/rookery', '/var/lib/rookery']))) | map('quote') | join(' ') }})
+      KEEP_DAILY={{ rookery_backup_keep_daily | default(7) | int }}
+      KEEP_WEEKLY={{ rookery_backup_keep_weekly | default(4) | int }}
+      KEEP_MONTHLY={{ rookery_backup_keep_monthly | default(6) | int }}
 - name: Write what backups leave out
   ansible.builtin.copy:
-    dest: /etc/berth-backup.exclude
+    dest: /etc/rookery-backup.exclude
     mode: '0644'
-    content: "{{ (devbox_backup_exclude | default(devbox_backup_exclude_default)) | join('\n') }}\n"
+    content: "{{ (rookery_backup_exclude | default(rookery_backup_exclude_default)) | join('\n') }}\n"
   vars:
-    devbox_backup_exclude_default:
+    rookery_backup_exclude_default:
       - "**/.cache"
       - "**/node_modules"
       - "**/.npm/_cacache"
@@ -31,13 +31,13 @@
       - "**/target/debug"
       - "**/target/release"
       - "**/.gradle/caches"
-      - "{{ devbox_home }}/.local/share/Trash"
-      - "{{ devbox_home }}/.local/share/mise/installs"
+      - "{{ rookery_home }}/.local/share/Trash"
+      - "{{ rookery_home }}/.local/share/mise/installs"
 # Other plugins name what of theirs can be made again by putting a file of
 # patterns here.
 - name: Make room for what other plugins leave out
   ansible.builtin.file:
-    path: /etc/berth-backup.exclude.d
+    path: /etc/rookery-backup.exclude.d
     state: directory
     mode: '0755'
 - name: Install the scheduled backup
@@ -46,25 +46,25 @@
     mode: '0644'
     content: "{{ item.content }}"
   loop:
-    - name: berth-backup.service
+    - name: rookery-backup.service
       content: |
         [Unit]
-        Description=berth backup snapshot
+        Description=rookery backup snapshot
         Wants=network-online.target
         After=network-online.target
 
         [Service]
         Type=oneshot
-        ExecStart=/usr/local/sbin/berth-backup snapshot
+        ExecStart=/usr/local/sbin/rookery-backup snapshot
         Nice=10
         IOSchedulingClass=idle
-    - name: berth-backup.timer
+    - name: rookery-backup.timer
       content: |
         [Unit]
-        Description=berth backup schedule
+        Description=rookery backup schedule
 
         [Timer]
-        OnCalendar={{ devbox_backup_schedule | default('*-*-* 03:30:00') }}
+        OnCalendar={{ rookery_backup_schedule | default('*-*-* 03:30:00') }}
         RandomizedDelaySec=30m
         Persistent=true
 
@@ -72,12 +72,12 @@
         WantedBy=timers.target
   loop_control:
     label: "{{ item.name }}"
-  when: devbox_profile != 'container'
+  when: rookery_profile != 'container'
 # Without a repository there is nothing to run on a schedule.
 - name: Switch the schedule on or off
   ansible.builtin.systemd_service:
-    name: berth-backup.timer
+    name: rookery-backup.timer
     daemon_reload: true
-    enabled: "{{ devbox_backup_repository | default('') | length > 0 }}"
-    state: "{{ 'started' if devbox_backup_repository | default('') | length > 0 else 'stopped' }}"
-  when: devbox_profile != 'container' and devbox_start_services
+    enabled: "{{ rookery_backup_repository | default('') | length > 0 }}"
+    state: "{{ 'started' if rookery_backup_repository | default('') | length > 0 else 'stopped' }}"
+  when: rookery_profile != 'container' and rookery_start_services

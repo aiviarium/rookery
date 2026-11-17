@@ -19,7 +19,7 @@ The base is Ubuntu 26.04. Coding agents and the tools around them, such as T3 Co
 | Browsers, media, desktop | Chrome, Firefox and Playwright Chromium; FFmpeg; xdotool and wmctrl; XFCE with office and artifact tools |
 | General CLI | Git with LFS and gh; ripgrep and jq; curl, SSH and tmux; archive, search and debugging tools |
 
-The resolved runtime inventory of a host is `/var/lib/devbox/toolchains.json`.
+The resolved runtime inventory of a host is `/var/lib/rookery/toolchains.json`.
 
 ## Tool categories
 
@@ -27,17 +27,17 @@ Each category is a switch on the Features tab. All are on by default.
 
 | Category | Ansible setting | Container build |
 | --- | --- | --- |
-| JavaScript runtimes | `devbox_tools_web` | `INSTALL_WEB_TOOLS` |
-| Native development | `devbox_tools_native` | `INSTALL_NATIVE_TOOLS` |
-| JVM development | `devbox_tools_jvm` | `INSTALL_JVM_TOOLS` |
-| .NET development | `devbox_tools_dotnet` | `INSTALL_DOTNET_TOOLS` |
-| Scripting languages | `devbox_tools_scripting` | `INSTALL_SCRIPTING_TOOLS` |
-| Scientific computing | `devbox_tools_scientific` | `INSTALL_SCIENTIFIC_TOOLS` |
-| Google Chrome | `devbox_tools_chrome` | `INSTALL_CHROME_TOOLS` |
+| JavaScript runtimes | `rookery_tools_web` | `INSTALL_WEB_TOOLS` |
+| Native development | `rookery_tools_native` | `INSTALL_NATIVE_TOOLS` |
+| JVM development | `rookery_tools_jvm` | `INSTALL_JVM_TOOLS` |
+| .NET development | `rookery_tools_dotnet` | `INSTALL_DOTNET_TOOLS` |
+| Scripting languages | `rookery_tools_scripting` | `INSTALL_SCRIPTING_TOOLS` |
+| Scientific computing | `rookery_tools_scientific` | `INSTALL_SCIENTIFIC_TOOLS` |
+| Google Chrome | `rookery_tools_chrome` | `INSTALL_CHROME_TOOLS` |
 
-`devbox_install_dev_tools` (`INSTALL_DEV_TOOLS` for the container) sets the default of all of them at once. A category set on its own takes precedence. Playwright (`devbox_install_playwright`) and software graphics have their own switches.
+`rookery_install_dev_tools` (`INSTALL_DEV_TOOLS` for the container) sets the default of all of them at once. A category set on its own takes precedence. Playwright (`rookery_install_playwright`) and software graphics have their own switches.
 
-Node and npm, Python, GCC, CMake and Ninja stay as base dependencies. The package lists, runtimes and expected smoke-test commands of each category are defined together in `devbox_tool_categories`. Switching a category off skips its packages and runtimes on a fresh install. Packages already installed stay when a profile is applied again. Anything beyond the categories, such as the Unity CLI, is a plugin.
+Node and npm, Python, GCC, CMake and Ninja stay as base dependencies. The package lists, runtimes and expected smoke-test commands of each category are defined together in `rookery_tool_categories`. Switching a category off skips its packages and runtimes on a fresh install. Packages already installed stay when a profile is applied again. Anything beyond the categories, such as the Unity CLI, is a plugin.
 
 ## Runtimes with mise
 
@@ -59,7 +59,7 @@ box exec gh --version
 
 A plugin chooses the versions of what it installs, and its guide says which settings change them. **Update** brings them to their latest versions, and those settings are the least versions, so applying again does not go back.
 
-Node 22 and .NET 10 use release selectors, so a clean install may get newer patches. Pin full versions in `devbox_node_versions` and `devbox_mise_tools` for closer reproduction. Ubuntu packages, npm's transitive dependencies and Python version ranges also move. The role describes how to set a host up and does not freeze its packages. Defaults for all of this are in [`defaults/main.yml`](https://github.com/helightdev/berth/blob/main/ansible/roles/devbox/defaults/main.yml).
+Node 22 and .NET 10 use release selectors, so a clean install may get newer patches. Pin full versions in `rookery_node_versions` and `rookery_mise_tools` for closer reproduction. Ubuntu packages, npm's transitive dependencies and Python version ranges also move. The role describes how to set a host up and does not freeze its packages. Defaults for all of this are in [`defaults/main.yml`](https://github.com/aiviarium/rookery/blob/main/ansible/roles/rookery/defaults/main.yml).
 
 ## Prompts an agent would not see
 

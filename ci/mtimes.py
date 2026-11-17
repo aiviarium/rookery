@@ -3,7 +3,7 @@
 
 cargo tells a changed source by its time, and a checkout gives every file
 the time it was made, which is newer than any build in the cache: it would
-build all of berth again. So the cache keeps the blob ids of the tree it was
+build all of rookery again. So the cache keeps the blob ids of the tree it was
 built from, and after a restore every file whose blob is the same, and every
 folder whose entries are the same, gets a time long past. What changed keeps
 the time of the checkout and is built again.
@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 # Older than any build: 2001-09-09.
 PAST = 1_000_000_000
-NAME = '.berth-ci-tree'
+NAME = '.rookery-ci-tree'
 
 
 def tree():

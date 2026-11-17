@@ -1,13 +1,13 @@
 ---
-# berth's controller alone, on a host that is not a workstation: berthd and
-# box and what they read, from the role's controller tasks. berth runs it for
+# rookery's controller alone, on a host that is not a workstation: rookeryd and
+# box and what they read, from the role's controller tasks. rookery runs it for
 # the host action install-controller; site.yml applies a whole profile.
-- name: Install berth's controller
+- name: Install rookery's controller
   hosts: all
   become: true
   gather_facts: true
   tasks:
-    - name: Install berthd and box alone
+    - name: Install rookeryd and box alone
       ansible.builtin.import_role:
-        name: devbox
+        name: rookery
         tasks_from: controller.yml

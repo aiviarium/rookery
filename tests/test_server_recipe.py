@@ -1,6 +1,6 @@
-"""The berth server recipe's container, run end to end by ansible-playbook
+"""The rookery server recipe's container, run end to end by ansible-playbook
 against a fake docker: a first run, a run over a container that the
-incus-host recipe of berth 0.5.2 made, and a second run that changes nothing."""
+incus-host recipe of rookery 0.5.2 made, and a second run that changes nothing."""
 import json
 import os
 import shutil
@@ -13,11 +13,11 @@ from pathlib import Path
 from test_node import FAKE_DOCKER, FOUND_052, PLAYBOOK, UPGRADE, image, write_program, yaml
 
 SRC = Path(__file__).resolve().parents[1]
-RECIPE = SRC / 'recipes/berth-server'
-SHARED = SRC / 'recipes/shared/berth-server.yml'
+RECIPE = SRC / 'recipes/rookery-server'
+SHARED = SRC / 'recipes/shared/rookery-server.yml'
 
 # The tasks of site.yml that run the server, in their order.
-SERVER_TASKS = ['See whether this machine runs Incus', "Find the group of Docker's socket", 'Run the berth server']
+SERVER_TASKS = ['See whether this machine runs Incus', "Find the group of Docker's socket", 'Run the rookery server']
 
 # A listener on the server's port for the recipe to wait for, as the server in a new container is.
 LISTENER = '''
@@ -58,8 +58,8 @@ if args[:1] == ['run']:
         self.incus = self.scratch / 'incus-server.crt'
         (self.scratch / 'docker.sock').write_text('')
         self.env = dict(os.environ, PATH=f'{bin_dir}:{os.environ["PATH"]}', FAKE_DOCKER=str(self.state),
-                        FAKE_PORT=str(self.port), DEVBOX_DOCKER=str(bin_dir / 'docker'),
-                        DEVBOX_UPGRADE_SETTLE='0', ANSIBLE_NOCOLOR='1', ANSIBLE_LOCALHOST_WARNING='0')
+                        FAKE_PORT=str(self.port), ROOKERY_DOCKER=str(bin_dir / 'docker'),
+                        ROOKERY_UPGRADE_SETTLE='0', ANSIBLE_NOCOLOR='1', ANSIBLE_LOCALHOST_WARNING='0')
         self.playbook = self.write_playbook()
 
     def write_playbook(self):
@@ -78,10 +78,10 @@ if args[:1] == ['run']:
                 task['ansible.builtin.file'].pop('group')
         (self.scratch / 'shared.yml').write_text(yaml.safe_dump(shared, sort_keys=False))
         tasks[2]['ansible.builtin.include_tasks'] = str(self.scratch / 'shared.yml')
-        tasks[2]['vars']['berth_server_helper'] = str(UPGRADE)
+        tasks[2]['vars']['rookery_server_helper'] = str(UPGRADE)
         variables = yaml.safe_load((RECIPE / 'vars.yml').read_text())
-        variables.update(berth_server_dir=str(self.scratch / 'srv'), berth_server_port=self.port,
-                         berth_server_tailscale_serve=False, tailscale_hostname='pier')
+        variables.update(rookery_server_dir=str(self.scratch / 'srv'), rookery_server_port=self.port,
+                         rookery_server_tailscale_serve=False, tailscale_hostname='pier')
         playbook = self.scratch / 'site.yml'
         playbook.write_text(yaml.safe_dump([{
             'name': play['name'], 'hosts': 'all', 'gather_facts': False, 'vars': variables, 'tasks': tasks}],
@@ -90,11 +90,11 @@ if args[:1] == ['run']:
 
     def docker(self, found=None):
         new = image('0.6.0', 'sha256:new')
-        images = {'new': new, 'sha256:new': new, 'ghcr.io/helightdev/berth': new}
+        images = {'new': new, 'sha256:new': new, 'ghcr.io/aiviarium/rookery': new}
         containers = {}
         if found:
             images.update({found['Image']: FOUND_052['image'], found['Config']['Image']: FOUND_052['image']})
-            containers['berth'] = found
+            containers['rookery'] = found
         self.state.write_text(json.dumps({'containers': containers, 'images': images}))
 
     def apply(self, *extra):
@@ -113,7 +113,7 @@ if args[:1] == ['run']:
 
     def test_an_update_over_the_incus_host_recipes_container_keeps_what_it_reached(self):
         self.docker(found=FOUND_052['container'])
-        done, data = self.apply('-e', 'berth_server_node=true', '-e', 'berth_server_update=true')
+        done, data = self.apply('-e', 'rookery_server_node=true', '-e', 'rookery_server_update=true')
         [run] = self.runs(data)
         words = ' '.join(run)
         for kept in ('--add-host incus-host:host-gateway', '--add-host node:host-gateway',
@@ -121,14 +121,14 @@ if args[:1] == ['run']:
                      '--log-opt max-size=10m', '--restart unless-stopped',
                      f'--publish 127.0.0.1:{self.port}:7777', f'--volume {self.scratch}/srv/data:/data'):
             self.assertIn(kept, words)
-        self.assertNotIn('/srv/berth/data:/data', words)
-        self.assertIn(['pull', 'ghcr.io/helightdev/berth'], data['calls'])
-        self.assertEqual(run[-1], 'ghcr.io/helightdev/berth')
+        self.assertNotIn('/srv/rookery/data:/data', words)
+        self.assertIn(['pull', 'ghcr.io/aiviarium/rookery'], data['calls'])
+        self.assertEqual(run[-1], 'ghcr.io/aiviarium/rookery')
         # The server keeps its token, so no setup key is made for a first user.
-        self.assertNotIn(['exec', 'berth', 'berth', 'server', 'setup-key'], data['calls'])
+        self.assertNotIn(['exec', 'rookery', 'rookery', 'server', 'setup-key'], data['calls'])
 
         # The same run again finds everything in place.
-        done, data = self.apply('-e', 'berth_server_node=true', '-e', 'berth_server_update=true')
+        done, data = self.apply('-e', 'rookery_server_node=true', '-e', 'rookery_server_update=true')
         self.assertEqual(self.runs(data), [])
         self.assertRegex(done.stdout, r'localhost\s*: ok=\d+\s+changed=0\b')
 
@@ -137,7 +137,7 @@ if args[:1] == ['run']:
         done, data = self.apply()
         self.assertNotIn('pull', [call[0] for call in data['calls']])
         [run] = self.runs(data)
-        self.assertEqual(run[-1], 'ghcr.io/helightdev/berth:0.5.2')
+        self.assertEqual(run[-1], 'ghcr.io/aiviarium/rookery:0.5.2')
         self.assertIn('--add-host incus-host:host-gateway', ' '.join(run))
 
     def test_a_first_run_on_a_machine_with_incus_gives_the_name_incus_host(self):
@@ -146,11 +146,11 @@ if args[:1] == ['run']:
         done, data = self.apply()
         [run] = self.runs(data)
         words = ' '.join(run)
-        for given in ('--name berth', '--add-host incus-host:host-gateway',
+        for given in ('--name rookery', '--add-host incus-host:host-gateway',
                       '--volume /var/run/docker.sock:/var/run/docker.sock', f'--publish 127.0.0.1:{self.port}:7777'):
             self.assertIn(given, words)
         self.assertNotIn('node:host-gateway', words)
-        self.assertIn(['exec', 'berth', 'berth', 'server', 'setup-key'], data['calls'])
+        self.assertIn(['exec', 'rookery', 'rookery', 'server', 'setup-key'], data['calls'])
         # Then it is in place.
         done, data = self.apply()
         self.assertEqual(self.runs(data), [])

@@ -1,26 +1,26 @@
-//! The verbs that talk to berthd.
+//! The verbs that talk to rookeryd.
 
 use crate::{assignments, json_or_string, serve, take_flag};
-use berth_api::client::{self, Client, Frame, encode, encode_path};
-use berth_api::{HostAction, Service, Session, SessionKind};
 use futures_util::{SinkExt, StreamExt};
+use rookery_api::client::{self, Client, Frame, encode, encode_path};
+use rookery_api::{HostAction, Service, Session, SessionKind};
 use serde_json::{Value, json};
 use std::io::{IsTerminal, Read, Write};
 use std::path::PathBuf;
 use tokio::io::AsyncReadExt;
 
 pub fn dir() -> PathBuf {
-    PathBuf::from(std::env::var_os("BERTH_DIR").unwrap_or_else(|| berth_api::RUN_DIR.into()))
+    PathBuf::from(std::env::var_os("ROOKERY_DIR").unwrap_or_else(|| rookery_api::RUN_DIR.into()))
 }
 
 /// The socket to use: the control one when it can be opened, else the agent's.
 pub fn socket() -> Result<PathBuf, String> {
     let dir = dir();
-    [berth_api::CONTROL_SOCKET, berth_api::AGENT_SOCKET]
+    [rookery_api::CONTROL_SOCKET, rookery_api::AGENT_SOCKET]
         .iter()
         .map(|name| dir.join(name))
         .find(|path| std::os::unix::net::UnixStream::connect(path).is_ok())
-        .ok_or_else(|| format!("berthd is not running (no socket in {})", dir.display()))
+        .ok_or_else(|| format!("rookeryd is not running (no socket in {})", dir.display()))
 }
 
 pub fn run_verb(verb: &str, args: Vec<String>) -> Result<i32, String> {

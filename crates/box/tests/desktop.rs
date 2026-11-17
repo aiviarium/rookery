@@ -211,10 +211,10 @@ fn screenshot_output() {
 }
 
 #[test]
-fn devbox_desktop_name() {
+fn rookery_desktop_name() {
     let env = Env::new();
     let links = tempfile::tempdir().unwrap();
-    let link = links.path().join("devbox-desktop");
+    let link = links.path().join("rookery-desktop");
     std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_box"), &link).unwrap();
     let mut cmd = env.command(&link);
     cmd.arg("--mcp");

@@ -1,7 +1,7 @@
 import { createMDX } from 'fumadocs-mdx/next';
 
 const withMDX = createMDX();
-// Set when the site is served from a folder, such as /berth on github.io.
+// Set when the site is served from a folder, such as /rookery on github.io.
 const basePath = process.env.DOCS_BASE_PATH || undefined;
 
 /** @type {import('next').NextConfig} */

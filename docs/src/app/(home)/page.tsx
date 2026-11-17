@@ -4,7 +4,7 @@ import { Blocks, Cloud, Container, KeyRound, MonitorPlay, Plug, Server, SquareTe
 import type { ReactNode } from 'react';
 import { asset, github } from '@/lib/layout.shared';
 
-const install = 'curl -fsSL https://raw.githubusercontent.com/helightdev/berth/main/install.sh | sh';
+const install = 'curl -fsSL https://raw.githubusercontent.com/aiviarium/rookery/main/install.sh | sh';
 
 const features: { icon: ReactNode; title: string; text: string; href: string }[] = [
   {
@@ -34,7 +34,7 @@ const features: { icon: ReactNode; title: string; text: string; href: string }[]
   {
     icon: <Plug />,
     title: 'APIs on both sides',
-    text: 'berthd on each host and berth serve on your machine, described as OpenAPI and AsyncAPI.',
+    text: 'rookeryd on each host and rookery serve on your machine, described as OpenAPI and AsyncAPI.',
     href: '/docs/extend/serve',
   },
   {
@@ -59,7 +59,7 @@ export default function Home() {
         <img src={asset('/logo.svg')} alt="" width={64} height={64} />
         <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">Machines for coding agents</h1>
         <p className="max-w-2xl text-lg text-fd-muted-foreground">
-          berth turns a spare laptop, a server or a container into an Ubuntu desktop for coding agents, and looks after
+          rookery turns a spare laptop, a server or a container into an Ubuntu desktop for coding agents, and looks after
           it from your terminal: status, sign-ins, updates and secrets.
         </p>
         <div className="w-full max-w-2xl text-start">
@@ -90,7 +90,7 @@ export default function Home() {
           src={asset('/screens/overview.png')}
           width={1036}
           height={886}
-          alt="berth's terminal UI showing a host's overview with its tasks"
+          alt="rookery's terminal UI showing a host's overview with its tasks"
           className="w-full rounded-xl border shadow-2xl"
         />
       </section>

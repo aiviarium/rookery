@@ -1,6 +1,6 @@
 # The boot tests' container: QEMU with UEFI firmware, the tools that build a
 # seed and an installer, a package cache with a resolver that sends the guest
-# to it, and what berth needs to apply a profile. berth itself is built in the
+# to it, and what rookery needs to apply a profile. rookery itself is built in the
 # dev container and mounted with the target directory.
 #
 #   ci/run.sh boot cloud|iso

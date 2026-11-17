@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Boot a real install in QEMU, set it up on first boot, and test it with
-berth over SSH.
+rookery over SSH.
 
-    ci/run.sh boot cloud     the Ubuntu cloud image with the seed of berth host seed
-    ci/run.sh boot iso       the installer of berth host iso, on a blank virtual disk
+    ci/run.sh boot cloud     the Ubuntu cloud image with the seed of rookery host seed
+    ci/run.sh boot iso       the installer of rookery host iso, on a blank virtual disk
     ci/run.sh boot cloud --keep -- boot_host.FirstBoot
 
 Only meant for the container of ci/boot.compose.yml. Logs, the timings and the
@@ -31,14 +31,14 @@ from harness import AGENT, HOST, OPERATOR, SRC, Workstation, keygen  # noqa: E40
 
 FIXTURE = SRC / 'tests/e2e/fixtures/plugin'
 # The virtual disks' serials, which the installer sees as ID_SERIAL.
-TARGET, DECOY = 'berth-boot-target', 'berth-boot-decoy'
+TARGET, DECOY = 'rookery-boot-target', 'rookery-boot-decoy'
 # The disk guard's answer when no disk has the serial it was given.
 REFUSED = 'Expected exactly one matching disk, got 0'
 # The tests that run after the boot, in order. Those of the container suite
 # that apply the light profile of tests/e2e/site.yml, or that expect no
 # systemd, are left out.
 SUITE = {
-    'cloud': ['boot_host.FirstBoot', 'e2e_host.Commands', 'e2e_host.Berthd', 'e2e_secrets', 'boot_host.Units',
+    'cloud': ['boot_host.FirstBoot', 'e2e_host.Commands', 'e2e_host.Rookeryd', 'e2e_secrets', 'boot_host.Units',
               'boot_host.Reapply', 'boot_host.Reboot', 'boot_host.Enrolment'],
 }
 SUITE['iso'] = ['boot_install', *SUITE['cloud']]
@@ -48,41 +48,41 @@ LEFT_OUT = {'test_units_without_systemd_are_an_answer_not_a_crash'}
 def control_server():
     """A tailnet control server to enrol the guest with on its first boot, as
     (URL, API key), when one is given. The URL tailscale means Tailscale's own."""
-    url, key = os.environ.get('BERTH_BOOT_CONTROL_URL'), os.environ.get('BERTH_BOOT_CONTROL_KEY')
+    url, key = os.environ.get('ROOKERY_BOOT_CONTROL_URL'), os.environ.get('ROOKERY_BOOT_CONTROL_KEY')
     return (url, key) if url and key else None
 
 
 def use_control_server(station):
-    """berth's settings and secret for the control server, so that the seed it
-    renders carries a key berth made there."""
+    """rookery's settings and secret for the control server, so that the seed it
+    renders carries a key rookery made there."""
     url, key = control_server()
     def setting(key, value):
-        station.berth('config', *(('set', key, value) if value else ('unset', key)))
+        station.rookery('config', *(('set', key, value) if value else ('unset', key)))
     setting('tailnet_login_server', '' if url == 'tailscale' else url)
     for name in ('user', 'tags'):
-        setting(f'tailnet_{name}', os.environ.get(f'BERTH_BOOT_CONTROL_{name.upper()}', ''))
-    station.berth('secret', 'set', 'tailnet_api_key', input=key + '\n')
+        setting(f'tailnet_{name}', os.environ.get(f'ROOKERY_BOOT_CONTROL_{name.upper()}', ''))
+    station.rookery('secret', 'set', 'tailnet_api_key', input=key + '\n')
 
 
 def boot_vars():
-    """The role as someone would set up a quick host: the desktop and berth's
+    """The role as someone would set up a quick host: the desktop and rookery's
     own parts, with the plugin of the tests, and without coding agents,
     toolchains, Playwright, Docker or Cockpit. The programs a host can do
-    without are installed only when BERTH_BOOT_EXTRAS asks, as nothing here
+    without are installed only when ROOKERY_BOOT_EXTRAS asks, as nothing here
     uses them and they take most of the first boot's downloads."""
     variables = {
-        'devbox_plugin_features': ['e2e/hello'],
-        'devbox_install_dev_tools': False,
-        'devbox_install_playwright': False,
-        'devbox_install_docker': False,
-        'devbox_install_tailscale': False,
-        'devbox_install_cockpit': False,
+        'rookery_plugin_features': ['e2e/hello'],
+        'rookery_install_dev_tools': False,
+        'rookery_install_playwright': False,
+        'rookery_install_docker': False,
+        'rookery_install_tailscale': False,
+        'rookery_install_cockpit': False,
     }
-    if not os.environ.get('BERTH_BOOT_EXTRAS'):
-        variables['devbox_extra_packages'] = []
+    if not os.environ.get('ROOKERY_BOOT_EXTRAS'):
+        variables['rookery_extra_packages'] = []
     if control_server():
-        # Enrolment on first boot, with the key berth makes for the seed.
-        variables['devbox_install_tailscale'] = True
+        # Enrolment on first boot, with the key rookery makes for the seed.
+        variables['rookery_install_tailscale'] = True
     return variables
 
 
@@ -95,7 +95,7 @@ def boot_profile(station, kind, **values):
     profile = json.loads((SRC / 'provision/config/example.json').read_text())
     profile.update({
         'hostname': HOST, 'target': 'cloud', 'keyboard': 'us',
-        # As berth writes a new host: the shipped plugins' features are chosen
+        # As rookery writes a new host: the shipped plugins' features are chosen
         # in the list, not switched on for a profile from before them.
         'builder': {'shipped_plugins': True},
         # The user's key logs in first, as for a host they handed their key to.
@@ -107,7 +107,7 @@ def boot_profile(station, kind, **values):
     })
     if kind != 'cloud':
         # The installed machine is reached only from this container, as QEMU's host.
-        profile['ansible_vars']['devbox_bootstrap_ssh_cidr'] = f'{vm.GATEWAY}/32'
+        profile['ansible_vars']['rookery_bootstrap_ssh_cidr'] = f'{vm.GATEWAY}/32'
     profile.update(values)
     return profile
 
@@ -138,10 +138,10 @@ def wait_for_ssh(station, machine, timeout):
 def wait_for_provisioning(station, machine, timeout):
     """Until the first-boot service has applied the role: its ready marker and
     a successful run. A failed run ends the wait at once."""
-    probe = ('cat /var/lib/devbox/provision-state 2>/dev/null || echo none; '
-             'test -f /var/lib/devbox/ready && echo ready || echo not-ready; '
-             'systemctl show -p ActiveState --value devbox-provision.service; '
-             'journalctl -u devbox-provision.service -n 1 -o cat --no-pager | cut -c1-160')
+    probe = ('cat /var/lib/rookery/provision-state 2>/dev/null || echo none; '
+             'test -f /var/lib/rookery/ready && echo ready || echo not-ready; '
+             'systemctl show -p ActiveState --value rookery-provision.service; '
+             'journalctl -u rookery-provision.service -n 1 -o cat --no-pager | cut -c1-160')
     end = time.monotonic() + timeout
     shown = None
     while time.monotonic() < end:
@@ -152,7 +152,7 @@ def wait_for_provisioning(station, machine, timeout):
         if len(lines) >= 3:
             state, ready, active = lines[:3]
             if state == 'failed':
-                tail = station.ssh(OPERATOR, 'sudo -n journalctl -u devbox-provision.service -n 40 -o cat --no-pager',
+                tail = station.ssh(OPERATOR, 'sudo -n journalctl -u rookery-provision.service -n 40 -o cat --no-pager',
                                    check=False).stdout
                 raise AssertionError(f'The first-boot provisioning failed. The end of its journal, all of which'
                                      f' is in provision.log:\n{tail}')
@@ -174,13 +174,13 @@ def boot_cloud(run, side, station):
     with run.phase('fetch the cloud image'):
         image = vm.cloud_image()
     with run.phase('render the seed'):
-        station.berth('plugin', 'add', str(FIXTURE))
+        station.rookery('plugin', 'add', str(FIXTURE))
         if control_server():
             use_control_server(station)
-        station.write_profile(boot_profile(station, 'cloud', release_url=f'https://{vm.GATEWAY}/devbox-release.tar.gz'))
-        user_data = station.berth('host', 'seed', HOST, timeout=300).stdout
-        build = station.data / 'berth/build'
-        side.publish(build / 'devbox-release.tar.gz')
+        station.write_profile(boot_profile(station, 'cloud', release_url=f'https://{vm.GATEWAY}/rookery-release.tar.gz'))
+        user_data = station.rookery('host', 'seed', HOST, timeout=300).stdout
+        build = station.data / 'rookery/build'
+        side.publish(build / 'rookery-release.tar.gz')
         (run.logs / 'user-data').write_text(user_data)
     machine = vm.Machine(HOST, run)
     # The provider's part: the instance's name, and trust in the test side's
@@ -188,7 +188,7 @@ def boot_cloud(run, side, station):
     vendor = '#cloud-config\n' + json.dumps({'ca_certs': {'trusted': [side.ca]}}, indent=2) + '\n'
     seed = vm.seed_image(machine.dir / 'seed.iso', {
         'user-data': user_data, 'meta-data': vm.meta_data(HOST), 'vendor-data': vendor})
-    machine.add_disk(vm.disk(machine.dir / 'disk.qcow2', '40G', backing=image), 'berth-boot-cloud')
+    machine.add_disk(vm.disk(machine.dir / 'disk.qcow2', '40G', backing=image), 'rookery-boot-cloud')
     machine.cdrom = seed
     with run.phase('first boot until SSH'):
         machine.start('boot')
@@ -218,14 +218,14 @@ def install_iso(run, side, station):
     with run.phase('fetch the installer ISO'):
         iso, sha = vm.server_iso()
     with run.phase('build the installer'):
-        station.berth('plugin', 'add', str(FIXTURE))
+        station.rookery('plugin', 'add', str(FIXTURE))
         if control_server():
             use_control_server(station)
         station.write_profile(boot_profile(station, 'iso', target_disk_mode='serial', target_disk_serial=TARGET,
                                            builder={'shipped_plugins': True, 'iso': str(iso),
                                                     'iso_sha256': sha}))
-        station.berth('host', 'iso', HOST, timeout=1800)
-        built = station.data / 'berth/build' / f'{HOST}-autoinstall.iso'
+        station.rookery('host', 'iso', HOST, timeout=1800)
+        built = station.data / 'rookery/build' / f'{HOST}-autoinstall.iso'
         run.facts['installer_gb'] = round(built.stat().st_size / 2**30, 2)
 
     # A machine whose only disk has another serial: the installer must stop
@@ -289,8 +289,8 @@ def install_iso(run, side, station):
 GUEST_LOGS = {
     'journal.log': 'journalctl -b --no-pager -o short-iso',
     'journal-boots.log': 'journalctl --list-boots --no-pager',
-    'provision.log': 'journalctl -u devbox-provision.service --no-pager -o short-iso',
-    'berthd.log': 'journalctl -u berthd.service --no-pager -o short-iso',
+    'provision.log': 'journalctl -u rookery-provision.service --no-pager -o short-iso',
+    'rookeryd.log': 'journalctl -u rookeryd.service --no-pager -o short-iso',
     'cloud-init.log': 'cat /var/log/cloud-init.log',
     'cloud-init-output.log': 'cat /var/log/cloud-init-output.log',
     'cloud-init-status.json': 'cloud-init status --format json',
@@ -337,13 +337,13 @@ def keep(run, station, machine):
     folder.mkdir(exist_ok=True)
     key = folder / 'id_ed25519'
     shutil.copyfile(station.key, key)
-    owner = os.environ.get('BERTH_BOOT_OWNER', '')
+    owner = os.environ.get('ROOKERY_BOOT_OWNER', '')
     if ':' in owner:
         uid, gid = (int(part) for part in owner.split(':'))
         for path in (folder, key):
             os.chown(path, uid, gid)
     key.chmod(0o600)
-    port = os.environ.get('BERTH_BOOT_SSH_PORT', '22722')
+    port = os.environ.get('ROOKERY_BOOT_SSH_PORT', '22722')
     shown = key.relative_to(vm.WORK)
     print(f'''
 The guest keeps running until Ctrl-C. From this machine:
@@ -370,11 +370,11 @@ def main():
     parser.add_argument('--keep', action='store_true', help='keep the guest running after the tests')
     parser.add_argument('tests', nargs='*', help='test names as unittest takes them')
     args = parser.parse_args()
-    if os.environ.get('BERTH_E2E') != '1' or not vm.WORK.is_dir():
+    if os.environ.get('ROOKERY_E2E') != '1' or not vm.WORK.is_dir():
         sys.exit('The boot tests run in their container: ci/run.sh boot')
-    if not harness.BERTH.is_file():
-        sys.exit(f'No {harness.BERTH}: build berth first')
-    os.environ['BERTH_BOOT'] = args.kind
+    if not harness.ROOKERY.is_file():
+        sys.exit(f'No {harness.ROOKERY}: build rookery first')
+    os.environ['ROOKERY_BOOT'] = args.kind
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     run = vm.Run(args.kind)
     vm.CURRENT = run

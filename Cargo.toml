@@ -1,23 +1,23 @@
 [workspace]
 resolver = "3"
-members = ["crates/berth-api", "crates/berth-pty", "crates/berth-core", "crates/berth-tui", "crates/berth", "crates/berthd", "crates/box", "crates/berth-page"]
+members = ["crates/rookery-api", "crates/rookery-pty", "crates/rookery-core", "crates/rookery-tui", "crates/rookery", "crates/rookeryd", "crates/box", "crates/rookery-page"]
 # The vendored crate is a member because it lives inside; it is left out of what
 # is built, tested and linted by default.
-default-members = ["crates/berth-api", "crates/berth-pty", "crates/berth-core", "crates/berth-tui", "crates/berth", "crates/berthd", "crates/box", "crates/berth-page"]
+default-members = ["crates/rookery-api", "crates/rookery-pty", "crates/rookery-core", "crates/rookery-tui", "crates/rookery", "crates/rookeryd", "crates/box", "crates/rookery-page"]
 
 [workspace.package]
-version = "0.5.2"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 # Members that talk to a server ask for the client; the screens alone do not.
-berth-api = { path = "crates/berth-api", default-features = false }
-berth-pty = { path = "crates/berth-pty" }
-berth-core = { path = "crates/berth-core" }
-berth-tui = { path = "crates/berth-tui" }
-berth-page = { path = "crates/berth-page" }
+rookery-api = { path = "crates/rookery-api", default-features = false }
+rookery-pty = { path = "crates/rookery-pty" }
+rookery-core = { path = "crates/rookery-core" }
+rookery-tui = { path = "crates/rookery-tui" }
+rookery-page = { path = "crates/rookery-page" }
 tui-input = { path = "crates/vendor/tui-input", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -40,7 +40,7 @@ chacha20poly1305 = { version = "0.10", default-features = false, features = ["al
 
 # Development and test builds: line numbers in backtraces, and no debug
 # information for dependencies, which makes them quicker to build and link.
-# For a debugger, CARGO_PROFILE_DEV_DEBUG=true gives berth's own crates full
+# For a debugger, CARGO_PROFILE_DEV_DEBUG=true gives rookery's own crates full
 # debug information.
 [profile.dev]
 debug = "line-tables-only"
@@ -51,8 +51,8 @@ debug = false
 [profile.release]
 strip = true
 
-# What a development or test build of berth carries. berthd and box are built
-# incrementally, and small, as berth packs them.
+# What a development or test build of rookery carries. rookeryd and box are built
+# incrementally, and small, as rookery packs them.
 [profile.host-dev]
 inherits = "dev"
 opt-level = "s"

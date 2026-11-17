@@ -1,0 +1,165 @@
+//! A host as its profile describes it: where it is and how it is reached.
+
+use crate::{Result, link::LinkSpec, paths::Paths, profiles::Place};
+use rookery_api::profile::Access;
+use serde_json::Value;
+use std::process::Command;
+
+pub struct Host {
+    /// The name it is saved under, or the path of its file. Its id is the
+    /// place's.
+    pub name: String,
+    /// Where its profile is.
+    pub place: Place,
+    pub config: Value,
+}
+
+impl Host {
+    /// A saved host by name, or a profile by path.
+    pub fn load(paths: &Paths, name: &str) -> Result<Host> {
+        Host::load_at(paths, Place::resolve(paths, name)?)
+    }
+
+    /// The host whose profile is at `place`.
+    pub fn load_at(paths: &Paths, place: Place) -> Result<Host> {
+        let config = place
+            .load(paths)?
+            .ok_or_else(|| format!("No host {}", place.argument()))?;
+        Ok(Host {
+            name: place.argument(),
+            place,
+            config,
+        })
+    }
+
+    /// The saved hosts that have an SSH address or a link command.
+    pub fn all(paths: &Paths) -> Vec<Host> {
+        let scope = crate::profiles::scope(paths);
+        crate::profiles::list(paths, &scope)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(place, config)| Host {
+                name: place.argument(),
+                place,
+                config,
+            })
+            .filter(|host| host.access().reachable())
+            .collect()
+    }
+
+    /// Where the host is and how rookery logs in to it.
+    pub fn access(&self) -> Access {
+        Access::of(&self.config)
+    }
+
+    pub fn address(&self) -> String {
+        self.access().address
+    }
+
+    /// The SSH user sudo asks for a password.
+    pub fn asks_password(&self) -> bool {
+        rookery_api::profile::asks_become_pass(&self.config)
+    }
+
+    pub fn agent(&self) -> &str {
+        match self.config["agent_username"].as_str() {
+            None | Some("") => "agent",
+            Some(user) => user,
+        }
+    }
+
+    /// The SSH user's sudo password, for a host that asks for one: the
+    /// secret `sudo/HOST` when it is kept, or asked for on a terminal. The
+    /// screens and the commands ask for it themselves.
+    pub fn sudo_password(&self, paths: &Paths) -> Result<Option<String>> {
+        if !self.asks_password() {
+            return Ok(None);
+        }
+        if let Some(kept) = self.kept_sudo_password(paths) {
+            return Ok(Some(kept));
+        }
+        use std::io::IsTerminal;
+        if !std::io::stdin().is_terminal() {
+            // Tried without one: sudo says so itself when it does want it.
+            return Ok(None);
+        }
+        crate::registry::read_secret(&format!("Your sudo password on {}", self.name)).map(Some)
+    }
+
+    /// The sudo password kept as the secret `sudo/HOST`, for a host whose
+    /// user chose to keep it.
+    pub fn kept_sudo_password(&self, paths: &Paths) -> Option<String> {
+        let store = crate::store::shared(paths).ok()?;
+        crate::registry::Store::own(store)
+            .secret(&crate::keys::sudo_secret(&self.place))
+            .ok()
+            .flatten()
+    }
+
+    /// The host as an Ansible inventory.
+    pub fn inventory(&self, paths: &Paths) -> Result<Value> {
+        crate::keys::login_of(paths, self)?.inventory()
+    }
+
+    /// `user@host`, or the host alone.
+    pub fn target(&self) -> String {
+        let access = self.access();
+        target(&access.address, &access.user)
+    }
+
+    /// `ssh` with this host's options; the target and command come after.
+    pub fn ssh(&self, paths: &Paths) -> Result<Command> {
+        Ok(crate::keys::login_of(paths, self)?.ssh())
+    }
+
+    /// How to open a connection to the host's rookeryd. `password` is the SSH
+    /// user's sudo password, for a host that asks for one.
+    pub fn link(&self, paths: &Paths, password: Option<&str>) -> Result<LinkSpec> {
+        // A simulated server reaches no machine: each host is a rookeryd of its own.
+        if let Some(simulation) = crate::simulate::active() {
+            return simulation.link(&self.name);
+        }
+        // A profile can name the command itself, as for a container:
+        // ["docker", "exec", "-i", "NAME", "rookeryd", "connect"].
+        if let Some(command) = self.access().link {
+            let mut words = command.into_iter();
+            let program = words.next().ok_or("access.link is empty")?;
+            return Ok(LinkSpec {
+                program,
+                args: words.collect(),
+                name: self.name.clone(),
+                ..LinkSpec::default()
+            });
+        }
+        crate::keys::login_of(paths, self)?.link(password)
+    }
+}
+
+pub fn target(host: &str, user: &str) -> String {
+    match user {
+        "" => host.to_owned(),
+        user => format!("{user}@{host}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_profile_can_name_its_own_link() {
+        let host = Host {
+            name: "c".into(),
+            place: Place::File("/c.json".into()),
+            config: json!({"access": {"link": ["docker", "exec", "-i", "c", "rookeryd", "connect"]}}),
+        };
+        let paths = Paths {
+            config_dir: "/nonexistent/config".into(),
+            data_dir: "/nonexistent/data".into(),
+        };
+        let spec = host.link(&paths, None).unwrap();
+        assert_eq!((spec.program.as_str(), spec.args.len()), ("docker", 5));
+        assert!(spec.env.is_empty());
+    }
+}

@@ -1,82 +1,82 @@
 # Docker
 
 This plugin makes a machine out of a Docker container. The container runs
-Ubuntu 26.04 with systemd as its first process and an SSH server. berth
+Ubuntu 26.04 with systemd as its first process and an SSH server. Rookery
 applies its role to it over SSH, as it does to any other machine.
 
-Use it to try berth without a spare machine, or to run a host on a Docker
+Use it to try Rookery without a spare machine, or to run a host on a Docker
 engine you already have. It also runs Compose projects on the same engine,
 as [deployments](#deployments), and plain containers from any image, as
 [instances](#instances).
 
 ## A Docker engine on a node
 
-The feature `docker/engine` installs the Docker engine on a [node](https://github.com/helightdev/berth/blob/main/docs/content/docs/%28guide%29/use/nodes.mdx),
-a server that berth applies without a desktop. berth then registers the
+The feature `docker/engine` installs the Docker engine on a [node](https://github.com/aiviarium/rookery/blob/main/docs/content/docs/%28guide%29/use/nodes.mdx),
+a server that Rookery applies without a desktop. Rookery then registers the
 provisioner `NODE-docker-container` for it, with `host=ssh://USER@ADDRESS:PORT`
-for the account and address berth reaches the node at. List it among the
+for the account and address Rookery reaches the node at. List it among the
 node's features:
 
-    "ansible_vars": {"devbox_plugin_features": ["docker/engine"]}
+    "ansible_vars": {"rookery_plugin_features": ["docker/engine"]}
 
 | Part | Set-up |
 | --- | --- |
 | Docker | `docker.io` with Compose and Buildx, from Ubuntu's packages |
 | An engine installed already | Kept as it is, also one from Docker's own packages, with its containers and volumes |
 | The SSH user | Joins the group `docker` unless it is root |
-| Sysbox | With `devbox_docker_sysbox` set to `true`, installed beside Docker. See [Sysbox](#sysbox) |
+| Sysbox | With `rookery_docker_sysbox` set to `true`, installed beside Docker. See [Sysbox](#sysbox) |
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `devbox_docker_sysbox` | `false` | Install Sysbox |
-| `devbox_docker_sysbox_version` | `0.7.1` | The Sysbox release |
-| `devbox_docker_sysbox_checksum_amd64`, `devbox_docker_sysbox_checksum_arm64` | those of `0.7.1` | The SHA-256 of the package. The download is always checked, and another version needs its own sums |
+| `rookery_docker_sysbox` | `false` | Install Sysbox |
+| `rookery_docker_sysbox_version` | `0.7.1` | The Sysbox release |
+| `rookery_docker_sysbox_checksum_amd64`, `rookery_docker_sysbox_checksum_arm64` | those of `0.7.1` | The SHA-256 of the package. The download is always checked, and another version needs its own sums |
 
 Docker opens the ports its containers publish by itself, past the node's
 firewall. Publish a port on `127.0.0.1` or on the tailnet address to keep it
 private.
 
-A berth server in a container on the node, with the engine's socket, calls
+A Rookery server in a container on the node, with the engine's socket, calls
 this engine its local one. When that server applies the node, its
 provisioner of the local engine becomes the node's, and no second one is
 registered.
 
 ## What it makes
 
-- A container named `berth-HOST`, with the labels `berth-host` and
-  `berth-instance`. It restarts unless you stop it.
-- An operator account with passwordless sudo. berth's own key and the profile's
+- A container named `rookery-HOST`, with the labels `rookery-host` and
+  `rookery-instance`. It restarts unless you stop it.
+- An operator account with passwordless sudo. Rookery's own key and the profile's
   operator keys can log in as that account.
 - A volume mounted at `/srv/agent`. The agent's data stays when the container is replaced.
 
-The bundled image is built once, as `berth-docker-host:0.2.0`, when the first
+The bundled image is built once, as `rookery-docker-host:0.2.0`, when the first
 container is made or the action `build` asks for it. The account and keys are
 added when the container is created. The same image serves every host.
 
 ## Arguments
 
-In berth each argument has a short label, and its row's Information panel
+In Rookery each argument has a short label, and its row's Information panel
 says what it means. CPUs and Memory are under Machine on the Settings tab.
 
 The plugin brings the type `docker/container`. Register a provisioner of it for
 each engine, under a name of your own:
 
-    berth provisioner add docker docker/container
-    berth provisioner add build-box docker/container host=ssh://ops@192.0.2.20
+    rookery provisioner add docker docker/container
+    rookery provisioner add build-box docker/container host=ssh://ops@192.0.2.20
 
-`host` is the provisioner's own argument. berth keeps it as a setting, which
+`host` is the provisioner's own argument. Rookery keeps it as a setting, which
 every machine and action uses unless it is given another:
 
-    berth provisioner set build-box host=ssh://ops@192.0.2.20
+    rookery provisioner set build-box host=ssh://ops@192.0.2.20
 
 | Name | Default | Meaning |
 | --- | --- | --- |
 | `host` | empty | The Docker endpoint, such as `ssh://user@192.0.2.20`. Empty uses the local default. |
 | `image` | empty | An image to use instead of the bundled one. It needs systemd, sshd, sudo and python3. |
 | `runtime` | `privileged` | `privileged` or `sysbox`. See [Sysbox](#sysbox). |
-| `ssh_port` | empty | The port to publish SSH on. Empty publishes none, and berth uses the container's own address on the Docker network. |
-| `publish_address` | `127.0.0.1` | The address berth uses with `ssh_port`. Loopback binds the port on loopback only. Any other address binds it on all interfaces. |
-| `volume` | `berth-HOST-data` | The volume for `/srv/agent`. |
+| `ssh_port` | empty | The port to publish SSH on. Empty publishes none, and Rookery uses the container's own address on the Docker network. |
+| `publish_address` | `127.0.0.1` | The address Rookery uses with `ssh_port`. Loopback binds the port on loopback only. Any other address binds it on all interfaces. |
+| `volume` | `rookery-HOST-data` | The volume for `/srv/agent`. |
 | `cpus` | empty | The CPUs the container may use, such as `2` or `1.5`. Empty means no limit. |
 | `memory` | empty | The memory the container may use, such as `4GiB`, `512MiB` or `4g`. Empty means no limit. |
 | `keep_volume` | `no` | `yes` keeps the volume when the container is destroyed. It is a choice of `no` and `yes`. |
@@ -85,14 +85,14 @@ every machine and action uses unless it is given another:
 disk limit, because Docker can cap a container's disk only on some storage drivers.
 
 Without `ssh_port`, the container's address is only reachable from the machine
-that runs Docker. Publish a port when berth runs elsewhere.
+that runs Docker. Publish a port when Rookery runs elsewhere.
 
 ### An engine over SSH
 
 With `host=ssh://user@address`, the plugin only sets `DOCKER_HOST`. Docker then
 starts the system's `ssh` for each call, with your own SSH configuration. It
-does not use berth's recorded host key of that server, and it does not use
-berth's key. So:
+does not use Rookery's recorded host key of that server, and it does not use
+Rookery's key. So:
 
 - The address has to be in your own known hosts. Log in once with plain `ssh`,
   such as `ssh ops@192.0.2.20`, and accept the key.
@@ -100,18 +100,18 @@ berth's key. So:
   configuration or agent.
 - ssh cannot ask for a password, because the calls have no terminal.
 
-### berth in a container
+### Rookery in a container
 
-berth's own image has Docker's client, Compose and Buildx. To use the engine of
+Rookery's own image has Docker's client, Compose and Buildx. To use the engine of
 the machine the container runs on, give the container the engine's socket and
 the socket's group:
 
     docker run … --volume /var/run/docker.sock:/var/run/docker.sock \
-      --group-add "$(stat --format %g /var/run/docker.sock)" ghcr.io/helightdev/berth
+      --group-add "$(stat --format %g /var/run/docker.sock)" ghcr.io/aiviarium/rookery
 
 Leave `host` empty then. The socket gives root on that machine. The
-`berth-server` recipe sets its berth server up this way with
-`berth_server_node`.
+`rookery-server` recipe sets its Rookery server up this way with
+`rookery_server_node`.
 
 ## Machines
 
@@ -119,21 +119,21 @@ Leave `host` empty then. The socket gives root on that machine. The
 | --- | --- |
 | Start, stop | Start or stop the container. |
 | Change | New CPU and memory limits for a container that runs on. |
-| Logs | The latest lines of the container's console, or of its journal when the console is empty. berth shows them while it waits for SSH. |
-| Destroy | Removes the container, and the volume unless `keep_volume` is `yes`. A volume that berth did not create is always kept. |
-| List | The containers on the engine with the `berth-host` label. |
+| Logs | The latest lines of the container's console, or of its journal when the console is empty. Rookery shows them while it waits for SSH. |
+| Destroy | Removes the container, and the volume unless `keep_volume` is `yes`. A volume that Rookery did not create is always kept. |
+| List | The containers on the engine with the `rookery-host` label. |
 
-berth never touches a container without that label, even when its name
+Rookery never touches a container without that label, even when its name
 matches.
 
 ## Instances
 
 An instance is one plain container from any image, such as `nginx:1.27` or
-`debian:12`. It becomes no berth host, and berth puts nothing of its own in it.
+`debian:12`. It becomes no Rookery host, and Rookery puts nothing of its own in it.
 Make one with **+ New resource from an image** under the hosts, or the action
 New container from an image on the provisioner's page. Both open a form laid out like a host's set-up, with every field on a row. Or:
 
-    berth provisioner run docker new-instance name=web image=nginx:1.27 ports=8080:80
+    rookery provisioner run docker new-instance name=web image=nginx:1.27 ports=8080:80
 
 | Argument | Default | Meaning |
 | --- | --- | --- |
@@ -146,7 +146,7 @@ New container from an image on the provisioner's page. Both open a form laid out
 | `restart` | `no` | `no`, `unless-stopped` or `always`. |
 | `cpus`, `memory` | empty | Limits, as for machines. |
 
-The container gets the labels `berth-resource` and `berth-token`. berth starts,
+The container gets the labels `rookery-resource` and `rookery-token`. Rookery starts,
 stops, changes the limits of and removes only a container with the first one,
 and not one of a deployment. Only `cpus` and `memory` change in place: a change
 to another argument is refused, so make a new instance for it. The values of
@@ -156,7 +156,7 @@ Removing an instance removes its anonymous volumes and keeps named ones.
 ### Endpoints and commands
 
 The plugin reports where a container is reached as its endpoints, each time
-berth makes, changes, starts or checks it. Each published port is one, named
+Rookery makes, changes, starts or checks it. Each published port is one, named
 after the port it is published on, such as `8080`. On the local engine, each
 port the image exposes is one too, at each of the container's network
 addresses, such as `bridge-80`. A deployment reports those of each running
@@ -168,9 +168,9 @@ container, named after its service, such as `web-8080`.
 | On a node, through the node's provisioner | `127.0.0.1` of the node, or the address it is published on | Reported, as the node's controller dials them |
 | Elsewhere, by `host` or a context | The engine's host name from its address, or the address it is published on | Left out, as only the engine's machine routes to them |
 
-berth opens a tunnel to an endpoint with `resources.connect`. A port published
+Rookery opens a tunnel to an endpoint with `resources.connect`. A port published
 on the loopback of an engine elsewhere is reported too, and the server refuses
-to dial it. For the provisioner a node registers, berth names the node in each
+to dial it. For the provisioner a node registers, Rookery names the node in each
 request, and the node's controller dials the endpoints, so its loopback and
 its bridges are reached.
 
@@ -183,19 +183,19 @@ command's exit status.
 
 A deployment is a Compose project. Its spec is a Compose file, and its name is
 the project's name: lowercase letters, digits, `-` and `_`, starting with a
-letter or digit. Compose runs where berth runs, against the engine named by
-`host`, so the machine that runs berth needs the `docker compose` plugin.
+letter or digit. Compose runs where Rookery runs, against the engine named by
+`host`, so the machine that runs Rookery needs the `docker compose` plugin.
 
 The plugin gives the Compose file to `docker compose` on standard input, from
 an empty directory. A path in the file is taken from that empty directory, so
 give bind mounts as absolute paths on the Docker host.
 
 Write `${NAME}` in the file for a secret value, such as a
-password. berth gives the secrets of the deployment to `docker compose` as
+password. Rookery gives the secrets of the deployment to `docker compose` as
 variables of its environment, and Compose puts them in place. They are never
 on a command line or in a file, and the plugin hides them in what it shows.
 
-berth's labels `berth-resource` and `berth-token` go on every container of the
+Rookery's labels `rookery-resource` and `rookery-token` go on every container of the
 project. The plugin lists, changes and removes only projects whose containers
 have them.
 
@@ -205,9 +205,9 @@ have them.
 | Start, stop | Start or stop the project's containers. |
 | Logs | The logs of every service. |
 | Destroy | `docker compose down`. It removes the project's named volumes too, unless `keep_volumes` is `yes`. |
-| List | The projects whose containers have berth's labels. |
+| List | The projects whose containers have Rookery's labels. |
 
-Make one with `berth resource create NAME --provisioner NAME --spec FILE`, or with the
+Make one with `rookery resource create NAME --provisioner NAME --spec FILE`, or with the
 action `new-deployment` on the provisioner's page, which takes the Compose file
 pasted whole.
 
@@ -225,22 +225,22 @@ A deployment's page lists these actions:
 
 ## Actions
 
-The provisioner's page in berth, and `berth provisioner show NAME`, list these
+The provisioner's page in Rookery, and `rookery provisioner show NAME`, list these
 actions:
 
 | Action | What it does |
 | --- | --- |
-| `engine` | Says the engine's version and runtimes, and how many machines berth made there. |
+| `engine` | Says the engine's version and runtimes, and how many machines Rookery made there. |
 | `images` | The engine's images, with their sizes. |
-| `volumes` | Every volume of the engine, marked when berth made it, and whether a container uses each. |
+| `volumes` | Every volume of the engine, marked when Rookery made it, and whether a container uses each. |
 | `create-volume` | Creates a named volume, which an instance can mount. |
 | `remove-volume` | Removes a named volume. Docker refuses one that a container uses. |
 | `pull-image` | Pulls an image onto the engine. |
 | `remove-image` | Removes an image. Docker refuses one that a container uses. |
 | `build` | Builds the bundled image ahead of the first machine. |
-| `prune` | Removes the images of older versions of this plugin that no container uses. With `volumes=yes` it also removes the volumes berth made that no container uses, such as those kept with `keep_volume`, and the work in them. |
+| `prune` | Removes the images of older versions of this plugin that no container uses. With `volumes=yes` it also removes the volumes Rookery made that no container uses, such as those kept with `keep_volume`, and the work in them. |
 
-`prune` does not remove a container, nor anything berth did not make.
+`prune` does not remove a container, nor anything Rookery did not make.
 
 ## Sysbox
 
@@ -250,7 +250,7 @@ container is not root on the Docker host. With `runtime=sysbox` the plugin
 starts the container with `--runtime sysbox-runc` in place of `--privileged`
 and its cgroup and `/run` options:
 
-    berth host create studio-2 --provisioner docker runtime=sysbox
+    rookery host create studio-2 --provisioner docker runtime=sysbox
 
 The Docker host needs Sysbox installed. The plugin checks for the runtime
 `sysbox-runc` before it makes anything, and says what to install when it is
@@ -258,7 +258,7 @@ missing. The action `engine` lists the runtimes the engine has, and the
 provisioner's page offers `sysbox` only where the engine has it. The feature
 `docker/engine` installs Sysbox beside Docker on a node when you ask it to. Sysbox's own documentation lists the distributions and kernels it supports.
 
-Whether berth's role applies cleanly inside a Sysbox container has not been
+Whether Rookery's role applies cleanly inside a Sysbox container has not been
 checked yet. These are the parts to watch: the firewall, the tailnet's tunnel
 device and the desktop's renderer.
 
@@ -272,7 +272,7 @@ A container is not a full host.
   the machine that runs Docker, so use an engine you trust the host's users
   with, or Sysbox.
 - Chromium can't sandbox itself in a user namespace when the machine that
-  runs Docker is Ubuntu. berth gives the Chromium that comes with Playwright
+  runs Docker is Ubuntu. Rookery gives the Chromium that comes with Playwright
   its setuid sandbox helper instead. A Chromium that the agent installs itself
   has none, so it can't start sandboxed.
 - Files outside `/srv/agent` go with the container when it is destroyed.

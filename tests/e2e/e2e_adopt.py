@@ -1,23 +1,23 @@
-"""The profile a host keeps of itself, and another berth taking the host over
-from it: the file the role writes, berthd serving it, berth host adopt reading it
-over SSH while berthd is broken, and the next applies of the new berth.
+"""The profile a host keeps of itself, and another rookery taking the host over
+from it: the file the role writes, rookeryd serving it, rookery host adopt reading it
+over SSH while rookeryd is broken, and the next applies of the new rookery.
 
 It looks at the host as provisioned() applied it, and leaves it so: the new
-berth applies the profile the host kept, and its key goes again at the end."""
+rookery applies the profile the host kept, and its key goes again at the end."""
 import hashlib
 import json
 import unittest
 
-from harness import HOST, BerthdLink, OPERATOR, Workstation, changed_tasks, needs_e2e, provisioned, shell_quote
+from harness import HOST, RookerydLink, OPERATOR, Workstation, changed_tasks, needs_e2e, provisioned, shell_quote
 
-KEPT = '/etc/berth/profile.json'
-# What belongs to one berth's way to the host, which stays out of the file.
+KEPT = '/etc/rookery/profile.json'
+# What belongs to one rookery's way to the host, which stays out of the file.
 LOCAL = {'served', 'served_only', 'usb_device', 'manage_task'}
 
 
 def marker(public):
-    """What names a berth's block in authorized_keys: the SHA-1 of its key."""
-    return f'BERTH {hashlib.sha1(public.split()[1].encode()).hexdigest()}'
+    """What names a rookery's block in authorized_keys: the SHA-1 of its key."""
+    return f'ROOKERY {hashlib.sha1(public.split()[1].encode()).hexdigest()}'
 
 
 def block(station, name):
@@ -27,7 +27,7 @@ def block(station, name):
 
 
 def removal(public):
-    """The command the docs give for taking a berth's access away by hand."""
+    """The command the docs give for taking a rookery's access away by hand."""
     name = marker(public)
     return f"sed -i '/^# BEGIN {name}$/,/^# END {name}$/d' ~/.ssh/authorized_keys"
 
@@ -47,7 +47,7 @@ class Adopt(unittest.TestCase):
         self.assertRegex(self.kept['written'], r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$')
         saved = self.station.read_profile()
         kept = self.kept['profile']
-        # How this berth logs in means nothing to another one.
+        # How this rookery logs in means nothing to another one.
         self.assertNotIn('access', kept)
         self.assertEqual(kept['builder'], {key: value for key, value in saved['builder'].items() if key not in LOCAL})
         for key, value in saved.items():
@@ -55,50 +55,50 @@ class Adopt(unittest.TestCase):
                 # An empty list a test saved since the last apply is not on the host yet.
                 self.assertEqual(kept.get(key, []), value, key)
 
-    def test_berthd_serves_it(self):
-        # With the user's key, which the profile lists, whichever berth applied last.
-        link = BerthdLink(self.station, key=self.station.key)
+    def test_rookeryd_serves_it(self):
+        # With the user's key, which the profile lists, whichever rookery applied last.
+        link = RookerydLink(self.station, key=self.station.key)
         self.assertEqual(link.get('/v1/applied/profile'), self.kept)
         # The controller says the host is a workstation, as the file shows.
         self.assertEqual(link.get('/v1/version')['type'], 'workstation')
 
-    def test_another_berth_adopts_the_host_while_berthd_is_broken(self):
+    def test_another_rookery_adopts_the_host_while_rookeryd_is_broken(self):
         adopter = Workstation('adopter')
         own = adopter.own_public()
         old_own = self.station.own_public()
         self.assertEqual(block(self.station, marker(old_own)), [old_own])
         # Its keys are not on the host yet, and it says the ways in.
-        refused = adopter.berth('host', 'adopt', HOST, f'{OPERATOR}@{HOST}', check=False)
+        refused = adopter.rookery('host', 'adopt', HOST, f'{OPERATOR}@{HOST}', check=False)
         self.assertNotEqual(refused.returncode, 0)
-        self.assertIn('berth key show', refused.output)
+        self.assertIn('rookery key show', refused.output)
         self.assertIn('--key', refused.output)
-        self.assertNotEqual(adopter.berth('host', 'export', HOST, check=False).returncode, 0)
+        self.assertNotEqual(adopter.rookery('host', 'export', HOST, check=False).returncode, 0)
         # Its public key put into authorized_keys by hand, as from the console.
         self.station.ssh(OPERATOR, f'echo {shell_quote(own)} >> ~/.ssh/authorized_keys')
-        self.station.root_on_host('mv /usr/local/bin/berthd /usr/local/bin/berthd.away')
+        self.station.root_on_host('mv /usr/local/bin/rookeryd /usr/local/bin/rookeryd.away')
         try:
-            adopted = adopter.berth('host', 'adopt', HOST, f'{OPERATOR}@{HOST}')
+            adopted = adopter.rookery('host', 'adopt', HOST, f'{OPERATOR}@{HOST}')
         except AssertionError:
-            self.station.root_on_host('mv /usr/local/bin/berthd.away /usr/local/bin/berthd')
+            self.station.root_on_host('mv /usr/local/bin/rookeryd.away /usr/local/bin/rookeryd')
             raise
         self.assertIn(f'Adopted {HOST}', adopted.stdout)
-        self.assertIn(f'berth apply {HOST}', adopted.stdout)
+        self.assertIn(f'rookery apply {HOST}', adopted.stdout)
         self.assertIn('still has access', adopted.stdout)
         # It logs in as it got in: with its own key, and the operator's sudo took no password.
         profile = adopter.read_profile()
-        self.assertEqual(profile['access'], {'address': HOST, 'user': OPERATOR, 'auth': 'berth'})
+        self.assertEqual(profile['access'], {'address': HOST, 'user': OPERATOR, 'auth': 'rookery'})
         # Once there, it is not replaced without being asked.
-        again = adopter.berth('host', 'adopt', HOST, f'{OPERATOR}@{HOST}', check=False)
+        again = adopter.rookery('host', 'adopt', HOST, f'{OPERATOR}@{HOST}', check=False)
         self.assertNotEqual(again.returncode, 0)
         self.assertIn('--force', again.output)
-        adopter.berth('host', 'adopt', HOST, f'{OPERATOR}@{HOST}', '--force')
+        adopter.rookery('host', 'adopt', HOST, f'{OPERATOR}@{HOST}', '--force')
 
-        # Its apply repairs berthd and gives its key a block of its own.
-        adopter.berth('apply', HOST, timeout=900)
-        self.station.root_on_host('rm -f /usr/local/bin/berthd.away')
+        # Its apply repairs rookeryd and gives its key a block of its own.
+        adopter.rookery('apply', HOST, timeout=900)
+        self.station.root_on_host('rm -f /usr/local/bin/rookeryd.away')
         adopter.link().get('/v1/version')
         self.assertEqual(block(self.station, marker(own)), [own])
-        # The berth that set the host up keeps its access.
+        # The rookery that set the host up keeps its access.
         self.assertEqual(block(self.station, marker(old_own)), [old_own])
         self.assertEqual(self.station.ssh(OPERATOR, 'id -un', key=self.station.own_key).stdout.strip(), OPERATOR)
         # The apply as the operator settled how it logs in.
@@ -107,10 +107,10 @@ class Adopt(unittest.TestCase):
         kept = json.loads(self.station.root_on_host(f'cat {KEPT}').stdout)
         self.assertEqual(kept, self.kept)
         # And applying again changes nothing.
-        second = adopter.berth('apply', HOST, timeout=900)
+        second = adopter.rookery('apply', HOST, timeout=900)
         self.assertEqual(changed_tasks(second.stdout), [])
 
-        # Taking a berth's access away is deleting its block by hand, here the
+        # Taking a rookery's access away is deleting its block by hand, here the
         # new one's with the line added for it, so the host is as it was.
         self.station.ssh(OPERATOR, removal(own))
         self.station.ssh(OPERATOR, f'grep -vxF {shell_quote(own)} ~/.ssh/authorized_keys > ~/.ssh/kept;'

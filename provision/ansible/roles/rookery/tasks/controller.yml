@@ -1,0 +1,45 @@
+---
+# rookery's controller alone, for a host that is not a workstation: rookeryd and
+# box, what they read, and the record of what was installed. Nothing else of
+# the role runs, and no account is made: the SSH user is the account
+# sessions run as, its home the folder the file calls may touch. The full
+# apply runs rookery.yml itself, after the accounts.
+- name: Check the target before any changes
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.system == 'Linux'
+      - ansible_facts.architecture == 'x86_64'
+      - rookery_controller_user | length > 0
+    fail_msg: rookery's controller runs on Linux on x86_64.
+- name: Refuse a host rookery set up as a workstation
+  ansible.builtin.import_tasks: controller_guard.yml
+- name: Find the account sessions run as
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ rookery_controller_user }}"
+- name: Describe the host to rookeryd without a workstation
+  ansible.builtin.set_fact:
+    rookery_user: "{{ rookery_controller_user }}"
+    rookery_operator_user: "{{ rookery_controller_user }}"
+    rookery_home: "{{ ansible_facts.getent_passwd[rookery_controller_user][4] }}"
+    # Rebooting asks systemd.
+    rookery_tasks: "{{ rookery_controller_tasks if ansible_facts.service_mgr == 'systemd' else rookery_controller_tasks | rejectattr('name', 'equalto', 'reboot') | list }}"
+    rookery_plugin_services: []
+    rookery_plugin_channels: []
+    rookery_service_units: []
+    rookery_controller_units: [ssh, rookeryd]
+    rookery_controller_roots: ["{{ ansible_facts.getent_passwd[rookery_controller_user][4] }}"]
+    rookery_controller_systemd: "{{ ansible_facts.service_mgr == 'systemd' }}"
+- name: Install the helper that takes in secrets
+  ansible.builtin.copy:
+    src: secrets.py
+    dest: /usr/local/bin/rookery-secrets
+    mode: '0755'
+- name: Install rookeryd, box and what they read
+  ansible.builtin.import_tasks: rookery.yml
+- name: Say who starts rookeryd on a host without systemd
+  ansible.builtin.debug:
+    msg: This host has no systemd, so nothing here starts rookeryd by itself. Something on the host has to run /usr/local/bin/rookeryd, as the init of a container does.
+  when: not rookery_controller_systemd | bool
+- name: Record what was installed
+  ansible.builtin.import_tasks: applied.yml

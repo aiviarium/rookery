@@ -14,19 +14,19 @@ for ((attempt=0; attempt<100; attempt++)); do
   sleep 0.1
 done
 [[ -S "$XDG_RUNTIME_DIR/bus" ]] || { echo 'Session bus did not start' >&2; exit 1; }
-# berthd in single-user mode: sessions, tasks and the channel for this account,
-# reached from outside with `docker exec -i CONTAINER berthd connect`.
-if command -v berthd >/dev/null && [[ -w /run/berth ]]; then
-  berthd --single /run/berth &
+# rookeryd in single-user mode: sessions, tasks and the channel for this account,
+# reached from outside with `docker exec -i CONTAINER rookeryd connect`.
+if command -v rookeryd >/dev/null && [[ -w /run/rookery ]]; then
+  rookeryd --single /run/rookery &
   pids+=("$!")
 fi
-devbox-desktop-session &
+rookery-desktop-session &
 pids+=("$!")
-devbox-wait-display
-websockify --web=/usr/share/novnc "$DEVBOX_BIND:6080" 127.0.0.1:5901 &
+rookery-wait-display
+websockify --web=/usr/share/novnc "$ROOKERY_BIND:6080" 127.0.0.1:5901 &
 pids+=("$!")
 if command -v t3 >/dev/null; then
-  T3CODE_HOST="$DEVBOX_BIND" T3CODE_PORT=3773 t3 serve &
+  T3CODE_HOST="$ROOKERY_BIND" T3CODE_PORT=3773 t3 serve &
   pids+=("$!")
 fi
 wait -n "${pids[@]}"

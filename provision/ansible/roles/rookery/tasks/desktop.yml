@@ -1,0 +1,150 @@
+---
+- name: Locate Mesa's software Vulkan driver
+  ansible.builtin.find:
+    paths: /usr/share/vulkan/icd.d
+    patterns: 'lvp_icd*.json'
+    file_type: file
+  register: rookery_lavapipe
+  when: rookery_software_rendering
+- name: Require a software Vulkan driver when CPU rendering is selected
+  ansible.builtin.assert:
+    that: rookery_lavapipe.matched | int == 1
+    fail_msg: Expected one Mesa lavapipe ICD from mesa-vulkan-drivers.
+  when: rookery_software_rendering
+- name: Record software Vulkan driver path
+  ansible.builtin.set_fact:
+    rookery_lvp_icd: "{{ rookery_lavapipe.files[0].path }}"
+  when: rookery_software_rendering
+# The render and video groups own the GPU device nodes. They exist on real
+# hosts; a container has no GPU to give access to.
+- name: Give the agent access to the host GPU
+  ansible.builtin.user:
+    name: "{{ rookery_user }}"
+    groups: [render, video]
+    append: true
+  when: not rookery_software_rendering and rookery_profile != 'container'
+- name: Install environment and desktop units
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: "{{ item.owner | default('root') }}"
+    mode: "{{ item.mode | default('0644') }}"
+  loop:
+    - {src: environment.j2, dest: /etc/rookery/environment}
+    - {src: t3.env.j2, dest: "{{ rookery_home }}/.t3/service.env", owner: "{{ rookery_user }}", mode: '0600'}
+    - {src: desktop.service.j2, dest: "{{ rookery_home }}/.config/systemd/user/rookery-desktop.service", owner: "{{ rookery_user }}"}
+    - {src: novnc.service.j2, dest: "{{ rookery_home }}/.config/systemd/user/rookery-novnc.service", owner: "{{ rookery_user }}"}
+- name: Install runtime helpers
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "/usr/local/bin/{{ item.name }}"
+    mode: '0755'
+  loop:
+    - {src: agent-env.sh, name: agent-env}
+    - {src: desktop-session.sh, name: rookery-desktop-session}
+    - {src: wait-display.sh, name: rookery-wait-display}
+    - {src: init-vnc.py, name: rookery-init-vnc}
+    - {src: chromium.py, name: rookery-chromium}
+    - {src: smoke.sh, name: rookery-smoke}
+    - {src: secrets.py, name: rookery-secrets}
+- name: Record commands expected by the smoke check
+  ansible.builtin.copy:
+    dest: /etc/rookery/expected-commands
+    mode: '0644'
+    content: "{{ (rookery_base_commands + rookery_selected_commands + rookery_plugin_commands + (['docker'] if rookery_install_docker and rookery_profile != 'container' else [])) | join('\n') }}\n"
+- name: Install environment guide
+  ansible.builtin.template:
+    src: AGENT.md.j2
+    dest: /etc/rookery/AGENT.md
+    mode: '0644'
+- name: Install the detailed guides
+  ansible.builtin.template:
+    src: "guides/{{ item }}.md.j2"
+    dest: "/etc/rookery/guides/{{ item }}.md"
+    mode: '0644'
+  loop: [desktop, graphics]
+- name: Reference managed instructions without replacing personal instructions
+  ansible.builtin.blockinfile:
+    path: "{{ item }}"
+    create: true
+    owner: "{{ rookery_user }}"
+    group: "{{ rookery_user }}"
+    mode: '0600'
+    marker: '<!-- {mark} ROOKERY -->'
+    block: |
+      Read /etc/rookery/AGENT.md first: it lists what this machine has and points
+      to the guides in /etc/rookery/guides/ for each tool.
+  loop:
+    - "{{ rookery_home }}/.claude/CLAUDE.md"
+    - "{{ rookery_home }}/.codex/AGENTS.md"
+    - "{{ rookery_home }}/.pi/agent/AGENTS.md"
+- name: Create Chromium launcher
+  ansible.builtin.copy:
+    dest: "{{ rookery_home }}/.local/share/applications/rookery-chromium.desktop"
+    owner: "{{ rookery_user }}"
+    group: "{{ rookery_user }}"
+    mode: '0644'
+    content: |
+      [Desktop Entry]
+      Type=Application
+      Name=Agent Chromium
+      Exec=/usr/local/bin/agent-env /usr/local/bin/rookery-chromium
+      Icon=web-browser
+      Categories=Network;WebBrowser;
+- name: Disable power/locking autostarts for virtual agent session only
+  ansible.builtin.copy:
+    dest: "{{ rookery_home }}/.config/autostart/{{ item }}.desktop"
+    owner: "{{ rookery_user }}"
+    group: "{{ rookery_user }}"
+    mode: '0644'
+    content: "[Desktop Entry]\nType=Application\nName={{ item }}\nHidden=true\n"
+  loop: [xfce4-power-manager, xfce4-screensaver, light-locker]
+# Without a keyring the first program that stores a secret opens a "choose a
+# password" dialog on the desktop and waits there, which an agent working over
+# SSH never sees. An existing keyring is left alone.
+- name: Create the agent's keyring directory
+  ansible.builtin.file:
+    path: "{{ rookery_home }}/.local/share/keyrings"
+    state: directory
+    owner: "{{ rookery_user }}"
+    group: "{{ rookery_user }}"
+    mode: '0700'
+- name: Look for an existing default keyring
+  ansible.builtin.stat:
+    path: "{{ rookery_home }}/.local/share/keyrings/default"
+  register: rookery_keyring_default
+- name: Give the agent an unlocked default keyring
+  ansible.builtin.copy:
+    dest: "{{ rookery_home }}/.local/share/keyrings/{{ item.name }}"
+    content: "{{ item.content }}"
+    owner: "{{ rookery_user }}"
+    group: "{{ rookery_user }}"
+    mode: '0600'
+    force: false
+  loop:
+    - name: Default_Keyring.keyring
+      content: |
+        [keyring]
+        display-name=Default Keyring
+        ctime=0
+        mtime=0
+        lock-on-idle=false
+        lock-after=false
+    - name: default
+      content: Default_Keyring
+  loop_control:
+    label: "{{ item.name }}"
+  when: not rookery_keyring_default.stat.exists
+- name: Create artifact shortcut
+  ansible.builtin.file:
+    src: /srv/agent/artifacts
+    dest: "{{ rookery_home }}/Desktop/Artifacts"
+    state: link
+    owner: "{{ rookery_user }}"
+    group: "{{ rookery_user }}"
+- name: Register optional stdio desktop MCP server
+  ansible.builtin.copy:
+    dest: /etc/rookery/mcp.json
+    mode: '0644'
+    content: |
+      {"mcpServers":{"desktop":{"command":"/usr/local/bin/agent-env","args":["/usr/local/bin/box","mcp"]}}}

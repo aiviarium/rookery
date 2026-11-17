@@ -1,21 +1,21 @@
 ---
 title: Profile
-description: The fields of a host profile, which berth keeps in its store, and where each is set in the terminal UI.
+description: The fields of a host profile, which Rookery keeps in its store, and where each is set in the terminal UI.
 icon: FileBraces
 ---
 
-A profile is a JSON document that describes one host. berth keeps it in its store and writes it from the set-up tabs. The fields below can also be edited by hand: write the profile to a file, change it and save it back.
+A profile is a JSON document that describes one host. Rookery keeps it in its store and writes it from the set-up tabs. The fields below can also be edited by hand: write the profile to a file, change it and save it back.
 
 ```bash
-berth host export studio > studio.json
-berth host import studio studio.json
+rookery host export studio > studio.json
+rookery host import studio studio.json
 ```
 
-`--set -` reads the profile from standard input. berth checks it as the terminal UI reads a profile and saves it as it is. The profile of a berth server's host is saved on the server.
+`--set -` reads the profile from standard input. Rookery checks it as the terminal UI reads a profile and saves it as it is. The profile of a Rookery server's host is saved on the server.
 
-A profile can also stay in a file of its own. `berth host import studio studio.json` saves one from a file, and `berth host export studio` writes it out again.
+A profile can also stay in a file of its own. `rookery host import studio studio.json` saves one from a file, and `rookery host export studio` writes it out again.
 
-Settings of the Ansible role go under `ansible_vars`, and how berth reaches and installs the host under `builder`.
+Settings of the Ansible role go under `ansible_vars`, and how Rookery reaches and installs the host under `builder`.
 
 ```json title="studio's profile (excerpt)"
 {
@@ -28,9 +28,9 @@ Settings of the Ansible role go under `ansible_vars`, and how berth reaches and 
   "target_disk_mode": "auto",
   "keyboard": "us",
   "ansible_vars": {
-    "devbox_plugin_features": ["github/cli", "unity/cli"]
+    "rookery_plugin_features": ["github/cli", "unity/cli"]
   },
-  "access": { "address": "studio.example.ts.net", "user": "ops", "auth": "berth" }
+  "access": { "address": "studio.example.ts.net", "user": "ops", "auth": "rookery" }
 }
 ```
 
@@ -42,7 +42,7 @@ Settings of the Ansible role go under `ansible_vars`, and how berth reaches and 
     target: { type: '"laptop" | "cloud"', default: '"laptop"', description: 'What the host is installed on, with its provisioning defaults. Only laptop adds a physical login and power settings. A created machine is always cloud. A profile that still says qemu is read as cloud with the recovery SSH CIDR 10.0.2.2/32.' },
     keyboard: { type: 'string', description: 'Keyboard layout of the installer, such as de or us.' },
     release_url: { type: 'string', description: 'HTTPS address of the release archive, for cloud seeds.' },
-    release_store: { type: 'string', description: 'A registry or repository berth uploads the release archive to when it makes the seed.' },
+    release_store: { type: 'string', description: 'A registry or repository Rookery uploads the release archive to when it makes the seed.' },
     release_private: { type: 'boolean', default: 'false', description: 'Whether the seed carries a login for downloading the archive.' },
   }}
 />
@@ -62,19 +62,19 @@ Settings of the Ansible role go under `ansible_vars`, and how berth reaches and 
   }}
 />
 
-The operator always has sudo without a password and logs in over SSH with keys only. See [Accounts and sudo](/docs/use/accounts#the-operator). Older profiles may have `operator_passwordless_sudo` and `berth_ssh_key`. berth ignores both.
+The operator always has sudo without a password and logs in over SSH with keys only. See [Accounts and sudo](/docs/use/accounts#the-operator). Older profiles may have `operator_passwordless_sudo` and `rookery_ssh_key`. Rookery ignores both.
 
-A profile written before the lists has one key in `operator_ssh_public_key` or `agent_ssh_public_key`. berth still reads it, and moves it into the list when the keys are next changed.
+A profile written before the lists has one key in `operator_ssh_public_key` or `agent_ssh_public_key`. Rookery still reads it, and moves it into the list when the keys are next changed.
 
-### The key of berth itself
+### The key of Rookery itself
 
-Each berth makes an ed25519 key of its own the first time it needs one: the key `berth` of its [key ring](/docs/use/accounts#keys). It keeps the key in its [store](/docs/use/store). An installation restored from the store gets the same key back. The operator of a host always takes it along with the keys in the profile, so the berth that set a host up can always log in to it without a key of yours. That matters most for a [berth server](/docs/use/server), which has no keys until you give it some. A host that logs in with another key of the ring, `key:NAME`, takes that key too. During a [rotation](/docs/use/accounts#rekeying) the operator takes the new key as well.
+Each Rookery makes an ed25519 key of its own the first time it needs one: the key `rookery` of its [key ring](/docs/use/accounts#keys). It keeps the key in its [store](/docs/use/store). An installation restored from the store gets the same key back. The operator of a host always takes it along with the keys in the profile, so the Rookery that set a host up can always log in to it without a key of yours. That matters most for a [Rookery server](/docs/use/server), which has no keys until you give it some. A host that logs in with another key of the ring, `key:NAME`, takes that key too. During a [rotation](/docs/use/accounts#rekeying) the operator takes the new key as well.
 
-`berth key show` prints the public half. To copy it, choose **This berth's SSH key** on the Settings tab of the home screen. With a berth server set, it copies the server's key.
+`rookery key show` prints the public half. To copy it, choose **This Rookery's SSH key** on the Settings tab of the home screen. With a Rookery server set, it copies the server's key.
 
-Add the key as an SSH key at your cloud provider, and every machine you create there takes it. berth then logs in to a new machine without a key of yours. On a host set up some other way, add it to the operator's `~/.ssh/authorized_keys`.
+Add the key as an SSH key at your cloud provider, and every machine you create there takes it. Rookery then logs in to a new machine without a key of yours. On a host set up some other way, add it to the operator's `~/.ssh/authorized_keys`.
 
-Each berth that installs or applies a host leaves its key there in a block of its own in the operator's `~/.ssh/authorized_keys`. A later apply, from this berth or another, does not remove it. To take a berth's key away, delete its `BERTH` block by hand.
+Each Rookery that installs or applies a host leaves its key there in a block of its own in the operator's `~/.ssh/authorized_keys`. A later apply, from this Rookery or another, does not remove it. To take a Rookery's key away, delete its `ROOKERY` block by hand.
 
 ## USB installer
 
@@ -92,34 +92,34 @@ Each berth that installs or applies a host leaves its key there in a block of it
 
 ## Role settings (`ansible_vars`)
 
-Any `devbox_` setting of the role. The ones the terminal UI edits:
+Any `rookery_` setting of the role. The ones the terminal UI edits:
 
-| Setting | In berth | Default |
+| Setting | In Rookery | Default |
 | --- | --- | --- |
-| `devbox_plugin_features` | Features tab | `github/cli` |
-| `devbox_tools_*` (one per [category](/docs/reference/tools#tool-categories)) | Features tab | on |
-| `devbox_install_playwright` | Features tab | on |
-| `devbox_software_rendering` | Software graphics, Features tab | on |
-| `devbox_geometry` | Desktop size, under Desktop on the Settings tab | `1600x900` |
-| `devbox_bootstrap_ssh_cidr` | Recovery SSH CIDR, Settings tab | none |
-| `devbox_harden_ssh` | SSH hardening, under Access on the Settings tab | on |
-| `devbox_install_cockpit` | Cockpit web console, Features tab | on |
-| `devbox_install_docker` | Docker on host, Features tab | on |
-| `devbox_install_tailscale` | Tailscale, Install tab: whether the host joins the tailnet, with a key berth makes | on, or off for a new host while berth has no secret `tailnet_api_key` |
+| `rookery_plugin_features` | Features tab | `github/cli` |
+| `rookery_tools_*` (one per [category](/docs/reference/tools#tool-categories)) | Features tab | on |
+| `rookery_install_playwright` | Features tab | on |
+| `rookery_software_rendering` | Software graphics, Features tab | on |
+| `rookery_geometry` | Desktop size, under Desktop on the Settings tab | `1600x900` |
+| `rookery_bootstrap_ssh_cidr` | Recovery SSH CIDR, Settings tab | none |
+| `rookery_harden_ssh` | SSH hardening, under Access on the Settings tab | on |
+| `rookery_install_cockpit` | Cockpit web console, Features tab | on |
+| `rookery_install_docker` | Docker on host, Features tab | on |
+| `rookery_install_tailscale` | Tailscale, Install tab: whether the host joins the tailnet, with a key Rookery makes | on, or off for a new host while Rookery has no secret `tailnet_api_key` |
 
-Others, such as `devbox_tailscale_serve`, the agent versions and the backup settings, are described where they are used. berth sets the variables of joining the tailnet itself, and a profile's `ansible_vars` can't: `devbox_tailscale_auth_key`, `devbox_tailscale_login_server`, `devbox_tailscale_key_command` and `devbox_tailnet_problem`.
+Others, such as `rookery_tailscale_serve`, the agent versions and the backup settings, are described where they are used. Rookery sets the variables of joining the tailnet itself, and a profile's `ansible_vars` can't: `rookery_tailscale_auth_key`, `rookery_tailscale_login_server`, `rookery_tailscale_key_command` and `rookery_tailnet_problem`.
 
-Only `devbox_` settings are taken. Ansible's own variables, such as `ansible_connection`, `ansible_ssh_common_args` or `ansible_python_interpreter`, would change how and where Ansible runs commands. berth sets the connection itself from `access`, so it refuses them in a profile from any caller. Each entry of `devbox_plugin_features` is `PLUGIN/FEATURE`. A profile saved before still loads, and its apply leaves such variables out and says so in a line.
+Only `rookery_` settings are taken. Ansible's own variables, such as `ansible_connection`, `ansible_ssh_common_args` or `ansible_python_interpreter`, would change how and where Ansible runs commands. Rookery sets the connection itself from `access`, so it refuses them in a profile from any caller. Each entry of `rookery_plugin_features` is `PLUGIN/FEATURE`. A profile saved before still loads, and its apply leaves such variables out and says so in a line.
 
-berth marks the values it gives Ansible as text, so `{{ … }}` in a setting is never a template.
+Rookery marks the values it gives Ansible as text, so `{{ … }}` in a setting is never a template.
 
-A profile of an older berth may still hold `tailscale_auth_key`, `tailscale_auto_key` or `tailscale_login_server`. berth drops them when it reads the profile, and says so once. The host then joins the tailnet on its next apply, with a key berth makes, unless it's on the tailnet already. All defaults are in [`defaults/main.yml`](https://github.com/helightdev/berth/blob/main/ansible/roles/devbox/defaults/main.yml).
+A profile of an older Rookery may still hold `tailscale_auth_key`, `tailscale_auto_key` or `tailscale_login_server`. Rookery drops them when it reads the profile, and says so once. The host then joins the tailnet on its next apply, with a key Rookery makes, unless it's on the tailnet already. All defaults are in [`defaults/main.yml`](https://github.com/aiviarium/rookery/blob/main/ansible/roles/rookery/defaults/main.yml).
 
 ## Type
 
 <TypeTable
   type={{
-    type: { type: '"ssh" | "managed" | "node" | "workstation"', default: '"workstation"', description: 'What berth does with the host: only log in over SSH, run berthd and box alone, apply a server without a desktop, or apply the whole profile. Only a node or a workstation is applied.' },
+    type: { type: '"ssh" | "managed" | "node" | "workstation"', default: '"workstation"', description: 'What Rookery does with the host: only log in over SSH, run rookeryd and box alone, apply a server without a desktop, or apply the whole profile. Only a node or a workstation is applied.' },
   }}
 />
 
@@ -128,17 +128,17 @@ An `ssh` or `managed` host needs only its type and `access`. A node also takes `
 ```json title="dock's profile"
 {
   "type": "ssh",
-  "access": { "address": "192.0.2.4", "user": "ops", "auth": "berth" }
+  "access": { "address": "192.0.2.4", "user": "ops", "auth": "rookery" }
 }
 ```
 
 ## Power (`power`)
 
-How berth stops a host that no provisioner made. A host a provisioner made is started and stopped through it, when its machines have the verbs `start` and `stop`. See [Starting and stopping](/docs/use/lifecycle#starting-and-stopping).
+How Rookery stops a host that no provisioner made. A host a provisioner made is started and stopped through it, when its machines have the verbs `start` and `stop`. See [Starting and stopping](/docs/use/lifecycle#starting-and-stopping).
 
 <TypeTable
   type={{
-    'stop.by': { type: '"controller"', description: 'The host\'s controller shuts the machine down. berth host set HOST power_stop=controller sets it, and power_stop=none removes it.' },
+    'stop.by': { type: '"controller"', description: 'The host\'s controller shuts the machine down. rookery host set HOST power_stop=controller sets it, and power_stop=none removes it.' },
     'start.by': { type: 'none yet', description: 'No way is supported yet: a host that is off has no controller to ask. A profile that names one is refused.' },
   }}
 />
@@ -155,24 +155,24 @@ Each of `stop` and `start` is an object, so that a way can take settings of its 
 
 ## Access (`access`)
 
-Where the host is and how berth logs in to it. Every host has it. See [Logging in to hosts](/docs/use/accounts#logging-in-to-hosts).
+Where the host is and how Rookery logs in to it. Every host has it. See [Logging in to hosts](/docs/use/accounts#logging-in-to-hosts).
 
 <TypeTable
   type={{
     address: { type: 'string', description: 'Hostname, IP address or Host alias from ~/.ssh/config. A host with one opens on its overview.' },
     user: { type: 'string', description: 'The SSH user. Blank uses your SSH configuration.' },
     port: { type: 'string', description: 'The SSH port. Blank uses your SSH configuration.' },
-    auth: { type: '"berth" | "key:NAME" | "password" | "ssh"', default: '"berth"', description: 'How berth logs in: its own key, another key of its key ring, a password kept as the secret ssh/HOST, or your own SSH configuration and agent with berth\'s key offered after them.' },
+    auth: { type: '"Rookery" | "key:NAME" | "password" | "ssh"', default: '"Rookery"', description: 'How Rookery logs in: its own key, another key of its key ring, a password kept as the secret ssh/HOST, or your own SSH configuration and agent with rookery\'s key offered after them.' },
     sudo: { type: '"none" | "password"', description: 'Whether the SSH user\'s sudo asks for a password, as for a first apply as an account of the machine\'s own. Left out, it does not.' },
-    link: { type: 'string[]', description: 'A command that connects to berthd instead of SSH, such as docker exec -i NAME berthd connect. A host with one needs no address.' },
+    link: { type: 'string[]', description: 'A command that connects to rookeryd instead of SSH, such as docker exec -i NAME rookeryd connect. A host with one needs no address.' },
   }}
 />
 
-After an apply as the operator, berth writes what the role made true: `sudo` becomes `none`, and a host that logged in with `password` logs in with `berth`, as the operator takes keys only. `key:NAME` and `ssh` stay. A password kept for the first apply, as the secret `ssh/HOST` or `sudo/HOST`, is deleted.
+After an apply as the operator, Rookery writes what the role made true: `sudo` becomes `none`, and a host that logged in with `password` logs in with `rookery`, as the operator takes keys only. `key:NAME` and `ssh` stay. A password kept for the first apply, as the secret `ssh/HOST` or `sudo/HOST`, is deleted.
 
-A profile of berth 0.4 kept these under `builder`:
+A profile of Rookery 0.4 kept these under `builder`:
 
-| berth 0.4 | Now |
+| Rookery 0.4 | Now |
 | --- | --- |
 | `ssh_host`, `ssh_user`, `ssh_port` | `address`, `user`, `port` |
 | `ssh_key` | `auth`: `key:NAME` |
@@ -180,24 +180,24 @@ A profile of berth 0.4 kept these under `builder`:
 | `ask_become_pass` | `sudo` |
 | `link` | `link` |
 
- berth converts stored profiles once, and reads a profile in a file in the new layout. The file keeps the old layout until you save it. A key file that `ssh_key` named becomes a key of the key ring, and the host logs in with it. If berth cannot read the file, the host logs in with `ssh`, and berth says so. A host without a key file logs in with `ssh`, which is what it did before.
+ Rookery converts stored profiles once, and reads a profile in a file in the new layout. The file keeps the old layout until you save it. A key file that `ssh_key` named becomes a key of the key ring, and the host logs in with it. If Rookery cannot read the file, the host logs in with `ssh`, and Rookery says so. A host without a key file logs in with `ssh`, which is what it did before.
 
 ## Older profiles
 
-A profile of berth 0.5 or earlier names two fields differently:
+A profile of Rookery 0.5 or earlier names two fields differently:
 
-| berth 0.5 | Now |
+| Rookery 0.5 | Now |
 | --- | --- |
 | `level`: `reachable` | `type`: `ssh` |
 | `level`: `controller` | `type`: `managed` |
 | `level`: `workstation` | No `type`, which means a workstation |
 | `profile` | `target` |
 
-berth converts its stored profiles once, the profiles of a berth server's hosts with them. It reads the old names wherever a profile comes from: a file that `berth host import HOST FILE` reads, and the profile a host keeps, which [`berth host adopt`](/docs/use/moving) reads. A file keeps the old names until you save it. berth writes `type` and `target` and nothing else, and the API of `berth serve` takes no other spelling.
+Rookery converts its stored profiles once, the profiles of a Rookery server's hosts with them. It reads the old names wherever a profile comes from: a file that `rookery host import HOST FILE` reads, and the profile a host keeps, which [`rookery host adopt`](/docs/use/moving) reads. A file keeps the old names until you save it. Rookery writes `type` and `target` and nothing else, and the API of `rookery serve` takes no other spelling.
 
 ## Install (`builder`)
 
-How berth installs the host. These settings stay on your machine.
+How Rookery installs the host. These settings stay on your machine.
 
 <TypeTable
   type={{
@@ -210,13 +210,13 @@ How berth installs the host. These settings stay on your machine.
 
 ## Beside the profile
 
-berth keeps more of a host in its store, beside the profile:
+Rookery keeps more of a host in its store, beside the profile:
 
 | What | Holds | How to see it |
 | --- | --- | --- |
-| Generated passwords | The passwords F4 made for the host's accounts | `berth host credentials HOST` |
-| The machine's record | The [resource](/docs/deploy/resources) of a machine berth created for the host, with its provisioner and id | `berth host show HOST` |
+| Generated passwords | The passwords F4 made for the host's accounts | `rookery host credentials HOST` |
+| The machine's record | The [resource](/docs/deploy/resources) of a machine Rookery created for the host, with its provisioner and id | `rookery host show HOST` |
 
-`berth host credentials` prints an account and its password to a line, and only to a terminal unless `--show` is given. For a berth server's host it asks the server, which keeps them. `berth host remove HOST` forgets the profile and both of these at once. A machine berth created for the host is left as it is, and its record stays as a resource with no host, unless `--destroy` destroys the machine too ([Removing a host](/docs/use/lifecycle#removing-a-host)). `berth host duplicate` copies neither to the new host.
+`rookery host credentials` prints an account and its password to a line, and only to a terminal unless `--show` is given. For a Rookery server's host it asks the server, which keeps them. `rookery host remove HOST` forgets the profile and both of these at once. A machine Rookery created for the host is left as it is, and its record stays as a resource with no host, unless `--destroy` destroys the machine too ([Removing a host](/docs/use/lifecycle#removing-a-host)). `rookery host duplicate` copies neither to the new host.
 
-Secrets and registries a host gets are listed in the profile by name (`secrets`, `registries`). Their values stay in berth's store.
+Secrets and registries a host gets are listed in the profile by name (`secrets`, `registries`). Their values stay in Rookery's store.

@@ -1,17 +1,17 @@
 #!/bin/sh
-# Installs berth for this user on Linux or macOS: the released program for
+# Installs rookery for this user on Linux or macOS: the released program for
 # this machine, checked against its SHA-256, into ~/.local/bin (or
-# BERTH_INSTALL_DIR). On macOS berth is a client of a berth serve elsewhere;
+# ROOKERY_INSTALL_DIR). On macOS rookery is a client of a rookery serve elsewhere;
 # on Windows use install.ps1.
 #
-#   curl -fsSL https://raw.githubusercontent.com/helightdev/berth/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/aiviarium/rookery/main/install.sh | sh
 #
-# BERTH_VERSION picks a release tag such as v0.2.0; the default is the latest.
+# ROOKERY_VERSION picks a release tag such as v0.2.0; the default is the latest.
 set -eu
 
-repo=helightdev/berth
-dir=${BERTH_INSTALL_DIR:-$HOME/.local/bin}
-version=${BERTH_VERSION:-latest}
+repo=aiviarium/rookery
+dir=${ROOKERY_INSTALL_DIR:-$HOME/.local/bin}
+version=${ROOKERY_VERSION:-latest}
 
 fail() { printf 'install: %s\n' "$1" >&2; exit 1; }
 
@@ -23,9 +23,9 @@ esac
 case "$(uname -m)" in
   x86_64|amd64) arch=x86_64 ;;
   arm64|aarch64) arch=aarch64 ;;
-  *) fail "no released program for $(uname -m): build it with cargo install --locked --git https://github.com/$repo berth" ;;
+  *) fail "no released program for $(uname -m): build it with cargo install --locked --git https://github.com/$repo rookery" ;;
 esac
-asset=berth-$arch-$system.tar.gz
+asset=rookery-$arch-$system.tar.gz
 for tool in curl tar; do
   command -v "$tool" >/dev/null || fail "$tool is needed"
 done
@@ -49,23 +49,23 @@ trap 'rm -rf "$work"' EXIT
 curl -fsSL -o "$work/$asset" "$url/$asset" || fail "could not download $url/$asset"
 curl -fsSL -o "$work/$asset.sha256" "$url/$asset.sha256" || fail "could not download the checksum"
 (cd "$work" && check "$asset.sha256" >/dev/null) || fail "the download does not match its checksum"
-tar -xzf "$work/$asset" -C "$work" berth
+tar -xzf "$work/$asset" -C "$work" rookery
 mkdir -p "$dir"
-install -m 755 "$work/berth" "$dir/berth"
+install -m 755 "$work/rookery" "$dir/rookery"
 
-printf 'Installed %s to %s\n' "$("$dir/berth" --version 2>/dev/null || echo berth)" "$dir/berth"
+printf 'Installed %s to %s\n' "$("$dir/rookery" --version 2>/dev/null || echo rookery)" "$dir/rookery"
 case ":$PATH:" in
   *":$dir:"*) ;;
-  *) printf 'Add %s to your PATH to run it as berth.\n' "$dir" ;;
+  *) printf 'Add %s to your PATH to run it as rookery.\n' "$dir" ;;
 esac
-# The hosts are set up from Linux; elsewhere berth uses a server.
+# The hosts are set up from Linux; elsewhere rookery uses a server.
 if [ "$system" != linux ]; then
-  printf 'Next: berth login URL, with the setup key of your berth server.\n'
+  printf 'Next: rookery login URL, with the setup key of your rookery server.\n'
   exit 0
 fi
-printf 'Next: berth host create NAME, or berth ui for the screens. berth login URL uses a berth server instead.\n'
+printf 'Next: rookery host create NAME, or rookery ui for the screens. rookery login URL uses a rookery server instead.\n'
 missing=
 for tool in ssh python3 ansible-playbook; do
   command -v "$tool" >/dev/null || missing="$missing $tool"
 done
-[ -z "$missing" ] || printf 'berth also uses:%s. Install them before setting up a host.\n' "$missing"
+[ -z "$missing" ] || printf 'rookery also uses:%s. Install them before setting up a host.\n' "$missing"

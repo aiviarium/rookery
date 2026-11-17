@@ -1,6 +1,6 @@
-"""berth on another machine, with its hosts those of a berth serve: the
+"""rookery on another machine, with its hosts those of a rookery serve: the
 commands go through the server, which reaches the host. ClientApply looks at
-the apply of the shared state of berth serve (harness.served_extended())."""
+the apply of the shared state of rookery serve (harness.served_extended())."""
 import json
 import re
 import unittest
@@ -16,28 +16,28 @@ class Client(unittest.TestCase):
     def setUpClass(cls):
         cls.serve = served()
         cls.station = Workstation('client', ssh_key=False)
-        cls.station.berth('login', cls.serve.url, '--token-stdin', input=cls.serve.token)
+        cls.station.rookery('login', cls.serve.url, '--token-stdin', input=cls.serve.token)
 
     def test_the_hosts_are_the_servers(self):
-        listed = json.loads(self.station.berth('ls', '-o', 'json').stdout)
+        listed = json.loads(self.station.rookery('ls', '-o', 'json').stdout)
         self.assertEqual([(host['name'], host['address']) for host in listed], [(HOST, HOST)])
-        kept = json.loads((self.station.berth_dir / 'config.json').read_text())
+        kept = json.loads((self.station.rookery_dir / 'config.json').read_text())
         self.assertEqual(kept['server'], self.serve.url)
         # The server's settings are listed, and no token among them; the
         # client's own say which server it uses, and that it has a token.
-        shown = self.station.berth('config', 'list').stdout
+        shown = self.station.rookery('config', 'list').stdout
         self.assertNotIn(self.serve.token, shown)
         self.assertRegex(shown, rf'(?m)^  server +{re.escape(self.serve.url)}$')
         self.assertRegex(shown, r'(?m)^  server_token +\(set\)$')
 
     def test_commands_go_through_the_server(self):
-        self.assertIn('secrets', self.station.berth('action', 'list', HOST).stdout)
-        self.assertEqual(self.station.berth('exec', HOST, '--', 'id', '-un').stdout.strip(), AGENT)
-        done = self.station.berth('exec', HOST, '--', 'sh', '-c', 'cat; exit 5', input='piped\n', check=False)
+        self.assertIn('secrets', self.station.rookery('action', 'list', HOST).stdout)
+        self.assertEqual(self.station.rookery('exec', HOST, '--', 'id', '-un').stdout.strip(), AGENT)
+        done = self.station.rookery('exec', HOST, '--', 'sh', '-c', 'cat; exit 5', input='piped\n', check=False)
         self.assertEqual((done.returncode, done.stdout), (5, 'piped\n'))
-        self.assertEqual(self.station.berth('run', HOST, 'sign-in:status').returncode, 0)
-        self.station.berth('exec', HOST, '--keep', '--', 'echo', 'kept through the server')
-        self.assertIn('echo kept through the server', self.station.berth('session', 'list', HOST).stdout)
+        self.assertEqual(self.station.rookery('run', HOST, 'sign-in:status').returncode, 0)
+        self.station.rookery('exec', HOST, '--keep', '--', 'echo', 'kept through the server')
+        self.assertIn('echo kept through the server', self.station.rookery('session', 'list', HOST).stdout)
 
     def test_attach_through_the_server(self):
         terminal = self.station.terminal('session', 'attach', HOST)
@@ -54,10 +54,10 @@ class Client(unittest.TestCase):
         profile = self.serve.call('GET', f'/v1/hosts/{HOST}/profile')
         draft = {**profile, 'hostname': 'cloud-3', 'builder': {}, 'access': {},
                  'operator_password_hash': '$6$e2e$' + 'x' * 86,
-                 'release_url': 'https://192.0.2.30/berth-release.tar.gz'}
+                 'release_url': 'https://192.0.2.30/rookery-release.tar.gz'}
         self.serve.call('PUT', '/v1/hosts/cloud-3/profile', draft)
         try:
-            seed = self.station.berth('host', 'seed', 'cloud-3').stdout
+            seed = self.station.rookery('host', 'seed', 'cloud-3').stdout
             self.assertTrue(seed.startswith('#cloud-config'))
             own = self.serve.station.own_public().split()[1]
             self.assertIn(own, seed)
@@ -66,9 +66,9 @@ class Client(unittest.TestCase):
 
     def test_once_with_a_server_given_on_the_command_line(self):
         once = Workstation('once', ssh_key=False)
-        listed = once.berth('--server', self.serve.url, '--token-stdin', 'ls', input=self.serve.token).stdout
+        listed = once.rookery('--server', self.serve.url, '--token-stdin', 'ls', input=self.serve.token).stdout
         self.assertRegex(listed, rf'(?m)^{HOST}\s')
-        refused = once.berth('--server', self.serve.url, '--token-stdin', 'ls', input='wrong', check=False)
+        refused = once.rookery('--server', self.serve.url, '--token-stdin', 'ls', input='wrong', check=False)
         self.assertNotEqual(refused.returncode, 0)
         self.assertIn(self.serve.url, refused.stderr)
 
@@ -76,7 +76,7 @@ class Client(unittest.TestCase):
 @needs_e2e
 class ClientApply(unittest.TestCase):
     """Applying from a terminal client: the first apply of the shared state
-    of berth serve (harness.served_extended()), which a client of the server made."""
+    of rookery serve (harness.served_extended()), which a client of the server made."""
 
     @classmethod
     def setUpClass(cls):
@@ -90,23 +90,23 @@ class ClientApply(unittest.TestCase):
 
 @needs_e2e
 class AccessToken(unittest.TestCase):
-    """berth given an access token of the issuer the server trusts, as BERTH_TOKEN."""
+    """rookery given an access token of the issuer the server trusts, as ROOKERY_TOKEN."""
 
     @classmethod
     def setUpClass(cls):
         cls.serve = served()
         cls.station = Workstation('service', ssh_key=False)
-        cls.station.env['BERTH_SERVER'] = cls.serve.url
+        cls.station.env['ROOKERY_SERVER'] = cls.serve.url
 
     def test_the_token_gives_the_role_it_names(self):
-        env = {'BERTH_TOKEN': self.serve.issuer.token('berth:operate', subject='berth-client')}
-        self.assertEqual(self.station.berth('exec', HOST, '--', 'id', '-un', env=env).stdout.strip(), AGENT)
+        env = {'ROOKERY_TOKEN': self.serve.issuer.token('rookery:operate', subject='rookery-client')}
+        self.assertEqual(self.station.rookery('exec', HOST, '--', 'id', '-un', env=env).stdout.strip(), AGENT)
         # The role is not enough to set the server up.
-        refused = self.station.berth('apply', HOST, env=env, check=False)
+        refused = self.station.rookery('apply', HOST, env=env, check=False)
         self.assertNotEqual(refused.returncode, 0)
         self.assertIn('admin', refused.stderr)
 
     def test_a_token_of_another_issuer_is_refused(self):
-        env = {'BERTH_TOKEN': self.serve.issuer.token('berth:admin', issuer='http://192.0.2.1')}
-        refused = self.station.berth('ls', env=env, check=False)
+        env = {'ROOKERY_TOKEN': self.serve.issuer.token('rookery:admin', issuer='http://192.0.2.1')}
+        refused = self.station.rookery('ls', env=env, check=False)
         self.assertNotEqual(refused.returncode, 0)

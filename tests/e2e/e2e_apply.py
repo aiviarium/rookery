@@ -15,19 +15,19 @@ class Apply(unittest.TestCase):
     def setUpClass(cls):
         cls.station = provisioned()
 
-    def test_the_first_apply_installs_berthd(self):
+    def test_the_first_apply_installs_rookeryd(self):
         recap = ansible_recap(self.station.first_apply)
         self.assertEqual((recap['failed'], recap['unreachable']), (0, 0))
         self.assertGreater(recap['changed'], 10)
         version = self.station.link().get('/v1/version')
         self.assertEqual(version['mode'], 'system')
-        berthd = json.loads(self.station.root_on_host('cat /etc/berth/berthd.json').stdout)
-        self.assertEqual((berthd['agent'], berthd['operator']), (AGENT, OPERATOR))
-        tasks = json.loads(self.station.root_on_host('cat /etc/berth/actions.json').stdout)
+        rookeryd = json.loads(self.station.root_on_host('cat /etc/rookery/rookeryd.json').stdout)
+        self.assertEqual((rookeryd['agent'], rookeryd['operator']), (AGENT, OPERATOR))
+        tasks = json.loads(self.station.root_on_host('cat /etc/rookery/actions.json').stdout)
         self.assertIn('secrets', [task['name'] for task in tasks])
         print(f'\n  first apply: {self.station.apply_seconds:.0f}s, {recap}', end=' ')
 
-    def test_the_operator_takes_berths_own_key(self):
+    def test_the_operator_takes_rookerys_own_key(self):
         own = self.station.own_public()
         self.assertTrue(own.startswith('ssh-ed25519 '), own)
         self.assertEqual(own, self.station.own_key.with_suffix('.pub').read_text().strip())
@@ -39,7 +39,7 @@ class Apply(unittest.TestCase):
         self.station.key.rename(moved)
         try:
             fresh = {'XDG_RUNTIME_DIR': fresh_runtime_dir()}
-            done = self.station.berth('exec', HOST, '--', 'id', '-un', env=fresh)
+            done = self.station.rookery('exec', HOST, '--', 'id', '-un', env=fresh)
         finally:
             moved.rename(self.station.key)
         self.assertEqual(done.stdout.strip(), AGENT)

@@ -1,0 +1,15 @@
+{
+  "rookery_agent_password_hash": "",
+  "rookery_agent_privileges": "full",
+  "rookery_agent_ssh_public_key": "",
+  "rookery_operator_password_hash": "$6$made-up$hash",
+  "rookery_operator_ssh_public_key": "",
+  "rookery_operator_user": "ops",
+  "rookery_plugin_dirs": {
+    "docker": "/usr/lib/rookery/plugins/docker",
+    "incus": "/usr/lib/rookery/plugins/incus"
+  },
+  "rookery_profile": "laptop",
+  "rookery_ssh_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIROOKERY rookery@studio",
+  "rookery_user": "agent"
+}

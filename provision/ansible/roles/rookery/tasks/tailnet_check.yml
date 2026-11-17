@@ -1,0 +1,37 @@
+---
+# A host that joins the tailnet and is not on it needs a one-use key: the
+# one of its seed, or rookery's command for one. Without either the play stops
+# here, before it changes anything, with what rookery said is missing. A host
+# on the tailnet already needs no key, and one with rookery_tailnet_optional
+# goes on without the tailnet, as rookery 0.5 did.
+- name: Inspect Tailscale enrollment
+  ansible.builtin.command: tailscale status --json
+  register: rookery_tailnet_status
+  changed_when: false
+  failed_when: false
+  check_mode: false
+- name: Tell whether the host is on the tailnet
+  ansible.builtin.set_fact:
+    rookery_tailnet_enrolled: "{{ rookery_tailnet_status.stdout | default('', true) is search('\"BackendState\":\\s*\"Running\"') }}"
+- name: Stop when the host cannot join the tailnet
+  ansible.builtin.fail:
+    msg: >-
+      {{ rookery_tailnet_problem if rookery_tailnet_problem | length > 0 else
+      'This host joins the tailnet, and nothing gave it a key to join with. Apply it with rookery,
+      which makes one from the secret tailnet_api_key, or set rookery_install_tailscale to false.' }}
+  when:
+    - not rookery_tailnet_enrolled | bool
+    - rookery_tailscale_auth_key | length == 0
+    - rookery_tailscale_key_command | length == 0
+    - not rookery_tailnet_optional | default(false) | bool
+- name: Say that the host stays off the tailnet
+  ansible.builtin.debug:
+    msg: >-
+      This host is not on the tailnet, and rookery cannot make its key yet
+      ({{ rookery_tailnet_problem if rookery_tailnet_problem | length > 0 else 'nothing gave it one' }}).
+      The apply goes on without the tailnet, and rookery reaches the host over SSH at its address.
+  when:
+    - not rookery_tailnet_enrolled | bool
+    - rookery_tailscale_auth_key | length == 0
+    - rookery_tailscale_key_command | length == 0
+    - rookery_tailnet_optional | default(false) | bool

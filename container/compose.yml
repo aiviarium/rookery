@@ -1,6 +1,6 @@
 services:
   desktop:
-    image: "${IMAGE:-berth-desktop}"
+    image: "${IMAGE:-rookery-desktop}"
     build:
       context: ..
       dockerfile: container/Dockerfile

@@ -1,4 +1,4 @@
-"""What berth does with a host once it is set up: tasks, commands, sessions
+"""What rookery does with a host once it is set up: tasks, commands, sessions
 and terminals, files, the channel and the host's own state."""
 import json
 import re
@@ -14,31 +14,31 @@ class Commands(unittest.TestCase):
         cls.station = provisioned()
 
     def test_tasks_are_listed_by_group(self):
-        listed = json.loads(self.station.berth('action', 'list', HOST, '-o', 'json').stdout)
+        listed = json.loads(self.station.rookery('action', 'list', HOST, '-o', 'json').stdout)
         groups = {action['group'] or 'Host' for action in listed}
         self.assertLessEqual({'Host', 'Power', 'Sync', 'Sign-In'}, groups)
         secrets = next(action for action in listed if action['name'] == 'secrets')
         self.assertEqual(secrets['label'], 'Secrets and registry logins')
-        self.assertRegex(self.station.berth('action', 'list', HOST).stdout, r'(?m)^secrets\s+')
+        self.assertRegex(self.station.rookery('action', 'list', HOST).stdout, r'(?m)^secrets\s+')
 
-    def test_a_task_runs_and_its_exit_code_is_berths(self):
-        self.assertEqual(self.station.berth('run', HOST, 'sign-in:status').returncode, 0)
-        missing = self.station.berth('run', HOST, 'nothing-like-this', check=False)
+    def test_a_task_runs_and_its_exit_code_is_rookerys(self):
+        self.assertEqual(self.station.rookery('run', HOST, 'sign-in:status').returncode, 0)
+        missing = self.station.rookery('run', HOST, 'nothing-like-this', check=False)
         self.assertEqual(missing.returncode, 2)
         self.assertIn('has no action nothing-like-this', missing.stderr)
 
     def test_the_status_task_copes_without_systemd(self):
-        done = self.station.berth('run', HOST, 'status', check=False, timeout=120)
+        done = self.station.rookery('run', HOST, 'status', check=False, timeout=120)
         self.assertIn(f'Host        {HOST}', done.stdout)
         self.assertIn('Disk', done.stdout)
 
     def test_commands_run_as_each_account(self):
         for user, name in (('agent', AGENT), ('operator', OPERATOR), ('root', 'root')):
-            done = self.station.berth('exec', HOST, '--user', user, '--', 'id', '-un')
+            done = self.station.rookery('exec', HOST, '--user', user, '--', 'id', '-un')
             self.assertEqual(done.stdout.strip(), name, user)
 
     def test_a_command_gets_input_and_leaves_with_its_code(self):
-        done = self.station.berth('exec', HOST, '--', 'sh', '-c', 'cat; echo oops >&2; exit 7',
+        done = self.station.rookery('exec', HOST, '--', 'sh', '-c', 'cat; echo oops >&2; exit 7',
                                   input='from the workstation\n', check=False)
         self.assertEqual(done.returncode, 7)
         self.assertEqual(done.stdout, 'from the workstation\n')
@@ -46,14 +46,14 @@ class Commands(unittest.TestCase):
 
     def test_a_kept_session_is_listed_with_its_output(self):
         marker = random_text('kept')
-        self.station.berth('exec', HOST, '--keep', '--', 'echo', marker)
-        listed = self.station.berth('session', 'list', HOST).stdout
+        self.station.rookery('exec', HOST, '--keep', '--', 'echo', marker)
+        listed = self.station.rookery('session', 'list', HOST).stdout
         line = next(line for line in listed.splitlines() if marker in line)
         self.assertIn('exit 0', line)
         session = line.split()[0]
-        output = self.station.berth('session', 'logs', HOST, session).stdout
+        output = self.station.rookery('session', 'logs', HOST, session).stdout
         self.assertEqual(output.strip(), marker)
-        self.assertEqual(self.station.berth('session', 'logs', HOST, session, '--tail', '1').stdout.strip(), marker)
+        self.assertEqual(self.station.rookery('session', 'logs', HOST, session, '--tail', '1').stdout.strip(), marker)
 
     def test_attach_is_a_terminal_on_the_host(self):
         terminal = self.station.terminal('session', 'attach', HOST)
@@ -68,8 +68,8 @@ class Commands(unittest.TestCase):
 
 
 @needs_e2e
-class Berthd(unittest.TestCase):
-    """berthd's API through the link berth uses: SSH, sudo and berthd connect."""
+class Rookeryd(unittest.TestCase):
+    """rookeryd's API through the link rookery uses: SSH, sudo and rookeryd connect."""
 
     @classmethod
     def setUpClass(cls):
@@ -126,7 +126,7 @@ class Berthd(unittest.TestCase):
         for path in ('/etc/shadow', '/root', f'/home/{AGENT}/../{OPERATOR}/.ssh/authorized_keys'):
             status, answer = self.link.request('GET', f'/v1/files?path={path}')
             self.assertIn(status, (403, 404), (path, answer))
-        status, _ = self.link.request('PUT', '/v1/files?path=/etc/berth/actions.json&overwrite=true', b'[]')
+        status, _ = self.link.request('PUT', '/v1/files?path=/etc/rookery/actions.json&overwrite=true', b'[]')
         self.assertEqual(status, 403)
 
     def test_units_without_systemd_are_an_answer_not_a_crash(self):
@@ -145,7 +145,7 @@ class Berthd(unittest.TestCase):
         self.assertGreater(stats['memory']['total'], 0)
         self.assertTrue(any(fs['mount'] == '/' for fs in stats['filesystems']), stats['filesystems'])
         processes = self.link.get('/v1/processes')
-        self.assertTrue(any('berthd' in process['command'] for process in processes))
+        self.assertTrue(any('rookeryd' in process['command'] for process in processes))
 
     def test_a_task_runs_as_steps(self):
         tasks = {task['name']: task for task in self.link.get('/v1/actions')}
@@ -157,14 +157,14 @@ class Berthd(unittest.TestCase):
     def test_the_channel_keeps_what_it_is_told_to(self):
         topic = random_text('e2e-host/notes')
         body = {'said': random_text('hello')}
-        done = self.station.berth('exec', HOST, '--', 'box', 'publish', topic, json.dumps(body), '--keep', 'log')
+        done = self.station.rookery('exec', HOST, '--', 'box', 'publish', topic, json.dumps(body), '--keep', 'log')
         self.assertEqual(done.returncode, 0)
         read = self.link.get(f'/v1/channel?topic={topic}')
         messages = read['messages'] if isinstance(read, dict) else read
         self.assertEqual([message['body'] for message in messages], [body])
 
     def test_the_agent_sees_its_own_tasks(self):
-        listed = self.station.berth('exec', HOST, '--', 'box', 'actions').stdout
+        listed = self.station.rookery('exec', HOST, '--', 'box', 'actions').stdout
         self.assertIn('sign-in:status', listed)
         self.assertNotIn('reboot', re.findall(r'^\S+', listed, re.M))
-        self.assertEqual(self.station.berth('exec', HOST, '--', 'box', 'run', 'sign-in:status').returncode, 0)
+        self.assertEqual(self.station.rookery('exec', HOST, '--', 'box', 'run', 'sign-in:status').returncode, 0)

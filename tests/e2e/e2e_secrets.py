@@ -15,17 +15,17 @@ class Secrets(unittest.TestCase):
         cls.key = random_text('deploy-key') + '\nsecond line\n'
         cls.password = random_text('npm-password')
         cls.registry = NpmRegistry('ci-user', cls.password)
-        berth = cls.station.berth
-        berth('secret', 'set', 'github', input=cls.token + '\n')
-        berth('secret', 'set', 'deploy-key', input=cls.key)
-        berth('host', 'set', HOST, 'secret.github=GH_TOKEN')
-        berth('host', 'set', HOST, 'secret.deploy-key=~/.config/e2e/deploy.key:0640')
-        berth('registry', 'add', 'npm-e2e', 'npm', cls.registry.url, '--user', 'ci-user')
-        berth('registry', 'login', 'npm-e2e', input=cls.password + '\n')
-        berth('registry', 'add', 'images', 'docker', 'https://192.0.2.20:5000', '--user', 'pusher')
-        berth('registry', 'login', 'images', input='image-password\n')
+        rookery = cls.station.rookery
+        rookery('secret', 'set', 'github', input=cls.token + '\n')
+        rookery('secret', 'set', 'deploy-key', input=cls.key)
+        rookery('host', 'set', HOST, 'secret.github=GH_TOKEN')
+        rookery('host', 'set', HOST, 'secret.deploy-key=~/.config/e2e/deploy.key:0640')
+        rookery('registry', 'add', 'npm-e2e', 'npm', cls.registry.url, '--user', 'ci-user')
+        rookery('registry', 'login', 'npm-e2e', input=cls.password + '\n')
+        rookery('registry', 'add', 'images', 'docker', 'https://192.0.2.20:5000', '--user', 'pusher')
+        rookery('registry', 'login', 'images', input='image-password\n')
         for name in ('npm-e2e', 'images'):
-            berth('host', 'set', HOST, f'registry.{name}=on')
+            rookery('host', 'set', HOST, f'registry.{name}=on')
 
     @classmethod
     def tearDownClass(cls):
@@ -38,32 +38,32 @@ class Secrets(unittest.TestCase):
         return self.station.root_on_host(f'cat /home/{AGENT}/{path}').stdout
 
     def test_secret_values_stay_out_of_listings_and_the_profile(self):
-        listed = self.station.berth('secret', 'list').stdout
+        listed = self.station.rookery('secret', 'list').stdout
         self.assertIn('github', listed)
         self.assertNotIn(self.token, listed)
-        self.assertNotIn(self.token, self.station.berth('host', 'export', HOST).stdout)
-        given = json.loads(self.station.berth('host', 'export', HOST).stdout)
+        self.assertNotIn(self.token, self.station.rookery('host', 'export', HOST).stdout)
+        given = json.loads(self.station.rookery('host', 'export', HOST).stdout)
         self.assertIn({'name': 'github', 'env': 'GH_TOKEN'}, given['secrets'])
         self.assertIn('npm-e2e', given['registries'])
 
     def test_a_registry_login_is_checked(self):
-        checked = self.station.berth('registry', 'check', 'npm-e2e').stdout
+        checked = self.station.rookery('registry', 'check', 'npm-e2e').stdout
         self.assertIn('✓ Registry: readable with the stored login', checked)
         self.assertIn('✓ Login: accepted', checked)
-        self.station.berth('registry', 'login', 'npm-e2e', input='not-the-password\n')
+        self.station.rookery('registry', 'login', 'npm-e2e', input='not-the-password\n')
         try:
-            refused = self.station.berth('registry', 'check', 'npm-e2e', check=False)
+            refused = self.station.rookery('registry', 'check', 'npm-e2e', check=False)
             self.assertEqual(refused.returncode, 1)
             self.assertIn('login not accepted', refused.stdout)
         finally:
-            self.station.berth('registry', 'login', 'npm-e2e', input=self.password + '\n')
+            self.station.rookery('registry', 'login', 'npm-e2e', input=self.password + '\n')
 
     def test_the_secrets_task_installs_them_for_the_agent(self):
-        sent = self.station.berth('run', HOST, 'secrets')
+        sent = self.station.rookery('run', HOST, 'secrets')
         for value in (self.token, self.password, 'image-password'):
             self.assertNotIn(value, sent.stdout + sent.stderr)
         self.assertIn('Environment: GH_TOKEN', sent.stdout)
-        self.assertIn(f"export GH_TOKEN={self.token}", self.agent_file('.config/devbox/secrets.env'))
+        self.assertIn(f"export GH_TOKEN={self.token}", self.agent_file('.config/rookery/secrets.env'))
         # What is read from a pipe loses its last line break, as a typed value does.
         self.assertEqual(self.agent_file('.config/e2e/deploy.key'), self.key.rstrip('\n'))
         mode = self.station.root_on_host(f'stat -c "%a %U" /home/{AGENT}/.config/e2e/deploy.key').stdout.split()
@@ -74,14 +74,14 @@ class Secrets(unittest.TestCase):
         docker = json.loads(self.agent_file('.docker/config.json'))
         self.assertEqual(docker['auths']['192.0.2.20:5000']['auth'], b64('pusher:image-password'))
         # A login shell of the agent has the variable.
-        shown = self.station.berth('exec', HOST, '--', 'bash', '-lc', 'echo "${GH_TOKEN:0:15}"').stdout
+        shown = self.station.rookery('exec', HOST, '--', 'bash', '-lc', 'echo "${GH_TOKEN:0:15}"').stdout
         self.assertEqual(shown.strip(), self.token[:15])
 
     def test_a_secret_turned_off_is_gone_after_the_next_send(self):
-        self.station.berth('host', 'set', HOST, 'secret.github=')
+        self.station.rookery('host', 'set', HOST, 'secret.github=')
         try:
-            self.station.berth('run', HOST, 'secrets')
-            self.assertNotIn('GH_TOKEN', self.agent_file('.config/devbox/secrets.env'))
+            self.station.rookery('run', HOST, 'secrets')
+            self.assertNotIn('GH_TOKEN', self.agent_file('.config/rookery/secrets.env'))
         finally:
-            self.station.berth('host', 'set', HOST, 'secret.github=GH_TOKEN')
-            self.station.berth('run', HOST, 'secrets')
+            self.station.rookery('host', 'set', HOST, 'secret.github=GH_TOKEN')
+            self.station.rookery('run', HOST, 'secrets')

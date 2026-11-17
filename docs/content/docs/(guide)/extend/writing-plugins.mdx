@@ -4,16 +4,16 @@ description: The plugin package format, from a minimal example to every field of
 icon: FileCode
 ---
 
-A plugin is a package in npm's format: a folder with a `package.json` that has a `berth` section next to the usual fields. `npm pack` and `npm publish` understand it, so plugins can be shared through npmjs.com or a private registry such as Nexus or Verdaccio. The Unity plugin in `plugins/unity/` is a good one to copy.
+A plugin is a package in npm's format: a folder with a `package.json` that has a `rookery` section next to the usual fields. `npm pack` and `npm publish` understand it, so plugins can be shared through npmjs.com or a private registry such as Nexus or Verdaccio. The Unity plugin in `plugins/unity/` is a good one to copy.
 
 ## A minimal plugin
 
-```json title="~/.config/berth/plugins/hello/package.json"
+```json title="~/.config/rookery/plugins/hello/package.json"
 {
-  "name": "berth-plugin-hello",
+  "name": "rookery-plugin-hello",
   "version": "1.0.0",
   "displayName": "Hello",
-  "berth": {
+  "rookery": {
     "features": [
       {
         "id": "cowsay",
@@ -37,7 +37,7 @@ Switch it on under Development Tools, apply the configuration, and **Say hello**
 ## The package
 
 <Files>
-  <Folder name="berth-plugin-unity" defaultOpen>
+  <Folder name="rookery-plugin-unity" defaultOpen>
     <File name="package.json" />
     <File name="guide.md" />
     <Folder name="tasks" defaultOpen>
@@ -49,19 +49,19 @@ Switch it on under Development Tools, apply the configuration, and **Say hello**
 
 ```json title="package.json"
 {
-  "name": "berth-plugin-unity",
+  "name": "rookery-plugin-unity",
   "version": "0.1.0",
   "displayName": "Unity",
-  "description": "Unity CLI and editor for berth machines.",
-  "keywords": ["berth-plugin"],
+  "description": "Unity CLI and editor for rookery machines.",
+  "keywords": ["rookery-plugin"],
   "files": ["tasks", "guide.md"],
-  "berth": {
+  "rookery": {
     "features": [
       {
         "id": "cli",
         "group": "Development Tools",
         "label": "Unity CLI",
-        "description": "Shown as help in berth.",
+        "description": "Shown as help in rookery.",
         "summary": "Unity CLI (`unity`) with its agent skills.",
         "packages": ["libgtk-3-0t64"],
         "commands": ["unity"],
@@ -76,7 +76,7 @@ Switch it on under Development Tools, apply the configuration, and **Say hello**
 }
 ```
 
-The plugin's id is the package name without its scope and without a leading `berth-plugin-`, so `@acme/berth-plugin-unity` is `unity`. `berth.id` overrides that. Ids and feature ids are lower-case letters, digits, `-` and `_`, starting with a letter. `displayName` is the name berth shows.
+The plugin's id is the package name without its scope and without a leading `rookery-plugin-`, so `@acme/rookery-plugin-unity` is `unity`. `rookery.id` overrides that. Ids and feature ids are lower-case letters, digits, `-` and `_`, starting with a letter. `displayName` is the name Rookery shows.
 
 ## Features
 
@@ -84,32 +84,32 @@ The plugin's id is the package name without its scope and without a leading `ber
   type={{
     id: { type: 'string', required: true, description: 'The feature is referred to as PLUGIN/ID.' },
     group: { type: 'string', description: 'The group it is listed in on the Features tab.' },
-    label: { type: 'string', description: 'Name in berth.' },
-    description: { type: 'string', description: 'Help text in berth.' },
-    summary: { type: 'string', description: "One line for the host's /etc/devbox/AGENT.md." },
+    label: { type: 'string', description: 'Name in rookery.' },
+    description: { type: 'string', description: 'Help text in rookery.' },
+    summary: { type: 'string', description: "One line for the host's /etc/rookery/AGENT.md." },
     packages: { type: 'string[]', description: 'Ubuntu packages to install.' },
-    commands: { type: 'string[]', description: 'Commands the host must have afterwards; added to /etc/devbox/expected-commands, which the self-test checks.' },
+    commands: { type: 'string[]', description: 'Commands the host must have afterwards; added to /etc/rookery/expected-commands, which the self-test checks.' },
     tasks: { type: 'string', description: 'Path of an Ansible task list in the package.' },
     guide: { type: 'string', description: 'Path of a guide for agents in the package.' },
     actions: { type: 'Action[]', description: "Actions for the host's overview." },
     services: { type: 'Service[]', description: 'Programs that keep running on the host and answer calls. See Writing a service.' },
     channels: { type: 'Channel[]', description: "Topics of the host's channel the feature uses, with how long messages are kept." },
-    types: { type: 'string[]', default: '["workstation"]', description: 'The host types it is for: workstation, node or both. berth refuses to apply a host whose profile lists a feature that is not for its type.' },
+    types: { type: 'string[]', default: '["workstation"]', description: 'The host types it is for: workstation, node or both. Rookery refuses to apply a host whose profile lists a feature that is not for its type.' },
     offers: { type: 'string[]', description: "Ids of the plugin's provisioners the feature can offer once it is applied on a node. See Offering provisioners." },
-    trusts: { type: '{certificate, key}', description: "The names of two berth secrets, a client certificate and its key, that the host is to trust. berth makes them when it has neither, and the tasks get the certificate alone." },
+    trusts: { type: '{certificate, key}', description: "The names of two Rookery secrets, a client certificate and its key, that the host is to trust. Rookery makes them when it has neither, and the tasks get the certificate alone." },
   }}
 />
 
 ## Actions
 
-An action becomes an action of the host's controller named `PLUGIN:ACTION`. Applying the configuration writes the actions of the chosen features to the host, and they appear on the overview in their group. From the command line: `berth run HOST PLUGIN:ACTION`.
+An action becomes an action of the host's controller named `PLUGIN:ACTION`. Applying the configuration writes the actions of the chosen features to the host, and they appear on the overview in their group. From the command line: `rookery run HOST PLUGIN:ACTION`.
 
 <TypeTable
   type={{
     name: { type: 'string', required: true, description: 'Identifier, unique within the plugin.' },
     run: { type: 'string', required: true, description: 'Shell command to run on the host.' },
-    label: { type: 'string', description: 'What berth shows.' },
-    help: { type: 'string', description: 'Help text in berth.' },
+    label: { type: 'string', description: 'What Rookery shows.' },
+    help: { type: 'string', description: 'Help text in rookery.' },
     user: { type: '"agent" | "root" | "operator"', default: '"agent"', description: 'agent runs in its home with the desktop environment; operator is the SSH user.' },
     agent: { type: 'boolean', default: 'false', description: 'Lets the agent run it itself with box run PLUGIN:ACTION.' },
     arguments: { type: 'Argument[]', description: 'Values asked for before it runs: {name, label, required, default, choices, values, kind}.' },
@@ -122,11 +122,11 @@ An action becomes an action of the host's controller named `PLUGIN:ACTION`. Appl
 
 ### Arguments
 
-The command finds each argument as `BERTH_ARG_NAME` in its environment, upper-cased, with `_` for anything that is not a letter or digit. Values are never pasted into the command line. `choices` is a command whose output lines are the values to offer. `values` and `kind` mean what they mean for a provisioner's arguments, below. A yes or no is a switch here too.
+The command finds each argument as `ROOKERY_ARG_NAME` in its environment, upper-cased, with `_` for anything that is not a letter or digit. Values are never pasted into the command line. `choices` is a command whose output lines are the values to offer. `values` and `kind` mean what they mean for a provisioner's arguments, below. A yes or no is a switch here too.
 
 ### Steps of other actions
 
-An action with `extends` has no row of its own. It runs after the action it extends, every time, and its output follows that action's. Start that output with the plugin's name. An action and its steps run one after another in one session, each as its own user. All steps run even when one fails. `berth run HOST status` includes what plugins add to it.
+An action with `extends` has no row of its own. It runs after the action it extends, every time, and its output follows that action's. Start that output with the plugin's name. An action and its steps run one after another in one session, each as its own user. All steps run even when one fails. `rookery run HOST status` includes what plugins add to it.
 
 ### Terminal actions
 
@@ -144,37 +144,37 @@ Sign-ins should not open a browser on the host. Start them with `env -u DISPLAY 
 
 | Variable | Value |
 | --- | --- |
-| `devbox_user`, `devbox_home` | The agent's account and home |
-| `devbox_plugin_dir` | The package's directory, for files it brings |
-| `devbox_plugin_features` | Every feature chosen for the host |
-| `devbox_software_rendering`, `devbox_profile` | And the other `devbox_` settings |
+| `rookery_user`, `rookery_home` | The agent's account and home |
+| `rookery_plugin_dir` | The package's directory, for files it brings |
+| `rookery_plugin_features` | Every feature chosen for the host |
+| `rookery_software_rendering`, `rookery_profile` | And the other `rookery_` settings |
 
-A setting of your own, such as a version, can be given per host in the profile's `ansible_vars` as long as its name starts with `devbox_`. Read it with a default:
+A setting of your own, such as a version, can be given per host in the profile's `ansible_vars` as long as its name starts with `rookery_`. Read it with a default:
 
 ```yaml
-version: "{{ devbox_unity_cli_version | default('1.0.0-beta.17') }}"
+version: "{{ rookery_unity_cli_version | default('1.0.0-beta.17') }}"
 ```
 
 Tasks must be safe to run again, because applying a configuration runs them every time.
 
-On a [node](/docs/use/nodes) there is no agent: `devbox_user` and `devbox_home` are the SSH user and its home, and `devbox_level` is `node`. A feature for a node can also set these:
+On a [node](/docs/use/nodes) there is no agent: `rookery_user` and `rookery_home` are the SSH user and its home, and `rookery_level` is `node`. A feature for a node can also set these:
 
 | Fact | What it adds |
 | --- | --- |
-| `devbox_firewall_rules` | Rules of the node's firewall, as the arguments of `ufw`, such as `allow in on incusbr0`. The role deletes a rule of a feature that the node no longer has |
-| `devbox_node_units` | Units whose state berthd reports, such as `incus` |
-| `devbox_offer` | The provisioners it offers, once the tasks are sure of them |
+| `rookery_firewall_rules` | Rules of the node's firewall, as the arguments of `ufw`, such as `allow in on incusbr0`. The role deletes a rule of a feature that the node no longer has |
+| `rookery_node_units` | Units whose state rookeryd reports, such as `incus` |
+| `rookery_offer` | The provisioners it offers, once the tasks are sure of them |
 
 ### Offering provisioners
 
-A feature that lists `offers` sets `devbox_offer` with `set_fact` at the end of its tasks. The role keeps it in the host's `/etc/berth/applied.json`, and berth registers a provisioner of each type after the apply, with the node it is on. The record is readable on the node, so it holds public values only. berth takes the provisioners the feature lists in `offers`, with their own arguments and secrets. It ignores any other provisioner, setting or secret in the record.
+A feature that lists `offers` sets `rookery_offer` with `set_fact` at the end of its tasks. The role keeps it in the host's `/etc/rookery/applied.json`, and Rookery registers a provisioner of each type after the apply, with the node it is on. The record is readable on the node, so it holds public values only. Rookery takes the provisioners the feature lists in `offers`, with their own arguments and secrets. It ignores any other provisioner, setting or secret in the record.
 
-A provisioner registered by hand becomes the node's when berth finds the server it names on the node's address and port. The node's word alone, its aliases or the certificate it reports, never changes another provisioner. The apply then names it, and `berth provisioner run NAME adopt node=NODE` makes it the node's.
+A provisioner registered by hand becomes the node's when Rookery finds the server it names on the node's address and port. The node's word alone, its aliases or the certificate it reports, never changes another provisioner. The apply then names it, and `rookery provisioner run NAME adopt node=NODE` makes it the node's.
 
 | Field | Meaning |
 | --- | --- |
 | `provisioners` | The ids it offers now, out of `offers`. All of them when it is left out |
-| `settings` | Values of the provisioners' own arguments. `{address}`, `{user}` and `{port}` become where berth reaches the node and as whom. A URL has to name the node's address |
+| `settings` | Values of the provisioners' own arguments. `{address}`, `{user}` and `{port}` become where Rookery reaches the node and as whom. A URL has to name the node's address |
 | `secrets` | Values of the provisioners' secrets, such as a server's certificate, kept as each provisioner's own |
 | `aliases` | Other values of a setting that reach the same server. A provisioner registered by hand with one is named in the apply's output, and its owner can make it the node's |
 | `fingerprint` | What identifies the server, for the apply's output |
@@ -182,20 +182,20 @@ A provisioner registered by hand becomes the node's when berth finds the server 
 ```yaml
 - name: Offer the provisioner of this engine
   ansible.builtin.set_fact:
-    devbox_offer:
+    rookery_offer:
       provisioners: [container]
       settings:
         host: "ssh://{user}@{address}:{port}"
 ```
 
-With `trusts`, the certificate is in `devbox_client_certificates`, under the feature's `PLUGIN/ID`, with its `fingerprint` and a `name` for the trust store.
+With `trusts`, the certificate is in `rookery_client_certificates`, under the feature's `PLUGIN/ID`, with its `fingerprint` and a `name` for the trust store.
 
 ## Guide
 
-The guide is installed as `/etc/devbox/guides/PLUGIN-FEATURE.md` and linked from the host's `AGENT.md` ([On the host](/docs/reference/on-the-host#what-agents-read)). It is a Jinja template, so it can adapt to the host:
+The guide is installed as `/etc/rookery/guides/PLUGIN-FEATURE.md` and linked from the host's `AGENT.md` ([On the host](/docs/reference/on-the-host#what-agents-read)). It is a Jinja template, so it can adapt to the host:
 
 ```md title="guide.md"
-{% if devbox_software_rendering %}
+{% if rookery_software_rendering %}
 This machine renders on the CPU; pass `--software`.
 {% endif %}
 ```
@@ -214,20 +214,20 @@ The topic becomes `PLUGIN/TOPIC`. `keep` is the default for messages published t
 
 ## Writing a provisioner
 
-A provisioner is a program of a plugin that makes things on a platform: machines for saved hosts, and other kinds of things its plugin names. It also has actions of its own, such as listing images or freeing space. Its plugin lists it under `berth.provisioners`, next to `features`, and holds the executable. People register it under a name of their own with `berth provisioner add NAME PLUGIN/ID`, and then use it with `berth host create HOST --provisioner NAME`, `berth provisioner show NAME` and `berth resource list` ([Provisioners](/docs/deploy/provisioners), [Resources](/docs/deploy/resources)). The plugins `docker` and `incus` in the berth source are examples.
+A provisioner is a program of a plugin that makes things on a platform: machines for saved hosts, and other kinds of things its plugin names. It also has actions of its own, such as listing images or freeing space. Its plugin lists it under `rookery.provisioners`, next to `features`, and holds the executable. People register it under a name of their own with `rookery provisioner add NAME PLUGIN/ID`, and then use it with `rookery host create HOST --provisioner NAME`, `rookery provisioner show NAME` and `rookery resource list` ([Provisioners](/docs/deploy/provisioners), [Resources](/docs/deploy/resources)). The plugins `docker` and `incus` in the Rookery source are examples.
 
 ```json title="package.json"
 {
-  "name": "berth-plugin-lab",
+  "name": "rookery-plugin-lab",
   "version": "1.0.0",
   "displayName": "Lab",
   "files": ["bin"],
-  "berth": {
+  "rookery": {
     "provisioners": [
       {
         "id": "vm",
         "label": "Lab virtual machine",
-        "description": "A guest on the lab server, set up from berth's cloud seed.",
+        "description": "A guest on the lab server, set up from rookery's cloud seed.",
         "command": "bin/provision",
         "protocol": 2,
         "verbs": ["list"],
@@ -259,7 +259,7 @@ A provisioner is a program of a plugin that makes things on a platform: machines
 }
 ```
 
-Its type is `PLUGIN/ID`, here `lab/vm`. berth runs it as each provisioner registered of that type, with that provisioner's settings and secrets. The program gets its secrets under the names it declares, whichever provisioner it runs as.
+Its type is `PLUGIN/ID`, here `lab/vm`. Rookery runs it as each provisioner registered of that type, with that provisioner's settings and secrets. The program gets its secrets under the names it declares, whichever provisioner it runs as.
 
 ### Manifest fields
 
@@ -267,12 +267,12 @@ Its type is `PLUGIN/ID`, here `lab/vm`. berth runs it as each provisioner regist
   type={{
     id: { type: 'string', required: true, description: 'Lower-case letters, digits, - and _, starting with a letter.' },
     command: { type: 'string', required: true, description: 'Path of an executable file in the package. It is skipped when the path is absolute, has .. in it, or leads outside the package.' },
-    protocol: { type: '2', required: true, description: 'The version of the protocol below. berth reads only 2. A provisioner without it, or with another version, is listed as one that cannot be used, with what to change.' },
-    label: { type: 'string', default: 'the id', description: 'Name in berth.' },
-    description: { type: 'string', description: 'Help text in berth.' },
+    protocol: { type: '2', required: true, description: 'The version of the protocol below. Rookery reads only 2. A provisioner without it, or with another version, is listed as one that cannot be used, with what to change.' },
+    label: { type: 'string', default: 'the id', description: 'Name in rookery.' },
+    description: { type: 'string', description: 'Help text in rookery.' },
     verbs: { type: 'string[]', description: 'Verbs of the provisioner itself besides status and act: list, when it can list what it made.' },
-    secrets: { type: '(string | Secret)[]', description: 'Names of berth secrets it is given. A string is required. {"name", "required": false} is given when it has a value. It gets no others.' },
-    arguments: { type: 'Argument[]', description: 'Its own arguments, which say where it is, such as a server. berth keeps their values as the settings of the provisioner, and every call gets them.' },
+    secrets: { type: '(string | Secret)[]', description: 'Names of Rookery secrets it is given. A string is required. {"name", "required": false} is given when it has a value. It gets no others.' },
+    arguments: { type: 'Argument[]', description: 'Its own arguments, which say where it is, such as a server. Rookery keeps their values as the settings of the provisioner, and every call gets them.' },
     kinds: { type: 'Kind[]', description: 'What it makes. The kind machine makes the machines of hosts.' },
     actions: { type: 'Action[]', description: 'Its own actions, each run with the verb act.' },
     collections: { type: 'Collection[]', description: 'What it holds that people browse, such as storage pools, each with the actions of its items. See Collections.' },
@@ -283,9 +283,9 @@ A kind:
 
 <TypeTable
   type={{
-    id: { type: 'string', required: true, description: 'machine, or a kind of the plugin, such as deployment. A machine kind without a setup berth knows is skipped.' },
-    label: { type: 'string', default: 'the id', description: 'Name in berth.' },
-    setup: { type: '"seed" | "apply"', description: 'For machine. seed: the machine sets itself up from berth\'s cloud seed. apply: berth applies the profile over SSH once the machine answers.' },
+    id: { type: 'string', required: true, description: 'machine, or a kind of the plugin, such as deployment. A machine kind without a setup Rookery knows is skipped.' },
+    label: { type: 'string', default: 'the id', description: 'Name in rookery.' },
+    setup: { type: '"seed" | "apply"', description: 'For machine. seed: the machine sets itself up from rookery\'s cloud seed. apply: Rookery applies the profile over SSH once the machine answers.' },
     archive: { type: 'boolean', default: 'false', description: 'For a seed machine. The provisioner puts the release archive into the machine itself, so the profile needs no release_url.' },
     verbs: { type: 'string[]', description: 'Of start, stop, change, logs and exec, the ones it answers for one of these. create, status and destroy are always required.' },
     arguments: { type: 'Argument[]', description: 'What making one takes, such as its CPUs and image.' },
@@ -310,7 +310,7 @@ A kind other than `machine` belongs to no host. The Docker plugin's `deployment`
 }
 ```
 
-berth keeps the specification and never reads it. People give it with `berth resource create` or `berth resource set ID --spec FILE` ([Deployments](/docs/deploy/deployments)).
+Rookery keeps the specification and never reads it. People give it with `rookery resource create` or `rookery resource set ID --spec FILE` ([Deployments](/docs/deploy/deployments)).
 
 An action takes most fields of a [host's action](#actions):
 
@@ -326,13 +326,13 @@ It also takes these:
 | Field | Default | Means |
 | --- | --- | --- |
 | `changes` | `true` | `false` for one that only reads. It answers at once. One that changes something runs as a job of its own. It holds the provisioner's lock, or the resource's for an action of a kind |
-| `role` | `admin`. An action of the provisioner with `"changes": false` is `view` | The least [role](/docs/extend/serve#who-gets-in) that may run it through a berth server. An action of a kind is `admin` unless it says otherwise, even one that only reads |
+| `role` | `admin`. An action of the provisioner with `"changes": false` is `view` | The least [role](/docs/extend/serve#who-gets-in) that may run it through a Rookery server. An action of a kind is `admin` unless it says otherwise, even one that only reads |
 
-An action runs where berth runs, as the provisioner does, so it has no terminal and no user. An argument with `"secret": true` is not shown as it is typed and is masked in the job's output.
+An action runs where Rookery runs, as the provisioner does, so it has no terminal and no user. An argument with `"secret": true` is not shown as it is typed and is masked in the job's output.
 
 ### Collections
 
-A collection is a list of things the provisioner holds, such as the storage pools of a server, its volumes or its images. The provisioner's page shows each as one row with the number of its items. Enter opens a table of them, and each item has a page with the actions that act on it. Its actions are the provisioner's own, declared in `actions` as usual. A collection lists the ones that belong to it in `new`, `item` and `list`, and the page offers them there and not as rows of their own. `berth provisioner run` runs them as any other action, and `berth provisioner show` prints each collection as a table.
+A collection is a list of things the provisioner holds, such as the storage pools of a server, its volumes or its images. The provisioner's page shows each as one row with the number of its items. Enter opens a table of them, and each item has a page with the actions that act on it. Its actions are the provisioner's own, declared in `actions` as usual. A collection lists the ones that belong to it in `new`, `item` and `list`, and the page offers them there and not as rows of their own. `rookery provisioner run` runs them as any other action, and `rookery provisioner show` prints each collection as a table.
 
 The Incus plugin declares its pools and the volumes in them:
 
@@ -389,9 +389,9 @@ Each entry of `new`, `item` and `list` names an action:
 
 On an item's page, the key fills the arguments of its actions, and they are not asked for again. A new item or an action on the list of a collection that is `within` another has the key of that item filled when it starts from that item's page. From the provisioner's page, it asks for that key too. The page of a pool lists the volumes in it, and the provisioner's page lists all of them.
 
-A collection with `kinds` has the resources of those kinds that berth made with the provisioner as its items, in place of items that `status` gives. It has a key of one name, which takes the provisioner's id of the resource, and only `item` actions. Those are offered on the page of each such resource. The Incus plugin offers its action that grows a root disk on each machine and instance this way.
+A collection with `kinds` has the resources of those kinds that Rookery made with the provisioner as its items, in place of items that `status` gives. It has a key of one name, which takes the provisioner's id of the resource, and only `item` actions. Those are offered on the page of each such resource. The Incus plugin offers its action that grows a root disk on each machine and instance this way.
 
-berth checks the collections when it loads the plugin. If a collection refers to an action, an argument, a kind or a collection that is not there, the provisioner cannot be used, and berth says what to fix. Each action belongs to one collection at most.
+Rookery checks the collections when it loads the plugin. If a collection refers to an action, an argument, a kind or a collection that is not there, the provisioner cannot be used, and Rookery says what to fix. Each action belongs to one collection at most.
 
 ### Arguments
 
@@ -400,12 +400,12 @@ Each entry of `arguments`, of the provisioner, of a kind or of an action, is one
 <TypeTable
   type={{
     name: { type: 'string', required: true, description: 'Lower-case letters, digits, - and _, starting with a letter. The key in the request.' },
-    label: { type: 'string', default: 'the name', description: 'Name in berth.' },
+    label: { type: 'string', default: 'the name', description: 'Name in rookery.' },
     required: { type: 'boolean', default: 'false', description: 'It is refused while it is empty.' },
     default: { type: 'string', default: '""', description: 'The value it starts with.' },
     kind: { type: '"resource" | "boolean"', description: 'resource marks a resource of the machine, such as CPUs, memory or disk. boolean marks a yes or no. Without it, the argument is an ordinary one.' },
-    help: { type: 'string', description: 'What the argument is for, in one or two short sentences, with an example value where it helps. berth shows it in the Information panel of the row. Keep the label to a name, such as Image.' },
-    values: { type: 'string[]', description: 'The values it takes, for a choice of a few, such as ["no", "yes"]. berth offers them like any other choice, and refuses another value.' },
+    help: { type: 'string', description: 'What the argument is for, in one or two short sentences, with an example value where it helps. Rookery shows it in the Information panel of the row. Keep the label to a name, such as Image.' },
+    values: { type: 'string[]', description: 'The values it takes, for a choice of a few, such as ["no", "yes"]. Rookery offers them like any other choice, and refuses another value.' },
     secret: { type: 'boolean', default: 'false', description: 'For an action: what is given is a secret. It is not shown or kept, and is masked in the output.' },
   }}
 />
@@ -418,25 +418,25 @@ Declare a yes or no with `"kind": "boolean"`, and give its two values too:
 {"name": "keep_volumes", "label": "Keep volumes", "default": "no", "kind": "boolean", "values": ["no", "yes"]}
 ```
 
-The screens show it as a switch, which Space, Enter or a click turns on or off. An argument whose `values` are just `yes` and `no`, or `true` and `false`, is a switch as well. Your program gets the value for on or off from `values`, or `yes` and `no` without them. On the command line it is given as one of these, in any case, and berth sends the declared value:
+The screens show it as a switch, which Space, Enter or a click turns on or off. An argument whose `values` are just `yes` and `no`, or `true` and `false`, is a switch as well. Your program gets the value for on or off from `values`, or `yes` and `no` without them. On the command line it is given as one of these, in any case, and Rookery sends the declared value:
 
 | On | Off |
 | --- | --- |
 | `yes`, `true`, `on`, `1` | `no`, `false`, `off`, `0` |
 
-An action's `confirm` question names each switch that is on. Give the argument a `confirm` of its own, such as `"confirm": "Remove the deployment and its volumes?"`, and berth asks that question instead of the action's while the switch is on.
+An action's `confirm` question names each switch that is on. Give the argument a `confirm` of its own, such as `"confirm": "Remove the deployment and its volumes?"`, and Rookery asks that question instead of the action's while the switch is on.
 
-A provisioner's `status`, described below, lists the values an argument takes. berth does not run a `choices` command for a provisioner.
+A provisioner's `status`, described below, lists the values an argument takes. Rookery does not run a `choices` command for a provisioner.
 
 A host's set-up tabs show the arguments of a machine: the provisioner's own first, then the machine kind's.
 
-| Argument | Where berth shows it |
+| Argument | Where Rookery shows it |
 | --- | --- |
 | `required` | On the Install tab, under the Provisioner row |
 | `"kind": "resource"`, not required | Under Machine on the Settings tab |
 | Any other | Under Provisioner Options on the Settings tab |
 
-berth checks the value of a resource before it creates the machine. It goes by the name of the argument:
+Rookery checks the value of a resource before it creates the machine. It goes by the name of the argument:
 
 | Name contains | The value has to be |
 | --- | --- |
@@ -444,11 +444,11 @@ berth checks the value of a resource before it creates the machine. It goes by t
 | `memory`, `mem`, `ram`, `disk`, `size`, `storage` or `swap` | A size with its unit, such as `8GiB`, `512MiB` or `4g` |
 | anything else | Not checked |
 
-An argument that is not required may be left empty. berth lists a bad value as a problem of the tab that shows the argument. The command line does not check resources. The provisioner checks what it is given in any case.
+An argument that is not required may be left empty. Rookery lists a bad value as a problem of the tab that shows the argument. The command line does not check resources. The provisioner checks what it is given in any case.
 
 ### How it is run
 
-berth runs `COMMAND VERB` directly, with the package directory as its working directory and in a process group of its own. Give the file a shebang and the executable bit.
+Rookery runs `COMMAND VERB` directly, with the package directory as its working directory and in a process group of its own. Give the file a shebang and the executable bit.
 
 | Channel | Use |
 | --- | --- |
@@ -457,7 +457,7 @@ berth runs `COMMAND VERB` directly, with the package directory as its working di
 | Standard error | Progress. Each line is shown as it comes |
 | Exit code | 0 is success. Anything else is a failure, and the last five lines of standard error are the reason |
 
-When the command ends, berth ends everything it started in the process group. Do not leave anything running in the background.
+When the command ends, Rookery ends everything it started in the process group. Do not leave anything running in the background.
 
 | Verb | Time allowed |
 | --- | --- |
@@ -488,7 +488,7 @@ A verb about one resource also gets these. `status` without an `id`, `list` and 
 | `name` | The resource's name. A machine's is the host's |
 | `host` | The host's name, for a machine |
 | `id` | The id `create` answered with, once it has |
-| `labels` | For a machine, `berth-host` with the host's name and `berth-instance` with the token. For another kind, `berth-resource` with berth's id of the resource and `berth-token` with the token |
+| `labels` | For a machine, `rookery-host` with the host's name and `rookery-instance` with the token. For another kind, `rookery-resource` with Rookery's id of the resource and `rookery-token` with the token |
 | `node` | The node the provisioner is on, when a node's apply registered it. The node's controller dials its endpoints |
 
 The verbs about a resource get the `arguments` that `create` was given, with defaults for any argument added since. A resource of any other kind gets the provisioner's own arguments and its kind's.
@@ -498,27 +498,27 @@ Each verb adds to it and answers like this:
 | Verb | Request adds | Answer |
 | --- | --- | --- |
 | `create` | `token`. For a machine, `seed` or `access`. For another kind, `environment`, and `spec` when the kind has one | `id`, and optionally `address`, `port` and `endpoints` |
-| `status` | `id` | `state`, which is `running`, `stopped` or `gone`, and optionally `address` and `endpoints`. berth shows `gone` as `missing` |
+| `status` | `id` | `state`, which is `running`, `stopped` or `gone`, and optionally `address` and `endpoints`. Rookery shows `gone` as `missing` |
 | `status` | nothing | The provisioner itself: `state` (`ready` unless it says otherwise), `message`, `details`, `values`, `collections` |
 | `destroy` | `id` | `{}` |
 | `start`, `stop` | `id` | `{}`, and optionally `state` and `endpoints` |
-| `change` | `id`, the new values in `arguments`, `changed` with the names of the arguments whose value is new, and `environment`. For a kind with a specification, `spec`: the new one, or the one berth has | `state`, and optionally `endpoints` |
+| `change` | `id`, the new values in `arguments`, `changed` with the names of the arguments whose value is new, and `environment`. For a kind with a specification, `spec`: the new one, or the one Rookery has | `state`, and optionally `endpoints` |
 | `exec` | `id`, `command` as a list of words, and `stdin` when there is input | `exit_code`, the command's exit status. Its output goes to standard error |
 | `logs` | `id`, `tail` and `follow` | The log on standard output, a line at a time, until it ends |
 | `list` | nothing | `resources`, a list of `id`, `kind`, `name`, `host` and `state`, of every kind |
 | `act` | `action`: its `name` and its `arguments`. For an action of a kind, also `environment`, and `spec` when the kind has one | `message`, and optionally `details` |
 
-`create` must answer with an `id`. berth keeps it, and every later verb uses that id. For a machine, the `address` and `port` go into the profile's `access.address` and `access.port` when those are empty. Entries of `list` without an `id` are dropped. An entry without a `kind` is a machine, and one without a `name` takes its `host` as its name.
+`create` must answer with an `id`. Rookery keeps it, and every later verb uses that id. For a machine, the `address` and `port` go into the profile's `access.address` and `access.port` when those are empty. Entries of `list` without an `id` are dropped. An entry without a `kind` is a machine, and one without a `name` takes its `host` as its name.
 
-`spec` is the specification as the person gave it, as text. `environment` maps variables to the values of the berth secrets the resource is given, such as `{"DB_PASSWORD": "…"}`. It is empty for a resource without secrets. Pass these values on only through the environment of the program that needs them, and berth masks them in your output as it does secrets.
+`spec` is the specification as the person gave it, as text. `environment` maps variables to the values of the Rookery secrets the resource is given, such as `{"DB_PASSWORD": "…"}`. It is empty for a resource without secrets. Pass these values on only through the environment of the program that needs them, and Rookery masks them in your output as it does secrets.
 
 For `logs`, `tail` is how many of the last lines to give, and `follow` whether to go on with what comes after them. Give a machine's console, or its boot output when the console has none. An empty log is no failure.
 
-While berth waits for a new machine, it asks `logs` of the machine kind with each `status`, until SSH answers, with `tail` at 100 and `follow` false. It shows the lines it has not shown before. berth removes escape sequences and control characters, shortens long lines and shows at most six lines at a time. It hides the provisioner's secrets and those of the seed. A kind without `logs` is waited for without them.
+While Rookery waits for a new machine, it asks `logs` of the machine kind with each `status`, until SSH answers, with `tail` at 100 and `follow` false. It shows the lines it has not shown before. Rookery removes escape sequences and control characters, shortens long lines and shows at most six lines at a time. It hides the provisioner's secrets and those of the seed. A kind without `logs` is waited for without them.
 
 ### Endpoints
 
-An answer about one resource may report where it is reached, as `endpoints`. berth keeps the list with the resource's record, and an answer with `endpoints` replaces it whole. An answer without them leaves the list as it was, and a resource that is gone has none. Report them from `create`, `status` and `change`, so they follow what is there, and from `start` and an `act` that makes it anew when those know.
+An answer about one resource may report where it is reached, as `endpoints`. Rookery keeps the list with the resource's record, and an answer with `endpoints` replaces it whole. An answer without them leaves the list as it was, and a resource that is gone has none. Report them from `create`, `status` and `change`, so they follow what is there, and from `start` and an `act` that makes it anew when those know.
 
 ```json title="Answer of status"
 {"state": "running",
@@ -532,18 +532,18 @@ An answer about one resource may report where it is reached, as `endpoints`. ber
 | `address` | An IP address or a DNS name, as seen from the machine your engine runs on |
 | `port` | 1 to 65535 |
 | `protocol` | `tcp`, the default, or `udp` |
-| `hint` | What speaks there, such as `http` or `postgres`. berth shows it to people and doesn't read it |
-| `local` | `true` when your engine runs on the machine that dials: the one berth runs on, or the node in the request |
+| `hint` | What speaks there, such as `http` or `postgres`. Rookery shows it to people and doesn't read it |
+| `local` | `true` when your engine runs on the machine that dials: the one Rookery runs on, or the node in the request |
 
-berth leaves out an endpoint that does not fit, and the first of two with the same name stands. `resources.connect` dials only what you report. It dials from the server, or from the node when the request has `node`. Report `local` only for an engine on the server's own machine or on that node, as a loopback address is then the dialling machine's. With `node`, report addresses as the node sees them: `127.0.0.1` for a port published on every address, and the addresses of the node's bridges. For an engine elsewhere, report addresses that other machines can connect to, such as a port published on the engine's own name. Leave out the addresses only its machine routes to.
+Rookery leaves out an endpoint that does not fit, and the first of two with the same name stands. `resources.connect` dials only what you report. It dials from the server, or from the node when the request has `node`. Report `local` only for an engine on the server's own machine or on that node, as a loopback address is then the dialling machine's. With `node`, report addresses as the node sees them: `127.0.0.1` for a port published on every address, and the addresses of the node's bridges. For an engine elsewhere, report addresses that other machines can connect to, such as a port published on the engine's own name. Leave out the addresses only its machine routes to.
 
 ### Commands
 
-A kind with `exec` among its verbs gets berth's action `exec` ([Run a command in it](/docs/deploy/resources#run-a-command-in-it)). berth sends the command as a list of words in `command`, never as one line for a shell. Run it as it is, with `stdin` on its standard input when the request has it. Write its output to standard error as it comes. Answer with its `exit_code`. Exit with 0 even when the command fails; exit with another code only when you could not run it, such as when the resource is not running. berth records the command line in the job, and not the input.
+A kind with `exec` among its verbs gets Rookery's action `exec` ([Run a command in it](/docs/deploy/resources#run-a-command-in-it)). Rookery sends the command as a list of words in `command`, never as one line for a shell. Run it as it is, with `stdin` on its standard input when the request has it. Write its output to standard error as it comes. Answer with its `exit_code`. Exit with 0 even when the command fails; exit with another code only when you could not run it, such as when the resource is not running. Rookery records the command line in the job, and not the input.
 
-`details` is a list of rows, each `{"label": …, "value": …}`, which berth shows as they are, such as a pool and how full it is. `values` names, by argument, the values an argument takes here, such as `{"pool": ["default", "fast"]}`. berth offers those in place of what the manifest says.
+`details` is a list of rows, each `{"label": …, "value": …}`, which Rookery shows as they are, such as a pool and how full it is. `values` names, by argument, the values an argument takes here, such as `{"pool": ["default", "fast"]}`. Rookery offers those in place of what the manifest says.
 
-`collections` gives the items of each [collection](#collections), by its id. An item has a `name` and a `key` with a value for each part. Its `columns` hold its values by name. `unavailable` gives the item actions that cannot run on it, each with why not. The key of a collection whose key has one part may be left out: it is the name. berth leaves out an item without its whole key, and a collection left out of the answer is shown as not listed.
+`collections` gives the items of each [collection](#collections), by its id. An item has a `name` and a `key` with a value for each part. Its `columns` hold its values by name. `unavailable` gives the item actions that cannot run on it, each with why not. The key of a collection whose key has one part may be left out: it is the name. Rookery leaves out an item without its whole key, and a collection left out of the answer is shown as not listed.
 
 ```json
 "collections": {
@@ -558,7 +558,7 @@ A kind with `exec` among its verbs gets berth's action `exec` ([Run a command in
 }
 ```
 
-A `status` without an `id` that fails is shown as `unreachable`, with the reason. Answer it quickly: berth asks it each time the provisioner's page opens.
+A `status` without an `id` that fails is shown as `unreachable`, with the reason. Answer it quickly: Rookery asks it each time the provisioner's page opens.
 
 A `seed` provisioner also receives the cloud seed with `create`:
 
@@ -566,9 +566,9 @@ A `seed` provisioner also receives the cloud seed with `create`:
 | --- | --- |
 | `seed.user_data` | The cloud-init user data |
 | `seed.meta_data` | `instance-id` and `local-hostname`, as text |
-| `seed.archive` | With `archive: true`: `path` of the release archive on the machine berth runs on, and its `sha256` |
+| `seed.archive` | With `archive: true`: `path` of the release archive on the machine Rookery runs on, and its `sha256` |
 
-An archive has to end up as `/opt/devbox-bootstrap/release.tar.gz` in the machine. First boot waits up to 15 minutes for the file to have that digest.
+An archive has to end up as `/opt/rookery-bootstrap/release.tar.gz` in the machine. First boot waits up to 15 minutes for the file to have that digest.
 
 An `apply` provisioner receives `access`: the `user` to create and the `public_keys` that may log in as it. It must make SSH answer for that account.
 
@@ -584,12 +584,12 @@ A `create` request and its answer, with the secrets left out:
   "provisioner": "vm",
   "arguments": {"server": "https://192.0.2.10:8443", "cpus": "8", "image": "ubuntu-26.04"},
   "secrets": {"lab_token": "…"},
-  "labels": {"berth-host": "studio-2", "berth-instance": "0b6d4f1c9a7e4e58b3d2a61f8c05e9a7"},
+  "labels": {"rookery-host": "studio-2", "rookery-instance": "0b6d4f1c9a7e4e58b3d2a61f8c05e9a7"},
   "token": "0b6d4f1c9a7e4e58b3d2a61f8c05e9a7",
   "seed": {
     "user_data": "#cloud-config\n…",
     "meta_data": "instance-id: 0b6d4f1c9a7e4e58b3d2a61f8c05e9a7\nlocal-hostname: studio-2\n",
-    "archive": {"path": "/home/ops/.local/share/berth/build/delivered/studio-2/devbox-release.tar.gz", "sha256": "…"}
+    "archive": {"path": "/home/ops/.local/share/rookery/build/delivered/studio-2/rookery-release.tar.gz", "sha256": "…"}
   }
 }
 ```
@@ -624,19 +624,19 @@ A provisioner is run again after a crash or a timeout, and it works on machines 
 - **Create once per token.** Called again with the same `token`, `create` answers with the machine it made before and does not make a second one.
 - **Label what you make.** Put `labels` on the machine in whatever way the platform allows.
 - **Destroy a machine that is gone.** `destroy` succeeds when there is nothing left to delete, and deletes only the machine with the `id` it is given.
-- **Leave alone what lacks berth's labels.** `list` shows, and `destroy`, `change` and the actions touch, only what has them. An action that frees space removes only what berth made.
+- **Leave alone what lacks Rookery's labels.** `list` shows, and `destroy`, `change` and the actions touch, only what has them. An action that frees space removes only what Rookery made.
 - **Write progress to standard error.** Standard output is for the answer.
-- **Take secrets from standard input only.** That includes the values in `environment`. Never print them, and do not put them on a command line or in a file that stays after the command ends. berth hides secrets in the lines you write, but it cannot hide what you write elsewhere.
+- **Take secrets from standard input only.** That includes the values in `environment`. Never print them, and do not put them on a command line or in a file that stays after the command ends. Rookery hides secrets in the lines you write, but it cannot hide what you write elsewhere.
 
 ### Try it
 
-Install the plugin from its folder and see that berth finds the provisioner and what it says of itself:
+Install the plugin from its folder and see that Rookery finds the provisioner and what it says of itself:
 
 ```bash
-berth plugin add ~/src/berth-plugin-lab
-berth provisioner types
-berth provisioner add lab lab/vm server=https://192.0.2.10:8443
-berth provisioner show lab
+rookery plugin add ~/src/rookery-plugin-lab
+rookery provisioner types
+rookery provisioner add lab lab/vm server=https://192.0.2.10:8443
+rookery provisioner show lab
 ```
 
 Run a verb by hand from the package directory with a request on standard input. Use a scratch machine and made-up values:
@@ -649,9 +649,9 @@ echo '{"version":2,"verb":"status","provisioner":"vm","arguments":{"server":"htt
 Then create a machine for a saved host and delete it again:
 
 ```bash
-berth host create studio-2 --provisioner lab/vm
-berth resource list                       # the machine's id, such as r-k3q7wz2m
-berth resource remove r-k3q7wz2m
+rookery host create studio-2 --provisioner lab/vm
+rookery resource list                       # the machine's id, such as r-k3q7wz2m
+rookery resource remove r-k3q7wz2m
 ```
 
-Run `berth host create --provisioner` a second time while the first has failed to check that it finds the same machine.
+Run `rookery host create --provisioner` a second time while the first has failed to check that it finds the same machine.

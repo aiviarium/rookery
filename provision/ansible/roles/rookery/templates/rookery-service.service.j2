@@ -1,0 +1,18 @@
+[Unit]
+Description=rookery service {{ item.name }}
+After=rookeryd.service
+Wants=rookeryd.service
+
+[Service]
+{% if item.user == 'root' %}
+ExecStart=/bin/bash {{ rookery_service_dir }}/{{ item.name | replace('/', '-') }}.sh
+{% else %}
+User={{ rookery_user }}
+WorkingDirectory={{ rookery_home }}
+ExecStart=/usr/local/bin/agent-env /bin/bash {{ rookery_service_dir }}/{{ item.name | replace('/', '-') }}.sh
+{% endif %}
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

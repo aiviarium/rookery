@@ -1,0 +1,44 @@
+---
+# What a node is before anything changes: the checks, the guard against a
+# workstation rookery set up, and the account sessions run as.
+- name: Check the node before any changes
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Ubuntu'
+      - ansible_facts.distribution_version is version('24.04', '>=')
+      - ansible_facts.architecture == 'x86_64'
+      - rookery_profile in ['cloud', 'container']
+      - rookery_node_user is match('^[a-z_][a-z0-9_-]{0,31}$')
+      - rookery_ssh_from == 'any' or rookery_ssh_from is match('^[0-9a-fA-F.:/]+$')
+      - rookery_ssh_public_key.splitlines() | reject('match', '^(ssh-|ecdsa-|sk-)[^ ]+ [A-Za-z0-9+/=]+( .*)?$') | list | length == 0
+    fail_msg: A node is an Ubuntu 24.04 or later server on x86_64, installed on a cloud machine or in a container, that rookery reaches as an account of its own.
+
+- name: Read what rookery installed on the host before
+  ansible.builtin.slurp:
+    src: /etc/rookery/applied.json
+  register: rookery_node_found
+  failed_when: false
+# A workstation's desktop, agent and accounts would stay behind, unlooked after.
+- name: Refuse a host that rookery set up as a workstation
+  ansible.builtin.fail:
+    msg: >-
+      {{ inventory_hostname }} is a workstation that rookery set up. Applying it
+      as a node would leave its desktop, its agent and its accounts behind, so
+      nothing was changed. Keep it a workstation, or install the server again
+      and apply it as a node.
+  when:
+    - "'content' in rookery_node_found"
+    - (rookery_node_found.content | b64decode | from_json).level | default('workstation') == 'workstation'
+
+- name: Find the account rookery logs in as
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ rookery_node_user }}"
+# The role's other tasks and the features name the account sessions run as
+# rookery_user and its home rookery_home.
+- name: Describe the node to the role and to rookeryd
+  ansible.builtin.set_fact:
+    rookery_user: "{{ rookery_node_user }}"
+    rookery_operator_user: "{{ rookery_node_user }}"
+    rookery_home: "{{ ansible_facts.getent_passwd[rookery_node_user][4] }}"
+    rookery_node_home: "{{ ansible_facts.getent_passwd[rookery_node_user][4] }}"

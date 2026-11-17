@@ -1,0 +1,20 @@
+# Managed by rookery: what {{ rookery_user }} may do as root ({{ rookery_privileges }}).
+{% if rookery_privileges == 'full' %}
+{{ rookery_user }} ALL=(ALL:ALL) NOPASSWD: ALL
+{% elif rookery_privileges == 'password' %}
+{{ rookery_user }} ALL=(ALL:ALL) ALL
+{% elif rookery_privileges == 'limited' %}
+# Packages, and restarting the services of plugins that run as this account.
+# This guards against accidents, not intent: what a package installs runs as root.
+Defaults:{{ rookery_user }} env_keep += "DEBIAN_FRONTEND"
+{% for apt in ['/usr/bin/apt-get', '/usr/bin/apt'] %}
+{{ rookery_user }} ALL=(root) NOPASSWD: {{ apt }} update
+{{ rookery_user }} ALL=(root) NOPASSWD: {{ apt }} install *, {{ apt }} -y install *
+{% for verb in ['upgrade', 'dist-upgrade', 'full-upgrade', 'autoremove'] %}
+{{ rookery_user }} ALL=(root) NOPASSWD: {{ apt }} {{ verb }}, {{ apt }} -y {{ verb }}, {{ apt }} {{ verb }} -y
+{% endfor %}
+{% endfor %}
+{% for unit in rookery_agent_units | default([]) %}
+{{ rookery_user }} ALL=(root) NOPASSWD: /usr/bin/systemctl restart {{ unit }}
+{% endfor %}
+{% endif %}

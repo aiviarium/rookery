@@ -1,5 +1,5 @@
 """An Ansible callback that notes each playbook run of the end-to-end tests
-in the file BERTH_E2E_APPLIES names: when it ended, how long it took and
+in the file ROOKERY_E2E_APPLIES names: when it ended, how long it took and
 what its hosts did and which tasks took longest. harness.py counts them
 for the summary of a run."""
 import json
@@ -41,7 +41,7 @@ class CallbackModule(CallbackBase):
 
     def v2_playbook_on_stats(self, stats):
         self._task_ended()
-        path = os.environ.get('BERTH_E2E_APPLIES')
+        path = os.environ.get('ROOKERY_E2E_APPLIES')
         if not path:
             return
         hosts = {host: stats.summarize(host) for host in sorted(stats.processed)}

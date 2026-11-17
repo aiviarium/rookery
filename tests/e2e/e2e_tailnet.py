@@ -1,12 +1,12 @@
-"""Joining a tailnet at a Headscale server, with a key berth creates when the
-host needs one, through berth and through berth serve; and a host an older
-berth left joined by hand, which stays as it is. The test host runs the real
+"""Joining a tailnet at a Headscale server, with a key rookery creates when the
+host needs one, through rookery and through rookery serve; and a host an older
+rookery left joined by hand, which stays as it is. The test host runs the real
 tailscale client.
 
 Each is a shared state of the host, which leaves the tailnet before the next
 one joins: AutomaticKey is the extended state (harness.extended()),
 JoinedByHand the plain one (harness.plain()) and ThroughTheServer the one of
-berth serve (harness.served_extended())."""
+rookery serve (harness.served_extended())."""
 import json
 import sqlite3
 import time
@@ -18,7 +18,7 @@ from harness import (HOST, changed_tasks, extended, headscale, joining, last_key
 
 def changed(output):
     """The tasks of the role that changed, without the role's name."""
-    return [name.removeprefix('devbox : ') for name in changed_tasks(output)]
+    return [name.removeprefix('rookery : ') for name in changed_tasks(output)]
 
 
 def on_the_tailnet(station):
@@ -50,7 +50,7 @@ class Joined:
 
 @needs_e2e
 class AutomaticKey(Joined, unittest.TestCase):
-    """berth on a workstation, given the server and its API key."""
+    """rookery on a workstation, given the server and its API key."""
 
     @classmethod
     def setUpClass(cls):
@@ -71,17 +71,17 @@ class AutomaticKey(Joined, unittest.TestCase):
         self.assertEqual(changed(self.second.stdout), [])
 
     def test_the_host_knows_its_name_on_the_tailnet(self):
-        status = self.station.berth('run', HOST, 'status').stdout
+        status = self.station.rookery('run', HOST, 'status').stdout
         self.assertIn(f'{HOST}.tailnet.test', status)
         # Headscale offers no tailscale serve, and the host says how else.
-        access = self.station.berth('run', HOST, 'access').stdout
+        access = self.station.rookery('run', HOST, 'access').stdout
         self.assertIn('does not offer tailscale serve', access)
         self.assertIn('ssh -L 6080:127.0.0.1:6080', access)
 
 
 @needs_e2e
 class JoinedByHand(unittest.TestCase):
-    """A host joined by hand, with the profile of an older berth that held a
+    """A host joined by hand, with the profile of an older rookery that held a
     pasted key, and no API key of the tailnet on the workstation."""
 
     @classmethod
@@ -100,19 +100,19 @@ class JoinedByHand(unittest.TestCase):
     def test_the_pasted_key_is_not_kept(self):
         for old in ('tailscale_auth_key', 'tailscale_auto_key', 'tailscale_login_server'):
             self.assertNotIn(old, self.saved)
-        self.assertNotIn('devbox_tailscale_auth_key', self.saved.get('ansible_vars', {}))
+        self.assertNotIn('rookery_tailscale_auth_key', self.saved.get('ansible_vars', {}))
 
     def test_off_the_tailnet_without_the_api_key_nothing_runs(self):
         output = self.refused.stdout + self.refused.stderr
         self.assertNotEqual(self.refused.returncode, 0, output)
-        self.assertIn('berth secret set tailnet_api_key', output)
+        self.assertIn('rookery secret set tailnet_api_key', output)
         self.assertIn('switch Tailscale off', output)
         self.assertEqual(changed(self.refused.stdout), [])
 
 
 @needs_e2e
 class ThroughTheServer(Joined, unittest.TestCase):
-    """A terminal client of berth serve: the server keeps the API key and
+    """A terminal client of rookery serve: the server keeps the API key and
     makes the keys, and the client sets it up with the usual commands."""
 
     @classmethod
@@ -129,7 +129,7 @@ class ThroughTheServer(Joined, unittest.TestCase):
         self.assertEqual(settings['tailnet_login_server'], headscale().url)
         self.assertEqual(settings['tailnet_user'], headscale().user)
         self.assertIn('tailnet_api_key', self.serve.call('GET', '/v1/secrets')['names'])
-        store = sqlite3.connect(self.serve.station.data / 'berth/berth.db')
+        store = sqlite3.connect(self.serve.station.data / 'rookery/rookery.db')
         try:
             kept = store.execute("SELECT value FROM state WHERE kind = 'secret' AND scope = ''"
                                  " AND label = 'tailnet_api_key'").fetchone()
@@ -149,11 +149,11 @@ class ThroughTheServer(Joined, unittest.TestCase):
     def test_a_seed_carries_a_key_made_for_it(self):
         draft = {**self.kept, 'hostname': 'cloud-5', 'builder': {}, 'access': {},
                  'operator_password_hash': '$6$e2e$' + 'x' * 86,
-                 'release_url': 'https://192.0.2.30/berth-release.tar.gz'}
+                 'release_url': 'https://192.0.2.30/rookery-release.tar.gz'}
         self.serve.call('PUT', '/v1/hosts/cloud-5/profile', joining(draft))
         try:
             before = last_key_id()
-            seeded = self.client.berth('host', 'seed', 'cloud-5')
+            seeded = self.client.rookery('host', 'seed', 'cloud-5')
             # Whoever starts the machine learns until when it can join.
             self.assertIn('joins the tailnet until', seeded.stderr)
             seed = seeded.stdout

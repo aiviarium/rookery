@@ -1,21 +1,21 @@
-# Contributing to berth
+# Contributing to Rookery
 
-Thanks for wanting to help. This page says what berth is trying to be, and how
+Thanks for wanting to help. This page says what Rookery is trying to be, and how
 a change gets from an idea to `main`. Coding agents working in the repository
 should also read [AGENTS.md](../AGENTS.md).
 
-## What berth is
+## What Rookery is
 
-berth sets up a machine for coding agents and manages it afterwards. It
+Rookery sets up a machine for coding agents and manages it afterwards. It
 installs a desktop, an agent account, and whatever a host's profile switches
-on. Once the host runs, berth shows its status and handles its sign-ins,
+on. Once the host runs, Rookery shows its status and handles its sign-ins,
 updates, secrets and shells.
 
 It's a tool at the level of a framework, and it's kept narrow on purpose:
 
-- **Not an agent runner.** berth doesn't run agents, schedule their work or judge
+- **Not an agent runner.** Rookery doesn't run agents, schedule their work or judge
   their output. It prepares the machine they run on. Orchestrators such as T3
-  Code are things berth installs, and it doesn't try to become one.
+  Code are things Rookery installs, and it doesn't try to become one.
 - **Not a bundle.** The core is small, and we want it no larger. An agent, a
   toolchain or a service is a plugin, and a host only gets the ones its
   profile names. Whatever works as a plugin should be one, often in a
@@ -27,7 +27,7 @@ It's a tool at the level of a framework, and it's kept narrow on purpose:
   ordinary HTTP. We prefer the plain way over the clever one, so that someone
   can read what happens to their machine.
 
-A change that makes berth do more is weighed against these points. Doing the
+A change that makes Rookery do more is weighed against these points. Doing the
 same with less is always welcome.
 
 ## Before you write code
@@ -41,14 +41,14 @@ Choose the form that fits:
 
 | Form | For |
 | --- | --- |
-| Feature | Something berth can't do at all yet |
-| Improvement | Something berth does already, but could do more easily, faster or more clearly |
+| Feature | Something Rookery can't do at all yet |
+| Improvement | Something Rookery does already, but could do more easily, faster or more clearly |
 | Integration | An agent, tool, provider or service, as a new plugin or in one that exists |
 
 You don't have to wait for an answer before you start. Once the issue is
 there, you can begin on the pull request straight away if you like. The order
 is what matters, since the issue is where we find out whether the change
-belongs in berth at all, and it's cheaper to find that out before the work is
+belongs in Rookery at all, and it's cheaper to find that out before the work is
 done.
 
 A few rules follow from that:
@@ -74,14 +74,14 @@ Labels say the rest:
 | `needs triage`, `needs info`, `accepted`, `blocked` | Where the issue stands |
 | `duplicate`, `out of scope`, `plugin candidate` | Why it was closed |
 
-A new issue starts with `needs triage`. When it belongs in berth, it gets
+A new issue starts with `needs triage`. When it belongs in Rookery, it gets
 `accepted`, and a pull request is welcome from then on. An idea that would
 work better as a plugin is closed with `plugin candidate`, and one that
-doesn't fit what berth is with `out of scope`.
+doesn't fit what Rookery is with `out of scope`.
 
 ## Using language models
 
-Using a model to help is fine, and welcome. Most of berth was written with
+Using a model to help is fine, and welcome. Most of Rookery was written with
 one. What we ask:
 
 - **You review it.** Read every line of a change before you submit it, and be
@@ -115,8 +115,8 @@ without containers is described in the
 
 The container tests don't settle whether a change works. The test host is a
 bare container that lacks systemd, a desktop and the real agents. A clean run
-there covers only part of what berth does. Try your change on a real
-deployment as well: a laptop, a server or a VM that berth installed. Most
+there covers only part of what Rookery does. Try your change on a real
+deployment as well: a laptop, a server or a VM that Rookery installed. Most
 contributors have one, and we test on ours before a release. Say in the pull
 request what you tried it on.
 
@@ -135,7 +135,7 @@ A pull request is ready when:
 
 - The screens do everything through the API of a server, whichever it is. A
   feature of theirs is an operation or an action of the server first, and
-  then their part in `crates/berth-page` and `crates/berth-tui`.
+  then their part in `crates/rookery-page` and `crates/rookery-tui`.
 - Commits follow [Conventional Commits](https://www.conventionalcommits.org/),
   with a short subject that says what changed.
 - The pull request links its issue and stays within it. Leave unrelated
@@ -144,7 +144,7 @@ A pull request is ready when:
 ## Reporting bugs
 
 Open an issue with what you ran, what you expected and what happened. The
-output of `berth --version` and of `berth run HOST status` helps. Take
+output of `rookery --version` and of `rookery run HOST status` helps. Take
 addresses, tokens and passwords out before you paste anything.
 
 Don't report security problems in an issue. [SECURITY.md](SECURITY.md) says
@@ -152,6 +152,6 @@ where they go.
 
 ## Licence
 
-berth is licensed under either of the [Apache License, Version 2.0](../LICENSE-APACHE)
+Rookery is licensed under either of the [Apache License, Version 2.0](../LICENSE-APACHE)
 or the [MIT license](../LICENSE-MIT), at your option. By contributing you agree
 that your contribution is licensed the same way, with no further terms.

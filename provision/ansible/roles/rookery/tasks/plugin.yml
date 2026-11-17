@@ -1,0 +1,73 @@
+---
+# One feature of a plugin, named PLUGIN/FEATURE.
+- name: Check the feature name
+  ansible.builtin.assert:
+    that: rookery_plugin_feature is match('^[a-z][a-z0-9_-]*/[a-z][a-z0-9_-]*$')
+    fail_msg: "Plugin features are named PLUGIN/FEATURE in lowercase letters, digits, - and _: {{ rookery_plugin_feature }}"
+- name: Find the plugin
+  ansible.builtin.set_fact:
+    rookery_plugin_id: "{{ rookery_plugin_feature.split('/')[0] }}"
+    rookery_plugin_dir: "{{ rookery_plugin_dirs[rookery_plugin_feature.split('/')[0]] | default(playbook_dir ~ '/../../plugins/' ~ rookery_plugin_feature.split('/')[0]) }}"
+- name: Read the plugin's package.json
+  ansible.builtin.set_fact:
+    rookery_plugin_package: "{{ lookup('ansible.builtin.file', rookery_plugin_dir ~ '/package.json') | from_json }}"
+- name: Find the feature in it
+  ansible.builtin.set_fact:
+    rookery_plugin_label: "{{ rookery_plugin_package.displayName | default(rookery_plugin_id) }}"
+    rookery_plugin_matches: "{{ rookery_plugin_package.rookery.features | default([]) | selectattr('id', 'equalto', rookery_plugin_feature.split('/')[1]) | list }}"
+- name: Require the feature to exist
+  ansible.builtin.assert:
+    that: rookery_plugin_matches | length == 1
+    fail_msg: "{{ rookery_plugin_dir }}/package.json has no feature {{ rookery_plugin_feature.split('/')[1] }}"
+- name: Take the feature's description
+  ansible.builtin.set_fact:
+    rookery_feature: "{{ rookery_plugin_matches[0] }}"
+    # Its tasks set this to the provisioners they found, once they are sure of them.
+    rookery_offer: {}
+# A feature is for a workstation unless its manifest names other types.
+- name: Require the feature to be for this type of host
+  ansible.builtin.assert:
+    that: ('node' if rookery_level == 'node' else 'workstation') in (rookery_feature.types | default(['workstation']))
+    fail_msg: >-
+      {{ rookery_plugin_feature }} is for {{ (rookery_feature.types | default(['workstation'])) | join(' or ') }} hosts,
+      not for a {{ 'node' if rookery_level == 'node' else 'workstation' }}. Take it out of the profile's features.
+- name: Install the feature's packages
+  ansible.builtin.apt:
+    name: "{{ rookery_feature.packages }}"
+    state: present
+    lock_timeout: 300
+  when: rookery_feature.packages | default([]) | length > 0
+- name: Run the feature's tasks
+  ansible.builtin.include_tasks: "{{ rookery_plugin_dir }}/{{ rookery_feature.tasks }}"
+  when: rookery_feature.tasks | default('') | length > 0
+- name: Record the provisioners the feature offers
+  ansible.builtin.set_fact:
+    rookery_plugin_offers: >-
+      {{ rookery_plugin_offers + [{
+           'feature': rookery_plugin_feature,
+           'provisioners': rookery_offer.provisioners | default(rookery_feature.offers) | intersect(rookery_feature.offers),
+           'settings': rookery_offer.settings | default({}),
+           'secrets': rookery_offer.secrets | default({}),
+           'aliases': rookery_offer.aliases | default({}),
+           'fingerprint': rookery_offer.fingerprint | default('')}] }}
+  when: rookery_feature.offers | default([]) | length > 0 and rookery_offer | length > 0
+- name: Install the feature's guide for agents
+  ansible.builtin.template:
+    src: "{{ rookery_plugin_dir }}/{{ rookery_feature.guide }}"
+    dest: "/etc/rookery/guides/{{ rookery_plugin_feature | replace('/', '-') }}.md"
+    mode: '0644'
+  when: rookery_feature.guide | default('') | length > 0
+- name: Record what the feature adds
+  ansible.builtin.set_fact:
+    rookery_plugin_info: "{{ rookery_plugin_info + [{'name': rookery_plugin_feature | replace('/', '-'), 'label': rookery_feature.label | default(rookery_plugin_feature), 'summary': rookery_feature.summary | default(''), 'guide': rookery_feature.guide | default('') | length > 0}] }}"
+    rookery_plugin_commands: "{{ rookery_plugin_commands + (rookery_feature.commands | default([])) }}"
+# Its actions become tasks of the host, named PLUGIN:ACTION; its services and
+# channel topics are named PLUGIN/NAME. rookery.yml writes them for rookeryd.
+- name: Read what the feature adds for rookeryd
+  ansible.builtin.set_fact:
+    rookery_feature_adds: "{{ lookup('ansible.builtin.template', role_path ~ '/templates/rookery-feature.json.j2') }}"
+- name: Record it
+  ansible.builtin.set_fact:
+    rookery_plugin_tasks: "{{ rookery_plugin_tasks + (rookery_feature_adds if rookery_feature_adds is mapping else rookery_feature_adds | from_json).tasks }}"
+    rookery_plugin_services: "{{ rookery_plugin_services + (rookery_feature_adds if rookery_feature_adds is mapping else rookery_feature_adds | from_json).services }}"
+    rookery_plugin_channels: "{{ rookery_plugin_channels + (rookery_feature_adds if rookery_feature_adds is mapping else rookery_feature_adds | from_json).channels }}"

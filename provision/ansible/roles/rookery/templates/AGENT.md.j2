@@ -1,0 +1,64 @@
+# This machine
+
+Generated when the machine was set up; it lists what this one has. The guides
+under `/etc/rookery/guides/` go into detail. Read the one for a tool before using it.
+
+- Host `{{ ansible_facts.hostname }}`, Ubuntu {{ ansible_facts.distribution_version }}, set up as `{{ rookery_profile }}`.
+- You are `{{ rookery_user }}`. {% if rookery_privileges == 'full' %}`sudo -n` works without a password.{% elif rookery_privileges == 'limited' %}`sudo -n` works for packages only: `apt-get update`, `apt-get install ...`, `apt-get upgrade` (also as `apt`, also with `-y` first){% if rookery_agent_units | default([]) | length > 0 %}, and `systemctl restart` of {{ rookery_agent_units | join(', ') }}{% endif %}. Nothing else runs as root.{% elif rookery_privileges == 'none' %}You have no sudo. Work inside your home and `/srv/agent`.{% else %}sudo asks for a password you do not have.{% endif %}
+
+- Workspaces: `/srv/agent/workspaces`. Outputs meant for people: `/srv/agent/artifacts`.
+- Use separate git worktrees for parallel work.
+
+## Desktop
+
+XFCE runs on display `:1` and is shared: never start a second desktop session.
+`box exec COMMAND ...` runs a command with that display, its Xauthority and the
+tool PATH; `box desktop` takes screenshots and sends input, and `box mcp` offers
+the same as MCP tools.
+Details: `/etc/rookery/guides/desktop.md`.
+
+Graphics: {% if rookery_software_rendering %}CPU rendering (Mesa llvmpipe for OpenGL, lavapipe for Vulkan); there is no GPU acceleration.{% else %}the host's GPU where the driver allows it.{% endif %}
+ Details: `/etc/rookery/guides/graphics.md`.
+
+## Installed
+
+- Always: git, ripgrep, jq, Python with uv and pip, Node/npm, GCC, CMake, Ninja,
+  FFmpeg, Firefox{% if rookery_install_playwright %}, Chromium (`rookery-chromium`) with Playwright{% endif %}, LibreOffice, GIMP, Inkscape,
+  PDF and OCR tools, Python artifact libraries in `/opt/rookery-tools/venv`.
+{% for category in rookery_tool_categories if category.name in rookery_enabled_categories %}
+- {{ category.name }}: {{ category.commands | map('regex_replace', '^(.*)$', '`\\1`') | join(', ') }}
+{% endfor %}
+{% if rookery_install_docker and rookery_profile != 'container' %}
+- Docker (`docker`), usable without sudo.
+{% endif %}
+{% for plugin in rookery_plugin_info %}
+- {{ plugin.label }}: {{ plugin.summary }}{% if plugin.guide %} Guide: `/etc/rookery/guides/{{ plugin.name }}.md`.{% endif %}
+
+{% endfor %}
+
+`mise ls` shows the managed runtimes; `/var/lib/rookery/toolchains.json` has the
+resolved versions and `/etc/rookery/expected-commands` every command this machine
+is expected to have. `yq` is the Python/jq-based Ubuntu package, not mikefarah/yq.
+Not listed here means not installed; install what a task needs.
+
+## Actions
+
+`box actions` lists the named operations of this machine you may run, such as
+the self-test; `box run ACTION` runs one and shows its output. `box --help` has the
+rest: publishing and reading messages on the machine's channel, and calling the
+services plugins provide.
+
+## Rules
+
+- Secrets go to an unlocked default keyring (Secret Service), stored unencrypted
+  in `~/.local/share/keyrings`. Nothing should ask for a keyring password.
+- Tokens and registry logins the owner installed are already in your environment
+  (`~/.config/rookery/secrets.env`, `~/.npmrc`, `~/.docker/config.json`). Use them;
+  never print, copy or commit their values.
+- Signing in to a service is done by a person. Never report a sign-in as working
+  because its CLI is installed.
+- Browser automation keeps its sandbox enabled.
+{% if rookery_profile != 'container' %}
+- Services: `systemctl --user status rookery-desktop rookery-novnc{{ ' t3code' if rookery_install_t3 | bool else '' }}`.
+  Restarting the desktop closes its windows.
+{% endif %}

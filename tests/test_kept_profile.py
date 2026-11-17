@@ -16,8 +16,8 @@ except ImportError:
     yaml = None
 
 ROOT = Path(__file__).resolve().parents[1]
-TASKS = ROOT / 'provision/ansible/roles/devbox/tasks/applied.yml'
-KEPT = '/etc/berth/profile.json'
+TASKS = ROOT / 'provision/ansible/roles/rookery/tasks/applied.yml'
+KEPT = '/etc/rookery/profile.json'
 
 
 def load(name, path):
@@ -34,7 +34,7 @@ def playbook():
 
 
 DOCUMENT = {
-    'format': 1, 'berth': '0.0.0', 'host': 'studio',
+    'format': 1, 'rookery': '0.0.0', 'host': 'studio',
     'profile': {'hostname': 'studio', 'profile': 'cloud', 'operator_password_hash': '$6$salt$hash',
                 'builder': {'ask_pass': False}},
 }
@@ -42,12 +42,12 @@ DOCUMENT = {
 
 class SeedTests(unittest.TestCase):
     def test_the_seed_builder_hands_the_kept_profile_to_the_first_boot(self):
-        builder = load('builder', 'provision/bin/devbox.py')
-        c = {'target': 'cloud', 'berth_profile': DOCUMENT}
+        builder = load('builder', 'provision/bin/rookery.py')
+        c = {'target': 'cloud', 'rookery_kept_profile': DOCUMENT}
         variables = builder.deployment(c, 'a' * 64)['ansible_vars']
-        self.assertEqual(variables['devbox_berth_profile'], DOCUMENT)
-        # A profile written without berth keeps nothing.
-        self.assertNotIn('devbox_berth_profile', builder.deployment({'target': 'cloud'}, 'a' * 64)['ansible_vars'])
+        self.assertEqual(variables['rookery_kept_profile'], DOCUMENT)
+        # A profile written without rookery keeps nothing.
+        self.assertNotIn('rookery_kept_profile', builder.deployment({'target': 'cloud'}, 'a' * 64)['ansible_vars'])
 
 
 @unittest.skipUnless(yaml and playbook(), 'Run with the Ansible venv Python for the role tasks')
@@ -57,7 +57,7 @@ class RoleTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.dir)
         self.kept = self.dir / 'profile.json'
         tasks = [task for task in yaml.safe_load(TASKS.read_text())
-                 if 'devbox_berth_profile' in json.dumps(task.get('when', ''))]
+                 if 'rookery_kept_profile' in json.dumps(task.get('when', ''))]
         self.assertEqual(len(tasks), 2)
         for task in tasks:
             module = task.get('ansible.builtin.slurp') or task['ansible.builtin.copy']
@@ -75,7 +75,7 @@ class RoleTests(unittest.TestCase):
 
     def apply(self, document):
         variables = self.dir / 'vars.json'
-        variables.write_text(json.dumps({'devbox_berth_profile': document}))
+        variables.write_text(json.dumps({'rookery_kept_profile': document}))
         done = subprocess.run(
             [playbook(), '-i', 'localhost,', '-c', 'local', str(self.dir / 'play.yml'), '-e', f'@{variables}'],
             capture_output=True, text=True, env=dict(os.environ, ANSIBLE_NOCOLOR='1'))
@@ -103,7 +103,7 @@ class RoleTests(unittest.TestCase):
         self.assertEqual(self.apply(DOCUMENT), 1)
         self.assertEqual(json.loads(self.kept.read_text())['host'], 'studio')
 
-    def test_without_a_profile_from_berth_nothing_is_written(self):
+    def test_without_a_profile_from_rookery_nothing_is_written(self):
         variables = self.dir / 'none.json'
         variables.write_text('{}')
         done = subprocess.run(

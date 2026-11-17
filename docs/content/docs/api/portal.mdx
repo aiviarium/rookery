@@ -1,17 +1,17 @@
 ---
 title: The portal
-description: One WebSocket for every operation, calls and streams at once, on berthd and on berth serve.
+description: One WebSocket for every operation, calls and streams at once, on rookeryd and on rookery serve.
 icon: Cable
 ---
 
-The portal is a WebSocket at `/v1/portal`. A client opens it once and sends operations as JSON frames, each with a number of its own, so many calls and streams share the connection. berth in [server mode](/docs/use/server) reaches the server's hosts this way.
+The portal is a WebSocket at `/v1/portal`. A client opens it once and sends operations as JSON frames, each with a number of its own, so many calls and streams share the connection. Rookery in [server mode](/docs/use/server) reaches the server's hosts this way.
 
 ## Opening it
 
 | Program | Where |
 | --- | --- |
-| berthd | `GET /v1/portal` on `/run/berth/control.sock` for host level, or on `agent.sock` for agent level |
-| `berth serve` | `GET /v1/portal` on its unix socket, or over TCP with the token in `Authorization: Bearer`. A browser, which cannot set that header, gives the token as the `Sec-WebSocket-Protocol` value |
+| rookeryd | `GET /v1/portal` on `/run/rookery/control.sock` for host level, or on `agent.sock` for agent level |
+| `rookery serve` | `GET /v1/portal` on its unix socket, or over TCP with the token in `Authorization: Bearer`. A browser, which cannot set that header, gives the token as the `Sec-WebSocket-Protocol` value |
 
 ## A call
 
@@ -28,7 +28,7 @@ The client numbers each request with `id`, an integer below 2^32 that it does no
 | `op` | The operation's name | the method and path |
 | `args` | The operation's arguments | the path, the query and some headers |
 | `data` | The operation's input | the body |
-| `host` | On `berth serve` only: the host whose operation this is | the `/v1/hosts/NAME` prefix |
+| `host` | On `rookery serve` only: the host whose operation this is | the `/v1/hosts/NAME` prefix |
 
 An error comes back instead of a result, with the same fields as an HTTP error ([Errors](/docs/api#errors)):
 
@@ -38,16 +38,16 @@ An error comes back instead of a result, with the same fields as an HTTP error (
 
 An unknown operation is `404`, and a missing argument is `400`.
 
-## A host's operation through berth serve
+## A host's operation through rookery serve
 
-On the portal of `berth serve`, `host` names the host and the rest of the frame is the host's operation, exactly as berthd takes it:
+On the portal of `rookery serve`, `host` names the host and the rest of the frame is the host's operation, exactly as rookeryd takes it:
 
 ```js
 → {"id": 9, "host": "studio", "op": "actions.run", "args": {"action": "status"}}
 ← {"id": 9, "result": {"id": "a81kq0wd3m5c"}}
 ```
 
-`berth serve` refuses the controller's own `secrets` action, because the secrets stay on the machine that runs it.
+`rookery serve` refuses the controller's own `secrets` action, because the secrets stay on the machine that runs it.
 
 ## A stream
 
@@ -88,7 +88,7 @@ When nobody reads a stream, its bytes would fill the other side's memory or hold
 | `window` in the answer | The server keeps to that window. Without it, no window applies to the stream |
 | `{"sub": N, "credit": BYTES}` | Either side has taken so many bytes, and the other may send that many more |
 
-A side may send one frame beyond the window, so a large frame isn't held forever. JSON frames don't count against it. Each side says what it took once it has taken half the window. berth's client asks for a window on every stream it opens, and a client that asks for none gets the streams as before.
+A side may send one frame beyond the window, so a large frame isn't held forever. JSON frames don't count against it. Each side says what it took once it has taken half the window. Rookery's client asks for a window on every stream it opens, and a client that asks for none gets the streams as before.
 
 ## Bytes
 
@@ -101,7 +101,7 @@ Bytes in input or a result are `{"base64": "…"}`, and a result adds `content_t
 
 ## Limits
 
-The server keeps a fixed amount of memory for each portal, so a caller that sends without reading can't fill it. berthd and `berth serve` keep to the same limits:
+The server keeps a fixed amount of memory for each portal, so a caller that sends without reading can't fill it. rookeryd and `rookery serve` keep to the same limits:
 
 | Limit | Value | Past it |
 | --- | --- | --- |
@@ -115,7 +115,7 @@ The server keeps a fixed amount of memory for each portal, so a caller that send
 
 A caller that keeps to its windows and reads what comes never reaches these limits.
 
-berth's client holds up to 16 MB of a stream that it has not read. A server that sends more ends that stream with an error.
+Rookery's client holds up to 16 MB of a stream that it has not read. A server that sends more ends that stream with an error.
 
 ## When to use HTTP instead
 
@@ -125,4 +125,4 @@ berth's client holds up to 16 MB of a stream that it has not read. A server that
 
 ## Clients
 
-berth's own client is `berth_api::portal` in `crates/berth-api/src/portal.rs`. The tests `the_portal_carries_calls_and_streams_together` for berthd and `the_portal_reaches_serve_and_its_hosts` for `berth serve` show calls, streams, bytes and errors in use.
+Rookery's own client is `rookery_api::portal` in `crates/rookery-api/src/portal.rs`. The tests `the_portal_carries_calls_and_streams_together` for rookeryd and `the_portal_reaches_serve_and_its_hosts` for `rookery serve` show calls, streams, bytes and errors in use.

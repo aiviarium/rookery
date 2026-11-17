@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && usermod --password '*' ops \
     && printf 'ops ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/90-cloud-init-users \
     && chmod 0440 /etc/sudoers.d/90-cloud-init-users \
-    && mkdir -p /etc/ssh/provided-keys /var/log/berth-ci /run/sshd \
+    && mkdir -p /etc/ssh/provided-keys /var/log/rookery-ci /run/sshd \
     && rm -f /etc/ssh/ssh_host_*
 # The tailscale client, where the role would install it from Tailscale's
 # packages, which the test network cannot reach. host.sh starts tailscaled.
@@ -28,6 +28,6 @@ RUN curl -fsSL -o /tmp/tailscale.tgz "https://pkgs.tailscale.com/stable/tailscal
 RUN printf '%s\n' 'AuthorizedKeysFile .ssh/authorized_keys /etc/ssh/provided-keys/%u' \
       'PasswordAuthentication no' 'KbdInteractiveAuthentication no' 'LogLevel VERBOSE' \
       > /etc/ssh/sshd_config.d/10-provided.conf
-COPY --chmod=0755 ci/host.sh /usr/local/sbin/berth-ci-host
+COPY --chmod=0755 ci/host.sh /usr/local/sbin/rookery-ci-host
 EXPOSE 22
-ENTRYPOINT ["tini", "--", "/usr/local/sbin/berth-ci-host"]
+ENTRYPOINT ["tini", "--", "/usr/local/sbin/rookery-ci-host"]

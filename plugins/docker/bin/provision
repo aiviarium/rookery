@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Creates the container for a berth host, with systemd as PID 1 and an SSH
+"""Creates the container for a rookery host, with systemd as PID 1 and an SSH
 server, and Compose projects for deployments.
 
-Version 2 of berth's provisioner protocol: one JSON request on stdin, one JSON
+Version 2 of rookery's provisioner protocol: one JSON request on stdin, one JSON
 answer on stdout, progress on stderr. `logs` writes the log on stdout instead.
 """
 import json
@@ -18,7 +18,7 @@ import urllib.parse
 from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parent.parent
-IMAGE_NAME = 'berth-docker-host'
+IMAGE_NAME = 'rookery-docker-host'
 SSH_WAIT = 180
 PROTOCOL = 2
 SYSBOX = 'sysbox-runc'
@@ -39,8 +39,8 @@ user=$1
 id "$user" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$user"
 usermod --password '*' "$user"
 getent group sudo >/dev/null && usermod --append --groups sudo "$user"
-printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$user" > /etc/sudoers.d/90-berth-access
-chmod 0440 /etc/sudoers.d/90-berth-access
+printf '%s ALL=(ALL) NOPASSWD:ALL\n' "$user" > /etc/sudoers.d/90-rookery-access
+chmod 0440 /etc/sudoers.d/90-rookery-access
 mkdir -p /etc/ssh/provided-keys /etc/ssh/sshd_config.d /run/sshd
 cat > "/etc/ssh/provided-keys/$user"
 chmod 0644 "/etc/ssh/provided-keys/$user"
@@ -73,7 +73,7 @@ def failure(what, output):
     if re.search(r'Cannot connect to the Docker daemon|error during connect|permission denied while trying to connect', message):
         return Failure(f'the Docker daemon is not reachable: {message}')
     if re.search(r"'compose' is not a docker command|unknown command:? .*compose", message):
-        return Failure('Docker Compose is not installed where berth runs: deployments need the docker compose plugin')
+        return Failure('Docker Compose is not installed where rookery runs: deployments need the docker compose plugin')
     return Failure(f'{what} failed: {message}')
 
 
@@ -105,7 +105,7 @@ class Docker:
         self.env = dict(os.environ)
         if endpoint:
             self.env['DOCKER_HOST'] = endpoint
-        # The node the engine runs on, whose controller dials the endpoints, when berth names one.
+        # The node the engine runs on, whose controller dials the endpoints, when rookery names one.
         self.node = node
 
     def run(self, *args, input=None, check=True, merge=False, env=None):
@@ -163,7 +163,7 @@ class Docker:
         return self.env.get('DOCKER_HOST') or 'the local Docker'
 
     def engine_host(self):
-        """The machine the engine runs on, as berth reaches it, or None when it is this one."""
+        """The machine the engine runs on, as rookery reaches it, or None when it is this one."""
         if not hasattr(self, '_engine_host'):
             endpoint = self.env.get('DOCKER_HOST') or ''
             if not endpoint:
@@ -209,7 +209,7 @@ def settings(request):
         'image': (arguments.get('image') or '').strip(),
         'port': (arguments.get('ssh_port') or '').strip(),
         'address': (arguments.get('publish_address') or '').strip() or '127.0.0.1',
-        'volume': (arguments.get('volume') or '').strip() or f'berth-{host}-data',
+        'volume': (arguments.get('volume') or '').strip() or f'rookery-{host}-data',
         'cpus': (arguments.get('cpus') or '').strip(),
         'memory': (arguments.get('memory') or '').strip(),
         'keep': (arguments.get('keep_volume') or 'no').strip().lower() == 'yes',
@@ -220,11 +220,11 @@ def settings(request):
 def container_name(request):
     host = request.get('host') or ''
     valid_name(host)
-    return f'berth-{host}'
+    return f'rookery-{host}'
 
 
 def labelled(info):
-    return bool(info and 'berth-host' in (info.get('Config', {}).get('Labels') or {}))
+    return bool(info and 'rookery-host' in (info.get('Config', {}).get('Labels') or {}))
 
 
 def container_address(info):
@@ -235,7 +235,7 @@ def container_address(info):
 
 
 def where(cfg, info):
-    """The address and port berth reaches the container on."""
+    """The address and port rookery reaches the container on."""
     if cfg['port']:
         return cfg['address'], int(cfg['port'])
     return container_address(info), 22
@@ -248,7 +248,7 @@ def slug(text):
 def endpoints_of(docker, info, prefix=''):
     """Where a container is reached: each published port, at the engine's machine, and on an engine
     of the machine that dials also each exposed port at each of its network addresses, which only
-    that machine routes to. That machine is this one, or the node berth names, whose controller
+    that machine routes to. That machine is this one, or the node rookery names, whose controller
     dials."""
     host = docker.engine_host()
     local = host is None or bool(docker.node)
@@ -290,7 +290,7 @@ def endpoints_of(docker, info, prefix=''):
 
 
 def run_in(docker, name, request):
-    """Run the request's command in a running container, its output on standard error, which berth
+    """Run the request's command in a running container, its output on standard error, which rookery
     shows as the job's: the command's exit status."""
     command = request.get('command')
     if not isinstance(command, list) or not command or not all(isinstance(word, str) for word in command):
@@ -398,15 +398,15 @@ def create(request):
     memory = parse_memory(cfg['memory']) if cfg['memory'] else ''
     isolated = isolation(cfg)
     labels = request.get('labels') or {}
-    token = request.get('token') or labels.get('berth-instance') or ''
+    token = request.get('token') or labels.get('rookery-instance') or ''
     if not token:
         raise Failure('the request carries no token')
-    found = docker.names(f'label=berth-instance={token}')
+    found = docker.names(f'label=rookery-instance={token}')
     existing = docker.inspect(name)
     if existing:
         mine = (existing.get('Config', {}).get('Labels') or {})
-        if not labelled(existing) or mine.get('berth-instance') != token:
-            raise Failure(f'a container named {name} exists that berth did not create for this host')
+        if not labelled(existing) or mine.get('rookery-instance') != token:
+            raise Failure(f'a container named {name} exists that rookery did not create for this host')
     elif found:
         name = found[0]
         existing = docker.inspect(name)
@@ -420,19 +420,19 @@ def create(request):
         return {'id': name, 'address': address, 'port': port}
 
     image = ensure_image(cfg)
-    # Created here, not by run, so that destroy can tell berth's volume from one the user named.
+    # Created here, not by run, so that destroy can tell rookery's volume from one the user named.
     if docker.run('volume', 'inspect', cfg['volume'], check=False).returncode != 0:
-        docker.run('volume', 'create', '--label', f'berth-host={request["host"]}', cfg['volume'])
+        docker.run('volume', 'create', '--label', f'rookery-host={request["host"]}', cfg['volume'])
     args = ['run', '--detach', '--name', name, '--hostname', request['host'],
             '--restart', 'unless-stopped', '--stop-signal', 'SIGRTMIN+3', *isolated,
             '--volume', f'{cfg["volume"]}:/srv/agent']
-    for key in ('berth-host', 'berth-instance'):
+    for key in ('rookery-host', 'rookery-instance'):
         if labels.get(key):
             args += ['--label', f'{key}={labels[key]}']
-    if not labels.get('berth-host'):
-        args += ['--label', f'berth-host={request["host"]}']
-    if not labels.get('berth-instance'):
-        args += ['--label', f'berth-instance={token}']
+    if not labels.get('rookery-host'):
+        args += ['--label', f'rookery-host={request["host"]}']
+    if not labels.get('rookery-instance'):
+        args += ['--label', f'rookery-instance={token}']
     if cfg['port']:
         if not cfg['port'].isdigit() or not 0 < int(cfg['port']) < 65536:
             raise Failure(f'{cfg["port"]!r} is not a port')
@@ -467,14 +467,14 @@ def engine_status(cfg):
     version = docker.version()
     server = version.get('Server') or {}
     runtimes = docker.runtimes()
-    made = docker.names('label=berth-host')
+    made = docker.names('label=rookery-host')
     details = [
         {'label': 'Endpoint', 'value': docker.where()},
         {'label': 'Engine', 'value': server.get('Version') or 'unknown'},
         {'label': 'API', 'value': server.get('ApiVersion') or ''},
         {'label': 'System', 'value': f'{server.get("Os") or "?"}/{server.get("Arch") or "?"}'},
         {'label': 'Runtimes', 'value': ', '.join(runtimes)},
-        {'label': 'Machines berth made', 'value': str(len(made))},
+        {'label': 'Machines rookery made', 'value': str(len(made))},
     ]
     return {
         'state': 'ready',
@@ -551,7 +551,7 @@ def volume_rows(docker, containers):
                    if name in [mount.strip() for mount in (row.get('Mounts') or '').split(',')]]
         rows.append({'name': name,
                      'columns': {'driver': volume.get('Driver') or 'local', 'size': sizes.get(name, ''),
-                                 'made_for': labels.get('berth-host', ''), 'used_by': users(used_by) or 'nothing'},
+                                 'made_for': labels.get('rookery-host', ''), 'used_by': users(used_by) or 'nothing'},
                      'unavailable': {'remove-volume': f'Docker refuses it while {users(used_by)} '
                                                       + ('uses' if len(used_by) == 1 else 'use') + ' it'}
                      if used_by else {}})
@@ -577,7 +577,7 @@ def status(request):
 def ours(docker, name):
     info = docker.inspect(name)
     if info is not None and not labelled(info):
-        raise Failure(f'{name} was not created by berth')
+        raise Failure(f'{name} was not created by rookery')
     return info
 
 
@@ -611,10 +611,10 @@ def destroy(request):
     volume = docker.run('volume', 'inspect', cfg['volume'], check=False)
     if volume.returncode == 0:
         found = json.loads(volume.stdout)[0].get('Labels') or {}
-        if 'berth-host' in found:
+        if 'rookery-host' in found:
             docker.run('volume', 'rm', cfg['volume'])
         else:
-            say(f'Volume {cfg["volume"]} was not created by berth and is kept.')
+            say(f'Volume {cfg["volume"]} was not created by rookery and is kept.')
     return {}
 
 
@@ -633,11 +633,11 @@ def list_all(request):
 
 def machines(docker):
     resources = []
-    for name in docker.names('label=berth-host'):
+    for name in docker.names('label=rookery-host'):
         info = docker.inspect(name)
         if info is None:
             continue
-        host = (info['Config'].get('Labels') or {}).get('berth-host', '')
+        host = (info['Config'].get('Labels') or {}).get('rookery-host', '')
         running = info.get('State', {}).get('Running')
         resources.append({'id': name, 'kind': 'machine', 'name': host, 'host': host,
                           'state': 'running' if running else 'stopped'})
@@ -667,7 +667,7 @@ def change(request):
 
 
 def logs(request):
-    """The container's console output on standard output, until it ends or berth stops it,
+    """The container's console output on standard output, until it ends or rookery stops it,
     or its journal when the console has nothing."""
     cfg = settings(request)
     docker = cfg['docker']
@@ -713,34 +713,34 @@ def act_images(cfg, arguments):
     return {'message': message, 'details': rows}
 
 
-def berth_volumes(docker):
-    """The volumes berth made, each with the containers that use it."""
+def rookery_volumes(docker):
+    """The volumes rookery made, each with the containers that use it."""
     found = []
-    for volume in docker.json_lines('volume', 'ls', '--filter', 'label=berth-host'):
+    for volume in docker.json_lines('volume', 'ls', '--filter', 'label=rookery-host'):
         name = volume.get('Name') or ''
         if not name:
             continue
         users = docker.names(f'volume={name}')
         labels = dict(part.split('=', 1) for part in (volume.get('Labels') or '').split(',') if '=' in part)
-        found.append((name, labels.get('berth-host', ''), users))
+        found.append((name, labels.get('rookery-host', ''), users))
     return found
 
 
 def all_volumes(docker):
-    """Every volume of the engine, with the host berth made it for, if any, and the containers that use it."""
+    """Every volume of the engine, with the host rookery made it for, if any, and the containers that use it."""
     found = []
     for volume in docker.json_lines('volume', 'ls'):
         name = volume.get('Name') or ''
         if not name:
             continue
         labels = dict(part.split('=', 1) for part in (volume.get('Labels') or '').split(',') if '=' in part)
-        found.append((name, labels.get('berth-host', ''), docker.names(f'volume={name}')))
+        found.append((name, labels.get('rookery-host', ''), docker.names(f'volume={name}')))
     return found
 
 
 def act_volumes(cfg, arguments):
     volumes = all_volumes(cfg['docker'])
-    rows = [{'label': name, 'value': (f'made by berth for {host}' if host else 'not made by berth') + ' · ' + (f'used by {", ".join(users)}' if users else 'unused')}
+    rows = [{'label': name, 'value': (f'made by rookery for {host}' if host else 'not made by rookery') + ' · ' + (f'used by {", ".join(users)}' if users else 'unused')}
             for name, host, users in volumes]
     return {'message': f'{counted(len(volumes), "volume")} at {cfg["docker"].where()}', 'details': rows}
 
@@ -807,14 +807,14 @@ def act_prune(cfg, arguments):
         if docker.run('image', 'rm', tag, check=False).returncode == 0:
             removed.append(tag)
     if (arguments.get('volumes') or 'no').strip().lower() == 'yes':
-        for name, _, users in berth_volumes(docker):
+        for name, _, users in rookery_volumes(docker):
             if users:
                 continue
             say(f'Removing the volume {name}.')
             if docker.run('volume', 'rm', name, check=False).returncode == 0:
                 removed.append(f'volume {name}')
     if not removed:
-        return {'message': 'Nothing berth left behind is there'}
+        return {'message': 'Nothing rookery left behind is there'}
     return {'message': f'Removed {len(removed)}', 'details': [{'label': item, 'value': 'removed'} for item in removed]}
 
 
@@ -824,25 +824,25 @@ ACTIONS = {'engine': act_engine, 'images': act_images, 'volumes': act_volumes,
            'build': act_build, 'prune': act_prune}
 
 
-# Instances: one plain container from any image, which becomes no berth host. berth labels it with
-# berth-resource and berth-token, and only a container with the first label is one of its own.
+# Instances: one plain container from any image, which becomes no rookery host. rookery labels it with
+# rookery-resource and rookery-token, and only a container with the first label is one of its own.
 
 RESTART = ('no', 'unless-stopped', 'always')
 # What `docker update` changes in place; the rest are fixed when the container is made.
 CHANGEABLE = ('cpus', 'memory')
-# Compose puts this label on the containers of a deployment, which carry berth-resource too.
+# Compose puts this label on the containers of a deployment, which carry rookery-resource too.
 COMPOSE_PROJECT = 'com.docker.compose.project'
 
 
 def is_instance(info):
     labels = (info or {}).get('Config', {}).get('Labels') or {}
-    return 'berth-resource' in labels and COMPOSE_PROJECT not in labels
+    return 'rookery-resource' in labels and COMPOSE_PROJECT not in labels
 
 
 def instance_ours(docker, name):
     info = docker.inspect(name)
     if info is not None and not is_instance(info):
-        raise Failure(f'{name} was not made by berth as an instance, so berth leaves it alone.')
+        raise Failure(f'{name} was not made by rookery as an instance, so rookery leaves it alone.')
     return info
 
 
@@ -863,10 +863,10 @@ def instance_create(request):
     docker = cfg['docker']
     arguments = request.get('arguments') or {}
     labels = request.get('labels') or {}
-    token = labels.get('berth-token') or request.get('token') or ''
+    token = labels.get('rookery-token') or request.get('token') or ''
     if not token:
         raise Failure('the request carries no token')
-    found = docker.names(f'label=berth-token={token}')
+    found = docker.names(f'label=rookery-token={token}')
     if found:
         name = found[0]
         if not (docker.inspect(name) or {}).get('State', {}).get('Running'):
@@ -881,7 +881,7 @@ def instance_create(request):
     if restart not in RESTART:
         raise Failure(f'{restart!r} is not a restart policy; there are {", ".join(RESTART)}')
     args = ['run', '--detach', '--name', name, '--restart', restart,
-            '--label', f'berth-resource={labels.get("berth-resource") or name}', '--label', f'berth-token={token}']
+            '--label', f'rookery-resource={labels.get("rookery-resource") or name}', '--label', f'rookery-token={token}']
     # Docker takes each value from its own environment, so no value is on its command line.
     variables = {}
     for line in (arguments.get('environment') or '').splitlines():
@@ -908,7 +908,7 @@ def instance_create(request):
     done = docker.run(*args, image, *command, check=False, env=variables)
     if done.returncode != 0:
         # A container that was made but did not start would keep the name, so it goes.
-        for made in docker.names(f'label=berth-token={token}'):
+        for made in docker.names(f'label=rookery-token={token}'):
             docker.run('rm', '--force', made, check=False)
         raise failure('docker run', done.stderr or done.stdout)
     return {'id': name, 'state': 'running', 'endpoints': endpoints_of(docker, docker.inspect(name))}
@@ -998,9 +998,9 @@ def instance_exec(request):
 
 def instances(docker):
     resources = []
-    for name in docker.names('label=berth-resource'):
+    for name in docker.names('label=rookery-resource'):
         info = docker.inspect(name)
-        if not is_instance(info) or 'berth-host' in info.get('Config', {}).get('Labels', {}):
+        if not is_instance(info) or 'rookery-host' in info.get('Config', {}).get('Labels', {}):
             continue
         running = info.get('State', {}).get('Running')
         resources.append({'id': name, 'kind': 'instance', 'name': name, 'host': '',
@@ -1017,9 +1017,9 @@ INSTANCE_VERBS = {'create': instance_create, 'status': instance_status, 'start':
 
 PROJECT = r'[a-z0-9][a-z0-9_-]*'
 VARIABLE = r'[A-Za-z_][A-Za-z0-9_]*'
-# The project is named by -p and its file comes on stdin, never from the environment berth runs in.
+# The project is named by -p and its file comes on stdin, never from the environment rookery runs in.
 INHERITED = ('COMPOSE_FILE', 'COMPOSE_PROJECT_NAME', 'COMPOSE_PATH_SEPARATOR', 'COMPOSE_PROFILES')
-LABELS = ('berth-resource', 'berth-token')
+LABELS = ('rookery-resource', 'rookery-token')
 
 
 def valid_project(name):
@@ -1065,7 +1065,7 @@ def feed(pipe, text):
 
 
 class Compose:
-    """docker compose for one project, with the secrets berth resolved in its environment and nowhere else."""
+    """docker compose for one project, with the secrets rookery resolved in its environment and nowhere else."""
 
     def __init__(self, request, project):
         self.docker = settings(request)['docker']
@@ -1104,11 +1104,11 @@ class Compose:
 
     def run(self, *args, spec=None, labels=None, services=(), progress=False, check=True):
         """Runs a subcommand in an empty directory, so that no compose.yaml or .env of whoever
-        runs berth comes in. The spec goes on standard input, and the labels in a file of their own."""
-        with tempfile.TemporaryDirectory(prefix='berth-compose-') as empty:
+        runs rookery comes in. The spec goes on standard input, and the labels in a file of their own."""
+        with tempfile.TemporaryDirectory(prefix='rookery-compose-') as empty:
             files = ['-'] if spec is not None else []
             if labels and services:
-                override = Path(empty) / 'berth-labels.json'
+                override = Path(empty) / 'rookery-labels.json'
                 override.write_text(json.dumps({'services': {name: {'labels': labels} for name in services}}))
                 override.chmod(0o600)
                 files.append(str(override))
@@ -1140,10 +1140,10 @@ class Compose:
         return json_objects(self.run('ps', '--all', '--format', 'json').stdout)
 
     def ours(self):
-        """The project's containers. A project with containers but none of berth's labels is someone else's."""
+        """The project's containers. A project with containers but none of rookery's labels is someone else's."""
         rows = self.containers()
-        if rows and not any('berth-resource' in label_map(row.get('Labels')) for row in rows):
-            raise Failure(f'the Compose project {self.project} was not created by berth')
+        if rows and not any('rookery-resource' in label_map(row.get('Labels')) for row in rows):
+            raise Failure(f'the Compose project {self.project} was not created by rookery')
         return rows
 
     def existing(self):
@@ -1197,17 +1197,17 @@ def project_state(rows):
 
 
 def project_labels(request, compose, rows=()):
-    """berth's labels for the project's containers: the request's, else those its containers have."""
+    """rookery's labels for the project's containers: the request's, else those its containers have."""
     given = request.get('labels') or {}
     labels = {key: given[key] for key in LABELS if given.get(key)}
     if request.get('token'):
-        labels.setdefault('berth-token', request['token'])
+        labels.setdefault('rookery-token', request['token'])
     for row in rows:
         found = label_map(row.get('Labels'))
         for key in LABELS:
             if found.get(key):
                 labels.setdefault(key, found[key])
-    labels.setdefault('berth-resource', compose.project)
+    labels.setdefault('rookery-resource', compose.project)
     return labels
 
 
@@ -1265,14 +1265,14 @@ def deployment_logs(request):
     args = ['logs', '--no-color', '--tail', str(lines) if lines > 0 else 'all']
     if request.get('follow'):
         args.append('--follow')
-    with tempfile.TemporaryDirectory(prefix='berth-compose-') as empty:
+    with tempfile.TemporaryDirectory(prefix='rookery-compose-') as empty:
         stream(compose.argv(args), compose.env, 'docker compose logs', cwd=empty, mask=compose.mask)
     return None
 
 
 def deployments(docker):
-    """The Compose projects whose containers carry berth's labels, each with its state."""
-    done = docker.run('ps', '--all', '--filter', 'label=berth-resource',
+    """The Compose projects whose containers carry rookery's labels, each with its state."""
+    done = docker.run('ps', '--all', '--filter', 'label=rookery-resource',
                       '--format', '{{.Label "com.docker.compose.project"}}\t{{.State}}')
     projects = {}
     for line in done.stdout.splitlines():
@@ -1360,7 +1360,7 @@ def main():
         request = json.load(sys.stdin)
         if request.get('version') != PROTOCOL:
             raise Failure(f'this plugin speaks version {PROTOCOL} of the provisioner protocol, '
-                          f'not {request.get("version")!r}: update berth')
+                          f'not {request.get("version")!r}: update rookery')
         answer = handler(verb, request)(request)
     except Failure as error:
         say(f'docker/container: {error}')

@@ -1,23 +1,23 @@
 # Security
 
-## Where berth is meant to run
+## Where Rookery is meant to run
 
-berth manages machines with root access, so it matters where its parts can be
+Rookery manages machines with root access, so it matters where its parts can be
 reached from.
 
-**berth isn't built to face the open internet.** Keep it on a private network.
+**Rookery isn't built to face the open internet.** Keep it on a private network.
 A tailnet, a VPN or a LAN you trust all work. If it has to be reachable from
 further away, don't publish it directly. Use a reverse proxy with TLS and its
-own authentication, or an API of yours that wraps berth.
+own authentication, or an API of yours that wraps Rookery.
 
 For each part:
 
-- **`berth serve`** gives whoever holds its token control of every host it
+- **`rookery serve`** gives whoever holds its token control of every host it
   knows: commands as root, files, secrets, power. With `--expose` it listens
   on plain HTTP, and the token is sent in the clear unless the network or a
   proxy encrypts it. The roles and OAuth 2.0 tokens narrow what a caller may
   do. They don't make the server safe to publish.
-- **`berthd`** on a host listens on unix sockets only, and berth reaches it
+- **`rookeryd`** on a host listens on unix sockets only, and Rookery reaches it
   over SSH. Nothing of it is on the network.
 - **The desktop, T3 Code and Cockpit** on a host are served on the host's
   private addresses. The desktop link contains its password, so treat the link
@@ -25,12 +25,12 @@ For each part:
 - **The agent account** is for coding agents, which run code they wrote
   themselves. Its sudo rights are set by the profile (`agent_privileges`).
   Don't put anything on a host that an agent on it shouldn't be able to read.
-- **Secrets** are kept unencrypted on the machine that runs berth, in a file
+- **Secrets** are kept unencrypted on the machine that runs Rookery, in a file
   only its user can read, and are written to the agent's files on the hosts
   that take them. The tailnet's API key, `tailnet_api_key`, is the exception:
-  berth uses it to create one-use enrollment keys and never sends it to a host.
-- **Provisioner plugins** run with the rights of the user that runs berth, or
-  the berth server, and are given the provider credentials they name. Install
+  Rookery uses it to create one-use enrollment keys and never sends it to a host.
+- **Provisioner plugins** run with the rights of the user that runs Rookery, or
+  the Rookery server, and are given the provider credentials they name. Install
   only ones you trust.
 
 A host is an agent's workspace and should be treated as one. Give it
@@ -39,7 +39,7 @@ is on it can leak.
 
 ## Supported versions
 
-Fixes go into the latest release. berth is at 0.x and older releases aren't
+Fixes go into the latest release. Rookery is at 0.x and older releases aren't
 maintained.
 
 ## Reporting a vulnerability

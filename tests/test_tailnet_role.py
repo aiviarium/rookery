@@ -1,4 +1,4 @@
-"""How the role joins a host to the tailnet: only with a key berth made,
+"""How the role joins a host to the tailnet: only with a key rookery made,
 never by hand, and never again for a host that is on it. The check and the
 join run with Ansible against a stand-in for the tailscale client."""
 import json
@@ -16,7 +16,7 @@ except ImportError:
     yaml = None
 
 ROOT = Path(__file__).resolve().parents[1]
-ROLE = ROOT / 'provision/ansible/roles/devbox'
+ROLE = ROOT / 'provision/ansible/roles/rookery'
 RUNNING = '{"BackendState": "Running", "Self": {"DNSName": "studio.tailnet.test."}}'
 LOGGED_OUT = '{"BackendState": "NeedsLogin"}'
 
@@ -37,14 +37,14 @@ class RoleTextTests(unittest.TestCase):
         for gone in ('tailscale logout', 'tailscale login', 'needs-enrollment', 'TS_API_KEY'):
             self.assertNotIn(gone, text)
         defaults = yaml.safe_load((ROLE / 'defaults/main.yml').read_text())
-        for name in ('devbox_tailscale_auth_key', 'devbox_tailscale_login_server', 'devbox_tailscale_key_command',
-                     'devbox_tailnet_problem'):
+        for name in ('rookery_tailscale_auth_key', 'rookery_tailscale_login_server', 'rookery_tailscale_key_command',
+                     'rookery_tailnet_problem'):
             self.assertIn(name, defaults)
 
     def test_the_key_never_reaches_argv_or_the_log(self):
         tasks = self.tasks('tailnet.yml')
         named = {task['name']: task for task in tasks}
-        self.assertTrue(named['Create a one-use enrollment key with berth']['no_log'])
+        self.assertTrue(named['Create a one-use enrollment key with rookery']['no_log'])
         self.assertTrue(named['Choose the enrollment key']['no_log'])
         enroll = named['Enroll Tailscale only when not already enrolled']['block']
         stored = next(task for task in enroll if 'ansible.builtin.copy' in task)
@@ -52,8 +52,8 @@ class RoleTextTests(unittest.TestCase):
         self.assertEqual(stored['ansible.builtin.copy']['mode'], '0600')
         up = next(task for task in enroll if task['name'] == 'Consume enrollment key')
         argv = up['ansible.builtin.command']['argv']
-        self.assertIn('--auth-key=file:/run/devbox-tailscale-key', argv)
-        self.assertNotIn('devbox_tailnet_key', argv)
+        self.assertIn('--auth-key=file:/run/rookery-tailscale-key', argv)
+        self.assertNotIn('rookery_tailnet_key', argv)
         cleanup = named['Enroll Tailscale only when not already enrolled']['always'][0]
         self.assertEqual(cleanup['ansible.builtin.file']['state'], 'absent')
 
@@ -61,7 +61,7 @@ class RoleTextTests(unittest.TestCase):
         main = self.tasks('workstation.yml')
         self.assertIn('ansible.builtin.assert', main[0])
         self.assertEqual(main[1]['ansible.builtin.include_tasks'], 'tailnet_check.yml')
-        self.assertIn('devbox_install_tailscale', main[1]['when'])
+        self.assertIn('rookery_install_tailscale', main[1]['when'])
         # The play of a workstation: a node's comes first, and ends the host there.
         e2e = yaml.safe_load((ROOT / 'tests/e2e/site.yml').read_text())[1]['tasks']
         self.assertEqual(e2e[2]['ansible.builtin.include_role']['tasks_from'], 'tailnet_check.yml')
@@ -88,8 +88,8 @@ class TailnetTaskTests(unittest.TestCase):
         self.status.write_text(status)
         (self.dir / 'play.yml').write_text(yaml.safe_dump([{
             'hosts': 'localhost', 'gather_facts': False,
-            'vars': {'devbox_tailscale_auth_key': '', 'devbox_tailscale_login_server': '',
-                     'devbox_tailscale_key_command': [], 'devbox_tailnet_problem': '', **variables},
+            'vars': {'rookery_tailscale_auth_key': '', 'rookery_tailscale_login_server': '',
+                     'rookery_tailscale_key_command': [], 'rookery_tailnet_problem': '', **variables},
             'tasks': [{'ansible.builtin.include_tasks': str(ROLE / 'tasks' / name)}]}]))
         return subprocess.run(
             [playbook(), '-i', 'localhost,', '-c', 'local', str(self.dir / 'play.yml')],
@@ -98,20 +98,20 @@ class TailnetTaskTests(unittest.TestCase):
     def calls_made(self):
         return self.calls.read_text().splitlines() if self.calls.exists() else []
 
-    def test_a_host_off_the_tailnet_without_a_way_to_a_key_stops_with_berths_words(self):
-        problem = 'studio joins the tailnet at Tailscale, and berth cannot make its key. berth secret set tailnet_api_key'
-        done = self.run_tasks('tailnet_check.yml', LOGGED_OUT, devbox_tailnet_problem=problem)
+    def test_a_host_off_the_tailnet_without_a_way_to_a_key_stops_with_rookerys_words(self):
+        problem = 'studio joins the tailnet at Tailscale, and rookery cannot make its key. rookery secret set tailnet_api_key'
+        done = self.run_tasks('tailnet_check.yml', LOGGED_OUT, rookery_tailnet_problem=problem)
         self.assertNotEqual(done.returncode, 0)
         self.assertIn(problem, done.stdout)
         done = self.run_tasks('tailnet_check.yml', '')
         self.assertNotEqual(done.returncode, 0)
         self.assertIn('secret tailnet_api_key', done.stdout)
-        self.assertIn('devbox_install_tailscale to false', done.stdout)
+        self.assertIn('rookery_install_tailscale to false', done.stdout)
 
-    def test_a_host_of_berth_0_5_that_was_never_joined_goes_on_without_the_tailnet(self):
-        problem = 'studio joins the tailnet at Tailscale, and berth cannot make its key. berth secret set tailnet_api_key'
-        done = self.run_tasks('tailnet.yml', LOGGED_OUT, devbox_tailnet_problem=problem,
-                              devbox_tailnet_optional=True)
+    def test_a_host_of_rookery_0_5_that_was_never_joined_goes_on_without_the_tailnet(self):
+        problem = 'studio joins the tailnet at Tailscale, and rookery cannot make its key. rookery secret set tailnet_api_key'
+        done = self.run_tasks('tailnet.yml', LOGGED_OUT, rookery_tailnet_problem=problem,
+                              rookery_tailnet_optional=True)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertIn('The apply goes on without the tailnet', done.stdout)
         self.assertIn(problem, done.stdout)
@@ -121,17 +121,17 @@ class TailnetTaskTests(unittest.TestCase):
     def test_a_way_to_a_key_lets_the_play_go_on(self):
         command = ['touch', str(self.made)]
         self.assertEqual(self.run_tasks('tailnet_check.yml', LOGGED_OUT,
-                                        devbox_tailscale_key_command=command).returncode, 0)
+                                        rookery_tailscale_key_command=command).returncode, 0)
         self.assertEqual(self.run_tasks('tailnet_check.yml', LOGGED_OUT,
-                                        devbox_tailscale_auth_key='tskey-auth-kFAKE-0000').returncode, 0)
+                                        rookery_tailscale_auth_key='tskey-auth-kFAKE-0000').returncode, 0)
         # The check makes no key.
         self.assertFalse(self.made.exists())
 
     def test_a_host_on_the_tailnet_is_left_alone_even_without_a_key(self):
-        problem = 'berth cannot make its key'
-        done = self.run_tasks('tailnet.yml', RUNNING, devbox_tailnet_problem=problem)
+        problem = 'rookery cannot make its key'
+        done = self.run_tasks('tailnet.yml', RUNNING, rookery_tailnet_problem=problem)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        done = self.run_tasks('tailnet.yml', RUNNING, devbox_tailscale_key_command=['touch', str(self.made)])
+        done = self.run_tasks('tailnet.yml', RUNNING, rookery_tailscale_key_command=['touch', str(self.made)])
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         # No key is made, and the client is only asked how it is.
         self.assertFalse(self.made.exists())
@@ -162,7 +162,7 @@ class OneRepository(unittest.TestCase):
         for dest, content in role.items():
             self.assertEqual(content.replace('ansible_facts.distribution_release', "ansible_facts['distribution_release']"), recipe[dest])
 
-    def test_the_list_of_earlier_berths_goes(self):
+    def test_the_list_of_earlier_rookerys_goes(self):
         tasks = yaml.safe_load((ROLE / 'tasks/tailscale.yml').read_text())
         removed = [task for task in tasks if task.get('ansible.builtin.file', {}).get('state') == 'absent']
-        self.assertIn('/etc/apt/sources.list.d/devbox-tailscale.list', removed[0]['loop'])
+        self.assertIn('/etc/apt/sources.list.d/rookery-tailscale.list', removed[0]['loop'])

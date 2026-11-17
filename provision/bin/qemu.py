@@ -21,7 +21,7 @@ def main():
     p.add_argument('--vars',required=True,help='pristine matching OVMF_VARS.fd file')
     p.add_argument('--image',help='autoinstall ISO (install) or Ubuntu qcow2 (cloud)')
     p.add_argument('--user-data',help='generated cloud seed (cloud mode)')
-    p.add_argument('--serial',default='DEVBOX_TEST_DISK',help='virtio disk serial, must match installer udev ID_SERIAL')
+    p.add_argument('--serial',default='ROOKERY_TEST_DISK',help='virtio disk serial, must match installer udev ID_SERIAL')
     p.add_argument('--port',type=int,default=2222)
     p.add_argument('--memory',type=int,default=8192)
     p.add_argument('--cpus',type=int,default=4)

@@ -1,0 +1,397 @@
+---
+- name: Install firewall and recovery access first
+  ansible.builtin.apt:
+    name: [openssh-server, ufw]
+    state: present
+- name: Install firewall configuration helper
+  ansible.builtin.copy:
+    src: firewall.sh
+    dest: /usr/local/sbin/rookery-firewall
+    mode: '0755'
+- name: Read the provisioning SSH session
+  ansible.builtin.command: printenv SSH_CONNECTION
+  become: false
+  register: rookery_ssh_session
+  changed_when: false
+  failed_when: false
+  when: rookery_manage_firewall
+- name: Establish firewall before installing network administration services
+  ansible.builtin.command: /usr/local/sbin/rookery-firewall
+  environment:
+    ROOKERY_BOOTSTRAP_SSH_CIDR: "{{ rookery_bootstrap_ssh_cidr }}"
+    ROOKERY_SSH_CONNECTION: "{{ rookery_ssh_session.stdout | default('') | trim }}"
+    ROOKERY_PROFILE: "{{ rookery_profile }}"
+    ROOKERY_COCKPIT: "{{ '1' if rookery_install_cockpit else '0' }}"
+  changed_when: false
+  when: rookery_manage_firewall
+# Hardening is only applied when a key-based login for a non-root account is
+# certain to exist afterwards: the operator's configured keys, the key of rookery,
+# or the keys of the account this play logged in with.
+- name: Check the provisioning account's SSH keys
+  ansible.builtin.shell: 'test "$(id -u)" != 0 && test -s "$HOME/.ssh/authorized_keys"'
+  become: false
+  register: rookery_login_keys
+  changed_when: false
+  failed_when: false
+  when: rookery_harden_ssh
+- name: Decide whether SSH can be hardened safely
+  ansible.builtin.set_fact:
+    rookery_ssh_hardened: "{{ rookery_harden_ssh and ((rookery_operator_ssh_public_key ~ rookery_ssh_public_key) | length > 0 or rookery_login_keys.rc == 0) }}"
+- name: Explain skipped SSH hardening
+  ansible.builtin.debug:
+    msg: >-
+      SSH hardening skipped: no SSH key is configured for the operator and the
+      provisioning account has none, so turning off passwords and root login
+      would lock this host. Set an operator SSH public key and apply again.
+  when: rookery_harden_ssh and not rookery_ssh_hardened
+# cloud-init writes its password setting into a new sshd_config on an image
+# without an SSH server. The package then keeps that file, which reads no
+# drop-ins and has no PAM, so sshd refuses an operator whose password is locked.
+- name: See whether sshd_config is only what cloud-init left
+  ansible.builtin.command: >-
+    awk 'NF && $1 !~ /^#/ {lines++} tolower($1) == "include" {includes = 1}
+    END {exit !(lines < 3 && !includes)}' /etc/ssh/sshd_config
+  register: rookery_sshd_stub
+  changed_when: false
+  failed_when: false
+- name: Put the packaged sshd_config in its place
+  ansible.builtin.copy:
+    remote_src: true
+    src: /usr/share/openssh/sshd_config
+    dest: /etc/ssh/sshd_config
+    mode: '0644'
+    backup: true
+    validate: /usr/sbin/sshd -t -f %s
+  register: rookery_sshd_restored
+  when: rookery_sshd_stub.rc == 0
+# The operator logs in with keys only, whatever else the SSH server allows.
+# sshd ends a Match block at the end of the file it is in.
+- name: Let the operator log in over SSH with keys only
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/00-rookery-operator.conf
+    mode: '0644'
+    content: |
+      Match User {{ rookery_operator_user }}
+        AuthenticationMethods publickey
+        PasswordAuthentication no
+        KbdInteractiveAuthentication no
+    validate: /usr/sbin/sshd -t -f %s
+  register: rookery_sshd_operator
+- name: Require SSH keys and refuse root logins
+  ansible.builtin.copy:
+    # sshd uses the first value it reads, so this has to sort before other drop-ins.
+    dest: /etc/ssh/sshd_config.d/00-rookery.conf
+    mode: '0644'
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin no
+    validate: /usr/sbin/sshd -t -f %s
+  register: rookery_sshd_hardening
+  when: rookery_ssh_hardened
+- name: Remove SSH hardening when it is switched off
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config.d/00-rookery.conf
+    state: absent
+  register: rookery_sshd_relaxed
+  when: not rookery_ssh_hardened
+- name: Apply SSH server settings
+  ansible.builtin.systemd_service:
+    name: ssh
+    state: restarted
+  when: rookery_start_services and (rookery_sshd_restored.changed or rookery_sshd_operator.changed or rookery_sshd_hardening.changed or rookery_sshd_relaxed.changed)
+- name: Install host management packages
+  ansible.builtin.apt:
+    name: [unattended-upgrades, python3-psutil]
+    state: present
+    lock_timeout: 300
+- name: Install the Cockpit web console
+  ansible.builtin.apt:
+    name: "{{ rookery_cockpit_packages + (['cockpit-networkmanager'] if rookery_profile == 'laptop' else []) }}"
+    state: present
+    lock_timeout: 300
+  when: rookery_install_cockpit
+# A page in Cockpit's menu with the published noVNC desktop and a shell as the agent.
+- name: Add the agent desktop to Cockpit
+  ansible.builtin.copy:
+    src: cockpit-desktop/
+    dest: /usr/local/share/cockpit/rookery-desktop/
+    mode: '0644'
+    directory_mode: '0755'
+  when: rookery_install_cockpit
+# The page's console uses Ubuntu's packaged xterm.js; Cockpit only serves files
+# from the page's own directory.
+- name: Install the terminal widget for the Cockpit console
+  ansible.builtin.apt:
+    name: libjs-xterm
+    state: present
+    lock_timeout: 300
+  when: rookery_install_cockpit
+- name: Give the Cockpit console its terminal widget
+  ansible.builtin.copy:
+    src: "/usr/share/javascript/xterm/{{ item }}"
+    dest: "/usr/local/share/cockpit/rookery-desktop/{{ item | basename }}"
+    remote_src: true
+    mode: '0644'
+  loop: [xterm.js, xterm.css, addons/fit/xterm-addon-fit.js]
+  when: rookery_install_cockpit
+# Cockpit's own certificate is self-signed, which phones refuse.
+- name: Install the tailnet certificate helper for Cockpit
+  ansible.builtin.copy:
+    src: cockpit-cert.sh
+    dest: /usr/local/sbin/rookery-cockpit-cert
+    mode: '0755'
+  when: rookery_install_cockpit and rookery_install_tailscale
+- name: Install the certificate renewal units
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/rookery-cockpit-cert.{{ item.unit }}"
+    mode: '0644'
+    content: "{{ item.content }}"
+  loop:
+    - unit: service
+      content: |
+        [Unit]
+        Description=Give Cockpit the host's tailnet certificate
+        After=tailscaled.service network-online.target
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/rookery-cockpit-cert
+    - unit: timer
+      content: |
+        [Unit]
+        Description=Keep Cockpit's tailnet certificate current
+        [Timer]
+        OnBootSec=5min
+        OnUnitActiveSec=1d
+        RandomizedDelaySec=1h
+        [Install]
+        WantedBy=timers.target
+  loop_control:
+    label: "{{ item.unit }}"
+  when: rookery_install_cockpit and rookery_install_tailscale
+- name: Keep Cockpit's tailnet certificate current
+  ansible.builtin.systemd_service:
+    name: rookery-cockpit-cert.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: rookery_install_cockpit and rookery_install_tailscale and rookery_start_services
+- name: Check for a previously installed Cockpit
+  ansible.builtin.stat:
+    path: /usr/lib/systemd/system/cockpit.socket
+  register: rookery_cockpit_unit
+  when: not rookery_install_cockpit
+- name: Stop Cockpit when it is switched off
+  ansible.builtin.systemd_service:
+    name: cockpit.socket
+    enabled: false
+    state: stopped
+  when: not rookery_install_cockpit and rookery_cockpit_unit.stat.exists and rookery_start_services
+- name: Configure the time zone, the locale and security updates
+  ansible.builtin.import_tasks: system.yml
+# Ubuntu only lets programs with an AppArmor profile create user namespaces.
+# Playwright's Chromium and its headless shell have none, so their sandbox
+# would refuse to start.
+- name: Allow Playwright's Chromium to sandbox itself
+  ansible.builtin.copy:
+    dest: /etc/apparmor.d/rookery-playwright-chromium
+    mode: '0644'
+    content: |
+      abi <abi/4.0>,
+      include <tunables/global>
+
+      profile rookery-playwright-chromium {{ rookery_home }}/.cache/ms-playwright/chromium*/chrome-{linux,headless-shell-linux}*/{chrome,chrome-headless-shell,headless_shell} flags=(unconfined) {
+        userns,
+        include if exists <local/rookery-playwright-chromium>
+      }
+  register: rookery_chromium_apparmor
+  when: rookery_install_playwright
+# A Docker container has no AppArmor interface of its own, and loading the
+# profile through the host's would change the policy of the machine running it.
+- name: Check for an AppArmor interface of this machine's own
+  ansible.builtin.stat:
+    path: /sys/kernel/security/apparmor
+    get_attributes: false
+    get_checksum: false
+    get_mime: false
+  register: rookery_apparmor_interface
+  when: rookery_install_playwright and rookery_chromium_apparmor.changed and rookery_start_services
+- name: Load the Chromium AppArmor profile
+  ansible.builtin.command: apparmor_parser -r /etc/apparmor.d/rookery-playwright-chromium
+  when: rookery_install_playwright and rookery_chromium_apparmor.changed and rookery_start_services and rookery_apparmor_interface.stat.exists
+- name: Install Docker from Ubuntu repositories
+  ansible.builtin.apt:
+    name: [docker.io, docker-compose-v2, docker-buildx]
+    state: present
+  when: rookery_install_docker
+- name: Add agent to Docker group
+  ansible.builtin.user:
+    name: "{{ rookery_user }}"
+    groups: docker
+    append: true
+  when: rookery_install_docker
+- name: Install Tailscale
+  ansible.builtin.import_tasks: tailscale.yml
+  when: rookery_install_tailscale
+- name: Enable machine services
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop: "{{ ['ssh'] + (['cockpit.socket'] if rookery_install_cockpit else []) + (['tailscaled'] if rookery_install_tailscale else []) + (['docker'] if rookery_install_docker else []) }}"
+  when: rookery_start_services
+- name: Check whether the agent already lingers
+  ansible.builtin.stat:
+    path: /var/lib/systemd/linger/{{ rookery_user }}
+  register: linger
+- name: Enable user services at boot
+  ansible.builtin.command: loginctl enable-linger {{ rookery_user }}
+  when: not linger.stat.exists
+- name: Start agent user manager
+  ansible.builtin.systemd_service:
+    name: "user@{{ rookery_uid }}.service"
+    state: started
+  when: rookery_start_services
+- name: Install T3's own user service once
+  ansible.builtin.command:
+    argv: ["{{ rookery_home }}/.local/bin/t3", service, install]
+    creates: "{{ rookery_home }}/.config/systemd/user/t3code.service"
+  become_user: "{{ rookery_user }}"
+  environment:
+    HOME: "{{ rookery_home }}"
+    PATH: "{{ rookery_tool_path }}"
+    XDG_RUNTIME_DIR: "/run/user/{{ rookery_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ rookery_uid }}/bus"
+  when: rookery_install_t3 | bool and rookery_start_services
+- name: Create T3 service override directory
+  ansible.builtin.file:
+    path: "{{ rookery_home }}/.config/systemd/user/t3code.service.d"
+    state: directory
+    owner: "{{ rookery_user }}"
+    group: "{{ rookery_user }}"
+    mode: '0755'
+  when: rookery_install_t3 | bool
+- name: Ensure tools are available to noninteractive T3 processes
+  ansible.builtin.copy:
+    dest: "{{ rookery_home }}/.config/systemd/user/t3code.service.d/rookery.conf"
+    owner: "{{ rookery_user }}"
+    group: "{{ rookery_user }}"
+    mode: '0644'
+    content: |
+      [Service]
+      Environment=PATH={{ rookery_tool_path }}
+      EnvironmentFile={{ rookery_home }}/.t3/service.env
+      EnvironmentFile=-{{ rookery_home }}/.config/rookery/secrets.service.env
+      NoNewPrivileges=false
+  when: rookery_install_t3 | bool
+- name: Enable desktop and agent services without restarting running tasks
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    scope: user
+    daemon_reload: true
+    enabled: true
+    state: started
+  become_user: "{{ rookery_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ rookery_uid }}"
+    DBUS_SESSION_BUS_ADDRESS: "unix:path=/run/user/{{ rookery_uid }}/bus"
+  loop: "{{ ['rookery-desktop.service', 'rookery-novnc.service'] + (['t3code.service'] if rookery_install_t3 | bool else []) }}"
+  when: rookery_start_services
+- name: Join the tailnet
+  ansible.builtin.include_tasks: tailnet.yml
+  when: rookery_install_tailscale and rookery_start_services
+# Publishing needs an enrolled host and HTTPS certificates enabled for the
+# tailnet. Neither is certain here, so a failure is reported, not fatal.
+# Headscale offers neither tailscale serve nor certificates.
+- name: Publish the desktop and T3 on the tailnet
+  ansible.builtin.shell: |
+    tailscale status >/dev/null 2>&1 || { echo 'not enrolled in a tailnet yet'; exit 3; }
+    control=$(tailscale debug prefs 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("ControlURL", ""))' 2>/dev/null || true)
+    if [[ -n $control && ! $control =~ ^https://[a-z0-9.-]*tailscale\.com/?$ ]]; then echo "the control server $control does not offer tailscale serve"; exit 5; fi
+    timeout 60 tailscale serve --bg --https=443 http://127.0.0.1:6080 2>&1 || exit 4
+    timeout 60 tailscale serve --bg --https=8443 http://127.0.0.1:3773 2>&1 || exit 4
+  args:
+    executable: /bin/bash
+  register: rookery_serve
+  changed_when: false
+  failed_when: false
+  when: rookery_install_tailscale and rookery_start_services and rookery_tailscale_serve
+- name: Explain unpublished tailnet endpoints
+  ansible.builtin.debug:
+    msg: >-
+      {% if rookery_serve.rc == 5 %}The desktop and T3 are not published on the tailnet
+      ({{ rookery_serve.stdout | trim }}). Reach them through an SSH tunnel, as the
+      host's access action shows.{% elif rookery_serve.rc == 3 %}The host is not on the
+      tailnet, so the desktop and T3 are not published on it. Reach them through an
+      SSH tunnel, as the host's access action shows; applying it from rookery joins
+      it.{% else %}The desktop and T3 were not published on the tailnet
+      ({{ rookery_serve.stdout | default('') | trim }}). Enable HTTPS certificates for
+      the tailnet, then run the host's publish action or apply again.{% endif %}
+  when: rookery_serve is not skipped and rookery_serve.rc | default(0) != 0
+# The timer first fires five minutes after a boot, which has long passed during
+# an install; without this the self-signed certificate stays until a reboot.
+- name: Fetch Cockpit's tailnet certificate now
+  ansible.builtin.systemd_service:
+    name: rookery-cockpit-cert.service
+    state: started
+  failed_when: false
+  when:
+    - rookery_install_cockpit and rookery_install_tailscale and rookery_start_services
+    - rookery_serve is not skipped and rookery_serve.rc | default(1) == 0
+- name: Check whether systemd-networkd configures the network
+  ansible.builtin.command: systemctl is-active systemd-networkd
+  register: rookery_networkd_state
+  changed_when: false
+  failed_when: false
+  when: rookery_start_services
+# Cockpit brings NetworkManager; without it there is none to configure.
+- name: Check whether NetworkManager is installed
+  ansible.builtin.stat:
+    path: /usr/sbin/NetworkManager
+  register: rookery_network_manager
+  when: rookery_start_services
+# Where networkd owns the network, NetworkManager would still try DHCP on every
+# unused port and NetworkManager-wait-online would fail at each boot.
+- name: Keep NetworkManager off ports that systemd-networkd does not use
+  ansible.builtin.copy:
+    dest: /etc/NetworkManager/conf.d/20-rookery-no-auto-default.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [main]
+      no-auto-default=*
+  register: rookery_nm_no_auto_default
+  when: rookery_start_services and rookery_network_manager.stat.exists and rookery_networkd_state.stdout | default('') == 'active'
+- name: Drop the connections NetworkManager created on its own
+  ansible.builtin.shell: |
+    set -e
+    systemctl reload NetworkManager
+    nmcli -t -f NAME connection show | grep '^Wired connection ' | while read -r name; do
+      nmcli connection delete "$name"
+    done
+  args:
+    executable: /bin/bash
+  when: rookery_nm_no_auto_default is changed
+# Installers and cloud images leave the network to systemd-networkd, so
+# NetworkManager, which the desktop needs, manages nothing and reports the host
+# as offline. PackageKit believes it, and Cockpit's software updates fail with
+# "Cannot refresh cache whilst offline". A placeholder connection makes
+# NetworkManager report online; its route has a metric that never competes with
+# the real one.
+- name: Look for the connection that marks the host as online
+  ansible.builtin.command: nmcli -t -f NAME connection show
+  register: rookery_nm_connections
+  changed_when: false
+  when: rookery_start_services and rookery_network_manager.stat.exists
+- name: Mark the host as online for NetworkManager
+  ansible.builtin.shell: |
+    set -e
+    nmcli connection add type dummy con-name rookery-online ifname rookery0 \
+      ipv4.method manual ipv4.addresses 192.0.2.2/32 ipv4.gateway 192.0.2.1 \
+      ipv4.route-metric 30000 ipv6.method disabled
+    udevadm control --reload
+    systemctl restart NetworkManager
+  args:
+    executable: /bin/bash
+  when: rookery_start_services and rookery_network_manager.stat.exists and 'rookery-online' not in rookery_nm_connections.stdout_lines

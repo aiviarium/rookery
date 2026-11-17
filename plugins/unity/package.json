@@ -1,17 +1,17 @@
 {
-  "name": "berth-plugin-unity",
+  "name": "rookery-plugin-unity",
   "version": "0.1.0",
   "displayName": "Unity",
-  "description": "Unity CLI and editor for berth machines.",
+  "description": "Unity CLI and editor for rookery machines.",
   "license": "MIT OR Apache-2.0",
   "keywords": [
-    "berth-plugin"
+    "rookery-plugin"
   ],
   "files": [
     "tasks",
     "guide.md"
   ],
-  "berth": {
+  "rookery": {
     "features": [
       {
         "id": "cli",
@@ -89,7 +89,7 @@
         "id": "editor",
         "group": "Development Tools",
         "label": "Unity Editor",
-        "description": "Install a Unity editor with the CLI, several gigabytes. Needs the Unity CLI. The version is `devbox_unity_editor_version` in the profile's ansible_vars (default 6000.7.0b8), its modules `devbox_unity_editor_modules` (default webgl).",
+        "description": "Install a Unity editor with the CLI, several gigabytes. Needs the Unity CLI. The version is `rookery_unity_editor_version` in the profile's ansible_vars (default 6000.7.0b8), its modules `rookery_unity_editor_modules` (default webgl).",
         "summary": "A Unity editor is preinstalled in `~/Unity/Hub/Editor/`; `unity editors --installed` lists it.",
         "tasks": "tasks/editor.yml"
       }

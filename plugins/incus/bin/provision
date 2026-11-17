@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Virtual machines and containers on an Incus server, through its REST API.
 
-berth runs this as `provision VERB` with one JSON request on standard input and
+rookery runs this as `provision VERB` with one JSON request on standard input and
 reads one JSON answer from standard output, as version 2 of its provisioner
 protocol says. Progress and errors go to standard error; `logs` writes the
 instance's console log on standard output instead. Only the standard library is
-used, as berth needs nothing else where it runs.
+used, as rookery needs nothing else where it runs.
 """
 import hashlib
 import http.client
@@ -21,7 +21,7 @@ import time
 import urllib.parse
 
 IMAGES = 'https://images.linuxcontainers.org'
-BOOTSTRAP = '/opt/devbox-bootstrap'
+BOOTSTRAP = '/opt/rookery-bootstrap'
 ARCHIVE = f'{BOOTSTRAP}/release.tar.gz'
 TYPES = {'vm': 'virtual-machine', 'container': 'container'}
 CLOUD_INIT_LOG = '/var/log/cloud-init-output.log'
@@ -53,7 +53,7 @@ def say(line):
 
 
 def instance_name(host):
-    name = re.sub(r'[^a-z0-9-]+', '-', f'berth-{host}'.lower())
+    name = re.sub(r'[^a-z0-9-]+', '-', f'rookery-{host}'.lower())
     return re.sub(r'-{2,}', '-', name)[:NAME_LIMIT].rstrip('-')
 
 
@@ -66,7 +66,7 @@ class Incus:
         self.host = url.hostname
         self.port = url.port or 8443
         self.project = project or 'default'
-        # The node the server runs on, whose controller dials the endpoints, when berth names one.
+        # The node the server runs on, whose controller dials the endpoints, when rookery names one.
         self.node = ''
         cert, key = secrets.get('incus_client_cert') or '', secrets.get('incus_client_key') or ''
         if not cert.strip() or not key.strip():
@@ -79,7 +79,7 @@ class Incus:
             with os.fdopen(fd, 'w') as stream:
                 stream.write(value)
         self.context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        # The client key authenticates berth, so no older protocol is accepted for it.
+        # The client key authenticates rookery, so no older protocol is accepted for it.
         self.context.minimum_version = ssl.TLSVersion.TLSv1_2
         try:
             self.context.load_cert_chain(cert_path, key_path)
@@ -110,7 +110,7 @@ class Incus:
             connection.connect()
         except ssl.SSLCertVerificationError as exc:
             raise Failure(f'The certificate of {self.server} is not trusted here ({exc.verify_message}). '
-                          'Store the server\'s certificate as the berth secret incus_server_cert.') from None
+                          'Store the server\'s certificate as the rookery secret incus_server_cert.') from None
         except (OSError, http.client.HTTPException) as exc:
             raise Failure(f'Cannot reach the Incus server at {self.server}: {exc}') from None
         if self.pinned and connection.sock.getpeercert(binary_form=True) != self.pinned:
@@ -213,9 +213,9 @@ class Incus:
         found = []
         for interface, details in sorted((state.get('network') or {}).items()):
             # Bridges the guest makes itself, such as Docker's, are not how it is reached, and
-            # devbox0 is the role's own, with an address that only tells NetworkManager it is online.
+            # rookery0 is the role's own, with an address that only tells NetworkManager it is online.
             if interface == 'lo' or interface.startswith(('docker', 'br-', 'veth', 'tailscale', 'incusbr', 'lxcbr',
-                                                          'devbox')):
+                                                          'rookery')):
                 continue
             for entry in (details or {}).get('addresses') or []:
                 if entry.get('family') == 'inet' and entry.get('scope') == 'global' and entry.get('address'):
@@ -263,8 +263,8 @@ def split_address(text):
 
 def endpoints_of(incus, instance):
     """The instance's proxy devices, each a port of the Incus server that leads into it. An instance's
-    own address is its address; berth is not told which of its ports serve anything. On a node
-    berth names, its controller dials, so the server's loopback is the node's."""
+    own address is its address; rookery is not told which of its ports serve anything. On a node
+    rookery names, its controller dials, so the server's loopback is the node's."""
     local = incus.host in LOOPBACK or bool(incus.node)
     found = []
     for name, device in sorted(((instance or {}).get('expanded_devices') or {}).items()):
@@ -355,7 +355,7 @@ def create(incus, request, arguments):
         raise Failure('create needs a host and a token.')
     kind = request['provisioner']
     archive = checked_archive(request.get('seed'))
-    found = [i for i in incus.instances() if (i.get('config') or {}).get('user.berth-instance') == token]
+    found = [i for i in incus.instances() if (i.get('config') or {}).get('user.rookery-instance') == token]
     if found:
         name = found[0]['name']
         say(f'{name} exists already; making sure it is set up.')
@@ -364,7 +364,7 @@ def create(incus, request, arguments):
         name = instance_name(host)
         other = incus.instance(name)
         if other:
-            whose = 'another berth record' if 'user.berth-host' in (other.get('config') or {}) else 'something other than berth'
+            whose = 'another rookery record' if 'user.rookery-host' in (other.get('config') or {}) else 'something other than rookery'
             raise Failure(f'{incus.server} already has an instance named {name}, made by {whose}. '
                           'Rename or delete it on the server first.')
         image = arguments.get('image') or 'ubuntu/26.04/cloud'
@@ -375,8 +375,8 @@ def create(incus, request, arguments):
         }
         for label, value in (request.get('labels') or {}).items():
             config[f'user.{label}'] = str(value)
-        config['user.berth-host'] = config.get('user.berth-host') or host
-        config['user.berth-instance'] = token
+        config['user.rookery-host'] = config.get('user.rookery-host') or host
+        config['user.rookery-instance'] = token
         if kind == 'container':
             # The guest's systemd does not come up in an unprivileged container without it.
             config['security.nesting'] = 'true'
@@ -405,9 +405,9 @@ def create(incus, request, arguments):
     return answer
 
 
-def made_by_berth(instance):
+def made_by_rookery(instance):
     config = (instance or {}).get('config') or {}
-    return 'user.berth-host' in config or 'user.berth-resource' in config
+    return 'user.rookery-host' in config or 'user.rookery-resource' in config
 
 
 def resource_name(name):
@@ -417,11 +417,11 @@ def resource_name(name):
 
 def create_instance(incus, request, arguments):
     """A plain instance of any image, set up by its own cloud-init user data, if any: it
-    becomes no berth host."""
+    becomes no rookery host."""
     labels = request.get('labels') or {}
-    token = labels.get('berth-token') or request.get('token') or ''
+    token = labels.get('rookery-token') or request.get('token') or ''
     kind = request['provisioner']
-    found = [i for i in incus.instances() if token and (i.get('config') or {}).get('user.berth-token') == token]
+    found = [i for i in incus.instances() if token and (i.get('config') or {}).get('user.rookery-token') == token]
     if found:
         name = found[0]['name']
         say(f'{name} exists already.')
@@ -483,8 +483,8 @@ def destroy(incus, request, arguments):
     instance = incus.instance(name)
     if not instance:
         return {}
-    if not made_by_berth(instance):
-        raise Failure(f'{name} on {incus.server} was not made by berth (it has no user.berth-host or user.berth-resource), so berth leaves it alone.')
+    if not made_by_rookery(instance):
+        raise Failure(f'{name} on {incus.server} was not made by rookery (it has no user.rookery-host or user.rookery-resource), so rookery leaves it alone.')
     if instance.get('status') != 'Stopped':
         say(f'Stopping {name}…')
         incus.set_state(name, 'stop')
@@ -513,10 +513,10 @@ def listed(incus, request, arguments):
         config = i.get('config') or {}
         if i.get('type', kind) != kind:
             continue
-        if 'user.berth-host' in config and wanted in ('', 'machine'):
-            resources.append({'id': i['name'], 'kind': 'machine', 'name': config['user.berth-host'],
-                              'host': config['user.berth-host'], 'state': state_of(i)})
-        elif 'user.berth-resource' in config and wanted in ('', 'instance'):
+        if 'user.rookery-host' in config and wanted in ('', 'machine'):
+            resources.append({'id': i['name'], 'kind': 'machine', 'name': config['user.rookery-host'],
+                              'host': config['user.rookery-host'], 'state': state_of(i)})
+        elif 'user.rookery-resource' in config and wanted in ('', 'instance'):
             resources.append({'id': i['name'], 'kind': 'instance', 'name': i['name'], 'host': '',
                               'state': state_of(i)})
     return {'resources': resources}
@@ -550,13 +550,13 @@ def server_status(incus):
         except IncusError:
             pass
     return {'state': 'ready',
-            'message': f'Incus {environment.get("server_version") or ""} answers at {incus.server} and trusts berth'
+            'message': f'Incus {environment.get("server_version") or ""} answers at {incus.server} and trusts rookery'
                        .replace('  ', ' '),
             'details': details, 'values': values, 'collections': collections_of(incus)}
 
 
 def collections_of(incus):
-    """The items of the collections the manifest declares, as rows berth shows in tables. One the
+    """The items of the collections the manifest declares, as rows rookery shows in tables. One the
     server does not answer for is left out, and the rest are still given."""
     found = {}
     for collection, rows in (('pools', pool_rows), ('volumes', volume_rows), ('images', image_rows)):
@@ -694,12 +694,12 @@ def grow_root(incus, name, instance, size):
     A root disk the instance has from its profile is overridden by one of its own with the new size."""
     device, root, own = root_device(instance)
     if not root:
-        raise Failure(f'{name} has no root disk berth can find: neither it nor its profiles have a disk at /.')
+        raise Failure(f'{name} has no root disk rookery can find: neither it nor its profiles have a disk at /.')
     current = root.get('size') or ''
     if bytes_of(current) == bytes_of(size):
         return None
     if bytes_of(current) and bytes_of(size) < bytes_of(current):
-        raise Failure(f'The root disk of {name} is {current}, and berth only grows it: Incus cannot shrink a '
+        raise Failure(f'The root disk of {name} is {current}, and rookery only grows it: Incus cannot shrink a '
                       'virtual machine\'s disk, and a container\'s only on some drivers and never below what it holds.')
     if not own:
         say(f'{name} has its root disk from its profile; it gets one of its own of {size}.')
@@ -712,8 +712,8 @@ def change(incus, request, arguments):
     instance = incus.instance(name)
     if not instance:
         raise Failure(f'{name} is no longer on {incus.server}.')
-    if not made_by_berth(instance):
-        raise Failure(f'{name} on {incus.server} was not made by berth, so berth leaves it alone.')
+    if not made_by_rookery(instance):
+        raise Failure(f'{name} on {incus.server} was not made by rookery, so rookery leaves it alone.')
     fixed = [argument for argument in request.get('changed') or [] if argument not in CHANGEABLE]
     if request.get('kind') == 'instance' and fixed:
         raise Failure(f'{name} cannot change its {", ".join(fixed)} in place: make a new instance instead.')
@@ -722,8 +722,8 @@ def change(incus, request, arguments):
         patch['config']['limits.cpu'] = arguments['cpus']
     if arguments.get('memory'):
         patch['config']['limits.memory'] = arguments['memory']
-    # berth sends every value; the disk is grown only when it was given anew, so a disk
-    # resize-disk grew is not set back to the size berth made it with.
+    # rookery sends every value; the disk is grown only when it was given anew, so a disk
+    # resize-disk grew is not set back to the size rookery made it with.
     if arguments.get('disk') and 'disk' in request.get('changed', ['disk']):
         grown = grow_root(incus, name, instance, size_of(arguments, 'disk'))
         if grown:
@@ -755,7 +755,7 @@ def logs(incus, request, arguments):
 
 def run_in(incus, request, arguments):
     """Run the request's command in a running instance, with its output recorded by Incus and then
-    written on standard error, which berth shows as the job's: the command's exit status."""
+    written on standard error, which rookery shows as the job's: the command's exit status."""
     name = request['id']
     command = request.get('command')
     if not isinstance(command, list) or not command or not all(isinstance(word, str) for word in command):
@@ -917,7 +917,7 @@ def act_set_pool(incus, arguments):
     if key == 'size':
         raise Failure('The size of a pool is changed with resize-pool, which says whether it can grow.')
     if key not in known:
-        raise Failure(f'berth does not change {key or "(no key)"} of a {driver} pool. It changes '
+        raise Failure(f'rookery does not change {key or "(no key)"} of a {driver} pool. It changes '
                       + ', '.join(known) + '; the rest are fixed when the pool is made.')
     if key == 'volume.size' and value:
         size_of({'size': value})
@@ -1136,7 +1136,7 @@ def main():
     if verb not in VERBS:
         say(f'Usage: provision {"|".join(VERBS)}, with the request as JSON on standard input')
         return 2
-    # berth stops a run that takes too long; SIGTERM still removes the key's directory.
+    # rookery stops a run that takes too long; SIGTERM still removes the key's directory.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(1))
     try:
         try:
@@ -1147,13 +1147,13 @@ def main():
             raise Failure('The request on standard input is not a JSON object.')
         if request.get('version') != PROTOCOL:
             raise Failure(f'This plugin speaks version {PROTOCOL} of the provisioner protocol, '
-                          f'not {request.get("version")!r}: update berth.')
+                          f'not {request.get("version")!r}: update rookery.')
         if request.get('provisioner') not in TYPES:
             raise Failure(f'This plugin provides {", ".join(TYPES)}, not {request.get("provisioner")!r}.')
         if verb in ABOUT_ONE and not request.get('id'):
             raise Failure(f'{verb} needs the instance id.')
         arguments = request.get('arguments') or {}
-        with tempfile.TemporaryDirectory(prefix='berth-incus-') as scratch:
+        with tempfile.TemporaryDirectory(prefix='rookery-incus-') as scratch:
             incus = Incus(arguments.get('server') or '', arguments.get('project'), request.get('secrets') or {}, scratch)
             incus.node = request.get('node') or ''
             incus.check_trust()

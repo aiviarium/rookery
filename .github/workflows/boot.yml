@@ -1,6 +1,6 @@
 name: Boot
-# Real installs in QEMU with KVM: the cloud image with berth's seed, and
-# berth's unattended installer on a blank virtual disk (ci/run.sh boot). They
+# Real installs in QEMU with KVM: the cloud image with rookery's seed, and
+# rookery's unattended installer on a blank virtual disk (ci/run.sh boot). They
 # take long, so they only run for changes that can break a first boot, or when
 # started by hand. The installer takes longest and is used least, so a change
 # boots only the cloud image, and the installer is booted once a week.
@@ -43,7 +43,7 @@ concurrency:
   group: boot-${{ github.ref }}
   cancel-in-progress: true
 env:
-  BERTH_CI_NO_BUILD: '1'
+  ROOKERY_CI_NO_BUILD: '1'
 jobs:
   plan:
     runs-on: ubuntu-latest
@@ -89,28 +89,28 @@ jobs:
             /usr/local/share/boost /usr/local/.ghcup
           sudo docker image prune --all --force >/dev/null
           df -h /
-      - run: echo "BERTH_CI_CACHE=$RUNNER_TEMP/berth-ci-cache" >> "$GITHUB_ENV"
+      - run: echo "ROOKERY_CI_CACHE=$RUNNER_TEMP/rookery-ci-cache" >> "$GITHUB_ENV"
       - uses: docker/setup-buildx-action@v4
       - name: Build the dev image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ci/dev.Dockerfile
-          tags: berth-ci-dev
+          tags: rookery-ci-dev
           load: true
-          cache-from: type=gha,scope=berth-ci-dev
+          cache-from: type=gha,scope=rookery-ci-dev
       - name: Build the boot image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ci/boot.Dockerfile
-          tags: berth-ci-boot
+          tags: rookery-ci-boot
           load: true
-          cache-from: type=gha,scope=berth-ci-boot
-          cache-to: type=gha,scope=berth-ci-boot,mode=max
+          cache-from: type=gha,scope=rookery-ci-boot
+          cache-to: type=gha,scope=rookery-ci-boot,mode=max
       - uses: actions/cache@v4
         with:
-          path: ${{ env.BERTH_CI_CACHE }}
+          path: ${{ env.ROOKERY_CI_CACHE }}
           key: boot-${{ hashFiles('Cargo.lock', 'ci/dev.Dockerfile') }}-${{ github.sha }}
           restore-keys: |
             boot-${{ hashFiles('Cargo.lock', 'ci/dev.Dockerfile') }}-
@@ -137,7 +137,7 @@ jobs:
             boot-apt-${{ matrix.kind }}-
             boot-apt-
       # The restored target directory is newer than this checkout, so cargo
-      # would not run the build script that puts berthd and box among the
+      # would not run the build script that puts rookeryd and box among the
       # role's files. A newer Cargo.lock makes it.
       - name: Have the build script run
         run: touch Cargo.lock
@@ -145,7 +145,7 @@ jobs:
       # run and one started by hand install them too.
       - name: Boot ${{ matrix.kind }}
         env:
-          BERTH_CI_BOOT_EXTRAS: ${{ github.event_name != 'pull_request' && github.event_name != 'push' && '1' || '' }}
+          ROOKERY_CI_BOOT_EXTRAS: ${{ github.event_name != 'pull_request' && github.event_name != 'push' && '1' || '' }}
         run: ci/run.sh boot ${{ matrix.kind }}
       - name: Disk and memory
         if: always()
@@ -166,5 +166,5 @@ jobs:
       - name: Keep the caches small
         if: always()
         run: |
-          rm -rf "$BERTH_CI_CACHE/target/debug/incremental" "$BERTH_CI_CACHE/target/tmp" build/boot/tmp
+          rm -rf "$ROOKERY_CI_CACHE/target/debug/incremental" "$ROOKERY_CI_CACHE/target/tmp" build/boot/tmp
           sudo find build/boot/cache -type f -atime +60 -delete 2>/dev/null || true

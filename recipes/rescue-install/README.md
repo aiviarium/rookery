@@ -2,7 +2,7 @@
 
 This recipe installs Ubuntu on a server from its provider's rescue system. It
 is for a server whose provider has no working installer for the Ubuntu
-release you want. The result is a plain server with SSH, which berth can then
+release you want. The result is a plain server with SSH, which Rookery can then
 apply as a [node](../../docs/content/docs/%28guide%29/use/nodes.mdx): a server
 for Incus and Docker machines.
 
@@ -28,7 +28,7 @@ Everything on the disks is lost. Copy what you need from the server first.
 3. Fetch the script and run it:
 
 ```bash
-curl -fsSL https://github.com/helightdev/berth/archive/refs/heads/main.tar.gz \
+curl -fsSL https://github.com/aiviarium/rookery/archive/refs/heads/main.tar.gz \
   | tar xz --strip-components=1 --wildcards '*/recipes'
 cd recipes/rescue-install
 ./install.sh --disks /dev/nvme0n1,/dev/nvme1n1 --key ~/.ssh/authorized_keys --hostname big

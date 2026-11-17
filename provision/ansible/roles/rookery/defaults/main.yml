@@ -1,0 +1,298 @@
+---
+rookery_profile: cloud
+rookery_user: agent
+rookery_agent_password_hash: ""
+rookery_agent_ssh_public_key: ""
+rookery_agent_passwordless_sudo: true
+# What the agent may do as root: full (everything, no password), limited
+# (packages, and restarting plugin services that run as the agent) or none.
+# Empty follows rookery_agent_passwordless_sudo, as profiles from before it do.
+rookery_agent_privileges: ""
+rookery_operator_user: ops
+rookery_operator_password_hash: ""
+rookery_operator_ssh_public_key: ""
+# The public keys of the rookery that applies this, one to a line: its own key, the
+# one replacing it while it rotates, and a key of its that the profile logs in
+# with. The operator always takes them.
+rookery_ssh_public_key: ""
+# Ubuntu's own account and group names. useradd refuses a user named like an existing group.
+rookery_reserved_names: [root, daemon, bin, sys, adm, tty, disk, lp, mail, news, uucp, man, proxy, kmem, dialout, fax, voice, cdrom, floppy, tape, sudo, audio, dip, www-data, backup, operator, list, irc, src, shadow, utmp, video, sasl, plugdev, staff, games, users, nogroup, admin, docker]
+rookery_home: "/home/{{ rookery_user }}"
+rookery_timezone: Europe/Berlin
+rookery_geometry: 1600x900
+# The coding agents and T3 Code come from plugins. These follow from the
+# chosen features; set rookery_plugin_features, not these.
+rookery_agent_claude: "{{ 'claude/cli' in rookery_plugin_features }}"
+rookery_agent_codex: "{{ 'codex/cli' in rookery_plugin_features }}"
+rookery_agent_pi: "{{ 'pi/cli' in rookery_plugin_features }}"
+rookery_install_agents: "{{ rookery_agent_claude | bool or rookery_agent_codex | bool or rookery_agent_pi | bool }}"
+# T3 Code is a front end that runs the agents, not one of them. Its plugin
+# installs it; the role runs it as a service.
+rookery_install_t3: "{{ 't3/server' in rookery_plugin_features }}"
+rookery_tools_web: "{{ rookery_install_dev_tools | default(true) }}"
+rookery_tools_native: "{{ rookery_install_dev_tools | default(true) }}"
+rookery_tools_jvm: "{{ rookery_install_dev_tools | default(true) }}"
+rookery_tools_dotnet: "{{ rookery_install_dev_tools | default(true) }}"
+rookery_tools_scripting: "{{ rookery_install_dev_tools | default(true) }}"
+rookery_tools_scientific: "{{ rookery_install_dev_tools | default(true) }}"
+rookery_tools_chrome: "{{ rookery_install_dev_tools | default(true) }}"
+# Applies to the virtual agent session, not the laptop's physical login.
+rookery_software_rendering: true
+rookery_codex_version: "0.167.1"
+rookery_pi_version: "1.5.1"
+# A search engine set here keeps Chrome from showing its "Choose your search
+# engine" page on every start until someone picks one. Set to {} to be asked.
+rookery_chrome_search:
+  DefaultSearchProviderEnabled: true
+  DefaultSearchProviderName: Google
+  DefaultSearchProviderSearchURL: "https://www.google.com/search?q={searchTerms}"
+  DefaultSearchProviderSuggestURL: "https://www.google.com/complete/search?output=chrome&q={searchTerms}"
+rookery_mise_version: "2026.11.6"
+rookery_mise_sha256: 5fb74f80aab81e0a5ca20eb6414cc69b78ae0cab1deaeb521572ed26d8d4a6e3
+rookery_tool_path: "{{ rookery_home }}/.local/bin:{{ rookery_home }}/.local/share/mise/shims:{{ rookery_home }}/.cargo/bin:{{ rookery_home }}/.dotnet/tools:/opt/rookery-tools/venv/bin:/usr/local/bin:/usr/bin:/bin"
+rookery_node_versions: ["24.18.0", "22"]
+# Exact tool versions can replace selectors such as '10' in host ansible_vars.
+rookery_mise_tools:
+  bun: "1.3.14"
+  deno: "2.9.4"
+  pnpm: "10.34.5"
+  rust: "1.97.1"
+  gradle: "8.12"
+  kotlin: "2.1.0"
+  scala: "3.3.8"
+  sbt: "1.13.0"
+  dotnet: "10"
+rookery_tool_categories:
+  - name: web
+    enabled: "{{ rookery_tools_web }}"
+    tools: ["bun", "deno", "pnpm"]
+    packages: []
+    commands: ["bun", "bunx", "deno", "pnpm"]
+  - name: native
+    enabled: "{{ rookery_tools_native }}"
+    tools: ["rust"]
+    packages: ["clang", "golang-go"]
+    commands: ["clang", "go", "rustc", "cargo", "rustup"]
+  - name: jvm
+    enabled: "{{ rookery_tools_jvm }}"
+    tools: ["gradle", "kotlin", "scala", "sbt"]
+    packages: ["openjdk-21-jdk", "maven"]
+    commands: ["java", "javac", "mvn", "gradle", "kotlin", "kotlinc", "scala", "scalac", "sbt"]
+  - name: dotnet
+    enabled: "{{ rookery_tools_dotnet }}"
+    tools: ["dotnet"]
+    packages: ["libicu-dev", "libunwind8"]
+    commands: ["dotnet"]
+  - name: scripting
+    enabled: "{{ rookery_tools_scripting }}"
+    tools: []
+    packages: ["ruby-full", "ruby-dev", "bundler", "php-cli", "php-curl", "php-mbstring", "php-xml", "php-zip", "composer", "erlang", "elixir"]
+    commands: ["ruby", "gem", "bundle", "php", "composer", "erl", "elixir"]
+  - name: scientific
+    enabled: "{{ rookery_tools_scientific }}"
+    tools: []
+    packages: ["r-base"]
+    commands: ["R"]
+  - name: chrome
+    enabled: "{{ rookery_tools_chrome }}"
+    tools: []
+    packages: []
+    commands: ["google-chrome-stable"]
+# Optional additions kept outside the role, one directory each (see docs/plugins.md).
+# Names of the ones to apply, and where to look for them; a later path wins.
+# Plugin features to install, as PLUGIN/FEATURE, applied in this order.
+rookery_plugin_features: [github/cli]
+# Where a plugin is when it is not in the source's plugins/ID directory.
+rookery_plugin_dirs: {}
+rookery_base_commands: [git, rg, jq, curl, python3, pip, uv, node, npm, gcc, g++, cmake, ninja, ffmpeg, xdotool, wmctrl, Xvfb, glxinfo, vulkaninfo]
+
+rookery_install_playwright: true
+rookery_install_docker: true
+rookery_install_tailscale: true
+# An apply of a host off the tailnet goes on without it when rookery cannot
+# make the host's key, rather than stop. rookery sets it once for the hosts of
+# rookery 0.5 that it never joined by itself; it joins them once it can.
+rookery_tailnet_optional: false
+# Web console on port 9090, reachable over the tailnet or an SSH tunnel.
+rookery_install_cockpit: true
+rookery_cockpit_packages: [cockpit, cockpit-storaged, cockpit-packagekit, cockpit-files]
+rookery_start_services: true
+# How much of the role runs: workstation for all of it, node for a server
+# without a desktop (rookery sets it for a host of that type), controller for
+# rookeryd and box alone (the playbook controller.yml sets it).
+rookery_level: workstation
+# Where rookeryd's files are, which installing the controller alone reads first.
+rookery_controller_etc: /etc/rookery
+# Whether systemd runs rookeryd and the services of plugins. A container
+# profile has no systemd; the controller alone looks at the host.
+rookery_controller_systemd: "{{ rookery_profile != 'container' }}"
+# The folders rookeryd's file calls may touch.
+rookery_controller_roots: ["{{ rookery_home }}", /srv/agent]
+# The units whose state rookeryd's stats report.
+rookery_controller_units: "{{ ['ssh', 'tailscaled', 'rookeryd', 'cockpit.socket', 'docker', 'lightdm'] + rookery_service_units }}"
+# The account sessions run as on a host with the controller alone: the SSH user.
+rookery_controller_user: "{{ ansible_facts.env.SUDO_USER | default(ansible_facts.user_id) }}"
+# A node's account rookery logs in as, whom sessions run as: the SSH user too.
+# rookery sets it from the profile's access.user.
+rookery_node_user: "{{ rookery_controller_user }}"
+# Who reaches SSH on a node from outside the tailnet: any, or one address or
+# network such as 198.51.100.7. The address an apply comes from always does.
+rookery_ssh_from: any
+# What a node needs of its own; its features install the rest.
+rookery_node_packages:
+  - sudo
+  - ca-certificates
+  - curl
+  - gnupg
+  - locales
+  - tzdata
+  - git
+  - jq
+  - rsync
+  - unzip
+  - xz-utils
+  - zstd
+  - iproute2
+  - openssh-server
+  - ufw
+  - unattended-upgrades
+  - python3
+  - python3-psutil
+# The name of a rookery server's container on a node, which the action
+# upgrade-server runs from a newer image.
+rookery_server_container: rookery
+# rookery sets these when the host joins the tailnet (rookery_install_tailscale);
+# a profile cannot. The one-use key rookery made for a seed:
+rookery_tailscale_auth_key: ""
+# The Headscale server the host joins, such as https://hs.example.org; empty
+# for Tailscale's own service.
+rookery_tailscale_login_server: ""
+# For an apply: the command, run where rookery runs, that prints a new one-use key.
+rookery_tailscale_key_command: []
+# For an apply when rookery cannot make keys: why not, said before anything
+# changes on a host that is not on the tailnet.
+rookery_tailnet_problem: ""
+# Publish the desktop and T3 on the tailnet over HTTPS once the host is enrolled.
+rookery_tailscale_serve: true
+# An agent laptop keeps running with the lid closed. Set to suspend on battery instead.
+rookery_lid_suspends_on_battery: false
+rookery_bootstrap_ssh_cidr: ""
+rookery_manage_firewall: true
+# Key-only SSH with no root login. Skipped when that would leave no way in.
+rookery_harden_ssh: true
+rookery_claude_version: "2.1.322"
+rookery_t3_version: "0.1.8"
+rookery_t3_sha256: b9c49dc00c23fbbc5961bdaff2d88e556d96c8dbd638c4501e2937c70650a9e5
+rookery_playwright_version: "1.65.0"
+# What the role's own tasks, the desktop and rookery's programs need. A host is
+# not set up without them.
+rookery_packages:
+  - sudo
+  - ca-certificates
+  - curl
+  - wget
+  - gnupg
+  - locales
+  - tzdata
+  - dbus-user-session
+  - dbus-x11
+  - xfce4
+  - xfce4-terminal
+  # The virtual display also supplies the private RFB backend for noVNC.
+  - tigervnc-standalone-server
+  - tigervnc-tools
+  - novnc
+  - websockify
+  - xauth
+  - x11-utils
+  - x11-xserver-utils
+  - xdotool
+  - wmctrl
+  - xclip
+  - scrot
+  - xdg-utils
+  - xdg-user-dirs
+  - xdg-desktop-portal-gtk
+  # Secret Service for tools that store credentials: Chrome, git helpers, the Unity CLI.
+  - gnome-keyring
+  - libsecret-tools
+  - libgl1-mesa-dri
+  - libgl1
+  - libglu1-mesa
+  - libegl1
+  - libgbm1
+  - libvulkan1
+  - mesa-vulkan-drivers
+  - mesa-utils
+  - vulkan-tools
+  - xvfb
+  - libatomic1
+  - imagemagick
+  - fonts-dejavu
+  - git
+  - jq
+  - yq
+  - ripgrep
+  - fd-find
+  - rsync
+  - unzip
+  - zip
+  - xz-utils
+  - zstd
+  - openssh-client
+  - build-essential
+  - pkg-config
+  - libssl-dev
+  - python3-venv
+  - python3-pip
+  - nodejs
+  - npm
+  - iproute2
+  - restic
+# Programs for the agent and whoever uses the desktop. One that cannot be
+# installed is named and left for the next apply, and the host is set up
+# all the same.
+rookery_extra_packages:
+  - mousepad
+  - thunar-archive-plugin
+  - xarchiver
+  - xsel
+  - at-spi2-core
+  - libreoffice-writer
+  - libreoffice-calc
+  - libreoffice-impress
+  - libreoffice-draw
+  - evince
+  - gimp
+  - inkscape
+  - ristretto
+  - ffmpeg
+  - poppler-utils
+  - tesseract-ocr
+  - tesseract-ocr-eng
+  - tesseract-ocr-deu
+  - ocrmypdf
+  - pandoc
+  - fonts-liberation
+  - fonts-noto-core
+  - fonts-noto-cjk
+  - fonts-noto-color-emoji
+  - bash-completion
+  - tmux
+  - git-lfs
+  - fzf
+  - tree
+  - less
+  - file
+  - 7zip
+  - cmake
+  - ninja-build
+  - python3-tk
+  - pipx
+  - htop
+  - ncdu
+  - lsof
+  - strace
+  - pciutils
+  - usbutils
+  - dnsutils

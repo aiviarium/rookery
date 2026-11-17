@@ -1,0 +1,121 @@
+# rookery's server in a Docker container, with its port on this machine only
+# and, on a tailnet, TLS in front of it.
+
+# The server in the image is the user 1000, who has to own what it keeps:
+# settings and profiles, the store, and the SSH hosts it has seen.
+- name: Make the folders the rookery server keeps its things in
+  ansible.builtin.file:
+    path: "{{ rookery_server_dir }}/{{ item }}"
+    state: directory
+    owner: "1000"
+    group: "1000"
+    mode: "0700"
+  loop:
+    - config
+    - data
+    - ssh
+
+- name: See whether the rookery server's container is there
+  ansible.builtin.command: docker container inspect --format {% raw %}'{{.State.Running}}'{% endraw %} rookery
+  register: rookery_container
+  changed_when: false
+  failed_when: false
+
+# Its port stays on this machine: the token gives full control of every host.
+- name: Start the rookery server in a container
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'run', '--detach', '--name', 'rookery', '--restart', 'unless-stopped']
+              + rookery_server_options + [rookery_server_image] }}"
+  when: rookery_container.rc != 0
+  changed_when: true
+
+# A container from an earlier run, by this recipe or by hand, keeps its data
+# and every option of its own, such as a socket or a name it reaches: the
+# helper makes it again only when the image or the options above differ, and
+# starts the old one again when the new one does not come up.
+- name: Bring the rookery server's container up to date, with its options
+  ansible.builtin.script:
+    cmd: >-
+      {{ rookery_server_helper | quote }} rookery --image {{ rookery_server_image | quote }}
+      {{ '--pull' if rookery_server_update | bool else '--keep-image' }}
+      {% for flag in rookery_server_options | batch(2) %}{{ flag[0] }} {{ flag[1] | quote }} {% endfor %}
+    executable: python3
+  register: rookery_container_remade
+  changed_when: "'is unchanged' not in rookery_container_remade.stdout"
+  when: rookery_container.rc == 0
+
+- name: Start a rookery server that was stopped
+  ansible.builtin.command: docker start rookery
+  when:
+    - rookery_container.rc == 0
+    - rookery_container_remade is not changed
+    - rookery_container.stdout | trim != 'true'
+  changed_when: true
+
+- name: See whether the tailnet serves the rookery server
+  ansible.builtin.command: tailscale serve status
+  register: rookery_served
+  changed_when: false
+  failed_when: false
+  when: rookery_server_tailscale_serve | bool
+
+# rookery serve speaks plain HTTP; the tailnet puts TLS in front of it.
+- name: Serve the rookery server on the tailnet with TLS
+  ansible.builtin.command: "tailscale serve --bg --https=443 http://127.0.0.1:{{ rookery_server_port }}"
+  when:
+    - rookery_server_tailscale_serve | bool
+    - rookery_served.rc == 0
+    - ('127.0.0.1:' ~ rookery_server_port) not in rookery_served.stdout
+  changed_when: true
+
+# rookery serve makes its token before it listens, so the key below collects that one.
+- name: Wait for the new rookery server to answer
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ rookery_server_port }}"
+    timeout: 60
+  when: rookery_container.rc != 0 or rookery_container_remade is changed
+
+# The first user collects the token with this key, so whoever ran the
+# recipe hands on the key and never the token. Later runs leave it be.
+- name: Make a setup key for the first user of the new rookery server
+  ansible.builtin.command: docker exec rookery rookery server setup-key
+  register: rookery_setup_key
+  when: rookery_container.rc != 0
+  changed_when: rookery_setup_key.rc == 0
+  failed_when: false
+  no_log: true
+
+- name: Find the server's name on the tailnet
+  ansible.builtin.command: tailscale status --json
+  register: rookery_server_tailnet_status
+  changed_when: false
+  failed_when: false
+  when: rookery_server_tailscale_serve | bool
+
+- name: Note how the rookery server is reached and handed over
+  ansible.builtin.set_fact:
+    rookery_server_url: "{{ rookery_url }}"
+    rookery_server_handover: "{{ (with_key if rookery_key else without_key) | select | list }}"
+  vars:
+    rookery_tailnet_name: >-
+      {{ ((rookery_server_tailnet_status.stdout | from_json).Self.DNSName | default('') | regex_replace('[.]$', ''))
+      if (rookery_server_tailnet_status.rc | default(1)) == 0 else '' }}
+    rookery_url: >-
+      {{ ('https://' ~ rookery_tailnet_name) if rookery_tailnet_name
+      else ('https://THIS-MACHINE.YOUR-TAILNET.ts.net' if rookery_server_tailscale_serve | bool
+      else 'http://127.0.0.1:' ~ rookery_server_port) }}
+    rookery_here: >-
+      {{ '' if rookery_url.startswith('http://127.') else ' (on this machine also http://127.0.0.1:' ~ rookery_server_port ~ ')' }}
+    rookery_key: >-
+      {{ (rookery_setup_key.stdout | default('') | trim) if (rookery_setup_key.rc | default(1)) == 0 else '' }}
+    with_key:
+      - "rookery server: {{ rookery_url }}{{ rookery_here }}"
+      - "Setup key for the first user, valid for 24 hours: {{ rookery_key }}"
+      - "With rookery: rookery login {{ rookery_url }} and paste the setup key when asked"
+      - "The key ends once rookery login has the token. A new one: sudo docker exec rookery rookery server setup-key"
+    without_key:
+      - "rookery server: {{ rookery_url }}{{ rookery_here }}"
+      - "A setup key for a user to collect the token: sudo docker exec rookery rookery server setup-key"
+      - "With it: rookery login {{ rookery_url }}"
+      - "Or the token itself: sudo cat {{ rookery_server_dir }}/data/rookery/serve.token"

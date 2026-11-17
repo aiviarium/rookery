@@ -1,7 +1,7 @@
 """The guard that keeps installing the controller alone off a workstation.
 
 It runs the role's guard tasks alone, against this machine with a
-connection of its own and a scratch folder for berthd's files, so nothing
+connection of its own and a scratch folder for rookeryd's files, so nothing
 of the machine is read or changed. Skipped without ansible-playbook.
 """
 import json
@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-ROLE = Path(__file__).resolve().parents[1] / 'provision/ansible/roles/devbox'
+ROLE = Path(__file__).resolve().parents[1] / 'provision/ansible/roles/rookery'
 PLAYBOOK = shutil.which('ansible-playbook')
 
 
@@ -37,8 +37,8 @@ class ControllerGuardTests(unittest.TestCase):
                        ANSIBLE_HOME=str(scratch / 'home'), ANSIBLE_RETRY_FILES_ENABLED='0')
             done = subprocess.run(
                 [PLAYBOOK, '-i', 'studio,', '-c', 'local', str(playbook),
-                 '-e', json.dumps({'devbox_controller_etc': str(etc),
-                                   'devbox_controller_user': 'ops',
+                 '-e', json.dumps({'rookery_controller_etc': str(etc),
+                                   'rookery_controller_user': 'ops',
                                    'ansible_python_interpreter': shutil.which('python3')})],
                 capture_output=True, text=True, env=env, timeout=120)
             after = {path.name: path.read_bytes() for path in etc.iterdir()}
@@ -48,26 +48,26 @@ class ControllerGuardTests(unittest.TestCase):
     def test_a_fresh_host_and_a_controller_go_on(self):
         code, said = self.run_guard({})
         self.assertEqual(code, 0, said)
-        code, said = self.run_guard({'applied': {'berth': '0.5.0', 'plugins': [], 'level': 'controller'},
-                                     'berthd': {'agent': 'ops', 'operator': 'ops'}})
+        code, said = self.run_guard({'applied': {'rookery': '0.5.0', 'plugins': [], 'level': 'controller'},
+                                     'rookeryd': {'agent': 'ops', 'operator': 'ops'}})
         self.assertEqual(code, 0, said)
 
     def test_a_workstation_is_refused(self):
-        code, said = self.run_guard({'applied': {'berth': '0.5.0', 'plugins': []},
-                                     'berthd': {'agent': 'ops'}})
+        code, said = self.run_guard({'applied': {'rookery': '0.5.0', 'plugins': []},
+                                     'rookeryd': {'agent': 'ops'}})
         self.assertNotEqual(code, 0)
-        self.assertIn('is a workstation that berth set up', said)
-        code, said = self.run_guard({'applied': {'berth': '0.5.0', 'plugins': [], 'level': 'workstation'}})
+        self.assertIn('is a workstation that rookery set up', said)
+        code, said = self.run_guard({'applied': {'rookery': '0.5.0', 'plugins': [], 'level': 'workstation'}})
         self.assertNotEqual(code, 0)
 
     def test_a_node_is_refused(self):
-        code, said = self.run_guard({'applied': {'berth': '0.6.0', 'plugins': [], 'level': 'node'},
-                                     'berthd': {'agent': 'ops'}})
+        code, said = self.run_guard({'applied': {'rookery': '0.6.0', 'plugins': [], 'level': 'node'},
+                                     'rookeryd': {'agent': 'ops'}})
         self.assertNotEqual(code, 0)
-        self.assertIn('is a node that berth set up', said)
+        self.assertIn('is a node that rookery set up', said)
 
     def test_a_controller_that_serves_another_account_is_refused(self):
-        code, said = self.run_guard({'berthd': {'agent': 'agent', 'operator': 'ops'}})
+        code, said = self.run_guard({'rookeryd': {'agent': 'agent', 'operator': 'ops'}})
         self.assertNotEqual(code, 0)
         self.assertIn('serves the agent account agent', said)
 

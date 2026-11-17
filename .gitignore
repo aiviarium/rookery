@@ -13,7 +13,7 @@ secrets/
 *.iso
 
 /target/
-/provision/ansible/roles/devbox/files/bin/
+/provision/ansible/roles/rookery/files/bin/
 
 *.credentials.json
 

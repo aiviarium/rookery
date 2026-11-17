@@ -1,5 +1,5 @@
-# The runner of the end-to-end tests: what the tests and berth call,
-# with berth from the target directory. It has no toolchain, so a CI
+# The runner of the end-to-end tests: what the tests and rookery call,
+# with rookery from the target directory. It has no toolchain, so a CI
 # job loads it quickly.
 #
 #   ci/run.sh e2e

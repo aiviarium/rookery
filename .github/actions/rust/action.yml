@@ -26,7 +26,7 @@ runs:
           ~/.cargo/registry/cache
           ~/.cargo/git/db
           target
-          provision/ansible/roles/devbox/files/bin
+          provision/ansible/roles/rookery/files/bin
         key: cargo-${{ inputs.cache }}-${{ hashFiles('Cargo.lock', 'ci/dev.Dockerfile') }}-${{ github.sha }}
         restore-keys: cargo-${{ inputs.cache }}-${{ hashFiles('Cargo.lock', 'ci/dev.Dockerfile') }}-
     - name: Keep the times of what did not change

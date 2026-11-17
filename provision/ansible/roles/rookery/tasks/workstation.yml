@@ -1,0 +1,85 @@
+---
+- name: Check target and profile before any changes
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Ubuntu'
+      - ansible_facts.distribution_version == '26.04'
+      - ansible_facts.architecture == 'x86_64'
+      - rookery_profile in ['laptop', 'cloud', 'container']
+      - rookery_user is match('^[a-z_][a-z0-9_-]{0,31}$')
+      - rookery_home == '/home/' ~ rookery_user
+      - rookery_operator_user is match('^[a-z_][a-z0-9_-]{0,31}$')
+      - rookery_operator_user != rookery_user
+      - rookery_user not in rookery_reserved_names
+      - rookery_operator_user not in rookery_reserved_names
+      - rookery_agent_privileges in ['', 'full', 'limited', 'none']
+      - rookery_agent_privileges | length > 0 or rookery_agent_passwordless_sudo or rookery_agent_password_hash | length > 0
+      - rookery_agent_password_hash == '' or rookery_agent_password_hash is match('^\$[6y]\$')
+      - rookery_operator_password_hash == '' or rookery_operator_password_hash is match('^\$[6y]\$')
+      - rookery_ssh_public_key.splitlines() | reject('match', '^(ssh-|ecdsa-|sk-)[^ ]+ [A-Za-z0-9+/=]+( .*)?$') | list | length == 0
+      - rookery_geometry is match('^[0-9]{3,4}x[0-9]{3,4}$')
+    fail_msg: This version supports dedicated Ubuntu 26.04 amd64 hosts with distinct operator and agent accounts whose names Ubuntu does not already use.
+- name: Check that the host can join the tailnet
+  ansible.builtin.include_tasks: tailnet_check.yml
+  when: rookery_install_tailscale and rookery_start_services and rookery_profile != 'container'
+- name: Install common packages
+  ansible.builtin.apt:
+    name: "{{ rookery_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    lock_timeout: 300
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+# A program that cannot be installed does not stop the set-up: the rest are
+# installed one at a time, and the next apply tries the missing ones again.
+- name: Install further programs
+  when: rookery_extra_packages | length > 0
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  block:
+    - name: Install further programs together
+      ansible.builtin.apt:
+        name: "{{ rookery_extra_packages }}"
+        state: present
+        lock_timeout: 300
+  rescue:
+    - name: Install further programs one at a time
+      ansible.builtin.apt:
+        name: "{{ item }}"
+        state: present
+        lock_timeout: 300
+      loop: "{{ rookery_extra_packages }}"
+      register: rookery_extra_installed
+      ignore_errors: true
+    - name: Name the programs that are missing
+      ansible.builtin.debug:
+        msg: >-
+          Not installed: {{ rookery_extra_installed.results | selectattr('failed') | map(attribute='item') | join(', ') }}.
+          The host is set up without them, and the next apply tries them again.
+- name: Configure accounts and paths
+  ansible.builtin.import_tasks: accounts.yml
+- name: Install application runtimes
+  ansible.builtin.import_tasks: toolchains.yml
+- name: Install desktop applications and coding clients
+  ansible.builtin.import_tasks: applications.yml
+- name: Apply selected plugins
+  ansible.builtin.import_tasks: plugins.yml
+- name: Configure the shared desktop
+  ansible.builtin.import_tasks: desktop.yml
+- name: Install rookeryd, box and what they read
+  ansible.builtin.import_tasks: rookery.yml
+- name: Configure full host services
+  ansible.builtin.include_tasks: host.yml
+  when: rookery_profile != 'container'
+- name: Configure laptop integration
+  ansible.builtin.include_tasks: laptop.yml
+  when: rookery_profile == 'laptop'
+- name: Record provisioned configuration (authentication is separate)
+  ansible.builtin.copy:
+    dest: /var/lib/rookery/status.json
+    mode: '0644'
+    content: "{{ {'state': 'configured', 'profile': rookery_profile, 'agents_installed': rookery_install_agents, 't3': rookery_t3_version, 'claude': rookery_claude_version, 'codex': rookery_codex_version, 'pi': rookery_pi_version, 'tool_categories': rookery_enabled_categories, 'plugin_features': rookery_plugin_features, 'agent_privileges': rookery_privileges, 'software_rendering': rookery_software_rendering, 'cockpit': rookery_install_cockpit and rookery_profile != 'container', 'ssh_hardened': rookery_ssh_hardened | default(false)} | to_nice_json }}\n"
+# Last, so a run that failed leaves the host recorded as it was before.
+- name: Record what this configuration came from
+  ansible.builtin.import_tasks: applied.yml

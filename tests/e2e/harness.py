@@ -1,5 +1,5 @@
 """What the end-to-end tests share: workstations in scratch directories, the
-test host, a link to its berthd, berth serve, an OAuth issuer and a small
+test host, a link to its rookeryd, rookery serve, an OAuth issuer and a small
 WebSocket client.
 
 The tests run in the runner container of ci/compose.yml, next to
@@ -30,16 +30,16 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-SRC = Path(os.environ.get('BERTH_E2E_SOURCE', '/src'))
-BERTH = SRC / 'target/debug/berth'
-HOST = os.environ.get('BERTH_E2E_HOST', 'studio')
-SEED = Path(os.environ.get('BERTH_E2E_SEED', '/seed'))
+SRC = Path(os.environ.get('ROOKERY_E2E_SOURCE', '/src'))
+ROOKERY = SRC / 'target/debug/rookery'
+HOST = os.environ.get('ROOKERY_E2E_HOST', 'studio')
+SEED = Path(os.environ.get('ROOKERY_E2E_SEED', '/seed'))
 OPERATOR, AGENT = 'ops', 'agent'
 
 # Everything scratch lives below this, removed when the run ends.
-SCRATCH = Path(tempfile.mkdtemp(prefix='berth-e2e-'))
+SCRATCH = Path(tempfile.mkdtemp(prefix='rookery-e2e-'))
 
-# Each Ansible run of a workstation or a berth serve, noted by the callback in
+# Each Ansible run of a workstation or a rookery serve, noted by the callback in
 # fixtures/callbacks, and what the run made: for the summary run.py prints.
 APPLIES = SCRATCH / 'applies.jsonl'
 MADE = {'workstation': 0, 'serve': 0}
@@ -64,7 +64,7 @@ def runtime_dir():
 def needs_e2e(cls):
     """Skip a test case outside the runner container."""
     reason = 'the end-to-end tests run in containers: ci/run.sh e2e'
-    return unittest.skipUnless(os.environ.get('BERTH_E2E') == '1', reason)(cls)
+    return unittest.skipUnless(os.environ.get('ROOKERY_E2E') == '1', reason)(cls)
 
 
 def wait_for(what, check, timeout=30.0, every=0.25):
@@ -89,7 +89,7 @@ def keygen(path, comment):
 
 
 # ---------------------------------------------------------------------------
-# The provisioning source berth applies
+# The provisioning source rookery applies
 
 
 def source():
@@ -136,7 +136,7 @@ def source_with_plugins(name, plugins):
 
 
 def follows_a_job(args):
-    """Whether berth follows a job of its server for these arguments."""
+    """Whether rookery follows a job of its server for these arguments."""
     words = [arg for arg in args if not str(arg).startswith('-')]
     first, second = (words + ['', ''])[:2]
     return (first in ('apply', 'rollout')
@@ -148,7 +148,7 @@ def follows_a_job(args):
 
 
 class Workstation:
-    """A user's machine with berth: its own HOME, XDG directories and SSH key."""
+    """A user's machine with rookery: its own HOME, XDG directories and SSH key."""
 
     def __init__(self, name, ssh_key=True, source_dir=None, trust=True):
         self.root = SCRATCH / name
@@ -164,13 +164,13 @@ class Workstation:
             'XDG_CONFIG_HOME': str(self.config), 'XDG_DATA_HOME': str(self.data),
             'XDG_RUNTIME_DIR': str(self.run_dir),
             'PATH': os.environ['PATH'], 'LANG': 'C.UTF-8', 'TERM': 'xterm-256color',
-            'BERTH_SOURCE': str(source_dir or source()),
+            'ROOKERY_SOURCE': str(source_dir or source()),
             # npm stays off the network: plugins come from folders here.
             'npm_config_registry': 'http://127.0.0.1:9/', 'npm_config_offline': 'true',
             'npm_config_cache': str(self.root / 'npm-cache'), 'npm_config_update_notifier': 'false',
             'ANSIBLE_LOCAL_TEMP': str(self.root / 'ansible-tmp'), 'ANSIBLE_FORCE_COLOR': '0',
             'ANSIBLE_CALLBACK_PLUGINS': str(Path(__file__).resolve().parent / 'fixtures/callbacks'),
-            'ANSIBLE_CALLBACKS_ENABLED': 'e2e_applies', 'BERTH_E2E_APPLIES': str(APPLIES),
+            'ANSIBLE_CALLBACKS_ENABLED': 'e2e_applies', 'ROOKERY_E2E_APPLIES': str(APPLIES),
         }
         MADE['workstation'] += 1
         self.key = self.home / '.ssh/id_ed25519'
@@ -180,25 +180,25 @@ class Workstation:
             self.trust_host()
 
     @property
-    def berth_dir(self):
-        return self.config / 'berth'
+    def rookery_dir(self):
+        return self.config / 'rookery'
 
     @property
     def own_key(self):
-        """The file of berth's own key, the key `berth` of its key ring, which
-        berth writes from its store when ssh needs it."""
-        return self.data / 'berth/keys/berth'
+        """The file of rookery's own key, the key `rookery` of its key ring, which
+        rookery writes from its store when ssh needs it."""
+        return self.data / 'rookery/keys/rookery'
 
     def own_public(self):
-        """The public half of berth's own key, made when first asked for."""
-        return self.berth('key', 'show').stdout.strip()
+        """The public half of rookery's own key, made when first asked for."""
+        return self.rookery('key', 'show').stdout.strip()
 
     def own_key_file(self):
-        """berth's own key as a file: berth writes it for an inventory, here
+        """rookery's own key as a file: rookery writes it for an inventory, here
         of a host that is only made for that and removed again."""
         probe = 'key-file'
         self.write_profile({'hostname': probe, 'builder': {}, 'access': {'address': '192.0.2.1'}}, name=probe)
-        self.berth('host', 'inventory', probe)
+        self.rookery('host', 'inventory', probe)
         self.remove_host(probe)
         return self.own_key
 
@@ -219,8 +219,8 @@ class Workstation:
             known.with_suffix('.new').write_text(''.join(line + '\n' for line in [*others, scanned]))
             known.with_suffix('.new').replace(known)
 
-    def berth(self, *args, input=None, check=True, timeout=600, env=None):
-        done = subprocess.run([str(BERTH), *args], env={**self.env, **(env or {})}, cwd=self.home,
+    def rookery(self, *args, input=None, check=True, timeout=600, env=None):
+        done = subprocess.run([str(ROOKERY), *args], env={**self.env, **(env or {})}, cwd=self.home,
                               input=input, capture_output=True, text=True, timeout=timeout)
         # What a job wrote goes to standard error, and the result to standard
         # output; the tests of a command that follows a job read both.
@@ -228,12 +228,12 @@ class Workstation:
         if follows_a_job(args):
             done.stdout = done.output
         if check and done.returncode != 0:
-            raise AssertionError(f'berth {" ".join(args)} exited {done.returncode}:\n'
+            raise AssertionError(f'rookery {" ".join(args)} exited {done.returncode}:\n'
                                  f'{done.stdout[-4000:]}\n{done.stderr[-4000:]}')
         return done
 
     def spawn(self, *args, env=None):
-        return subprocess.Popen([str(BERTH), *args], env={**self.env, **(env or {})}, cwd=self.home,
+        return subprocess.Popen([str(ROOKERY), *args], env={**self.env, **(env or {})}, cwd=self.home,
                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True)
 
@@ -251,21 +251,21 @@ class Workstation:
         return self.ssh(OPERATOR, f'sudo -n sh -c {shell_quote(command)}', check=check)
 
     def write_profile(self, profile, name=HOST):
-        """Save a host's profile in berth's store, as `berth host import` does."""
-        self.berth('host', 'import', name, '-', input=json.dumps(profile, indent=2) + '\n')
+        """Save a host's profile in rookery's store, as `rookery host import` does."""
+        self.rookery('host', 'import', name, '-', input=json.dumps(profile, indent=2) + '\n')
 
     def read_profile(self, name=HOST):
-        return json.loads(self.berth('host', 'export', name).stdout)
+        return json.loads(self.rookery('host', 'export', name).stdout)
 
     def remove_host(self, name=HOST, check=True):
-        """Forget a host, with what berth keeps of it."""
-        return self.berth('host', 'remove', name, '-y', check=check)
+        """Forget a host, with what rookery keeps of it."""
+        return self.rookery('host', 'remove', name, '-y', check=check)
 
     def link(self):
-        return BerthdLink(self)
+        return RookerydLink(self)
 
     def terminal(self, *args, cols=100, rows=30):
-        return Terminal([str(BERTH), *args], self.env, cols, rows, self.home)
+        return Terminal([str(ROOKERY), *args], self.env, cols, rows, self.home)
 
 
 _runtime_dirs = []
@@ -283,15 +283,15 @@ def shell_quote(text):
 
 
 def profile(**values):
-    """A profile like berth writes for a new host, with the test host's address."""
+    """A profile like rookery writes for a new host, with the test host's address."""
     base = json.loads((SRC / 'provision/config/example.json').read_text())
     base.update({
         'hostname': HOST, 'target': 'cloud', 'keyboard': 'us',
-        # The operator's sudo needs no password, as by default, so berth asks
+        # The operator's sudo needs no password, as by default, so rookery asks
         # for none. shipped_plugins says the features are chosen already, as
-        # in every profile berth saves. berth logs in with the user's SSH
-        # configuration, which offers the user's key before berth's own: the
-        # host takes the user's key until the first apply gives it berth's.
+        # in every profile rookery saves. rookery logs in with the user's SSH
+        # configuration, which offers the user's key before rookery's own: the
+        # host takes the user's key until the first apply gives it rookery's.
         'builder': {'shipped_plugins': True},
         'access': {'address': HOST, 'user': OPERATOR, 'auth': 'ssh'},
         'ansible_vars': light_vars(),
@@ -304,15 +304,15 @@ def light_vars(features=()):
     """What keeps the role to the tasks the tests apply: no services to start
     (there is no systemd), no GPU, no plugins unless asked for."""
     return {
-        'devbox_plugin_features': list(features),
-        'devbox_start_services': False,
-        'devbox_software_rendering': False,
-        'devbox_selected_commands': [],
-        'devbox_enabled_categories': [],
-        'devbox_install_docker': False,
-        'devbox_install_tailscale': False,
-        'devbox_install_cockpit': False,
-        'devbox_install_playwright': False,
+        'rookery_plugin_features': list(features),
+        'rookery_start_services': False,
+        'rookery_software_rendering': False,
+        'rookery_selected_commands': [],
+        'rookery_enabled_categories': [],
+        'rookery_install_docker': False,
+        'rookery_install_tailscale': False,
+        'rookery_install_cockpit': False,
+        'rookery_install_playwright': False,
     }
 
 
@@ -344,10 +344,10 @@ def provisioned():
         agent_ssh_public_keys=[agent_one, agent_two],
     ))
     started = time.monotonic()
-    first = station.berth('apply', HOST, timeout=900)
+    first = station.rookery('apply', HOST, timeout=900)
     station.apply_seconds = time.monotonic() - started
     station.first_apply = first.output
-    wait_for('berthd answering', lambda: station.link().get('/v1/version'), timeout=60)
+    wait_for('rookeryd answering', lambda: station.link().get('/v1/version'), timeout=60)
     _provisioned['workstation'] = station
     return station
 
@@ -359,7 +359,7 @@ def adopt(station):
 
 
 def served():
-    """A berth serve on a workstation of its own, set up through its API to
+    """A rookery serve on a workstation of its own, set up through its API to
     reach the test host, and trusting an OAuth issuer; started once per run."""
     if 'serve' in _provisioned:
         return _provisioned['serve']
@@ -372,7 +372,7 @@ def served():
     wait_for('the operator taking the server\'s key', lambda: server.ssh(
         OPERATOR, 'true', key=key, check=False).returncode == 0)
     issuer = Issuer()
-    serve = Serve(server, env={'BERTH_OAUTH_ISSUER': issuer.url, 'BERTH_OAUTH_AUDIENCE': 'berth',
+    serve = Serve(server, env={'ROOKERY_OAUTH_ISSUER': issuer.url, 'ROOKERY_OAUTH_AUDIENCE': 'rookery',
                                **package_registry().env()})
     serve.issuer = issuer
     # The host's profile as the workstation has it, so applying it from the
@@ -381,7 +381,7 @@ def served():
     host = station.read_profile()
     host['operator_ssh_public_keys'].append(station.own_public())
     # The server logs in with its own key; the SSH configuration is its own account's.
-    host['access']['auth'] = 'berth'
+    host['access']['auth'] = 'rookery'
     host['ansible_vars'] = light_vars()
     for key in ('secrets', 'registries'):
         host.pop(key, None)
@@ -409,7 +409,7 @@ def stop_serving():
 
 FIXTURE = SRC / 'tests/e2e/fixtures/plugin'
 # The features of the extended state, from three kinds of plugin: a folder
-# added to berth, a package from a registry, and one that comes with berth.
+# added to rookery, a package from a registry, and one that comes with rookery.
 EXTENDED_FEATURES = ['e2e/hello', 'up/main', 'shipit/main']
 
 _state = {'name': None, 'value': None, 'leave': None}
@@ -428,18 +428,18 @@ def state(name, enter):
     return value
 
 
-def plugin_version(version, name='berth-plugin-up'):
+def plugin_version(version, name='rookery-plugin-up'):
     """The fixture plugin as `name` at a version, its id the name without
-    berth-plugin-. From 2.0.0 its greeting and service changed, its Ansible
+    rookery-plugin-. From 2.0.0 its greeting and service changed, its Ansible
     task installs another file, the task `old` is gone and `added` is new."""
-    plugin = name.removeprefix('berth-plugin-')
+    plugin = name.removeprefix('rookery-plugin-')
     folder = SCRATCH / f'{name}-{version}'
     if folder.exists():
         shutil.rmtree(folder)
     shutil.copytree(FIXTURE, folder)
     manifest = json.loads((folder / 'package.json').read_text())
     manifest['name'], manifest['version'] = name, version
-    feature = manifest['berth']['features'][0]
+    feature = manifest['rookery']['features'][0]
     feature['id'] = 'main'
     feature['guide'] = ''
     newer = version != '1.0.0'
@@ -448,18 +448,18 @@ def plugin_version(version, name='berth-plugin-up'):
         {'name': 'added' if newer else 'old', 'label': 'Added' if newer else 'Old',
          'run': f'echo "{"added" if newer else "old"} task"'},
     ]
-    feature['services'][0]['run'] = f'exec box serve {plugin}/echo -- /usr/local/bin/berth-e2e-echo {version}'
+    feature['services'][0]['run'] = f'exec box serve {plugin}/echo -- /usr/local/bin/rookery-e2e-echo {version}'
     feature['channels'] = [{'topic': 'notes', 'keep': 'log', 'max': 50}]
     (folder / 'package.json').write_text(json.dumps(manifest, indent=2))
     (folder / 'tasks/install.yml').write_text(f'''---
 - name: Create the folder of what the plugin brings
   ansible.builtin.file:
-    path: /usr/local/lib/berth-{plugin}
+    path: /usr/local/lib/rookery-{plugin}
     state: directory
     mode: '0755'
 - name: Install what this version of the plugin brings
   ansible.builtin.copy:
-    dest: /usr/local/lib/berth-{plugin}/{"two" if newer else "one"}
+    dest: /usr/local/lib/rookery-{plugin}/{"two" if newer else "one"}
     content: "{version}\\n"
     mode: '0644'
 ''')
@@ -469,7 +469,7 @@ def plugin_version(version, name='berth-plugin-up'):
 def joining(profile, **values):
     """A profile whose host gets Tailscale and joins the tailnet."""
     profile = {**profile, **values}
-    profile['ansible_vars'] = {**profile.get('ansible_vars', {}), 'devbox_install_tailscale': True}
+    profile['ansible_vars'] = {**profile.get('ansible_vars', {}), 'rookery_install_tailscale': True}
     return profile
 
 
@@ -496,7 +496,7 @@ class Applied:
 
 def extended():
     """The host applied from the workstation with three plugins' features
-    (EXTENDED_FEATURES) and joined to the tailnet with a key berth made, then
+    (EXTENDED_FEATURES) and joined to the tailnet with a key rookery made, then
     applied again. `first` and `second` are the two applies; `before` and
     `after_first` the newest Headscale key before each."""
     return state('extended', _enter_extended)
@@ -506,39 +506,39 @@ def _enter_extended():
     station = provisioned()
     kept = station.read_profile()
     registry = package_registry()
-    # berth's source with a plugin that comes with it, for the rest of the run.
-    station.env['BERTH_SOURCE'] = str(SCRATCH / 'source-shipped' if (SCRATCH / 'source-shipped').exists()
+    # rookery's source with a plugin that comes with it, for the rest of the run.
+    station.env['ROOKERY_SOURCE'] = str(SCRATCH / 'source-shipped' if (SCRATCH / 'source-shipped').exists()
                                       else source_with_plugins('source-shipped', {
-                                          'shipit': plugin_version('1.0.0', 'berth-plugin-shipit')}))
-    station.berth('plugin', 'add', str(FIXTURE))
+                                          'shipit': plugin_version('1.0.0', 'rookery-plugin-shipit')}))
+    station.rookery('plugin', 'add', str(FIXTURE))
     registry.publish(plugin_version('1.0.0'))
-    station.berth('plugin', 'add', 'berth-plugin-up', env=registry.env())
+    station.rookery('plugin', 'add', 'rookery-plugin-up', env=registry.env())
     leave_the_tailnet(station)
-    station.berth('config', 'set', 'tailnet_login_server', headscale().url)
-    station.berth('config', 'set', 'tailnet_user', headscale().user)
-    station.berth('secret', 'set', 'tailnet_api_key', input=headscale().api_key + '\n')
+    station.rookery('config', 'set', 'tailnet_login_server', headscale().url)
+    station.rookery('config', 'set', 'tailnet_user', headscale().user)
+    station.rookery('secret', 'set', 'tailnet_api_key', input=headscale().api_key + '\n')
     station.write_profile(joining({**kept, 'ansible_vars': light_vars(EXTENDED_FEATURES)}))
     before = last_key_id()
-    first = station.berth('apply', HOST, timeout=900)
+    first = station.rookery('apply', HOST, timeout=900)
     after_first = last_key_id()
-    second = station.berth('apply', HOST, timeout=900)
+    second = station.rookery('apply', HOST, timeout=900)
 
     def leave():
         leave_the_tailnet(station)
         station.write_profile(kept)
         for key in ('tailnet_login_server', 'tailnet_user'):
-            station.berth('config', 'unset', key)
-        station.berth('secret', 'remove', 'tailnet_api_key', '-y', check=False)
-        for package in ('berth-plugin-e2e', 'berth-plugin-up'):
-            station.berth('plugin', 'remove', package, '-y', check=False)
+            station.rookery('config', 'unset', key)
+        station.rookery('secret', 'remove', 'tailnet_api_key', '-y', check=False)
+        for package in ('rookery-plugin-e2e', 'rookery-plugin-up'):
+            station.rookery('plugin', 'remove', package, '-y', check=False)
     return Applied(station=station, kept=kept, first=first, second=second, before=before,
                    after_first=after_first), leave
 
 
 def plain():
     """The host applied from the workstation again without the extended
-    state's plugins, as an older berth left it: joined to the tailnet by hand,
-    with that berth's profile, which held a pasted key and had berth's keys
+    state's plugins, as an older rookery left it: joined to the tailnet by hand,
+    with that rookery's profile, which held a pasted key and had rookery's keys
     switched off, and no API key of the tailnet. `first` is that apply,
     `nodes` and `after` Headscale's nodes before and after it, and `before`
     the newest Headscale key after the host joined. Then the host leaves the tailnet, and `refused` is
@@ -548,7 +548,7 @@ def plain():
 
 def join_by_hand(station):
     """Join the host to Headscale with a key made by hand, as one did before
-    berth made the keys."""
+    rookery made the keys."""
     key = headscale().new_key()
     station.root_on_host(f"umask 077; printf %s {shell_quote(key)} > /run/e2e-key; "
                          f"tailscale up --timeout=60s --auth-key=file:/run/e2e-key "
@@ -557,34 +557,34 @@ def join_by_hand(station):
 
 def _enter_plain():
     station = provisioned()
-    for package in ('berth-plugin-e2e', 'berth-plugin-up'):
-        if (station.berth_dir / 'plugins/node_modules' / package).exists():
-            station.berth('plugin', 'remove', package, '-y')
+    for package in ('rookery-plugin-e2e', 'rookery-plugin-up'):
+        if (station.rookery_dir / 'plugins/node_modules' / package).exists():
+            station.rookery('plugin', 'remove', package, '-y')
     kept = station.read_profile()
     leave_the_tailnet(station)
     join_by_hand(station)
-    station.berth('config', 'set', 'tailnet_login_server', headscale().url)
-    station.berth('config', 'set', 'tailnet_user', headscale().user)
+    station.rookery('config', 'set', 'tailnet_login_server', headscale().url)
+    station.rookery('config', 'set', 'tailnet_user', headscale().user)
     station.write_profile(joining({**kept, 'ansible_vars': light_vars()}, tailscale_auth_key=headscale().new_key(),
                                   tailscale_auto_key=False, tailscale_login_server=headscale().url))
     nodes, before = headscale().nodes(), last_key_id()
-    first = station.berth('apply', HOST, timeout=900)
+    first = station.rookery('apply', HOST, timeout=900)
     after = headscale().nodes()
     saved = station.read_profile()
     leave_the_tailnet(station)
-    refused = station.berth('apply', HOST, timeout=900, check=False)
+    refused = station.rookery('apply', HOST, timeout=900, check=False)
 
     def leave():
         leave_the_tailnet(station)
         station.write_profile(kept)
         for key in ('tailnet_login_server', 'tailnet_user'):
-            station.berth('config', 'unset', key)
+            station.rookery('config', 'unset', key)
     return Applied(station=station, kept=kept, first=first, saved=saved, nodes=nodes, after=after,
                    before=before, refused=refused), leave
 
 
 def served_extended():
-    """The host applied by berth serve with a plugin from the registry and
+    """The host applied by rookery serve with a plugin from the registry and
     joined to the tailnet with a key the server made: first by a terminal
     client of the server, then again as a job of the server, followed over
     the portal. `client` is that client; `first` its apply; `job`, `texts`
@@ -598,18 +598,18 @@ def _enter_served_extended():
     station = provisioned()
     leave_the_tailnet(station)
     registry = package_registry()
-    registry.publish(plugin_version('1.0.0', 'berth-plugin-served'))
-    serve.call('POST', '/v1/plugins', {'spec': 'berth-plugin-served'})
+    registry.publish(plugin_version('1.0.0', 'rookery-plugin-served'))
+    serve.call('POST', '/v1/plugins', {'spec': 'rookery-plugin-served'})
     client = Workstation('served-client', ssh_key=False)
-    client.berth('login', serve.url, '--token-stdin', input=serve.token)
-    client.berth('config', 'set', 'tailnet_login_server', headscale().url)
-    client.berth('config', 'set', 'tailnet_user', headscale().user)
-    client.berth('secret', 'set', 'tailnet_api_key', input=headscale().api_key + '\n')
+    client.rookery('login', serve.url, '--token-stdin', input=serve.token)
+    client.rookery('config', 'set', 'tailnet_login_server', headscale().url)
+    client.rookery('config', 'set', 'tailnet_user', headscale().user)
+    client.rookery('secret', 'set', 'tailnet_api_key', input=headscale().api_key + '\n')
     kept = serve.call('GET', f'/v1/hosts/{HOST}/profile')
     serve.call('PUT', f'/v1/hosts/{HOST}/profile',
                joining({**kept, 'ansible_vars': light_vars(['served/main'])}))
     before = last_key_id()
-    first = client.berth('apply', HOST, timeout=900)
+    first = client.rookery('apply', HOST, timeout=900)
     after_first = last_key_id()
     job = serve.call('POST', f'/v1/hosts/{HOST}/actions/apply', expect=202)['job']
     portal = serve.portal()
@@ -653,8 +653,8 @@ def changed_tasks(output):
 
 
 # ---------------------------------------------------------------------------
-# berthd over the link berth uses: HTTP on the standard input and output of
-# `sudo berthd connect`, over SSH as the operator
+# rookeryd over the link rookery uses: HTTP on the standard input and output of
+# `sudo rookeryd connect`, over SSH as the operator
 
 
 class Pipe:
@@ -665,23 +665,23 @@ class Pipe:
         return self.stream
 
 
-class BerthdLink:
+class RookerydLink:
     def __init__(self, station, key=None):
         self.station = station
-        # berth writes its key as a file only when something needs it.
+        # rookery writes its key as a file only when something needs it.
         self.key = key or station.own_key_file()
 
     def request(self, method, path, body=None, raw=False, headers=None):
         """(status, answer) of one request; the answer is JSON unless raw."""
         data = b'' if body is None else body if isinstance(body, bytes) else json.dumps(body).encode()
-        head = f'{method} {path} HTTP/1.1\r\nHost: berth\r\nConnection: close\r\nContent-Length: {len(data)}\r\n'
+        head = f'{method} {path} HTTP/1.1\r\nHost: rookery\r\nConnection: close\r\nContent-Length: {len(data)}\r\n'
         if not isinstance(body, bytes):
             head += 'Content-Type: application/json\r\n'
         for name, value in (headers or {}).items():
             head += f'{name}: {value}\r\n'
         argv = ['ssh', '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-i', str(self.key),
                 '-o', f'UserKnownHostsFile={self.station.home}/.ssh/known_hosts',
-                '-T', f'{OPERATOR}@{HOST}', 'sudo -n berthd connect']
+                '-T', f'{OPERATOR}@{HOST}', 'sudo -n rookeryd connect']
         link = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 env=self.station.env)
         try:
@@ -720,11 +720,11 @@ def unb64(text):
 
 
 # ---------------------------------------------------------------------------
-# berth serve
+# rookery serve
 
 
 class Serve:
-    """`berth serve --listen` of a workstation, on a port of its own."""
+    """`rookery serve --listen` of a workstation, on a port of its own."""
 
     def __init__(self, station, env=None):
         MADE['serve'] += 1
@@ -735,9 +735,9 @@ class Serve:
         self.lines = []
         self._reader = threading.Thread(target=self._read, daemon=True)
         self._reader.start()
-        wait_for('berth serve listening', lambda: any('Listening on http://' in line for line in self.lines),
+        wait_for('rookery serve listening', lambda: any('Listening on http://' in line for line in self.lines),
                  timeout=60)
-        self.token = (station.data / 'berth/serve.token').read_text().strip()
+        self.token = (station.data / 'rookery/serve.token').read_text().strip()
         self.url = f'http://127.0.0.1:{self.port}'
 
     def _read(self):
@@ -1003,7 +1003,7 @@ class Issuer:
         self.url = f'http://127.0.0.1:{self.server.server_address[1]}'
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
-    def token(self, scope, subject='ada', audience='berth', expires=600, issuer=None, key=None):
+    def token(self, scope, subject='ada', audience='rookery', expires=600, issuer=None, key=None):
         header = {'alg': 'EdDSA', 'typ': 'JWT', 'kid': 'e2e'}
         claims = {'iss': issuer or self.url, 'sub': subject, 'aud': audience, 'scope': scope,
                   'iat': int(time.time()), 'exp': int(time.time()) + expires}
@@ -1110,7 +1110,7 @@ class PackageRegistry:
         self.packages.setdefault(name, {})[version] = (manifest, tarball)
 
     def env(self):
-        """What lets npm reach it, for berth and berth serve."""
+        """What lets npm reach it, for rookery and rookery serve."""
         return {'npm_config_registry': self.url, 'npm_config_offline': 'false'}
 
     def stop(self):
@@ -1131,16 +1131,16 @@ def package_registry():
 # The Headscale server of ci/compose.yml, which the test host can join
 
 
-HEADSCALE = os.environ.get('BERTH_E2E_HEADSCALE', 'headscale')
+HEADSCALE = os.environ.get('ROOKERY_E2E_HEADSCALE', 'headscale')
 
 
 class Headscale:
     """The `headscale` service of ci/compose.yml: its login server, the API key
-    it hands out at start, and its API. It has one user, `berth`, number 1."""
+    it hands out at start, and its API. It has one user, `rookery`, number 1."""
 
     def __init__(self):
         self.url = f'http://{HEADSCALE}:8080'
-        self.user = 'berth'
+        self.user = 'rookery'
 
         def ready():
             with urllib.request.urlopen(f'http://{HEADSCALE}:8081/api-key', timeout=5) as answer:

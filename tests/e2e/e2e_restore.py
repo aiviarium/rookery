@@ -1,14 +1,14 @@
 """An installation restored from its database and its key file alone.
 
-A berth serve keeps its state in an encrypted SQLite store. The test gives it
+A rookery serve keeps its state in an encrypted SQLite store. The test gives it
 the test host, a finished job, a secret, a setting and a key of the ring, stops
 it and wipes its configuration, data and runtime directories. Only the two
-files of the store are kept, and a berth serve started on them is the same
-installation: the host, the token, berth's key, the secret, the setting and
+files of the store are kept, and a rookery serve started on them is the same
+installation: the host, the token, rookery's key, the secret, the setting and
 the job are there. The job's output stays on the machine that ran it. Without
-the key file, berth serve refuses and writes nothing.
+the key file, rookery serve refuses and writes nothing.
 
-It runs on `studio` after the other tests of berth serve and applies nothing:
+It runs on `studio` after the other tests of rookery serve and applies nothing:
 the host is the one provisioned() set up, and the server is its own."""
 import hashlib
 import shutil
@@ -54,9 +54,9 @@ class Restore(unittest.TestCase):
         cls.keyless = SCRATCH / 'restore-keyless'
         for folder in (keep, cls.moved, cls.keyless):
             folder.mkdir(mode=0o700)
-        station.env.update(BERTH_STORE=str(keep / 'berth.db'), BERTH_STORE_KEY=str(keep / 'store.key'))
+        station.env.update(ROOKERY_STORE=str(keep / 'rookery.db'), ROOKERY_STORE_KEY=str(keep / 'store.key'))
         # What the store says of itself when it is sealed.
-        cls.encrypted = station.berth('server', 'store', 'encrypt')
+        cls.encrypted = station.rookery('server', 'store', 'encrypt')
         cls.own_public = station.own_public()
         cls.give_the_host_the_keys()
         key = station.own_key_file()
@@ -67,15 +67,15 @@ class Restore(unittest.TestCase):
             cls.fill(serve)
         finally:
             serve.stop()
-        cls.status = station.berth('server', 'store', 'status').stdout
-        cls.sealed_file = (keep / 'berth.db').read_bytes()
+        cls.status = station.rookery('server', 'store', 'status').stdout
+        cls.sealed_file = (keep / 'rookery.db').read_bytes()
         # The database and the key file are all that is kept.
-        for name in ('berth.db', 'store.key'):
+        for name in ('rookery.db', 'store.key'):
             shutil.copy2(keep / name, cls.moved / name)
-        shutil.copy2(keep / 'berth.db', cls.keyless / 'berth.db')
+        shutil.copy2(keep / 'rookery.db', cls.keyless / 'rookery.db')
         wipe(station)
         shutil.rmtree(keep)
-        station.env.update(BERTH_STORE=str(cls.moved / 'berth.db'), BERTH_STORE_KEY=str(cls.moved / 'store.key'))
+        station.env.update(ROOKERY_STORE=str(cls.moved / 'rookery.db'), ROOKERY_STORE_KEY=str(cls.moved / 'store.key'))
         cls.serve = Serve(station)
 
     @classmethod
@@ -91,7 +91,7 @@ class Restore(unittest.TestCase):
         """Put a host, a job, a secret, a setting and a key in the first server, and note them."""
         station = cls.station
         host = cls.worker.read_profile()
-        host['access']['auth'] = 'berth'
+        host['access']['auth'] = 'rookery'
         host['ansible_vars'] = light_vars()
         for key in ('secrets', 'registries'):
             host.pop(key, None)
@@ -132,19 +132,19 @@ class Restore(unittest.TestCase):
         self.assertTrue(found[0]['version'])
         self.assertEqual(self.serve.call('GET', f'/v1/hosts/{HOST}')['address'], HOST)
 
-    def test_3_the_token_and_the_key_of_berth_are_the_same(self):
+    def test_3_the_token_and_the_key_of_rookery_are_the_same(self):
         # Compared without showing either: a failure must not print a token.
         self.assertTrue(self.serve.token == self.token, 'the restored server has another token')
         self.assertEqual(self.serve.request('GET', '/v1/hosts', token=self.token)[0], 200)
         self.assertEqual(self.serve.request('GET', '/v1/hosts', token='not-the-token')[0], 401)
-        wait_for('berth writing its key file', lambda: self.station.own_key.is_file())
+        wait_for('rookery writing its key file', lambda: self.station.own_key.is_file())
         self.assertEqual(self.station.own_key.stat().st_mode & 0o777, 0o600)
         self.assertEqual(public_of(self.station.own_key), self.own_file_public)
         self.assertEqual(self.own_file_public, self.own_public.split()[:2])
         keys = {key['name']: key['public'].split()[:2] for key in self.serve.call('GET', '/v1/keys')['keys']}
         self.assertEqual(keys, self.keys)
         self.assertIn(self.ring_key, keys)
-        self.assertEqual(keys['berth'], self.own_file_public)
+        self.assertEqual(keys['rookery'], self.own_file_public)
 
     def test_4_the_secret_and_the_setting_are_there(self):
         self.assertIn(self.secret, self.serve.call('GET', '/v1/secrets')['names'])
@@ -157,7 +157,7 @@ class Restore(unittest.TestCase):
         session = self.serve.call('POST', f'/v1/hosts/{HOST}/actions/secrets', expect=202)['session']
         wait_for('the secrets action to end', lambda: self.serve.call(
             'GET', f'/v1/hosts/{HOST}/controller/sessions/{session["id"]}').get('exit_code') == 0)
-        env = self.worker.root_on_host(f'cat /home/{AGENT}/.config/devbox/secrets.env').stdout
+        env = self.worker.root_on_host(f'cat /home/{AGENT}/.config/rookery/secrets.env').stdout
         self.assertIn(f'export RESTORED_SECRET={self.secret_value}', env)
 
     def test_5_the_old_job_is_listed_and_its_output_is_somewhere_else(self):
@@ -168,24 +168,24 @@ class Restore(unittest.TestCase):
         self.assertEqual(status, 404, answer)
         self.assertIn(f'The output of job {self.job} was kept on the machine that ran it', answer['error']['message'])
 
-    def test_6_without_the_key_file_berth_serve_refuses_and_writes_nothing(self):
+    def test_6_without_the_key_file_rookery_serve_refuses_and_writes_nothing(self):
         self.serve.stop()
         station = self.station
         wipe(station)
-        database = self.keyless / 'berth.db'
+        database = self.keyless / 'rookery.db'
         before = digest(database)
         absent = self.keyless / 'store.key'
-        station.env.update(BERTH_STORE=str(database), BERTH_STORE_KEY=str(absent))
-        done = station.berth('serve', '--listen', f'127.0.0.1:{free_port()}', check=False, timeout=60)
+        station.env.update(ROOKERY_STORE=str(database), ROOKERY_STORE_KEY=str(absent))
+        done = station.rookery('serve', '--listen', f'127.0.0.1:{free_port()}', check=False, timeout=60)
         said = done.stdout + done.stderr
         self.assertNotEqual(done.returncode, 0, said)
         self.assertIn('the store is encrypted', said)
         self.assertIn(str(absent), said)
         self.assertNotIn('Listening on', said)
-        self.assertTrue(digest(database) == before, 'berth serve changed the database')
-        # SQLite's own files and berth's empty lock beside the database are no change; a key file, a copy or a new database would be.
-        beside = {'berth.db-wal', 'berth.db-shm', 'berth.db.convert.lock'}
-        self.assertEqual({path.name for path in self.keyless.iterdir()} - beside, {'berth.db'})
-        self.assertEqual((self.keyless / 'berth.db.convert.lock').stat().st_size, 0)
-        self.assertFalse((station.data / 'berth/serve.token').exists())
-        self.assertFalse((station.data / 'berth/keys').exists())
+        self.assertTrue(digest(database) == before, 'rookery serve changed the database')
+        # SQLite's own files and rookery's empty lock beside the database are no change; a key file, a copy or a new database would be.
+        beside = {'rookery.db-wal', 'rookery.db-shm', 'rookery.db.convert.lock'}
+        self.assertEqual({path.name for path in self.keyless.iterdir()} - beside, {'rookery.db'})
+        self.assertEqual((self.keyless / 'rookery.db.convert.lock').stat().st_size, 0)
+        self.assertFalse((station.data / 'rookery/serve.token').exists())
+        self.assertFalse((station.data / 'rookery/keys').exists())

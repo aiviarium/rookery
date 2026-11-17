@@ -1,0 +1,173 @@
+---
+# rookeryd, the host's API, and box, the command on the desktop. Both are built
+# with rookery (`cargo build -p rookery`) into this role's files; rookeryd reads the JSON files written
+# here and nothing else writes them.
+- name: Require the host programs in the role's files
+  ansible.builtin.assert:
+    that: query('ansible.builtin.fileglob', role_path ~ '/files/bin/rookeryd', role_path ~ '/files/bin/box') | length == 2
+    fail_msg: "rookeryd and box are missing from the role's files. Building rookery puts them there: cargo build -p rookery."
+- name: Install rookeryd and box
+  ansible.builtin.copy:
+    src: "bin/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    mode: '0755'
+  loop: [rookeryd, box]
+  register: rookery_programs
+- name: Keep the old name of the desktop command
+  ansible.builtin.file:
+    src: /usr/local/bin/box
+    dest: /usr/local/bin/rookery-desktop
+    state: link
+    force: true
+- name: Create rookeryd's directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default('root') }}"
+    mode: "{{ item.mode }}"
+  loop: "{{ rookery_dirs + ([{'path': '/run/rookery', 'mode': '0755', 'owner': rookery_user}] if rookery_profile == 'container' else []) }}"
+  vars:
+    rookery_dirs:
+      - {path: /etc/rookery, mode: '0755'}
+      - {path: /var/lib/rookeryd, mode: '0700'}
+      - {path: "{{ rookery_task_dir }}", mode: '0755'}
+      - {path: "{{ rookery_service_dir }}", mode: '0755'}
+- name: Install rookery's own tasks
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ rookery_task_dir }}/{{ item | basename }}"
+    mode: '0755'
+  loop: "{{ query('ansible.builtin.fileglob', role_path ~ '/files/tasks/*.sh') | sort }}"
+  loop_control:
+    label: "{{ item | basename }}"
+- name: Write what rookeryd reads
+  ansible.builtin.copy:
+    dest: "/etc/rookery/{{ item.name }}.json"
+    content: "{{ item.value | to_nice_json }}\n"
+    mode: '0644'
+  loop:
+    - name: rookeryd
+      value:
+        agent: "{{ rookery_user }}"
+        operator: "{{ '' if rookery_profile == 'container' else rookery_operator_user }}"
+        roots: "{{ rookery_controller_roots }}"
+        units: "{{ rookery_controller_units }}"
+        # Only a workstation's agent has the wrapper with its display and tools.
+        agent_env: "{{ '/usr/local/bin/agent-env' if rookery_level == 'workstation' else '' }}"
+    - {name: actions, value: "{{ rookery_tasks }}"}
+    - {name: services, value: "{{ rookery_plugin_services }}"}
+    - {name: channels, value: "{{ rookery_plugin_channels }}"}
+  loop_control:
+    label: "{{ item.name }}"
+  register: rookery_files
+# rookeryd read the actions from tasks.json before, and still would if it stayed.
+- name: Remove the file of actions of rookery 0.5
+  ansible.builtin.file:
+    path: /etc/rookery/tasks.json
+    state: absent
+# The agent's rights follow the services of plugins, so they are settled here
+# and not with the accounts.
+- name: Set what the agent may do as root
+  ansible.builtin.template:
+    src: sudoers-agent.j2
+    dest: /etc/sudoers.d/90-rookery-agent
+    owner: root
+    group: root
+    mode: '0440'
+    validate: /usr/sbin/visudo -cf %s
+  when: rookery_level == 'workstation'
+- name: Run rookeryd and the services of plugins
+  when: rookery_controller_systemd | bool
+  block:
+    - name: Install the rookeryd unit
+      ansible.builtin.template:
+        src: rookeryd.service.j2
+        dest: /etc/systemd/system/rookeryd.service
+        mode: '0644'
+      register: rookery_controller_unit
+    - name: Start rookeryd
+      ansible.builtin.systemd_service:
+        name: rookeryd.service
+        daemon_reload: true
+        enabled: true
+        state: started
+      register: rookery_controller_started
+      when: rookery_start_services
+    # A restart ends the sessions rookeryd holds, so it happens only for a new
+    # program or unit. New tasks, services and topics need a reload.
+    - name: Restart rookeryd after its program changed
+      ansible.builtin.systemd_service:
+        name: rookeryd.service
+        state: restarted
+      register: rookery_controller_restarted
+      when:
+        - rookery_start_services
+        - not rookery_controller_started.changed
+        - rookery_programs.results[0].changed or rookery_controller_unit.changed
+    - name: Have rookeryd read its files again
+      ansible.builtin.systemd_service:
+        name: rookeryd.service
+        state: reloaded
+      when:
+        - rookery_start_services
+        - rookery_files.changed
+        - not rookery_controller_started.changed
+        - not (rookery_controller_restarted.changed | default(false))
+    - name: Install what each plugin service runs
+      ansible.builtin.copy:
+        dest: "{{ rookery_service_dir }}/{{ item.name | replace('/', '-') }}.sh"
+        mode: '0755'
+        content: |
+          #!/usr/bin/env bash
+          {{ item.run }}
+      loop: "{{ rookery_plugin_services }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: rookery_service_scripts
+    - name: Install a unit for each plugin service
+      ansible.builtin.template:
+        src: rookery-service.service.j2
+        dest: "/etc/systemd/system/rookery-svc-{{ item.name | replace('/', '-') }}.service"
+        mode: '0644'
+      loop: "{{ rookery_plugin_services }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: rookery_service_unit_files
+    - name: Find the units of plugin services
+      ansible.builtin.find:
+        paths: /etc/systemd/system
+        patterns: 'rookery-svc-*.service'
+      register: rookery_service_found
+    - name: Stop services that are no longer declared
+      ansible.builtin.systemd_service:
+        name: "{{ item | basename }}"
+        enabled: false
+        state: stopped
+      loop: "{{ rookery_service_found.files | map(attribute='path') | reject('in', rookery_service_units | map('regex_replace', '^', '/etc/systemd/system/') | list) | list }}"
+      failed_when: false
+      when: rookery_start_services
+    - name: Remove their units
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ rookery_service_found.files | map(attribute='path') | reject('in', rookery_service_units | map('regex_replace', '^', '/etc/systemd/system/') | list) | list }}"
+    # Only a service whose script or unit changed restarts; the others keep
+    # running as they are.
+    - name: Start the plugin services
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        daemon_reload: true
+        enabled: true
+        state: "{{ 'restarted' if item in rookery_services_changed else 'started' }}"
+      loop: "{{ rookery_service_units }}"
+      when: rookery_start_services
+      vars:
+        rookery_services_changed: "{{ (rookery_service_scripts.results + rookery_service_unit_files.results) | selectattr('changed') | map(attribute='item.name') | map('replace', '/', '-') | map('regex_replace', '^(.*)$', 'rookery-svc-\\1.service') | list }}"
+    - name: Say which plugin services were restarted
+      ansible.builtin.debug:
+        msg: "Restarted {{ rookery_services_restarted | join(', ') }}, whose definition changed"
+      when:
+        - rookery_start_services
+        - rookery_services_restarted | length > 0
+      vars:
+        rookery_services_restarted: "{{ (rookery_service_scripts.results + rookery_service_unit_files.results) | selectattr('changed') | map(attribute='item.name') | unique | list }}"

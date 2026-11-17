@@ -83,7 +83,7 @@ def select_policy(selection, disks):
         raise ValueError(f'Expected exactly one eligible disk, got {len(candidates)}')
     return candidates[0]['path']
 
-WIFI_AUTO = 'DEVBOX_WIFI_AUTO'
+WIFI_AUTO = 'ROOKERY_WIFI_AUTO'
 
 def wireless_interfaces(sysfs='/sys/class/net'):
     root = Path(sysfs)

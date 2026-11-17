@@ -1,0 +1,43 @@
+---
+# A node: a server rookery applies without a desktop. It gets the base system,
+# updates, SSH that takes keys, rookery's controller, a firewall and the plugin
+# features its profile names, such as the engines that host machines. There
+# are no agent or operator accounts: sessions run as the SSH user, and rookery
+# keeps logging in as that user with its own key.
+- name: Check the node and find the account sessions run as
+  ansible.builtin.import_tasks: node_facts.yml
+- name: Check that the node can join the tailnet
+  ansible.builtin.include_tasks: tailnet_check.yml
+  when: rookery_install_tailscale and rookery_start_services and rookery_profile != 'container'
+- name: Install what a node needs
+  ansible.builtin.apt:
+    name: "{{ rookery_node_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    lock_timeout: 300
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+- name: Configure the time zone, the locale and security updates
+  ansible.builtin.import_tasks: system.yml
+
+- name: Let rookery in with its key, and nobody with a password
+  ansible.builtin.import_tasks: node_ssh.yml
+
+# ── The tailnet ─────────────────────────────────────────────────────────────
+
+- name: Install Tailscale
+  ansible.builtin.import_tasks: tailscale.yml
+  when: rookery_install_tailscale
+- name: Start Tailscale now and at boot
+  ansible.builtin.systemd_service:
+    name: tailscaled
+    enabled: true
+    state: started
+  when: rookery_install_tailscale and rookery_start_services
+- name: Join the tailnet
+  ansible.builtin.include_tasks: tailnet.yml
+  when: rookery_install_tailscale and rookery_start_services
+
+- name: Apply the features, rookery's controller and the firewall
+  ansible.builtin.import_tasks: node_rookery.yml

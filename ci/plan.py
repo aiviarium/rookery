@@ -48,29 +48,29 @@ RUST_READS = ['docs/openapi/', 'docs/content/docs/(guide)/reference/cli.mdx',
 # the tailnet. A pull request runs the shards that apply the role only for a
 # change here (or to the role and the tests); main runs them for any change.
 SEAM = [
-    'crates/berth-api/', 'crates/berthd/', 'crates/box/', 'crates/berth-pty/',
-    'crates/berth-core/build.rs', 'crates/berth-core/Cargo.toml',
-    'crates/berth-core/tests/fixtures/ansible/',
-    *(f'crates/berth-core/src/{name}' for name in (
+    'crates/rookery-api/', 'crates/rookeryd/', 'crates/box/', 'crates/rookery-pty/',
+    'crates/rookery-core/build.rs', 'crates/rookery-core/Cargo.toml',
+    'crates/rookery-core/tests/fixtures/ansible/',
+    *(f'crates/rookery-core/src/{name}' for name in (
         'apply.rs', 'rollout.rs', 'kept_profile.rs', 'node.rs', 'provision.rs', 'seed.rs', 'tailnet.rs',
         'keys/', 'plugins.rs', 'plugin_state.rs', 'paths.rs', 'profiles.rs', 'host_type.rs', 'runner.rs',
         'relay.rs', 'server_image.rs', 'import.rs')),
-    'crates/berth/src/local/serve/actions.rs',
-    'crates/berth-tui/src/fields.rs', 'crates/berth-tui/src/setup.rs', 'crates/berth-tui/src/flow.rs',
+    'crates/rookery/src/local/serve/actions.rs',
+    'crates/rookery-tui/src/fields.rs', 'crates/rookery-tui/src/setup.rs', 'crates/rookery-tui/src/flow.rs',
 ]
 
 # What each kind of unit leaves out, beyond NOWHERE, and what it keeps of that.
 UNITS = {
     'rust': dict(out=['recipes/'], keep=RUST_READS),
     'python': dict(out=['crates/', 'Cargo.toml', 'Cargo.lock', 'tests/e2e/']),
-    # berth carries the provisioning source, so the end-to-end tests read
+    # rookery carries the provisioning source, so the end-to-end tests read
     # most of the tree; the Python tests and the recipes are not theirs.
     'e2e': dict(out=['recipes/', 'tests/test_', 'tests/fixtures/']),
     'role': dict(out=['recipes/', 'tests/test_', 'tests/fixtures/', 'crates/'], keep=SEAM),
 }
 
-# The shards that apply nothing but the first apply: they test berth's own
-# code, so they run for any change berth is built from.
+# The shards that apply nothing but the first apply: they test rookery's own
+# code, so they run for any change rookery is built from.
 SMOKE = {'studio', 'dock'}
 
 
@@ -125,7 +125,7 @@ def plan(found, event, seen):
     def unit(name, key, also=()):
         return {'name': name, 'key': f'green-{name}-{key}', 'also': [f'green-{name}-{k}' for k in also]}
 
-    # On main the role's shards run for any change berth is built from, and
+    # On main the role's shards run for any change rookery is built from, and
     # leave the marker a pull request looks for too.
     role, role_also = (found['e2e'], [found['role']]) if event == 'push' else (found['role'], [])
     jobs = [unit('rust-tests', found['rust']), unit('clippy', found['rust']), unit('python-tests', found['python'])]
@@ -153,7 +153,7 @@ def main():
     event = os.environ.get('GITHUB_EVENT_NAME', '')
     seen = set()
     if not args.all and event in ('push', 'pull_request'):
-        seen = markers(event, os.environ['GITHUB_REPOSITORY'], os.environ.get('BERTH_CI_PR', ''))
+        seen = markers(event, os.environ['GITHUB_REPOSITORY'], os.environ.get('ROOKERY_CI_PR', ''))
     result = plan(found, event, seen)
     if output := os.environ.get('GITHUB_OUTPUT'):
         with open(output, 'a') as out:

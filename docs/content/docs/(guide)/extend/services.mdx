@@ -5,18 +5,18 @@ icon: Workflow
 ---
 
 A service is a program on a host that runs all the time and answers calls. The
-plugin declares it, berth runs it, and `berthd` routes each call to it. The
-caller is the agent on the host, with `box call`, or you, from your machine, with `berth service call`.
+plugin declares it, Rookery runs it, and `rookeryd` routes each call to it. The
+caller is the agent on the host, with `box call`, or you, from your machine, with `rookery service call`.
 
 ## Declare it
 
-A feature in the plugin's `package.json` can list `services` in its `berth`
-section. The name is written without the plugin's id, which berth adds:
+A feature in the plugin's `package.json` can list `services` in its `rookery`
+section. The name is written without the plugin's id, which Rookery adds:
 
 ```json
 {
-  "name": "berth-plugin-ask",
-  "berth": {
+  "name": "rookery-plugin-ask",
+  "rookery": {
     "features": [
       {
         "id": "desk",
@@ -63,17 +63,17 @@ is also written without the plugin's id.
 ## The unit
 
 When the host is applied, the role writes the declared services to
-`/etc/berth/services.json` and makes a systemd unit of each one. The unit is
-named `berth-svc-PLUGIN-NAME.service`, so this one is
-`berth-svc-ask-desk.service`. It runs the `run` command as the declared user and starts
-after `berthd.service`. It is restarted when it fails. It is an ordinary unit:
+`/etc/rookery/services.json` and makes a systemd unit of each one. The unit is
+named `rookery-svc-PLUGIN-NAME.service`, so this one is
+`rookery-svc-ask-desk.service`. It runs the `run` command as the declared user and starts
+after `rookeryd.service`. It is restarted when it fails. It is an ordinary unit:
 `systemctl status` and `journalctl -u` work on it, and so do the unit calls of
 the [units operations](/docs/api/host/units).
 
-A service is up while its program has a WebSocket open to `berthd`. Only the
+A service is up while its program has a WebSocket open to `rookeryd`. Only the
 declared user may serve it, and a second connection to the same service is
 refused.
-In a container, where berthd runs without systemd, there are no units, and a service is whatever connects.
+In a container, where rookeryd runs without systemd, there are no units, and a service is whatever connects.
 
 ## Serving with box
 
@@ -82,7 +82,7 @@ box serve SERVICE -- COMMAND…
 ```
 
 `box serve` opens the serving connection and reconnects with a backoff when
-`berthd` restarts. For each call it runs `COMMAND METHOD`, with the call's JSON
+`rookeryd` restarts. For each call it runs `COMMAND METHOD`, with the call's JSON
 body on standard input. What `COMMAND` prints on standard output is the result,
 which must be JSON. If `COMMAND` exits with a non-zero status, the call fails
 and the message is whatever it wrote to standard error.
@@ -91,8 +91,8 @@ The caller is in the environment of each run:
 
 | Variable | Value |
 |---|---|
-| `BERTH_CALLER_LEVEL` | `host` or `agent` |
-| `BERTH_CALLER_UID` | the caller's user id |
+| `ROOKERY_CALLER_LEVEL` | `host` or `agent` |
+| `ROOKERY_CALLER_UID` | the caller's user id |
 
 The service decides per method who may use it. Because a root service open to
 the agent crosses the agent's privileges, every method that should
@@ -102,7 +102,7 @@ not be open to the agent has to check the level.
 
 The agent runs into a question only a person can answer. It calls
 `ask/desk ask` and waits. The question appears on the channel, a person
-answers it from berth, and the agent's call returns the answer.
+answers it from Rookery, and the agent's call returns the answer.
 
 Each open question is a named pipe in `/run/ask`, named by the number of the
 handler process waiting on it, which is unique among open questions.
@@ -143,7 +143,7 @@ ask)
 
 answer)
   # Only host level answers. The agent may ask, and must not answer itself.
-  [ "$BERTH_CALLER_LEVEL" = host ] || { echo 'only host level may answer' >&2; exit 1; }
+  [ "$ROOKERY_CALLER_LEVEL" = host ] || { echo 'only host level may answer' >&2; exit 1; }
 
   id=$(printf '%s' "$body" | jq -r '.id // empty')
   case "$id" in ''|*[!0-9]*) echo 'id must be a number' >&2; exit 1 ;; esac
@@ -177,16 +177,16 @@ On your machine, a person watches the topic and answers. The `id` is the one
 in the question:
 
 ```sh
-berth channel listen studio ask/
+rookery channel listen studio ask/
 # {"id":4812,"topic":"ask/questions","body":{"id":3107,"question":"Which branch do I release from?"}, ...}
 
-berth service call studio ask/desk answer '{"id":3107,"text":"main"}'
+rookery service call studio ask/desk answer '{"id":3107,"text":"main"}'
 ```
 
 The agent's `box call` then prints `{"answer":"main"}` and exits with status 0.
 On the host, a script can list what is waiting: `box listen ask/`
-prints each question as a line of JSON, and `berth inbox list studio --topic ask/` lists
-the ones `berth serve` has taken in from the host.
+prints each question as a line of JSON, and `rookery inbox list studio --topic ask/` lists
+the ones `rookery serve` has taken in from the host.
 
 If nobody answers within 590 seconds, the handler exits with an error and the
 agent gets `nobody answered` as the message. The caller's own wait ends at the

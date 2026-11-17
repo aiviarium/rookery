@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source /etc/rookery/environment
+if [[ $(id -un) != "$ROOKERY_USER" ]]; then echo "Run this as $ROOKERY_USER" >&2; exit 1; fi
+export DBUS_SESSION_BUS_ADDRESS=${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}
+# What the agent may do as root is a setting of the host; check that it holds.
+case ${ROOKERY_AGENT_PRIVILEGES:-full} in
+  full) sudo -n true ;;
+  limited)
+    sudo -n -l /usr/bin/apt-get update >/dev/null
+    if sudo -n true 2>/dev/null; then echo 'Agent privileges are limited, but sudo runs anything' >&2; exit 1; fi ;;
+  none) if sudo -n true 2>/dev/null; then echo 'Agent privileges are none, but sudo works' >&2; exit 1; fi ;;
+esac
+printf 'Agent privileges: %s\n' "${ROOKERY_AGENT_PRIVILEGES:-full}"
+while IFS= read -r tool; do
+  command -v "$tool" >/dev/null || { echo "Missing expected command: $tool" >&2; exit 1; }
+done </etc/rookery/expected-commands
+node --version
+npm --version
+if command -v docker >/dev/null; then
+  docker compose version
+  docker buildx version
+fi
+rookery-wait-display
+out=$(mktemp -d /srv/agent/artifacts/smoke.XXXXXX)
+glxinfo -B >"$out/opengl.txt"
+vulkaninfo --summary >"$out/vulkan.txt"
+if [[ $ROOKERY_SOFTWARE_RENDERING == 1 ]]; then
+  grep -qi llvmpipe "$out/opengl.txt"
+  grep -Eqi 'llvmpipe|lavapipe' "$out/vulkan.txt"
+fi
+# Independent virtual display for headless GUI/test runners.
+xvfb-run -a -s '-screen 0 1280x720x24 +extension GLX' glxinfo -B >"$out/xvfb-opengl.txt"
+if [[ $ROOKERY_SOFTWARE_RENDERING == 1 ]]; then
+  grep -qi llvmpipe "$out/xvfb-opengl.txt"
+fi
+box desktop screenshot --output "$out/desktop.png"
+xdpyinfo | grep 'dimensions:'
+python - "$out" <<'PY'
+import sys
+from pathlib import Path
+from docx import Document
+from openpyxl import Workbook
+from reportlab.pdfgen import canvas
+p = Path(sys.argv[1])
+d = Document(); d.add_paragraph('Rookery smoke test'); d.save(p / 'test.docx')
+w = Workbook(); w.active['A1'] = 'Rookery smoke test'; w.save(p / 'test.xlsx')
+c = canvas.Canvas(str(p / 'test.pdf')); c.drawString(50, 750, 'Rookery smoke test'); c.save()
+PY
+libreoffice --headless "-env:UserInstallation=file://$out/lo-profile" --convert-to pdf --outdir "$out/rendered" "$out/test.docx"
+test -s "$out/rendered/test.pdf"
+pdftoppm -singlefile -png -scale-to 600 "$out/test.pdf" "$out/pdf"
+test -s "$out/pdf.png"
+browser_check() {
+  python - "$out" <<'PY'
+import sys
+from pathlib import Path
+from playwright.sync_api import sync_playwright
+with sync_playwright() as p:
+    browser=p.chromium.launch(headless=False, chromium_sandbox=True)
+    page=browser.new_page()
+    page.set_content('<h1>Rookery browser smoke test</h1><input id="test">')
+    page.locator('#test').fill('sandbox enabled')
+    assert page.locator('#test').input_value() == 'sandbox enabled'
+    page.screenshot(path=str(Path(sys.argv[1])/'browser.png'))
+    browser.close()
+PY
+}
+machine_kind() {
+  local kind
+  if kind=$(systemd-detect-virt --container 2>/dev/null); then printf 'a container (%s)' "$kind"
+  elif kind=$(systemd-detect-virt --vm 2>/dev/null); then printf 'a virtual machine (%s)' "$kind"
+  else printf 'a machine of its own'
+  fi
+}
+# A sandbox that cannot start is a fact about the machine, which a traceback hides.
+browser_failed() {
+  if grep -q 'No usable sandbox\|sandbox/linux/' "$1"; then
+    printf 'Chromium could not start its sandbox on this machine, %s.\n' "$(machine_kind)" >&2
+    printf 'The browser check failed. Chromium'\''s output is in %s\n' "$1" >&2
+  else
+    cat "$1" >&2
+  fi
+  return 1
+}
+skipped=()
+if /opt/rookery-tools/venv/bin/python -c 'import playwright' 2>/dev/null; then
+  if [[ $ROOKERY_PROFILE != container ]]; then
+    browser_check 2>"$out/browser-error.txt" || browser_failed "$out/browser-error.txt"
+  elif ! browser_check 2>"$out/browser-error.txt"; then
+    # Docker's default seccomp profile blocks the user namespaces Chromium's
+    # sandbox needs. The sandbox stays on; the check is reported, not hidden.
+    skipped+=("sandboxed browser launch (see $out/browser-error.txt)")
+  fi
+fi
+if command -v claude >/dev/null; then claude --version; fi
+if command -v codex >/dev/null; then codex --version; fi
+if command -v pi >/dev/null; then pi --version; fi
+if command -v t3 >/dev/null; then t3 --version; fi
+curl -fsS "http://127.0.0.1:6080/vnc.html" >/dev/null
+# Cockpit serves a self-signed certificate until one is installed.
+if [[ ${ROOKERY_COCKPIT:-0} == 1 ]]; then curl -kfsS https://127.0.0.1:9090/ >/dev/null; fi
+if command -v t3 >/dev/null; then curl -fsS http://127.0.0.1:3773/ >/dev/null; fi
+printf 'Smoke checks passed. Outputs: %s\n' "$out"
+for item in "${skipped[@]}"; do printf 'Skipped in this container: %s\n' "$item"; done
+printf 'Agent authentication remains an interactive check.\n'

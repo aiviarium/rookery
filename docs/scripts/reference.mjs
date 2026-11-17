@@ -1,5 +1,5 @@
 // The API reference, by operation, from the committed operation documents in
-// docs/openapi (`berthd operations`, `berth server api operations`). One folder per
+// docs/openapi (`rookeryd operations`, `rookery server api operations`). One folder per
 // program under content/docs/api, one page per group of operations. The
 // overview and the portal page beside them are written by hand.
 // Plain Node, no packages.
@@ -12,16 +12,16 @@ const docs = join(dirname(fileURLToPath(import.meta.url)), '..');
 const programs = [
   {
     dir: 'host',
-    file: 'berthd.operations.json',
-    title: 'berthd',
-    description: 'The operations of berthd, on every host.',
+    file: 'rookeryd.operations.json',
+    title: 'rookeryd',
+    description: 'The operations of rookeryd, on every host.',
     serve: false,
   },
   {
     dir: 'serve',
-    file: 'berth.operations.json',
-    title: 'berth serve',
-    description: 'The operations of berth serve, on your machine.',
+    file: 'rookery.operations.json',
+    title: 'rookery serve',
+    description: 'The operations of rookery serve, on your machine.',
     serve: true,
   },
 ];
@@ -36,22 +36,22 @@ const groups = {
   units: ['Units', 'systemd units of the host.'],
   logs: ['Logs', "The host's journal."],
   processes: ['Processes', 'The processes of the host.'],
-  channel: ['Channel', 'Messages between programs on the host and berth.'],
+  channel: ['Channel', 'Messages between programs on the host and rookery.'],
   services: ['Services', 'Programs of plugins that answer calls.'],
   ports: ['Ports', "TCP connections to ports on the host's loopback."],
-  endpoints: ['Endpoints', "TCP connections to addresses on the host's own networks, which only berth serve opens, for a resource's endpoint."],
+  endpoints: ['Endpoints', "TCP connections to addresses on the host's own networks, which only rookery serve opens, for a resource's endpoint."],
   setup_key: ['Setup key', 'Collecting the token with a short-lived key, after an install.'],
-  hosts: ['Hosts', 'The hosts berth serve knows, their profiles, and what can be done to each.'],
+  hosts: ['Hosts', 'The hosts rookery serve knows, their profiles, and what can be done to each.'],
   installation: ['Installation', 'What can be done to the installation as a whole, such as a roll-out.'],
-  keys: ['Keys', 'The SSH keys berth logs in to hosts with.'],
+  keys: ['Keys', 'The SSH keys rookery logs in to hosts with.'],
   secrets: ['Secrets', 'Secret values the server keeps and gives to hosts.'],
   registries: ['Registries', 'Package registries, their logins and their repositories.'],
   plugins: ['Plugins', 'The plugins the server has, and updating them.'],
   settings: ['Settings', "The server's settings."],
   setup: ['Set-up', 'What the set-up of a new host starts from: the starting profile and the features.'],
   provisioners: ['Provisioners', 'What the plugins can create machines and deployments with, their pages and their actions.'],
-  resources: ['Resources', 'What provisioners made for berth, a host\'s machine among them: creating, changing, removing, their actions, logs and endpoints.'],
-  jobs: ['Jobs', 'Long-running work of berth serve, such as an apply: one run of an action.'],
+  resources: ['Resources', 'What provisioners made for rookery, a host\'s machine among them: creating, changing, removing, their actions, logs and endpoints.'],
+  jobs: ['Jobs', 'Long-running work of rookery serve, such as an apply: one run of an action.'],
   inbox: ['Inbox', "Messages taken in from the hosts' channels."],
   kv: ['Key-value store', 'Small JSON values with revisions, for user interfaces.'],
   events: ['Events', 'One stream for channel messages, jobs, key-value changes and changes to hosts and resources.'],
@@ -189,7 +189,7 @@ const placeholders = {
   topic: 'myplugin/progress',
   namespace: 'ui',
   key: 'layout',
-  unit: 'berthd.service',
+  unit: 'rookeryd.service',
   plugin: 'ask',
   method: 'ask',
   argument: 'snapshot',
@@ -205,7 +205,7 @@ const placeholders = {
   url: 'https://example.com',
   address: '100.64.0.12',
   // The version the documents were written by.
-  version: JSON.parse(readFileSync(join(docs, 'openapi', 'berthd.operations.json'), 'utf8')).version,
+  version: JSON.parse(readFileSync(join(docs, 'openapi', 'rookeryd.operations.json'), 'utf8')).version,
   started: '2026-11-12T09:30:00Z',
   ended: '2026-11-12T09:30:02Z',
   time: '2026-11-12T09:30:00Z',
@@ -254,7 +254,7 @@ function operationSection(op, program, schemas, used) {
     facts.push(
       program.serve
         ? `Needs the role \`${op.role}\`.`
-        : `Through \`berth serve\` it needs the role \`${op.role}\`.`,
+        : `Through \`rookery serve\` it needs the role \`${op.role}\`.`,
     );
   }
   if (facts.length) text += facts.join(' ') + '\n\n';
@@ -353,7 +353,7 @@ function invocation(op, program, schemas) {
 
   const { path, headers } = httpTarget(op, args);
   const tabs = ['Portal', 'HTTP'];
-  if (!program.serve) tabs.push('Through berth serve');
+  if (!program.serve) tabs.push('Through rookery serve');
 
   let text = `<Tabs items={${JSON.stringify(tabs)}}>\n<Tab value="Portal">\n\n`;
   if (op.portal === false) {
@@ -369,8 +369,8 @@ function invocation(op, program, schemas) {
     const { id, ...rest } = request;
     const served = { id, host: 'studio', ...rest };
     const { path: hostPath } = httpTarget(op, args);
-    text += '<Tab value="Through berth serve">\n\n';
-    text += `On the portal of \`berth serve\`, the same frame with the host's name:\n\n\`\`\`json\n${JSON.stringify(served)}\n\`\`\`\n\n`;
+    text += '<Tab value="Through rookery serve">\n\n';
+    text += `On the portal of \`rookery serve\`, the same frame with the host's name:\n\n\`\`\`json\n${JSON.stringify(served)}\n\`\`\`\n\n`;
     text += `Over HTTP, under the host: \`${op.http.method} /v1/hosts/studio${hostPath.replace(/^\/v1/, '')}\`${stream ? ' (a WebSocket)' : ''}.\n\n`;
     text += '</Tab>\n';
   }
@@ -380,7 +380,7 @@ function invocation(op, program, schemas) {
 
 function httpExample(op, program, path, headers, data, stream) {
   if (stream) {
-    const base = program.serve ? 'ws://127.0.0.1:7777' : 'ws+unix:/run/berth/control.sock';
+    const base = program.serve ? 'ws://127.0.0.1:7777' : 'ws+unix:/run/rookery/control.sock';
     return `A WebSocket of its own: \`GET ${path}\` with the upgrade headers, at \`${base}${path}\`. Its frames are the ones above, without the portal's subscription number.${
       program.serve ? ' Over TCP the token goes in `Authorization: Bearer`, or as the `Sec-WebSocket-Protocol` value from a browser.' : ''
     }\n\n`;
@@ -388,13 +388,13 @@ function httpExample(op, program, path, headers, data, stream) {
   const lines = [];
   if (op.key) lines.push(`curl -H "Authorization: Bearer $SETUP_KEY"`);
   else if (program.serve) lines.push(`curl -H "Authorization: Bearer $TOKEN"`);
-  else lines.push('sudo curl --unix-socket /run/berth/control.sock');
+  else lines.push('sudo curl --unix-socket /run/rookery/control.sock');
   if (op.http.method !== 'GET') lines.push(`-X ${op.http.method}`);
   for (const header of headers) lines.push(`-H '${header}'`);
   if (op.data?.bytes) lines.push('--data-binary @notes.txt');
   else if (data !== undefined) lines.push(`-H 'Content-Type: application/json' -d '${JSON.stringify(data).replace(/'/g, "'\\''")}'`);
   if (op.result?.bytes) lines.push('-o result.bin');
-  const host = program.serve ? 'http://127.0.0.1:7777' : 'http://berthd';
+  const host = program.serve ? 'http://127.0.0.1:7777' : 'http://rookeryd';
   lines.push(`'${host}${path}'`);
   return `\`${op.http.method} ${path}\`\n\n\`\`\`bash\n${lines.join(' \\\n  ')}\n\`\`\`\n\n`;
 }
@@ -426,7 +426,7 @@ function indexPage(program, root, byGroup) {
   let text = `---\ntitle: ${yaml(program.title)}\ndescription: ${yaml(program.description)}\n---\n\n`;
   text += `${md(root.description)}\n\n`;
   if (program.serve) {
-    text += 'Every operation of [berthd](/docs/api/host) is also an operation here: on the portal with `"host": "NAME"` in the frame, over HTTP under `/v1/hosts/NAME`.\n\n';
+    text += 'Every operation of [rookeryd](/docs/api/host) is also an operation here: on the portal with `"host": "NAME"` in the frame, over HTTP under `/v1/hosts/NAME`.\n\n';
   }
   text += '| Operation | Kind | Summary |\n| --- | --- | --- |\n';
   for (const group of byGroup.keys()) {

@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-crates=(-p berth-api -p berth-pty -p berth-core -p berth-tui -p berth -p berthd -p box -p berth-page)
+crates=(-p rookery-api -p rookery-pty -p rookery-core -p rookery-tui -p rookery -p rookeryd -p box -p rookery-page)
 
 # Each runs as the condition of an if, where set -e does not stop it: the
 # steps are joined with && instead.
@@ -41,7 +41,7 @@ python-tests() {
 shell-syntax() {
   local script bad=0
   for script in install.sh provision/bin/*.sh provision/bootstrap/*.sh container/*.sh ci/*.sh \
-    provision/ansible/roles/devbox/files/*.sh provision/ansible/roles/devbox/files/tasks/*.sh plugins/*/files/*.sh \
+    provision/ansible/roles/rookery/files/*.sh provision/ansible/roles/rookery/files/tasks/*.sh plugins/*/files/*.sh \
     recipes/*/*.sh; do
     bash -n "$script" || bad=1
   done
@@ -50,7 +50,7 @@ shell-syntax() {
 ansible-syntax() {
   (cd provision && ansible-playbook -i localhost, ansible/site.yml --syntax-check) &&
     (cd provision && ansible-playbook -i localhost, ansible/controller.yml --syntax-check) &&
-    (cd recipes/berth-server && ansible-playbook -i localhost, site.yml --syntax-check)
+    (cd recipes/rookery-server && ansible-playbook -i localhost, site.yml --syntax-check)
 }
 fmt() { cargo fmt --check "${crates[@]}"; }
 clippy() { cargo clippy --locked --all-targets -- -D warnings; }

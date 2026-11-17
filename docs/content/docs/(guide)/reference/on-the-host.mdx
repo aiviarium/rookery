@@ -1,13 +1,13 @@
 ---
 title: On the host
-description: Where berth puts things on a host, and what an agent finds there to learn about the machine.
+description: Where Rookery puts things on a host, and what an agent finds there to learn about the machine.
 icon: FolderTree
 ---
 
 ## Files
 
 <Files>
-  <Folder name="/etc/devbox" defaultOpen>
+  <Folder name="/etc/rookery" defaultOpen>
     <File name="AGENT.md" />
     <Folder name="guides">
       <File name="desktop.md" />
@@ -18,25 +18,25 @@ icon: FolderTree
     <File name="mcp.json" />
     <File name="environment" />
   </Folder>
-  <Folder name="/etc/berth" defaultOpen>
-    <File name="berthd.json" />
+  <Folder name="/etc/rookery" defaultOpen>
+    <File name="rookeryd.json" />
     <File name="actions.json" />
     <File name="services.json" />
     <File name="channels.json" />
     <File name="applied.json" />
     <File name="profile.json" />
   </Folder>
-  <Folder name="/var/lib/devbox">
+  <Folder name="/var/lib/rookery">
     <File name="provision-state" />
     <File name="ready" />
     <File name="toolchains.json" />
   </Folder>
-  <Folder name="/run/berth">
+  <Folder name="/run/rookery">
     <File name="control.sock" />
     <File name="agent.sock" />
   </Folder>
   <Folder name="/home/agent">
-    <Folder name=".config/devbox">
+    <Folder name=".config/rookery">
       <File name="secrets.env" />
     </Folder>
     <Folder name=".config/tigervnc">
@@ -54,20 +54,20 @@ icon: FolderTree
 
 | Path | Holds |
 | --- | --- |
-| `/etc/devbox/AGENT.md` | The description of the machine for agents (below) |
-| `/etc/devbox/guides/` | Longer guides for the desktop, graphics, and each plugin feature with a guide |
-| `/etc/devbox/expected-commands` | Commands the self-test requires, including those plugins list |
-| `/etc/devbox/mcp.json` | The desktop MCP server, to merge into an MCP client's configuration |
-| `/etc/berth/*.json` | berthd's settings, actions, services and channel topics |
-| `/etc/berth/applied.json` | The versions of berth and its plugins at the last apply |
-| `/etc/berth/profile.json` | The host's profile, for root only, which [another berth can adopt](/docs/use/moving) |
-| `/usr/local/lib/berth/tasks/` | The scripts of berth's own actions |
-| `/var/lib/devbox/provision-state` | The state of the first-boot provisioning |
-| `/var/lib/devbox/ready` | Written when Ansible converged, with the release's digest |
-| `/var/lib/devbox/toolchains.json` | The runtime versions that were installed |
-| `/var/lib/berth/` | berthd's state: session transcripts and the kept channel messages |
-| `/run/berth/` | berthd's sockets, host level and agent level |
-| `~/.config/devbox/secrets.env` | Secrets given as environment variables |
+| `/etc/rookery/AGENT.md` | The description of the machine for agents (below) |
+| `/etc/rookery/guides/` | Longer guides for the desktop, graphics, and each plugin feature with a guide |
+| `/etc/rookery/expected-commands` | Commands the self-test requires, including those plugins list |
+| `/etc/rookery/mcp.json` | The desktop MCP server, to merge into an MCP client's configuration |
+| `/etc/rookery/*.json` | rookeryd's settings, actions, services and channel topics |
+| `/etc/rookery/applied.json` | The versions of Rookery and its plugins at the last apply |
+| `/etc/rookery/profile.json` | The host's profile, for root only, which [another Rookery can adopt](/docs/use/moving) |
+| `/usr/local/lib/rookery/tasks/` | The scripts of Rookery's own actions |
+| `/var/lib/rookery/provision-state` | The state of the first-boot provisioning |
+| `/var/lib/rookery/ready` | Written when Ansible converged, with the release's digest |
+| `/var/lib/rookery/toolchains.json` | The runtime versions that were installed |
+| `/var/lib/rookeryd/` | rookeryd's state: session transcripts and the kept channel messages |
+| `/run/rookery/` | rookeryd's sockets, host level and agent level |
+| `~/.config/rookery/secrets.env` | Secrets given as environment variables |
 | `~/.config/tigervnc/password` | The desktop's password |
 | `/srv/agent/workspaces`, `/srv/agent/artifacts` | Where agents keep projects and output, such as screenshots |
 
@@ -75,14 +75,14 @@ icon: FolderTree
 
 | Unit | Runs |
 | --- | --- |
-| `berthd.service` | berthd, as root |
-| `berth-svc-PLUGIN-NAME.service` | One per [plugin service](/docs/extend/services) |
-| `devbox-provision.service` | The first-boot provisioning of a USB or cloud install, with a retry timer |
+| `rookeryd.service` | rookeryd, as root |
+| `rookery-svc-PLUGIN-NAME.service` | One per [plugin service](/docs/extend/services) |
+| `rookery-provision.service` | The first-boot provisioning of a USB or cloud install, with a retry timer |
 | The agent's user services | The virtual desktop, noVNC and T3 Code |
 
 ## What agents read
 
-`/etc/devbox/AGENT.md` is generated on each host from what was installed there. It lists the tool categories, the coding agents and the CPU or GPU rendering, with one line per plugin feature. It stays short and points to `/etc/devbox/guides/` for the rest.
+`/etc/rookery/AGENT.md` is generated on each host from what was installed there. It lists the tool categories, the coding agents and the CPU or GPU rendering, with one line per plugin feature. It stays short and points to `/etc/rookery/guides/` for the rest.
 
 The agents' own instruction files reference it, without overwriting existing text:
 
@@ -96,7 +96,7 @@ GUI programs, T3 Code and the commands it starts share the desktop's `DISPLAY`, 
 
 ## The self-test
 
-`devbox-smoke` is the **Self-Test** action. It checks:
+`rookery-smoke` is the **Self-Test** action. It checks:
 
 - that the expected commands exist
 - llvmpipe on the shared desktop and in Xvfb, and lavapipe enumeration
@@ -107,7 +107,7 @@ GUI programs, T3 Code and the commands it starts share the desktop's `DISPLAY`, 
  It saves graphics reports and screenshots in its artifact directory.
 
 ```bash
-berth run studio smoke
+rookery run studio smoke
 ```
 
 The browser check starts Playwright's Chromium with its sandbox on. How Chromium sandboxes itself depends on the machine:

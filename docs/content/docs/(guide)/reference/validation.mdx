@@ -10,13 +10,13 @@ CI runs these on every push, without network access to hosts:
 
 | Check | Covers |
 | --- | --- |
-| `cargo test --locked` | The terminal UI's fields, profile edits, checks before Run, SSH discovery and rendered screens. The APIs of berthd and berth serve against the committed documents. Links to a local berthd |
+| `cargo test --locked` | The terminal UI's fields, profile edits, checks before Run, SSH discovery and rendered screens. The APIs of rookeryd and rookery serve against the committed documents. Links to a local rookeryd |
 | `python3 -m unittest discover -s tests` | Disk selection and its refusals, profile validation, release packaging, seed generation and GRUB patching. With Ansible installed, also the rendered templates for every profile |
 | `bash -n` | The install script, bootstrap, container, role and plugin scripts |
 | `ansible-playbook --syntax-check` | The role |
 | `cargo fmt`, `cargo clippy` | Formatting and lints |
 | `vale` | The prose of the README, these docs and the plugin guides |
-| `tests/e2e` | berth against a test host in a container. A profile is applied over SSH, and a second time without changes. Then the tests use the host with SSH keys, actions, terminals, files, secrets and a plugin from a folder. `berth serve` is tested with its roles, its set-up and its page, and with a restore of the installation from its database and key file. They use a development build of berth |
+| `tests/e2e` | Rookery against a test host in a container. A profile is applied over SSH, and a second time without changes. Then the tests use the host with SSH keys, actions, terminals, files, secrets and a plugin from a folder. `rookery serve` is tested with its roles, its set-up and its page, and with a restore of the installation from its database and key file. They use a development build of Rookery |
 
 See [Building and releasing](/docs/reference/building#in-containers) for running them locally.
 
@@ -26,30 +26,30 @@ The container suite can't boot anything. A cloud seed and the USB installer are 
 
 | Test | What happens |
 | --- | --- |
-| `boot cloud` | The Ubuntu 26.04 cloud image boots with the seed of `berth host seed` as its NoCloud user data. It downloads the release archive over HTTPS and applies the role on its first boot |
-| `boot iso` | The installer of `berth host iso` boots with only a disk of another serial, and must refuse it without writing to it. It then boots with that disk and the right one, erases and installs the right one and powers off. The installed system boots without the installer and sets itself up |
+| `boot cloud` | The Ubuntu 26.04 cloud image boots with the seed of `rookery host seed` as its NoCloud user data. It downloads the release archive over HTTPS and applies the role on its first boot |
+| `boot iso` | The installer of `rookery host iso` boots with only a disk of another serial, and must refuse it without writing to it. It then boots with that disk and the right one, erases and installs the right one and powers off. The installed system boots without the installer and sets itself up |
 
-After the first boot, berth reaches the host over SSH and checks:
+After the first boot, Rookery reaches the host over SSH and checks:
 
-- berthd and a plugin's service run as systemd units, and berthd starts, stops and restarts units and reads the journal
+- rookeryd and a plugin's service run as systemd units, and rookeryd starts, stops and restarts units and reads the journal
 - the firewall lets in SSH and nothing else, and SSH takes keys only and refuses root
 - the status action ends without failed units, and a second apply in a row doesn't change anything
-- `berth rollout --all --reboot` refuses while a session runs, then reboots the host, waits for it and checks it
-- the end-to-end tests of commands, berthd's API and secrets
+- `rookery rollout --all --reboot` refuses while a session runs, then reboots the host, waits for it and checks it
+- the end-to-end tests of commands, rookeryd's API and secrets
 
-The guest runs on QEMU's user network with a package cache and a release server on the container's side. The cache is in `build/boot/cache` and makes a second run a lot quicker. The profile leaves out the coding agents, toolchains, Docker and Cockpit, and keeps the desktop. The programs a host can do without, such as the office and graphics programs, are left out too unless `BERTH_CI_BOOT_EXTRAS=1` is set. On GitHub the Boot workflow runs either one when started by hand. Started by hand or by its weekly schedule, it installs those programs as well. Logs, timings and the disk and memory used are in `build/boot/KIND/`.
+The guest runs on QEMU's user network with a package cache and a release server on the container's side. The cache is in `build/boot/cache` and makes a second run a lot quicker. The profile leaves out the coding agents, toolchains, Docker and Cockpit, and keeps the desktop. The programs a host can do without, such as the office and graphics programs, are left out too unless `ROOKERY_CI_BOOT_EXTRAS=1` is set. On GitHub the Boot workflow runs either one when started by hand. Started by hand or by its weekly schedule, it installs those programs as well. Logs, timings and the disk and memory used are in `build/boot/KIND/`.
 
 ## Checking a build by hand
 
 <Accordions>
 <Accordion title="Container">
 
-`docker compose -f container/compose.yml build` runs the whole role with every feature on, `up -d` serves the desktop through noVNC and T3 on loopback ports, and `exec -T desktop /usr/local/bin/devbox-smoke` runs the smoke test. Under Docker's default seccomp profile Chromium cannot create its sandbox, and the smoke test reports the sandboxed browser launch as skipped.
+`docker compose -f container/compose.yml build` runs the whole role with every feature on, `up -d` serves the desktop through noVNC and T3 on loopback ports, and `exec -T desktop /usr/local/bin/rookery-smoke` runs the smoke test. Under Docker's default seccomp profile Chromium cannot create its sandbox, and the smoke test reports the sandboxed browser launch as skipped.
 
 </Accordion>
 <Accordion title="Full host in QEMU">
 
-`ci/run.sh boot cloud` does this unattended with a light profile. By hand, `provision/bin/qemu.py cloud` boots the Ubuntu cloud image. Apply the role over SSH with the `qemu` profile, then run `berth run HOST smoke`. A second apply should not change anything, and after a reboot the desktop, noVNC, T3 and Docker should be up without anyone logging in. See [Testing in QEMU](/docs/deploy/qemu#what-to-check).
+`ci/run.sh boot cloud` does this unattended with a light profile. By hand, `provision/bin/qemu.py cloud` boots the Ubuntu cloud image. Apply the role over SSH with the `qemu` profile, then run `rookery run HOST smoke`. A second apply should not change anything, and after a reboot the desktop, noVNC, T3 and Docker should be up without anyone logging in. See [Testing in QEMU](/docs/deploy/qemu#what-to-check).
 
 </Accordion>
 <Accordion title="Unattended ISO in QEMU">

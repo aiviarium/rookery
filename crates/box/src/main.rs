@@ -1,4 +1,4 @@
-//! `box`: the command for agents and plugin programs on a berth host.
+//! `box`: the command for agents and plugin programs on a rookery host.
 
 mod desktop;
 mod net;
@@ -89,7 +89,8 @@ fn desktop_cli(mut words: Vec<String>) -> Result<(), String> {
     let result = desktop::perform(&command, &args)?;
     match (result["type"] == "image", output) {
         (true, Some(path)) => {
-            let bytes = berth_api::unb64(result["data"].as_str().unwrap_or("")).unwrap_or_default();
+            let bytes =
+                rookery_api::unb64(result["data"].as_str().unwrap_or("")).unwrap_or_default();
             if path == "-" {
                 let mut out = std::io::stdout().lock();
                 out.write_all(&bytes)
@@ -132,7 +133,7 @@ fn real_main(mut args: Vec<String>) -> Result<i32, String> {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned());
     // The old name of `box desktop`, with `--mcp` for `box mcp`.
-    if name.as_deref() == Some("devbox-desktop") {
+    if name.as_deref() == Some("rookery-desktop") {
         let verb = match args.iter().any(|a| a == "--mcp") {
             true => vec!["mcp".to_owned()],
             false => vec!["desktop".to_owned()],
@@ -158,7 +159,7 @@ fn real_main(mut args: Vec<String>) -> Result<i32, String> {
             return Err(format!("{AGENT_ENV}: {error}"));
         }
         "help" | "--help" | "-h" => println!("{USAGE}"),
-        "--version" => println!("box {}", berth_api::VERSION),
+        "--version" => println!("box {}", rookery_api::VERSION),
         _ => return net::run_verb(&verb, args),
     }
     Ok(0)

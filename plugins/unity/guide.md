@@ -19,8 +19,8 @@ Its skills are registered with the coding agents installed here; prefer them and
 
 ## Editors
 
-{% if 'unity/editor' in devbox_plugin_features %}
-{{ devbox_unity_editor_version | default('6000.7.0b8') }} is preinstalled. Install another when a project asks for it.
+{% if 'unity/editor' in rookery_plugin_features %}
+{{ rookery_unity_editor_version | default('6000.7.0b8') }} is preinstalled. Install another when a project asks for it.
 {% else %}
 None is preinstalled; they are large and belong to a project.
 {% endif %}
@@ -37,8 +37,8 @@ for (`unity projects info PATH`).
 - For builds, tests and scripted work use `unity build`, `unity test` and
   `unity run`; they run the editor in batch mode and need no window.
 - To drive a live editor, start it on the shared desktop with `agent-env unity
-  open PATH` and read `/etc/devbox/guides/desktop.md` first.
-{% if devbox_software_rendering %}
+  open PATH` and read `/etc/rookery/guides/desktop.md` first.
+{% if rookery_software_rendering %}
 - This machine renders on the CPU. Pass `-force-glcore` where software Vulkan is
   not supported, and expect the editor window to be slow.
 {% endif %}

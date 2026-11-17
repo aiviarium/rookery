@@ -1,0 +1,43 @@
+---
+# A workstation's controller describes the agent and its desktop, and a
+# node's its features: installing the controller alone over either would
+# take that apart, so it is refused here,
+# whatever the profile on rookery's side says. Nothing skips this check.
+- name: Read what rookery installed on the host before
+  ansible.builtin.slurp:
+    src: "{{ rookery_controller_etc }}/{{ item }}.json"
+  loop: [applied, rookeryd]
+  register: rookery_controller_found
+  failed_when: false
+# Only whether it is there: the kept profile holds the accounts' password hashes.
+- name: See whether the host keeps a workstation's profile
+  ansible.builtin.stat:
+    path: "{{ rookery_controller_etc }}/profile.json"
+    get_checksum: false
+  register: rookery_controller_kept
+- name: Take in what rookery installed before
+  ansible.builtin.set_fact:
+    rookery_controller_recorded: "{{ (rookery_controller_found.results[0].content | b64decode | from_json) if 'content' in rookery_controller_found.results[0] else {} }}"
+    rookery_controller_config: "{{ (rookery_controller_found.results[1].content | b64decode | from_json) if 'content' in rookery_controller_found.results[1] else {} }}"
+- name: Refuse a host that rookery set up as a workstation or a node
+  ansible.builtin.fail:
+    msg: >-
+      {{ inventory_hostname }} is a {{ 'node' if rookery_controller_recorded.level | default('') == 'node' else 'workstation' }}
+      that rookery set up, and its profile here says otherwise. Installing the
+      controller alone would take its controller apart, so nothing was
+      changed. To adopt it from the profile it keeps: rookery host adopt NAME.
+  when: >-
+    rookery_controller_kept.stat.exists
+    or (rookery_controller_recorded | length > 0
+        and rookery_controller_recorded.level | default('workstation') in ['workstation', 'node'])
+- name: Refuse a host whose controller serves another account
+  ansible.builtin.fail:
+    msg: >-
+      rookeryd on {{ inventory_hostname }} serves the agent account
+      {{ rookery_controller_config.agent }}, not the SSH user
+      {{ rookery_controller_user }}: rookery set it up as a workstation, and its
+      profile here says otherwise. Nothing was changed. To adopt it from the
+      profile it keeps: rookery host adopt NAME.
+  when:
+    - rookery_controller_config.agent | default('') | length > 0
+    - rookery_controller_config.agent != rookery_controller_user

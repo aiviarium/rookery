@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 # The test host's init. It runs sshd, takes the operator's key from /seed (or
-# BERTH_CI_SEED, for a second test host) as a cloud provider would hand it over, and does for berthd what systemd does
+# ROOKERY_CI_SEED, for a second test host) as a cloud provider would hand it over, and does for rookeryd what systemd does
 # on a real host: start it once the role has installed it, restart it when its
 # program changes and have it read its files again when they change. It runs
 # tailscaled too, without a tun device, which the container has not.
 set -uo pipefail
-logs=/var/log/berth-ci
-seed=${BERTH_CI_SEED:-/seed}
+logs=/var/log/rookery-ci
+seed=${ROOKERY_CI_SEED:-/seed}
 ssh-keygen -A >/dev/null
 /usr/sbin/sshd -D -e 2>>"$logs/sshd.log" &
 sshd=$!
 tailscaled=
 
-berthd=
+rookeryd=
 program=
 files=
 stop() {
-  [[ -n $berthd ]] && kill "$berthd" 2>/dev/null
+  [[ -n $rookeryd ]] && kill "$rookeryd" 2>/dev/null
   [[ -n $tailscaled ]] && kill "$tailscaled" 2>/dev/null
   kill "$sshd" 2>/dev/null
   exit 0
@@ -39,30 +39,30 @@ while kill -0 "$sshd" 2>/dev/null; do
       install -m 0644 "$key" "/etc/ssh/provided-keys/$user"
     fi
   done
-  if [[ -x /usr/local/bin/berthd && -f /etc/berth/berthd.json ]]; then
-    if [[ -n $berthd ]] && ! kill -0 "$berthd" 2>/dev/null; then
-      echo "berth-ci: berthd ended" >>"$logs/berthd.log"
-      berthd=
+  if [[ -x /usr/local/bin/rookeryd && -f /etc/rookery/rookeryd.json ]]; then
+    if [[ -n $rookeryd ]] && ! kill -0 "$rookeryd" 2>/dev/null; then
+      echo "rookery-ci: rookeryd ended" >>"$logs/rookeryd.log"
+      rookeryd=
     fi
-    now=$(stat -c '%Y %s' /usr/local/bin/berthd)
-    read_now=$(cat /etc/berth/*.json | md5sum)
-    if [[ -z $berthd || $now != "$program" ]]; then
-      if [[ -n $berthd ]]; then
-        kill "$berthd" 2>/dev/null
-        wait "$berthd" 2>/dev/null
+    now=$(stat -c '%Y %s' /usr/local/bin/rookeryd)
+    read_now=$(cat /etc/rookery/*.json | md5sum)
+    if [[ -z $rookeryd || $now != "$program" ]]; then
+      if [[ -n $rookeryd ]]; then
+        kill "$rookeryd" 2>/dev/null
+        wait "$rookeryd" 2>/dev/null
       fi
-      echo "berth-ci: starting berthd" >>"$logs/berthd.log"
-      /usr/local/bin/berthd >>"$logs/berthd.log" 2>&1 &
-      berthd=$!
+      echo "rookery-ci: starting rookeryd" >>"$logs/rookeryd.log"
+      /usr/local/bin/rookeryd >>"$logs/rookeryd.log" 2>&1 &
+      rookeryd=$!
       program=$now
       files=$read_now
     elif [[ $read_now != "$files" ]]; then
-      echo "berth-ci: reloading berthd" >>"$logs/berthd.log"
-      kill -HUP "$berthd"
+      echo "rookery-ci: reloading rookeryd" >>"$logs/rookeryd.log"
+      kill -HUP "$rookeryd"
       files=$read_now
     fi
   fi
   sleep 0.5
 done
-echo "berth-ci: sshd ended" >&2
+echo "rookery-ci: sshd ended" >&2
 exit 1

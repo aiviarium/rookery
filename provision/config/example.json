@@ -17,5 +17,5 @@
   "wifi_enabled": false,
   "wifi": null,
   "ansible_vars": {},
-  "access": {"auth": "berth"}
+  "access": {"auth": "rookery"}
 }

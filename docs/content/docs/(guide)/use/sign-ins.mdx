@@ -21,8 +21,8 @@ A plugin that installs a coding agent adds its sign-in to the same group.
 A sign-in opens in a panel. It prints a link: click it to open it on your machine, or right-click to copy it. Right-click a one-time code to copy it. The command line does the same in your terminal:
 
 ```bash
-berth run studio github:login
-berth run studio sign-in:status
+rookery run studio github:login
+rookery run studio sign-in:status
 ```
 
 ## GitHub without signing in
@@ -34,7 +34,7 @@ A fine-grained token given to the host as `GH_TOKEN` signs `gh` and `git` in for
 T3 Code asks every new browser to pair once. **Use T3 from another device** prints a pairing link for the published tailnet address, and the host and code for the T3 app. The code works once, within 10 minutes. T3 has to be [published on the tailnet](/docs/use/access#joining-the-tailnet) first.
 
 ```bash
-berth run studio pair
+rookery run studio pair
 ```
 
 Keep T3's pairing enabled and use the tailnet HTTPS address, not a loopback pairing address.
@@ -47,7 +47,7 @@ On the host, as the agent:
 sudo -iu agent
 gh auth status
 t3 service status
-box exec devbox-smoke
+box exec rookery-smoke
 ```
 
 Run `sudo -n true` from a command T3 started, too, to check the agent's sudo as T3 sees it.

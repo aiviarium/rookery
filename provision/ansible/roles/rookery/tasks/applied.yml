@@ -1,0 +1,66 @@
+---
+# The host's device on the tailnet, so that rookery can remove it when the
+# machine is destroyed and rename it with the host: the id the control
+# server's API knows it by, and what rookery finds it by otherwise.
+- name: Inspect the host's device on the tailnet
+  ansible.builtin.command: tailscale status --json
+  register: rookery_tailnet_self
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: rookery_applied is defined
+- name: Tell which device the host is on the tailnet
+  vars:
+    rookery_tailnet_said: "{{ rookery_tailnet_self.stdout | default('', true) | from_json }}"
+  ansible.builtin.set_fact:
+    rookery_tailnet_device:
+      id: "{{ rookery_tailnet_said.Self.ID | string }}"
+      dns_name: "{{ rookery_tailnet_said.Self.DNSName | default('', true) | regex_replace('[.]$', '') }}"
+      host_name: "{{ rookery_tailnet_said.Self.HostName | default('', true) }}"
+      addresses: "{{ rookery_tailnet_said.Self.TailscaleIPs | default([], true) }}"
+      tailnet: "{{ (rookery_tailnet_said.CurrentTailnet | default({}, true)).Name | default('', true) }}"
+  when:
+    - rookery_applied is defined
+    - rookery_tailnet_self.rc | default(1) == 0
+    - rookery_tailnet_self.stdout is search('"BackendState":\\s*"Running"')
+    - (rookery_tailnet_said.Self | default({}, true)).ID | default('', true) | length > 0
+# Which rookery and plugins this configuration came from, for rookeryd to report:
+# rookery compares it with what it would apply now to tell whether the host is
+# behind. Only the plugins whose features the host has are recorded. A host
+# with the controller alone says so, and so does a node, with the
+# provisioners its features offer; a whole profile is recorded as before.
+# The device on the tailnet goes in too, when the host is on one.
+- name: Record which rookery and plugins this configuration came from
+  ansible.builtin.copy:
+    dest: /etc/rookery/applied.json
+    mode: '0644'
+    content: "{{ ({'rookery': rookery_applied.rookery, 'plugins': rookery_applied.plugins | selectattr('id', 'in', rookery_plugin_features | map('regex_replace', '/.*$', '') | list) | list} | combine({'level': rookery_level} if rookery_level != 'workstation' else {}) | combine({'offers': rookery_plugin_offers} if rookery_plugin_offers | default([]) | length > 0 else {}) | combine({'tailnet': rookery_tailnet_device} if rookery_tailnet_device is defined else {})) | to_nice_json }}\n"
+  when: rookery_applied is defined
+# The profile itself, as rookery holds it, so that a rookery without it can take
+# the host over: rookery host adopt reads it over SSH, and rookeryd serves it to an
+# administrator. It holds the accounts' password hashes, so only root reads it.
+# The time of the write leaves the comparison, so applying the same profile
+# again changes nothing.
+- name: Read the profile the host keeps
+  ansible.builtin.slurp:
+    src: /etc/rookery/profile.json
+  register: rookery_kept_file
+  failed_when: false
+  no_log: true
+  when: rookery_kept_profile is defined
+- name: Keep the profile this configuration came from
+  vars:
+    rookery_kept_written: ',\n    "written": "[^"]*"\n}'
+    rookery_kept_new: "{{ rookery_kept_profile | combine({'written': now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ')}) | to_nice_json }}"
+    rookery_kept_old: "{{ rookery_kept_file.content | default('') | b64decode }}"
+  ansible.builtin.copy:
+    dest: /etc/rookery/profile.json
+    owner: root
+    group: root
+    mode: '0600'
+    content: "{{ rookery_kept_new }}\n"
+  no_log: true
+  diff: false
+  when:
+    - rookery_kept_profile is defined
+    - (rookery_kept_old | trim | regex_replace(rookery_kept_written, '\n}')) != (rookery_kept_new | regex_replace(rookery_kept_written, '\n}'))

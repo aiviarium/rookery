@@ -7,7 +7,7 @@ icon: MonitorSmartphone
 A host serves its desktop, T3 Code and Cockpit only to the tailnet or to loopback. **Access links and desktop password** on the overview prints the addresses and the desktop's password, or from the command line:
 
 ```bash
-berth run studio access
+rookery run studio access
 ```
 
 | Service | Address on the tailnet | Port on the host |
@@ -19,57 +19,57 @@ berth run studio access
 
 In the panel, **Alt+R** shows the links as QR codes. Scan one with a phone to open it there. The pairing link of **Use T3 from another device** works the same way.
 
-The desktop link printed by the action includes the password after `#` and signs in by itself, so treat it like the password. The names are the ones `tailscale status` reports for the host, such as `HOST.TAILNET.ts.net` on Tailscale. They need the tailnet's DNS on the machine you browse from, while the tailnet address works without it. berth configures no Funnel or public proxy for them.
+The desktop link printed by the action includes the password after `#` and signs in by itself, so treat it like the password. The names are the ones `tailscale status` reports for the host, such as `HOST.TAILNET.ts.net` on Tailscale. They need the tailnet's DNS on the machine you browse from, while the tailnet address works without it. Rookery configures no Funnel or public proxy for them.
 
 ## Joining the tailnet
 
-A host joins the tailnet while it is set up, with a one-use key berth makes through the API of the tailnet's control server. Nobody pastes a key. The one choice in a profile is **Tailscale** on the host's Install tab (`devbox_install_tailscale`): whether the host joins at all.
+A host joins the tailnet while it is set up, with a one-use key Rookery makes through the API of the tailnet's control server. Nobody pastes a key. The one choice in a profile is **Tailscale** on the host's Install tab (`rookery_install_tailscale`): whether the host joins at all.
 
-berth needs the control server's API key in the secret `tailnet_api_key`:
+Rookery needs the control server's API key in the secret `tailnet_api_key`:
 
 ```bash
-berth secret set tailnet_api_key
-berth config set tailnet_tags tag:berth          # if the tailnet wants tags
+rookery secret set tailnet_api_key
+rookery config set tailnet_tags tag:rookery          # if the tailnet wants tags
 ```
 
 The secret is one of these:
 
 | Control server | The secret | Lifetime |
 | --- | --- | --- |
-| Tailscale | An OAuth client with the scopes `auth_keys` and `devices:core`, as `CLIENT_ID:CLIENT_SECRET` | The client doesn't expire. berth trades it for an access token of an hour each time it uses it |
+| Tailscale | An OAuth client with the scopes `auth_keys` and `devices:core`, as `CLIENT_ID:CLIENT_SECRET` | The client doesn't expire. Rookery trades it for an access token of an hour each time it uses it |
 | Tailscale | An API access token from the admin console | 1 to 90 days, chosen when you make it |
 | Headscale | An API key from `headscale apikeys create` | 90 days unless you choose otherwise |
 
-Prefer an OAuth client for Tailscale, so the secret doesn't run out. Keys it makes have tags, from those the client may give, so set `tailnet_tags` to them. On the Secrets tab of the home screen, Enter replaces the value. With a berth server, the server keeps the secret and the `tailnet_` settings.
+Prefer an OAuth client for Tailscale, so the secret doesn't run out. Keys it makes have tags, from those the client may give, so set `tailnet_tags` to them. On the Secrets tab of the home screen, Enter replaces the value. With a Rookery server, the server keeps the secret and the `tailnet_` settings.
 
-berth makes a key only at the moment it's used:
+Rookery makes a key only at the moment it's used:
 
 | When | Key valid for |
 | --- | --- |
 | A seed or installer is made | 24 hours, for writing the installer and the first boot |
 | An apply finds the host not on the tailnet | 1 hour |
 
-Every key joins one host once. It's pre-approved, not reusable and not ephemeral, and it gets the tags of `tailnet_tags`. The role reads it from a private file, never from the command line. A seed has its key written into its files, which only you can read, and the installed host deletes its copy after it has joined. Until then, whoever has the seed or the USB stick can join a machine to the tailnet with it. The API key never leaves the machine that runs berth.
+Every key joins one host once. It's pre-approved, not reusable and not ephemeral, and it gets the tags of `tailnet_tags`. The role reads it from a private file, never from the command line. A seed has its key written into its files, which only you can read, and the installed host deletes its copy after it has joined. Until then, whoever has the seed or the USB stick can join a machine to the tailnet with it. The API key never leaves the machine that runs Rookery.
 
-When berth writes a seed or an installer, it says until when the key works. A machine first started later is set up without the tailnet, and the next apply from berth joins it with a new key.
+When Rookery writes a seed or an installer, it says until when the key works. A machine first started later is set up without the tailnet, and the next apply from Rookery joins it with a new key.
 
-A host that's on the tailnet already is left alone, so applying again goes without a key and leaves the host logged in. Once it has joined, it publishes the desktop and T3 there. That's `devbox_tailscale_serve`, on by default, and it needs HTTPS certificates enabled for the tailnet. Enable them if Tailscale asks, then run **Publish desktop and T3 on the tailnet**. That action also gives Cockpit the tailnet's trusted certificate in place of its self-signed one.
+A host that's on the tailnet already is left alone, so applying again goes without a key and leaves the host logged in. Once it has joined, it publishes the desktop and T3 there. That's `rookery_tailscale_serve`, on by default, and it needs HTTPS certificates enabled for the tailnet. Enable them if Tailscale asks, then run **Publish desktop and T3 on the tailnet**. That action also gives Cockpit the tailnet's trusted certificate in place of its self-signed one.
 
 ### The host's device
 
 The same key looks after the host's device on the tailnet:
 
-| When | What berth does |
+| When | What Rookery does |
 | --- | --- |
 | An apply | Records the device's id, its name and its addresses, from `tailscale status` on the host |
-| `berth host remove HOST --destroy` | Removes the device once the provisioner has destroyed the machine |
-| The next apply after `berth host rename OLD NEW --hostname` | Gives the device the name `NEW`, after the machine has taken the hostname |
+| `rookery host remove HOST --destroy` | Removes the device once the provisioner has destroyed the machine |
+| The next apply after `rookery host rename OLD NEW --hostname` | Gives the device the name `NEW`, after the machine has taken the hostname |
 
-The rename waits for the apply so the name on the tailnet changes when the machine's hostname does. Until then the old MagicDNS name keeps working, so berth can still connect for the apply. When the profile's address is the old name, berth changes it to the new one.
+The rename waits for the apply so the name on the tailnet changes when the machine's hostname does. Until then the old MagicDNS name keeps working, so Rookery can still connect for the apply. When the profile's address is the old name, Rookery changes it to the new one.
 
 Removing a host without `--destroy` leaves its device alone, and so does a rename without `--hostname`. A copy made with [duplicate](/docs/use/lifecycle#duplicating-a-host) joins as a device of its own.
 
-A host set up by an older berth has no record until its next apply. Until then berth looks for its device among the tailnet's devices, by the host's address and then by its hostname. It acts only when exactly one device matches, and says so otherwise.
+A host set up by an older Rookery has no record until its next apply. Until then Rookery looks for its device among the tailnet's devices, by the host's address and then by its hostname. It acts only when exactly one device matches, and says so otherwise.
 
 The key needs these permissions:
 
@@ -79,30 +79,30 @@ The key needs these permissions:
 | A Tailscale API access token | The permissions of the user who made it | The same |
 | A Headscale API key | Any key | Any key |
 
-When the control server refuses, or berth has no key, the job says so, and the host is removed all the same. Remove the device in the admin console then. A rename that's refused waits for the next apply.
+When the control server refuses, or Rookery has no key, the job says so, and the host is removed all the same. Remove the device in the admin console then. A rename that's refused waits for the next apply.
 
-### When berth has no API key
+### When Rookery has no API key
 
-A host whose profile wants the tailnet needs the secret. Without it, berth stops before anything runs and says what to do: set the secret, or switch **Tailscale** off for the host. A seed, an installer or a new machine isn't made, and the set-up tabs show the problem for them. An apply stops before its first change. A host that's on the tailnet already is applied as usual, as it doesn't need a key.
+A host whose profile wants the tailnet needs the secret. Without it, Rookery stops before anything runs and says what to do: set the secret, or switch **Tailscale** off for the host. A seed, an installer or a new machine isn't made, and the set-up tabs show the problem for them. An apply stops before its first change. A host that's on the tailnet already is applied as usual, as it doesn't need a key.
 
-A new host on a berth without the secret starts with **Tailscale** off.
+A new host on a Rookery without the secret starts with **Tailscale** off.
 
 ### Headscale
 
-[Headscale](https://headscale.net/) is a control server you run yourself, for the same `tailscale` client. Point berth at it:
+[Headscale](https://headscale.net/) is a control server you run yourself, for the same `tailscale` client. Point Rookery at it:
 
 ```bash
-berth config set tailnet_login_server https://hs.example.org
-berth config set tailnet_user agents              # the user new hosts belong to
-berth secret set tailnet_api_key              # from: headscale apikeys create
+rookery config set tailnet_login_server https://hs.example.org
+rookery config set tailnet_user agents              # the user new hosts belong to
+rookery secret set tailnet_api_key              # from: headscale apikeys create
 ```
 
-berth makes its keys through Headscale's API with that key, and hosts join with `--login-server https://hs.example.org`. Headscale keys need a user or tags (`tailnet_tags`). Some things differ from Tailscale:
+Rookery makes its keys through Headscale's API with that key, and hosts join with `--login-server https://hs.example.org`. Headscale keys need a user or tags (`tailnet_tags`). Some things differ from Tailscale:
 
 | | On Headscale |
 | --- | --- |
 | The secret | An API key. Headscale has no OAuth clients |
-| Names | Those of Headscale's MagicDNS, `HOST.BASE_DOMAIN`. berth shows what `tailscale status` reports |
+| Names | Those of Headscale's MagicDNS, `HOST.BASE_DOMAIN`. Rookery shows what `tailscale status` reports |
 | `tailscale serve`, Funnel | Headscale doesn't offer them, so the desktop and T3 aren't published. The access action shows SSH tunnels for them instead |
 | HTTPS certificates | Headscale doesn't issue them. Cockpit stays on its self-signed certificate, at `https://TAILNET-ADDRESS:9090` |
 
@@ -110,11 +110,11 @@ berth makes its keys through Headscale's API with that key, and hosts join with 
 
 The agent's desktop is XFCE on a persistent virtual X display, `:1`, from TigerVNC, which also provides the loopback VNC endpoint. websockify connects the browser to it, and noVNC is the client in the browser. The password is generated on the host by TigerVNC's password utility. The agent can read it at `~/.config/tigervnc/password`.
 
-The desktop keeps running when you close the browser, and agents can drive it with [`box desktop`](/docs/reference/box#desktop). Set its size with **Desktop size** under Host on the Settings tab (`devbox_geometry`, such as `1600x900`).
+The desktop keeps running when you close the browser, and agents can drive it with [`box desktop`](/docs/reference/box#desktop). Set its size with **Desktop size** under Host on the Settings tab (`rookery_geometry`, such as `1600x900`).
 
 ## Cockpit
 
-Full hosts get the [Cockpit](https://cockpit-project.org/) web console by default (`devbox_install_cockpit`, or **Cockpit web console** under Host Services on the Features tab). It shows logs, systemd services, storage and software updates, and has a file browser and a terminal, plus network settings on laptops. It listens on port 9090 and the firewall only admits it from the tailnet.
+Full hosts get the [Cockpit](https://cockpit-project.org/) web console by default (`rookery_install_cockpit`, or **Cockpit web console** under Host Services on the Features tab). It shows logs, systemd services, storage and software updates, and has a file browser and a terminal, plus network settings on laptops. It listens on port 9090 and the firewall only admits it from the tailnet.
 
 Log in as the operator with its password. Cockpit does not accept SSH keys, so give the operator a password under Operator Account on the Settings tab. The agent has no password unless you set one.
 
@@ -128,11 +128,11 @@ Switching the option off on an existing host stops the console and closes the po
 
 ## SSH
 
-The operator logs in over SSH with keys only, on every host. The role writes a `Match User` block for it to `/etc/ssh/sshd_config.d/00-devbox-operator.conf` with `AuthenticationMethods publickey`, `PasswordAuthentication no` and `KbdInteractiveAuthentication no`. No setting turns it off.
+The operator logs in over SSH with keys only, on every host. The role writes a `Match User` block for it to `/etc/ssh/sshd_config.d/00-rookery-operator.conf` with `AuthenticationMethods publickey`, `PasswordAuthentication no` and `KbdInteractiveAuthentication no`. No setting turns it off.
 
-`devbox_harden_ssh` (**SSH hardening** on the Settings tab, on by default) does the same for every other account and refuses root. It writes `PasswordAuthentication no`, `KbdInteractiveAuthentication no` and `PermitRootLogin no` to `/etc/ssh/sshd_config.d/00-devbox.conf`. With it off, the agent and other accounts log in as the SSH server's own settings allow, and the operator still uses keys only.
+`rookery_harden_ssh` (**SSH hardening** on the Settings tab, on by default) does the same for every other account and refuses root. It writes `PasswordAuthentication no`, `KbdInteractiveAuthentication no` and `PermitRootLogin no` to `/etc/ssh/sshd_config.d/00-rookery.conf`. With it off, the agent and other accounts log in as the SSH server's own settings allow, and the operator still uses keys only.
 
-Hardening is applied only when a key login for a non-root account will exist afterwards. That is the case when the operator has a key in the profile or the key of berth, or the account used for installing has its own authorized keys. Otherwise the run says so and leaves the server as it was.
+Hardening is applied only when a key login for a non-root account will exist afterwards. That is the case when the operator has a key in the profile or the key of Rookery, or the account used for installing has its own authorized keys. Otherwise the run says so and leaves the server as it was.
 
 Passwords remain in use for the console, the laptop's graphical login and Cockpit. The operator's sudo needs none. Root has no password and is not managed by the role.
 
@@ -140,7 +140,7 @@ For which addresses may reach SSH, see [the firewall](/docs/deploy/ssh#the-firew
 
 ## Without a tailnet
 
-Switch **Tailscale** off for a host, and berth reaches it over SSH at its address. The access action says so where the tailnet's links would be, and shows the tunnels. Tunnel the ports over SSH and open them on your own machine:
+Switch **Tailscale** off for a host, and Rookery reaches it over SSH at its address. The access action says so where the tailnet's links would be, and shows the tunnels. Tunnel the ports over SSH and open them on your own machine:
 
 ```bash
 ssh -L 16080:127.0.0.1:6080 -L 13773:127.0.0.1:3773 ops@HOST

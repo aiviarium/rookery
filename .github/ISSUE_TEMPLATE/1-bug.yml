@@ -1,5 +1,5 @@
 name: Bug
-description: Something berth does wrong, or something that used to work and doesn't any more
+description: Something rookery does wrong, or something that used to work and doesn't any more
 type: Bug
 labels: [needs triage]
 body:
@@ -14,12 +14,12 @@ body:
     id: output
     attributes:
       label: Output
-      description: The relevant output, and `berth run HOST status` if a host is involved. Take addresses, tokens and passwords out first.
+      description: The relevant output, and `rookery run HOST status` if a host is involved. Take addresses, tokens and passwords out first.
       render: text
   - type: input
     id: version
     attributes:
-      label: berth --version
+      label: rookery --version
     validations:
       required: true
   - type: dropdown
@@ -35,7 +35,7 @@ body:
         - Sign-ins, secrets, keys or registries
         - Making hosts or resources on a node
         - Using an agent or tool on a host
-        - Running a berth server for others
+        - Running a rookery server for others
         - Writing a plugin or using the API
   - type: dropdown
     id: surface
@@ -49,7 +49,7 @@ body:
   - type: dropdown
     id: client
     attributes:
-      label: Where berth runs
+      label: Where rookery runs
       options:
         - Linux
         - macOS

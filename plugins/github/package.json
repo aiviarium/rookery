@@ -1,13 +1,13 @@
 {
-  "name": "berth-plugin-github",
+  "name": "rookery-plugin-github",
   "version": "0.1.0",
   "displayName": "GitHub",
-  "description": "GitHub's CLI and sign-in for berth machines.",
+  "description": "GitHub's CLI and sign-in for rookery machines.",
   "license": "MIT OR Apache-2.0",
   "keywords": [
-    "berth-plugin"
+    "rookery-plugin"
   ],
-  "berth": {
+  "rookery": {
     "features": [
       {
         "id": "cli",

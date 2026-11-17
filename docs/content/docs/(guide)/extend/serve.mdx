@@ -1,16 +1,16 @@
 ---
-title: berth serve
-description: One API over all your hosts, with an inbox of their messages and a key-value store, for scripts, user interfaces and other machines' berth.
+title: rookery serve
+description: One API over all your hosts, with an inbox of their messages and a key-value store, for scripts, user interfaces and other machines' Rookery.
 icon: Plug
 ---
 
-`berth serve` offers one API over every saved host. It reaches each host the way the terminal UI does and passes the host's own operations through, so a program can use all hosts without SSH of its own. Every operation is in the [API reference](/docs/api/serve).
+`rookery serve` offers one API over every saved host. It reaches each host the way the terminal UI does and passes the host's own operations through, so a program can use all hosts without SSH of its own. Every operation is in the [API reference](/docs/api/serve).
 
 ```bash
-berth serve
+rookery serve
 ```
 
-It prints where it listens and how many hosts it knows. Only one runs per user. To use its hosts from another machine's berth, see [A berth server](/docs/use/server). To test an application against the API without machines, see [Testing against a simulated server](/docs/api/testing).
+It prints where it listens and how many hosts it knows. Only one runs per user. To use its hosts from another machine's Rookery, see [A Rookery server](/docs/use/server). To test an application against the API without machines, see [Testing against a simulated server](/docs/api/testing).
 
 ## What it adds
 
@@ -20,11 +20,11 @@ It prints where it listens and how many hosts it knows. Only one runs per user. 
 | [`actions.*`](/docs/api/serve/actions) | The actions of the installation itself, such as `rollout`, which applies the hosts that are behind one after another |
 | [`secrets.*`](/docs/api/serve/secrets), [`registries.*`](/docs/api/serve/registries), [`settings.*`](/docs/api/serve/settings) | What the server keeps beside the hosts. A secret's value goes in and never comes back out |
 | [`plugins.*`](/docs/api/serve/plugins) | The server's plugins. One is installed from its npm registry, from an `https://` address, or from a `.tgz` that is sent, and one of its own is removed. `plugins.check` asks the registries for newer versions and `plugins.update` installs them. `setup.catalogue` lists the new features straight away |
-| [`provisioners.*`](/docs/api/serve/provisioners) | The provisioners of the plugins with their pages and actions. A page lists what berth made with the provisioner, by kind. An action of a provisioner has its own role ([Provisioners](/docs/deploy/provisioners#with-a-berth-server)) |
-| [`resources.*`](/docs/api/serve/resources) | What provisioners made for berth, such as a host's machine or a deployment. Creating, changing and removing one are jobs of the subject `resource:ID` and need the role `admin`. Its log needs `operate`, and its actions have their own roles ([Resources](/docs/deploy/resources#with-a-berth-server)) |
-| Every [berthd operation](/docs/api/host) | With a host: `"host": "NAME"` on the portal, `/v1/hosts/NAME/controller/…` over HTTP. Only the controller's own `secrets` action is refused; the server's `secrets` action of the host sends the server's own |
+| [`provisioners.*`](/docs/api/serve/provisioners) | The provisioners of the plugins with their pages and actions. A page lists what Rookery made with the provisioner, by kind. An action of a provisioner has its own role ([Provisioners](/docs/deploy/provisioners#with-a-rookery-server)) |
+| [`resources.*`](/docs/api/serve/resources) | What provisioners made for Rookery, such as a host's machine or a deployment. Creating, changing and removing one are jobs of the subject `resource:ID` and need the role `admin`. Its log needs `operate`, and its actions have their own roles ([Resources](/docs/deploy/resources#with-a-rookery-server)) |
+| Every [rookeryd operation](/docs/api/host) | With a host: `"host": "NAME"` on the portal, `/v1/hosts/NAME/controller/…` over HTTP. Only the controller's own `secrets` action is refused; the server's `secrets` action of the host sends the server's own |
 | [`jobs.*`](/docs/api/serve/jobs) | Jobs, one for each run of an action that runs here or follows one of a host's controller, with their output. Each says its subject and its action. A roll-out's job has a report, host by host |
-| [`inbox.*`](/docs/api/serve/inbox) | Messages the hosts published on their channels and kept, taken in while `berth serve` runs; each can be marked done |
+| [`inbox.*`](/docs/api/serve/inbox) | Messages the hosts published on their channels and kept, taken in while `rookery serve` runs; each can be marked done |
 | [`kv.*`](/docs/api/serve/kv) | A key-value store with revisions, for user interfaces to keep state in |
 | [`events.follow`](/docs/api/serve/events) | One stream of channel messages, jobs, key-value changes and changes to hosts and resources, at `/v1/events` |
 
@@ -32,17 +32,17 @@ All of it is also on the [portal](/docs/api/portal), the one WebSocket at `/v1/p
 
 ## Actions
 
-What berth does to a host or to the installation is an *action*. `GET /v1/hosts/NAME/actions` lists a host's, and `GET /v1/installation/actions` lists those of the installation. A host's controller has actions of its own, which are among the host's here. Its own list, `actions.list`, is at `/v1/hosts/NAME/controller/actions`. A form can be built from an action's description. It has the arguments with their defaults and choices, a question to confirm, the least role, and whether it can run now.
+What Rookery does to a host or to the installation is an *action*. `GET /v1/hosts/NAME/actions` lists a host's, and `GET /v1/installation/actions` lists those of the installation. A host's controller has actions of its own, which are among the host's here. Its own list, `actions.list`, is at `/v1/hosts/NAME/controller/actions`. A form can be built from an action's description. It has the arguments with their defaults and choices, a question to confirm, the least role, and whether it can run now.
 
 | Action | Of | Runs | Answers |
 | --- | --- | --- | --- |
 | An action of the host's controller, such as `status` | The host | On the host, as a session | `202` with the session and a job that copies its output. One that needs a terminal answers `200` with the session alone, to attach to |
 | `apply` | The host | Here, as a job | `202` with the job |
-| `install-controller` | The host | Here, as a job | `202` with the job. It installs berthd and box alone on an `ssh` or `managed` host |
+| `install-controller` | The host | Here, as a job | `202` with the job. It installs rookeryd and box alone on an `ssh` or `managed` host |
 | `seed` | The host | Here, at once | `200` with the seed's `user_data` as the result |
 | `secrets` | The host | On the host, with the server's secrets | `202` with the session and its job |
 | `rename` | The host | Here, as a job | `202` with the job. It gives the host the name in its `name` argument, with what the server keeps of it ([Renaming a host](/docs/use/moving#renaming-a-host)) |
-| `upgrade-server` | A node with a berth server's container | On the node, as a session | `202` with the session and its job. It runs the server from the image of `version`, this server's own unless given ([The berth server on a node](/docs/use/nodes#the-berth-server-on-a-node)) |
+| `upgrade-server` | A node with a Rookery server's container | On the node, as a session | `202` with the session and its job. It runs the server from the image of `version`, this server's own unless given ([The Rookery server on a node](/docs/use/nodes#the-rookery-server-on-a-node)) |
 | `rollout` | The installation | Here, as a job | `202` with the job; its report says how each host went |
 
 An action that the host's type rules out is listed with `available` false, and its `why` says which action changes the type. Run anyway, it is refused with `501 not_available`.
@@ -50,58 +50,58 @@ An action that the host's type rules out is listed with `available` false, and i
 To run one, POST to its name with its arguments:
 
 ```bash
-curl --unix-socket "$XDG_RUNTIME_DIR/berth/serve.sock" -X POST \
+curl --unix-socket "$XDG_RUNTIME_DIR/rookery/serve.sock" -X POST \
   -d '{"arguments": {"update": "yes"}, "token": "nightly-2026-11-13"}' \
-  http://berth/v1/installation/actions/rollout
+  http://rookery/v1/installation/actions/rollout
 ```
 
 The token is optional. The same token again for the same subject and action answers with the job the first request started, and nothing runs a second time. That lets a caller that lost the answer ask again. While an action changes a host, a second one that changes it is refused with `409` until the first has ended, and so is a second roll-out. A job is followed with `jobs.get`, `jobs.output` and the `jobs.follow` stream, and the events stream says when it starts and ends.
 
-The inbox, jobs and key-value store are kept in berth's store for `retention_days` (90 by default), and are also readable without the server:
+The inbox, jobs and key-value store are kept in Rookery's store for `retention_days` (90 by default), and are also readable without the server:
 
 ```bash
-berth inbox list studio --topic ask/        # what is open; --all includes what is done
-berth inbox done studio 12                  # marks message 12 of studio done
-berth kv set ui layout '{"columns": 2}'
-berth kv list ui
+rookery inbox list studio --topic ask/        # what is open; --all includes what is done
+rookery inbox done studio 12                  # marks message 12 of studio done
+rookery kv set ui layout '{"columns": 2}'
+rookery kv list ui
 ```
 
 ## The store
 
-The store is where berth keeps the host profiles, with their generated passwords and the records of the machines it created. It also keeps the registries, secrets and settings. berth's own SSH key, the server's token and setup key and the list of your own plugins are there too, with the inbox, jobs and key-value store. It is `berth.db`, a SQLite file in berth's data directory, unless the `store` setting or `BERTH_STORE` names another file or a PostgreSQL database. [The store](/docs/use/store) says how to choose it, encrypt it, move it to another database and restore a server from it.
+The store is where Rookery keeps the host profiles, with their generated passwords and the records of the machines it created. It also keeps the registries, secrets and settings. Rookery's own SSH key, the server's token and setup key and the list of your own plugins are there too, with the inbox, jobs and key-value store. It is `rookery.db`, a SQLite file in Rookery's data directory, unless the `store` setting or `ROOKERY_STORE` names another file or a PostgreSQL database. [The store](/docs/use/store) says how to choose it, encrypt it, move it to another database and restore a server from it.
 
-`berth serve` serves the hosts of its own installation.
+`rookery serve` serves the hosts of its own installation.
 
 | Command | Does |
 | --- | --- |
-| `berth host export HOST` | Prints a host's profile as JSON |
-| `berth host import HOST FILE` | Saves the profile in FILE as the host's, `-` for standard input |
-| `berth host credentials HOST` | Prints the passwords berth generated for the host's accounts. `hosts.credentials` gives them to an admin of the server |
+| `rookery host export HOST` | Prints a host's profile as JSON |
+| `rookery host import HOST FILE` | Saves the profile in FILE as the host's, `-` for standard input |
+| `rookery host credentials HOST` | Prints the passwords Rookery generated for the host's accounts. `hosts.credentials` gives them to an admin of the server |
 
-`berth server store status` says where the store is and whether its values are encrypted, and `berth server store encrypt` seals them with a key file ([Encrypt it](/docs/use/store#encrypt-it)).
+`rookery server store status` says where the store is and whether its values are encrypted, and `rookery server store encrypt` seals them with a key file ([Encrypt it](/docs/use/store#encrypt-it)).
 
 ## Where it listens
 
 <Tabs items={['Unix socket', 'TCP on this machine', 'TCP for other machines']}>
 <Tab value="Unix socket">
 
-Always: `$XDG_RUNTIME_DIR/berth/serve.sock`, readable by your user only. Requests there do not need the token.
+Always: `$XDG_RUNTIME_DIR/rookery/serve.sock`, readable by your user only. Requests there do not need the token.
 
 ```bash
-curl --unix-socket "$XDG_RUNTIME_DIR/berth/serve.sock" http://berth/v1/hosts
+curl --unix-socket "$XDG_RUNTIME_DIR/rookery/serve.sock" http://rookery/v1/hosts
 ```
 
 </Tab>
 <Tab value="TCP on this machine">
 
 ```bash
-berth serve --listen 127.0.0.1:7777
+rookery serve --listen 127.0.0.1:7777
 ```
 
-Requests over TCP, the portal included, send the token as a bearer. The token is made on first use and kept in the store. berth writes it to `serve.token` in its data directory too:
+Requests over TCP, the portal included, send the token as a bearer. The token is made on first use and kept in the store. Rookery writes it to `serve.token` in its data directory too:
 
 ```bash
-curl -H "Authorization: Bearer $(cat ~/.local/share/berth/serve.token)" http://127.0.0.1:7777/v1/hosts
+curl -H "Authorization: Bearer $(cat ~/.local/share/rookery/serve.token)" http://127.0.0.1:7777/v1/hosts
 ```
 
 A browser cannot set a header on a WebSocket, so the token is also accepted as the `Sec-WebSocket-Protocol` value.
@@ -112,7 +112,7 @@ A browser cannot set a header on a WebSocket, so the token is also accepted as t
 An address other than loopback needs `--expose` as well:
 
 ```bash
-berth serve --listen 0.0.0.0:7777 --expose
+rookery serve --listen 0.0.0.0:7777 --expose
 ```
 
 <Callout type="warn" title="Plain HTTP">
@@ -132,17 +132,17 @@ A caller over TCP shows the server's token or an OAuth 2.0 access token, and act
 | `operate` | Work on the hosts with actions, commands, terminals and files. Units, power and the key-value store are included |
 | `admin` | Change profiles, secrets, registries, settings and plugins, apply a profile to a host, and create or delete the machine of a host |
 
-Each action has a role of its own, which is checked when it runs. The actions of a host's controller need `operate`, berth's own actions `admin`.
+Each action has a role of its own, which is checked when it runs. The actions of a host's controller need `operate`, Rookery's own actions `admin`.
 
 The server's token is `admin`. The socket doesn't ask for a token and is `admin` too. The [API reference](/docs/api/serve) lists the role of each operation, and [`access`](/docs/api/serve/general) tells a caller its own.
 
 ### Access tokens from an OAuth 2.0 issuer
 
-`berth serve` can act as an OAuth 2.0 resource server. It then takes access tokens signed by an issuer you already run, such as Keycloak or Zitadel. berth doesn't keep users or sessions. The issuer decides who gets which role.
+`rookery serve` can act as an OAuth 2.0 resource server. It then takes access tokens signed by an issuer you already run, such as Keycloak or Zitadel. Rookery doesn't keep users or sessions. The issuer decides who gets which role.
 
 ```bash title="On the server"
-berth config set oauth_issuer https://id.example.com/realms/main
-berth config set oauth_audience berth
+rookery config set oauth_issuer https://id.example.com/realms/main
+rookery config set oauth_audience rookery
 ```
 
 | Setting | Meaning |
@@ -153,40 +153,40 @@ berth config set oauth_audience berth
 | `oauth_jwks` | The address of the issuer's keys, when its metadata is not at the usual place |
 | `serve_token` | `off`: only access tokens get in, the server's own token does not |
 
-A token is a JWT signed with one of the issuer's keys (RSA, ECDSA or Ed25519). It needs `iss` and `exp`, and the role in the claim: `berth:view`, `berth:operate` or `berth:admin`. In a claim other than `scope` the bare `view`, `operate` and `admin` count too. The highest role named is the caller's.
+A token is a JWT signed with one of the issuer's keys (RSA, ECDSA or Ed25519). It needs `iss` and `exp`, and the role in the claim: `rookery:view`, `rookery:operate` or `rookery:admin`. In a claim other than `scope` the bare `view`, `operate` and `admin` count too. The highest role named is the caller's.
 
 The roles can be written in the claim three ways:
 
 | Claim's value | Example | Roles read |
 | --- | --- | --- |
-| Text | `"openid berth:operate"` | The words, split at spaces and commas |
-| List | `["berth:view", "admin"]` | Each entry |
+| Text | `"openid rookery:operate"` | The words, split at spaces and commas |
+| List | `["rookery:view", "admin"]` | Each entry |
 | Object | `{"admin": {…}, "billing": {…}}` | Each key. Zitadel writes project roles this way, in `urn:zitadel:iam:org:project:roles` |
 
 ```bash
-curl -H "Authorization: Bearer $ACCESS_TOKEN" https://berth.example.ts.net/v1/access
+curl -H "Authorization: Bearer $ACCESS_TOKEN" https://rookery.example.ts.net/v1/access
 # {"role":"operate","setup":true,"subject":"ada"}
 ```
 
-An access token is used like the server's token. It works as a bearer and as the WebSocket protocol. berth takes it with `--token-file` or `--token-stdin`, as `BERTH_TOKEN`, or kept by `berth login`, and the screens when they ask for it.
+An access token is used like the server's token. It works as a bearer and as the WebSocket protocol. Rookery takes it with `--token-file` or `--token-stdin`, as `ROOKERY_TOKEN`, or kept by `rookery login`, and the screens when they ask for it.
 
 The server says which issuer it trusts at `/.well-known/oauth-protected-resource`, without a token.
 
-berth has no login of its own. Get an access token from the issuer by your own means, and give it to berth as `BERTH_TOKEN`. A wrapper script does that, and the token stays out of argv:
+Rookery has no login of its own. Get an access token from the issuer by your own means, and give it to Rookery as `ROOKERY_TOKEN`. A wrapper script does that, and the token stays out of argv:
 
 ```bash
-BERTH_TOKEN=$(curl -s -d grant_type=client_credentials -d client_id=berth-ci \
-  --data-urlencode client_secret@/etc/berth-ci.secret \
+ROOKERY_TOKEN=$(curl -s -d grant_type=client_credentials -d client_id=rookery-ci \
+  --data-urlencode client_secret@/etc/rookery-ci.secret \
   https://id.example.com/token | jq -r .access_token)
-export BERTH_TOKEN
-exec berth "$@"
+export ROOKERY_TOKEN
+exec rookery "$@"
 ```
 
-Each of these settings can also come from the environment, as `BERTH_` and the name in capitals. That suits a container, or berth running inside another program:
+Each of these settings can also come from the environment, as `ROOKERY_` and the name in capitals. That suits a container, or Rookery running inside another program:
 
 ```bash
-docker run -d -e BERTH_OAUTH_ISSUER=https://id.example.com/realms/main \
-  -e BERTH_OAUTH_AUDIENCE=berth -e BERTH_SERVE_TOKEN=off … ghcr.io/helightdev/berth
+docker run -d -e ROOKERY_OAUTH_ISSUER=https://id.example.com/realms/main \
+  -e ROOKERY_OAUTH_AUDIENCE=rookery -e ROOKERY_SERVE_TOKEN=off … ghcr.io/aiviarium/rookery
 ```
 
 ### Closing set-up
@@ -194,7 +194,7 @@ docker run -d -e BERTH_OAUTH_ISSUER=https://id.example.com/realms/main \
 By default an `admin` can set the server up over the network. To keep that on the server itself:
 
 ```bash title="On the server"
-berth config set serve_setup off
+rookery config set serve_setup off
 ```
 
 A caller over TCP is then `operate` at most, and the socket stays `admin`. Some things are refused from a caller of any role:
@@ -206,30 +206,30 @@ A caller over TCP is then `operate` at most, and the socket stays `admin`. Some 
 
 ## In a container
 
-The `ghcr.io/helightdev/berth` image runs `berth serve --listen 0.0.0.0:7777 --expose` by default, as user `berth` (uid 1000):
+The `ghcr.io/aiviarium/rookery` image runs `rookery serve --listen 0.0.0.0:7777 --expose` by default, as user `rookery` (uid 1000):
 
 ```bash
-docker run -d --name berth -p 127.0.0.1:7777:7777 \
-  -v berth-config:/config -v berth-data:/data \
-  -v ~/.ssh:/home/berth/.ssh:ro \
-  ghcr.io/helightdev/berth
-docker exec berth cat /data/berth/serve.token
+docker run -d --name rookery -p 127.0.0.1:7777:7777 \
+  -v rookery-config:/config -v rookery-data:/data \
+  -v ~/.ssh:/home/rookery/.ssh:ro \
+  ghcr.io/aiviarium/rookery
+docker exec rookery cat /data/rookery/serve.token
 ```
 
 | Path | Holds |
 | --- | --- |
-| `/config/berth/` | `config.json` with the settings of this machine, the key file of an encrypted store, and the folder of the server's own plugins |
-| `/data/berth/` | The store, unless `BERTH_STORE` names a PostgreSQL database. Beside it `serve.token` and the server's SSH key, written from the store, the output of jobs, and builds |
-| `/home/berth/.ssh` | Further SSH keys and configuration for reaching hosts |
+| `/config/rookery/` | `config.json` with the settings of this machine, the key file of an encrypted store, and the folder of the server's own plugins |
+| `/data/rookery/` | The store, unless `ROOKERY_STORE` names a PostgreSQL database. Beside it `serve.token` and the server's SSH key, written from the store, the output of jobs, and builds |
+| `/home/rookery/.ssh` | Further SSH keys and configuration for reaching hosts |
 
-The image contains ansible-core, the OpenSSH client and Python, so it can also apply configurations, and npm for installing plugins. See [A berth server](/docs/use/server) for using it from berth on another machine, and [The store](/docs/use/store#in-the-container) for keeping its state in PostgreSQL.
+The image contains ansible-core, the OpenSSH client and Python, so it can also apply configurations, and npm for installing plugins. See [A Rookery server](/docs/use/server) for using it from Rookery on another machine, and [The store](/docs/use/store#in-the-container) for keeping its state in PostgreSQL.
 
 ## The API documents
 
 ```bash
-berth server api operations    # every operation, for the portal and HTTP
-berth server api openapi       # OpenAPI 3 for the HTTP routes
-berth server api asyncapi      # AsyncAPI 3 for the streams
+rookery server api operations    # every operation, for the portal and HTTP
+rookery server api openapi       # OpenAPI 3 for the HTTP routes
+rookery server api asyncapi      # AsyncAPI 3 for the streams
 ```
 
 The [API reference](/docs/api) is generated from them.

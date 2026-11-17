@@ -1,16 +1,16 @@
 ---
 title: Nodes
-description: A node is a server that berth applies without a desktop, such as one that hosts Incus and Docker machines. Creating one, taking in a server that exists, and what berth leaves to you.
+description: A node is a server that Rookery applies without a desktop, such as one that hosts Incus and Docker machines. Creating one, taking in a server that exists, and what Rookery leaves to you.
 icon: Server
 ---
 
-A node is a server that berth sets up and keeps up to date, without a desktop. Its plugin features install what the server is for, such as Incus or a Docker engine for berth's machines. berth then has a provisioner for each, and the provisioner records which node it is on.
+A node is a server that Rookery sets up and keeps up to date, without a desktop. Its plugin features install what the server is for, such as Incus or a Docker engine for Rookery's machines. Rookery then has a provisioner for each, and the provisioner records which node it is on.
 
 | Part | On a node |
 | --- | --- |
 | System | Ubuntu 24.04 or later on x86_64, its time zone and locale, and Ubuntu's security updates without reboots |
-| SSH | Keys only. The SSH user takes berth's key, and root keeps a login with keys when berth logs in as root or root had one before |
-| Controller | berthd and box, with the actions status, update, reboot and secrets. Sessions run as the SSH user |
+| SSH | Keys only. The SSH user takes Rookery's key, and root keeps a login with keys when Rookery logs in as root or root had one before |
+| Controller | rookeryd and box, with the actions status, update, reboot and secrets. Sessions run as the SSH user |
 | Firewall | `ufw`: incoming traffic is refused except SSH, the tailnet and what the features open |
 | Tailnet | Tailscale, joined as a workstation joins ([Tailnet](/docs/use/access)) |
 | Features | Only those the profile lists, such as `incus/server` and `docker/engine` |
@@ -20,57 +20,57 @@ A node is a [host type](/docs/use/types) between `managed` and `workstation`. It
 
 ## Create one
 
-Install Ubuntu on the server from your provider's panel, or with the [`rescue-install`](https://github.com/helightdev/berth/tree/main/recipes/rescue-install) recipe when that installer does not work. Then add it by its address as a node. This example uses the made-up name `big` and the address `192.0.2.20`:
+Install Ubuntu on the server from your provider's panel, or with the [`rescue-install`](https://github.com/aiviarium/rookery/tree/main/recipes/rescue-install) recipe when that installer does not work. Then add it by its address as a node. This example uses the made-up name `big` and the address `192.0.2.20`:
 
 ```bash
-berth host add big 192.0.2.20 --user root --auth ssh --type node \
+rookery host add big 192.0.2.20 --user root --auth ssh --type node \
   --feature docker/engine --feature incus/server
-berth apply big
+rookery apply big
 ```
 
-`--feature` names the features it gets, which land in the profile's `ansible_vars` as `devbox_plugin_features`. `berth host set big feature.incus/server=off` changes them later. `berth host create big --type node` asks for the same at a terminal: the address, the login and the features, without a desktop or accounts. The screens show the same for a node: the type `node` on the Install tab, and only the features of a node on the Features tab.
+`--feature` names the features it gets, which land in the profile's `ansible_vars` as `rookery_plugin_features`. `rookery host set big feature.incus/server=off` changes them later. `rookery host create big --type node` asks for the same at a terminal: the address, the login and the features, without a desktop or accounts. The screens show the same for a node: the type `node` on the Install tab, and only the features of a node on the Features tab.
 
-The first apply installs berth's key for the SSH user. A node added with `--auth password` is logged in to with berth's key afterwards, and berth forgets the password. `--auth ssh` stays as it is.
+The first apply installs Rookery's key for the SSH user. A node added with `--auth password` is logged in to with Rookery's key afterwards, and Rookery forgets the password. `--auth ssh` stays as it is.
 
-An `ssh` or `managed` host becomes a node with `berth host set big type=node`. A node is not applied over a workstation that berth set up: the role stops before it changes anything.
+An `ssh` or `managed` host becomes a node with `rookery host set big type=node`. A node is not applied over a workstation that Rookery set up: the role stops before it changes anything.
 
 | Profile field | On a node |
 | --- | --- |
 | `type` | `node` |
-| `access` | Where berth reaches it and as whom. The SSH user is the account sessions run as |
+| `access` | Where Rookery reaches it and as whom. The SSH user is the account sessions run as |
 | `target` | `cloud`, or `container` for a node without systemd. `laptop` is refused |
-| `ansible_vars` | `devbox_plugin_features`, the settings of the features, and the node's own settings below |
-| The agent's and the operator's fields | Refused, as a node has neither account. `berth host set HOST type=node` takes them out |
+| `ansible_vars` | `rookery_plugin_features`, the settings of the features, and the node's own settings below |
+| The agent's and the operator's fields | Refused, as a node has neither account. `rookery host set HOST type=node` takes them out |
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `devbox_ssh_from` | `any` | Who reaches SSH from outside the tailnet: `any`, or one address or network. The address an apply comes from always does. A server taken in keeps SSH as limited as its firewall had it |
-| `devbox_harden_ssh` | `true` | Keys only for SSH. It is skipped while the SSH user has no key |
-| `devbox_manage_firewall` | `true` | Set the node's firewall |
-| `devbox_install_tailscale` | `true` | Install Tailscale and join the tailnet with a key berth makes ([Joining the tailnet](/docs/use/access#joining-the-tailnet)) |
-| `devbox_timezone` | `Europe/Berlin` | The node's time zone |
+| `rookery_ssh_from` | `any` | Who reaches SSH from outside the tailnet: `any`, or one address or network. The address an apply comes from always does. A server taken in keeps SSH as limited as its firewall had it |
+| `rookery_harden_ssh` | `true` | Keys only for SSH. It is skipped while the SSH user has no key |
+| `rookery_manage_firewall` | `true` | Set the node's firewall |
+| `rookery_install_tailscale` | `true` | Install Tailscale and join the tailnet with a key Rookery makes ([Joining the tailnet](/docs/use/access#joining-the-tailnet)) |
+| `rookery_timezone` | `Europe/Berlin` | The node's time zone |
 
 ## Features for a node
 
-| Feature | What it sets up | Provisioners berth registers |
+| Feature | What it sets up | Provisioners Rookery registers |
 | --- | --- | --- |
-| `incus/server` | Incus, the bridge `incusbr0` at `10.77.0.1/24`, a storage pool in a directory, and the API on port 8444 that trusts berth's client certificate | `big-incus-vm` and `big-incus-container` |
+| `incus/server` | Incus, the bridge `incusbr0` at `10.77.0.1/24`, a storage pool in a directory, and the API on port 8444 that trusts Rookery's client certificate | `big-incus-vm` and `big-incus-container` |
 | `docker/engine` | The Docker engine, and Sysbox when asked | `big-docker-container`, which reaches the engine over SSH |
 
-The guides of the [Incus](https://github.com/helightdev/berth/blob/main/plugins/incus/guide.md) and [Docker](https://github.com/helightdev/berth/blob/main/plugins/docker/guide.md) plugins list their settings. A feature says which host types it is for. berth refuses to apply a node that lists a feature for workstations, and the reverse.
+The guides of the [Incus](https://github.com/aiviarium/rookery/blob/main/plugins/incus/guide.md) and [Docker](https://github.com/aiviarium/rookery/blob/main/plugins/docker/guide.md) plugins list their settings. A feature says which host types it is for. Rookery refuses to apply a node that lists a feature for workstations, and the reverse.
 
 ### Provisioners the node offers
 
-At the end of an apply the role records what each feature offers in `/etc/berth/applied.json`, and berthd reports it. berth then registers a provisioner for each:
+At the end of an apply the role records what each feature offers in `/etc/rookery/applied.json`, and rookeryd reports it. Rookery then registers a provisioner for each:
 
 | What | Where it comes from |
 | --- | --- |
-| The name | `NODE-PLUGIN-TYPE`, such as `big-incus-vm`. `berth provisioner rename` gives it another, and it stays the node's |
+| The name | `NODE-PLUGIN-TYPE`, such as `big-incus-vm`. `rookery provisioner rename` gives it another, and it stays the node's |
 | The node | The host it is on, on the provisioner's page (`node` over the API), and kept when the node is renamed |
-| Settings | Where berth reaches the node, such as `server=https://192.0.2.20:8444` |
+| Settings | Where Rookery reaches the node, such as `server=https://192.0.2.20:8444` |
 | Secrets | Public values only, such as the Incus server's certificate, kept as the provisioner's own `incus_server_cert` |
 
-berth makes its Incus client certificate and key once, as the secrets `incus_client_cert` and `incus_client_key`. Only the certificate goes to the node, which trusts it. The key stays in berth's store.
+Rookery makes its Incus client certificate and key once, as the secrets `incus_client_cert` and `incus_client_key`. Only the certificate goes to the node, which trusts it. The key stays in Rookery's store.
 
 ### Reach what runs on a node
 
@@ -84,55 +84,55 @@ The endpoints of a resource on a node's provisioner are dialled by the node's co
 
 The node's firewall allows outgoing connections. The controller's connections to its bridges pass.
 
-berth takes from a node's report only what is the node's own, as the node is a machine it manages:
+Rookery takes from a node's report only what is the node's own, as the node is a machine it manages:
 
 | Part of the report | Taken when |
 | --- | --- |
 | A feature | The node's profile names it |
 | A provisioner | The feature's manifest lists it in `offers` |
-| A setting | It is one of the provisioner's own arguments. A URL in it has to point at the node's address, or berth leaves the provisioner out |
+| A setting | It is one of the provisioner's own arguments. A URL in it has to point at the node's address, or Rookery leaves the provisioner out |
 | A secret | It is one the provisioner declares |
 
-The node's provisioners are those berth registered for it or made its own. A node's report never changes or removes any other provisioner.
+The node's provisioners are those Rookery registered for it or made its own. A node's report never changes or removes any other provisioner.
 
-An apply with the same features doesn't change them. A feature taken out of the profile takes its provisioners with it at the next apply. While one of them still holds machines or deployments, berth refuses to apply the node without the feature, and it refuses to remove the node. Remove those resources first, or keep the feature.
+An apply with the same features doesn't change them. A feature taken out of the profile takes its provisioners with it at the next apply. While one of them still holds machines or deployments, Rookery refuses to apply the node without the feature, and it refuses to remove the node. Remove those resources first, or keep the feature.
 
 ## Take in a server that exists
 
-A server that the `incus-host` recipe of berth 0.5 set up, or that has Incus or Docker installed by hand, is added and applied as a node like a new one. The features take what is there:
+A server that the `incus-host` recipe of Rookery 0.5 set up, or that has Incus or Docker installed by hand, is added and applied as a node like a new one. The features take what is there:
 
-- Incus with a storage pool keeps its pools, networks, profiles and trusted clients. Only the API address, when it has none, and berth's certificate are added.
+- Incus with a storage pool keeps its pools, networks, profiles and trusted clients. Only the API address, when it has none, and Rookery's certificate are added.
 - An installed Docker engine stays, with its containers and volumes, also one from Docker's own packages.
 - A firewall rule made by hand that lets SSH in from some addresses only stays, and the node does not open SSH to every address. The address the apply comes from is let in too. Delete the rule by hand to open SSH wider.
-- Root keeps a login with keys it had, such as the one the berth server in its container uses. The node never opens root to passwords.
-- A provisioner registered by hand for the node's server becomes the node's instead of a second one, with its settings as they were. That happens only when berth itself can tell: the server it names is on the node's address, the same name or a name that berth's server finds at the same address. The recipe's `https://incus-host:8444` passes when the server reaches the node as `node`, as both resolve to the gateway of the server's container.
-- berth leaves a provisioner as it is when only the node says it's the same, and also one of another node. The node's word may be the provisioner's certificate, which is public. It may also be the provisioner's server among the aliases. The apply says so in a line and doesn't register a second one. If you know it reaches the node, make it the node's and apply again:
+- Root keeps a login with keys it had, such as the one the Rookery server in its container uses. The node never opens root to passwords.
+- A provisioner registered by hand for the node's server becomes the node's instead of a second one, with its settings as they were. That happens only when Rookery itself can tell: the server it names is on the node's address, the same name or a name that Rookery's server finds at the same address. The recipe's `https://incus-host:8444` passes when the server reaches the node as `node`, as both resolve to the gateway of the server's container.
+- Rookery leaves a provisioner as it is when only the node says it's the same, and also one of another node. The node's word may be the provisioner's certificate, which is public. It may also be the provisioner's server among the aliases. The apply says so in a line and doesn't register a second one. If you know it reaches the node, make it the node's and apply again:
 
   ```bash
-  berth provisioner run incus-vm adopt node=big
-  berth apply big
+  rookery provisioner run incus-vm adopt node=big
+  rookery apply big
   ```
 
-  This is also the way for the provisioner of the local Docker engine of a berth server in a container on the node.
+  This is also the way for the provisioner of the local Docker engine of a Rookery server in a container on the node.
 
-Apply the node from the berth server that holds the provisioners registered for this machine, such as the server of the recipe. Those provisioners are that server's. A berth elsewhere doesn't see them, and registers new ones beside them.
+Apply the node from the Rookery server that holds the provisioners registered for this machine, such as the server of the recipe. Those provisioners are that server's. A Rookery elsewhere doesn't see them, and registers new ones beside them.
 
 Then check the node and its provisioners:
 
 ```bash
-berth run big status
-berth provisioner list
+rookery run big status
+rookery provisioner list
 ```
 
-## The berth server on a node
+## The Rookery server on a node
 
-The `berth-server` recipe installs berth's server in a container named `berth`. When a node has that container, it offers the action **Upgrade the berth server** (`upgrade-server`). It runs the server from the image of the version of the berth that runs the action, or of the `version` it is given. The node's controller does it, and a job follows it:
+The `rookery-server` recipe installs Rookery's server in a container named `rookery`. When a node has that container, it offers the action **Upgrade the Rookery server** (`upgrade-server`). It runs the server from the image of the version of the Rookery that runs the action, or of the `version` it is given. The node's controller does it, and a job follows it:
 
 - The new container takes over what the running one has:
 
   | Taken over | Such as |
   | --- | --- |
-  | Name and data | `berth`, and the folders or volumes it mounts |
+  | Name and data | `rookery`, and the folders or volumes it mounts |
   | Ports and networks | `--publish 127.0.0.1:7777:7777` |
   | Restart policy | `--restart unless-stopped` |
   | Groups and extra hosts | `--group-add`, `--add-host incus-host:host-gateway` |
@@ -146,50 +146,50 @@ The `berth-server` recipe installs berth's server in a container named `berth`. 
 
 When the server upgrades its own container, it restarts during the job. The output stays in the node's session.
 
-### Run the server from this berth
+### Run the server from this Rookery
 
-With `source=here`, the node builds the server's image from the berth that runs the action, so a build of your own runs there without a release:
+With `source=here`, the node builds the server's image from the Rookery that runs the action, so a build of your own runs there without a release:
 
 ```bash
-berth run big upgrade-server source=here
+rookery run big upgrade-server source=here
 ```
 
 | Step | What happens |
 | --- | --- |
-| Check | berth asks the node for its CPU and checks that it is a static Linux program for it |
+| Check | Rookery asks the node for its CPU and checks that it is a static Linux program for it |
 | Send | It sends its build context with the request: the Dockerfile CI builds the published image from, `requirements.txt` and the program itself |
-| Build | The node's controller runs `docker build -t berth:VERSION -` with the context on standard input. The node reads it as a stream and does not write it to disk |
-| Swap | The container runs from `berth:VERSION`, as for a release |
-| Report | berth follows the node's session. When the server replaced is the one it talks to, it waits for the server to answer again and reads how the session ended |
+| Build | The node's controller runs `docker build -t rookery:VERSION -` with the context on standard input. The node reads it as a stream and does not write it to disk |
+| Swap | The container runs from `rookery:VERSION`, as for a release |
+| Report | Rookery follows the node's session. When the server replaced is the one it talks to, it waits for the server to answer again and reads how the session ended |
 
-The checks refuse a berth that cannot run in the image:
+The checks refuse a Rookery that cannot run in the image:
 
-| berth | Use instead |
+| Rookery | Use instead |
 | --- | --- |
 | A release for Linux | It qualifies |
-| berth for macOS or Windows | berth for Linux of the same release |
-| A build of your own with the system's C library | A static build: `cargo build --release --target x86_64-unknown-linux-musl -p berth` |
+| Rookery for macOS or Windows | Rookery for Linux of the same release |
+| A build of your own with the system's C library | A static build: `cargo build --release --target x86_64-unknown-linux-musl -p rookery` |
 | A build for another CPU | The build for the node's CPU |
 
-The tag `berth:VERSION` is local to the node, so a self-built image never passes for a published one. Its labels give its version, the source `self-built` and the repository of the published images. When an image of that tag already has the same program, the build is skipped. Once the container runs, the helper removes the unused self-built images, except the two newest.
+The tag `rookery:VERSION` is local to the node, so a self-built image never passes for a published one. Its labels give its version, the source `self-built` and the repository of the published images. When an image of that tag already has the same program, the build is skipped. Once the container runs, the helper removes the unused self-built images, except the two newest.
 
-The action needs the admin role. Its version is that of the berth sent.
+The action needs the admin role. Its version is that of the Rookery sent.
 
 ### Back to a release
 
-`source=release`, the default, pulls the published image again. A server that runs a self-built image goes back to `ghcr.io/helightdev/berth`, the repository its image names:
+`source=release`, the default, pulls the published image again. A server that runs a self-built image goes back to `ghcr.io/aiviarium/rookery`, the repository its image names:
 
 ```bash
-berth run big upgrade-server version=0.7.0
+rookery run big upgrade-server version=0.7.0
 ```
 
 It still refuses an older version than the one running.
 
-The action needs the machine to be a node, which needs a server of this berth. So the recipe makes the first update of a server of berth 0.5, as [Upgrading from 0.5](/docs/use/upgrading) shows.
+The action needs the machine to be a node, which needs a server of this Rookery. So the recipe makes the first update of a server of Rookery 0.5, as [Upgrading from 0.5](/docs/use/upgrading) shows.
 
-## What berth does not do
+## What Rookery does not do
 
-- It never makes a storage pool on a disk, which would erase it. Create such a pool with `incus storage create` and name it in `devbox_incus_pool`.
+- It never makes a storage pool on a disk, which would erase it. Create such a pool with `incus storage create` and name it in `rookery_incus_pool`.
 - Taking a feature out does not remove Incus, Docker or their guests from the node. Only the provisioner goes.
 - Docker opens the ports its containers publish by itself, past `ufw`. Publish a port on `127.0.0.1` or on the tailnet address to keep it private.
 - It does not take a workstation to a node, or a node back to `managed`.

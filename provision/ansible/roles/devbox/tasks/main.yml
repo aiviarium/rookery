@@ -1,9 +1,0 @@
----
-# A node is a server berth applies without a desktop: node.yml. Everything
-# else of the role is a workstation's: workstation.yml.
-- name: Set up a node
-  ansible.builtin.include_tasks: node.yml
-  when: devbox_level == 'node'
-- name: Set up a workstation
-  ansible.builtin.include_tasks: workstation.yml
-  when: devbox_level != 'node'

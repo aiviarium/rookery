@@ -1,6 +1,6 @@
 ---
 title: Streams
-description: "Frames, resuming, reconnecting and the events stream of the WebSockets in berthd and berth serve."
+description: "Frames, resuming, reconnecting and the events stream of the WebSockets in rookeryd and rookery serve."
 icon: Radio
 ---
 
@@ -13,7 +13,7 @@ output is at `/v1/sessions/{id}`, the channel at `/v1/channel`, and a service's
 serving connection at `/v1/services/{service}/serve`. Open it with a `GET` and
 the usual upgrade headers, on the same unix socket as the plain requests.
 
-`berth serve` passes a host's streams through under `/v1/hosts/{name}/controller`,
+`rookery serve` passes a host's streams through under `/v1/hosts/{name}/controller`,
 so the session above is at `/v1/hosts/{name}/controller/sessions/{id}` there, with the same
 frames. Over TCP the token from `serve.token` goes in an
 `Authorization: Bearer` header. A browser cannot set a header on a WebSocket, so
@@ -65,7 +65,7 @@ that the last viewer to resize it asked for.
 
 [`ports.connect`](/docs/api/host/ports) is a TCP connection to a port on the
 host's loopback, `127.0.0.1`. It is at `/v1/ports/{port}`, and through
-`berth serve` at `/v1/hosts/{name}/controller/ports/{port}`. berthd connects to the port
+`rookery serve` at `/v1/hosts/{name}/controller/ports/{port}`. rookeryd connects to the port
 before the handshake, so a port that nothing listens on gives the error `503
 not_served`. It needs the role `operate` and the host
 level.
@@ -81,18 +81,18 @@ its direction with a text frame:
 The stream ends once both sides have sent `{"eof":true}`. It ends at once when
 the client closes the WebSocket or the connection to the port breaks. A stream
 that closes before its `{"eof":true}` has lost its connection.
-`berth_api::tunnel` reads and writes such a stream like a socket.
+`rookery_api::tunnel` reads and writes such a stream like a socket.
 
 ## The stream of an address on a host
 
-[`endpoints.connect`](/docs/api/host/endpoints) of berthd is a TCP connection
+[`endpoints.connect`](/docs/api/host/endpoints) of rookeryd is a TCP connection
 to an address on one of the host's own networks, such as a container on a
 bridge. It is at `/v1/endpoints/{address}/{port}`, and its frames are those of
-the stream of a port. Only `berth serve` opens it, for an endpoint of a
+the stream of a port. Only `rookery serve` opens it, for an endpoint of a
 resource on a node. It does not pass it through under
 `/v1/hosts/{name}/controller`, and a portal refuses it.
 
-berthd resolves the address once, checks every address it has and connects to
+rookeryd resolves the address once, checks every address it has and connects to
 the one it checked, all before the handshake:
 
 | Error | When |
@@ -107,7 +107,7 @@ that are up, without the loopback. A prefix shorter than `/8` for IPv4 or
 
 ## The stream of an endpoint
 
-[`resources.connect`](/docs/api/serve/resources) of `berth serve` is a TCP
+[`resources.connect`](/docs/api/serve/resources) of `rookery serve` is a TCP
 connection to an endpoint of a resource, one that its provisioner reported
 ([Endpoints](/docs/deploy/resources#endpoints)). It is at
 `/v1/resources/{id}/endpoints/{endpoint}`, where `endpoint` is the endpoint's
@@ -121,7 +121,7 @@ address, checks it and connects, all before the handshake. It needs the role
 |---|---|
 | `404 not_found` | No such resource, or its provisioner did not report that endpoint |
 | `400 bad_request` | The endpoint is UDP |
-| `403 forbidden` | The address is one berth does not dial from the server |
+| `403 forbidden` | The address is one Rookery does not dial from the server |
 | `503 not_served`, `504 timeout` | The endpoint refuses the connection, or doesn't answer in time |
 | `502 unreachable` | The provisioner is on a node that cannot be reached |
 | `501 not_available` | The provisioner is on a node whose controller is older than `endpoints.connect` |
@@ -133,7 +133,7 @@ Who dials the endpoint:
 | On a node | The node's controller: `ports.connect` for `127.0.0.1`, `endpoints.connect` for any other address |
 | Anywhere else | The server itself |
 
-`Portal::connect_endpoint` and `berth_api::tunnel::endpoint_tunnel` open one.
+`Portal::connect_endpoint` and `rookery_api::tunnel::endpoint_tunnel` open one.
 
 ## Resuming
 
@@ -152,7 +152,7 @@ starts at the beginning of its output.
 
 ## Reconnecting
 
-A socket ends when the network does, when `berthd` restarts, or when the client
+A socket ends when the network does, when `rookeryd` restarts, or when the client
 closes it. To carry on where it stopped:
 
 1. Count the bytes of a session as they arrive, or remember the `id` of the last
@@ -163,7 +163,7 @@ closes it. To carry on where it stopped:
 
 A session itself does not depend on the connection. It keeps running while
 nobody is connected, and its output is kept in a transcript of up to 16 MB. If
-`berthd` itself restarts, its sessions end. They are listed as ended with
+`rookeryd` itself restarts, its sessions end. They are listed as ended with
 `lost: true`, and a stream of one of them can still be read from its transcript.
 
 `box serve` does the reconnecting for a service, with a backoff, so a service
@@ -178,7 +178,7 @@ A client that cannot keep up does not slow the others down:
   `GET /v1/sessions/{id}/output?since=OFFSET`, or reconnect with `since=`.
 - On the channel, a listener that falls 1,000 messages behind is closed. Open it
   again with `since` set to the last id it saw.
-- On `events.follow`, `inbox.follow` and `kv.follow` of `berth serve`, a
+- On `events.follow`, `inbox.follow` and `kv.follow` of `rookery serve`, a
   follower that is too slow gets `{"dropped":{"events":12}}` and the stream
   goes on. The number counts all the server's events it missed, also those it
   does not follow. Read the current state again with `inbox.list`, `kv.list` or
@@ -186,7 +186,7 @@ A client that cannot keep up does not slow the others down:
 
 ## Events on your machine
 
-`berth serve` has one stream, [`events.follow`](/docs/api/serve/events), that follows several things at once. On the portal it is one subscription; on its own it is the WebSocket at:
+`rookery serve` has one stream, [`events.follow`](/docs/api/serve/events), that follows several things at once. On the portal it is one subscription; on its own it is the WebSocket at:
 
 ```http
 GET /v1/events
@@ -222,7 +222,7 @@ Each frame the server sends names where it came from in `source`:
 A host or resource frame only names what changed. Read the rest with `hosts.get`
 or `resources.get`. A host changes when its profile is saved, as by
 `hosts.save` or an action, and a resource when its record does, as when a job
-creates it or its state is checked. A change that another berth makes in the
+creates it or its state is checked. A change that another Rookery makes in the
 store is told within a few seconds.
 
 ```json
