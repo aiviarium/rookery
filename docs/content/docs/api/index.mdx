@@ -9,7 +9,7 @@ rookeryd and `rookery serve` answer the same kind of API. Each of their *operati
 | Program | Runs on | Reached at | Reference |
 | --- | --- | --- | --- |
 | rookeryd | every host, as root | unix sockets in `/run/rookery` | [rookeryd](/docs/api/host) |
-| `rookery serve` | your machine, or a server | a unix socket of your user, and optionally TCP | [rookery serve](/docs/api/serve) |
+| `rookery serve` | your machine, or a server | a unix socket of your user, and optionally TCP | [`rookery serve`](/docs/api/serve) |
 
 `rookery serve` passes rookeryd's operations through to the host it names, under `/v1/hosts/NAME/controller`, so a program that talks to `rookery serve` reaches all hosts. It does not pass through `endpoints.connect`, which it opens itself for `resources.connect`. It also lists what can be done to each host and to the installation as [actions](/docs/extend/serve#actions), and runs one as a job it keeps.
 
@@ -33,8 +33,7 @@ A *call* takes arguments and input and gives back a result. After it opens, a *s
 
 | `api` | Added |
 | --- | --- |
-| 1 | The API as first released |
-| 2 | What the list below names. It also renames, and breaks what a client of number 1 calls: see below |
+| 2 | What the list below names |
 
 What number 2 adds:
 
@@ -46,19 +45,7 @@ What number 2 adds:
 - `endpoints.connect` of rookeryd, which `rookery serve` alone opens, to reach an endpoint of a resource on a node
 - The `exec` action of a resource
 
-What number 2 renames, with no old name kept:
-
-| Number 1 | Number 2 |
-| --- | --- |
-| `tasks.list`, `tasks.run`, `tasks.choices` at `/v1/tasks…` | `actions.list`, `actions.run`, `actions.choices` at `/v1/actions…`, with the action's name as `action` |
-| The schemas `Task`, `RunTask`, `PluginTask` and a feature's `tasks` | `HostAction`, `RunAction`, `PluginAction` and `actions` |
-| A session's `task` | `action` |
-| `actions.list`, `actions.act` of `rookery serve` at `/v1/actions…` | `installation.actions`, `installation.act` at `/v1/installation/actions…` |
-| A host's operations through `rookery serve` at `/v1/hosts/NAME/…` | `/v1/hosts/NAME/controller/…`, so that none meets the server's own routes of a host |
-| `level` of `version` and `hosts.get`, with `reachable`, `controller`, `workstation` | `type`, with `ssh`, `managed`, `workstation` |
-| `level` and `profile` in a profile that `hosts.save` takes | `type` and `target` |
-
-Rookery reads what a rookeryd of number 1 says of the host's type. It needs number 2 for everything else, and says to update the controller or apply the host until it has it.
+Rookery needs number 2 for a host's actions and port forwarding, and says to update the controller or apply the host until it has it.
 
 ## Who may call
 
@@ -71,7 +58,7 @@ rookeryd answers on two sockets, and each operation says which may use it:
 
 In a container rookeryd runs for the agent alone, without systemd, and calls that need systemd or another user are refused.
 
-`rookery serve` has no levels. Its unix socket is readable by your user only, and over TCP every request and the portal need the token from `serve.token` as a bearer. See [rookery serve](/docs/extend/serve).
+`rookery serve` has no levels. Its unix socket is readable by your user only, and over TCP every request and the portal need the token from `serve.token` as a bearer. See [`rookery serve`](/docs/extend/serve).
 
 ## Errors
 
@@ -107,11 +94,11 @@ The reference is generated from documents that the programs print and the tests 
 | Document | Printed by | Download |
 | --- | --- | --- |
 | Operations of rookeryd | `rookeryd operations` | [rookeryd.operations.json](/openapi/rookeryd.operations.json) |
-| Operations of rookery serve | `rookery server api operations` | [rookery.operations.json](/openapi/rookery.operations.json) |
+| Operations of `rookery serve` | `rookery server api operations` | [rookery.operations.json](/openapi/rookery.operations.json) |
 | OpenAPI 3 of rookeryd | `rookeryd openapi` | [rookeryd.openapi.json](/openapi/rookeryd.openapi.json) |
-| OpenAPI 3 of rookery serve | `rookery server api openapi` | [rookery.openapi.json](/openapi/rookery.openapi.json) |
+| OpenAPI 3 of `rookery serve` | `rookery server api openapi` | [rookery.openapi.json](/openapi/rookery.openapi.json) |
 | AsyncAPI 3 of rookeryd | `rookeryd asyncapi` | [rookeryd.asyncapi.json](/openapi/rookeryd.asyncapi.json) |
-| AsyncAPI 3 of rookery serve | `rookery server api asyncapi` | [rookery.asyncapi.json](/openapi/rookery.asyncapi.json) |
+| AsyncAPI 3 of `rookery serve` | `rookery server api asyncapi` | [rookery.asyncapi.json](/openapi/rookery.asyncapi.json) |
 
 An operations document describes each operation with its name and HTTP route, arguments and errors, and input and result schemas. For streams it adds the frames each way. `components` holds the JSON schemas the `$ref`s point at. The `rookery serve` document has `"hosts": true`: every rookeryd operation is available there with a host.
 

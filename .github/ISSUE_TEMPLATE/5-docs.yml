@@ -28,5 +28,5 @@ body:
         - Sign-ins, secrets, keys or registries
         - Making hosts or resources on a node
         - Using an agent or tool on a host
-        - Running a rookery server for others
+        - Running a Rookery server for others
         - Writing a plugin or using the API

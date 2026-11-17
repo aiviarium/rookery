@@ -63,7 +63,7 @@ docker run --rm -it -v rookery-config:/config -v rookery-data:/data \
   -v ~/.ssh:/home/rookery/.ssh:ro ghcr.io/aiviarium/rookery ui
 ```
 
-See [rookery serve](/docs/extend/serve#in-a-container) for the volumes and the token. A Rookery installed on your machine uses the container's hosts once it has logged in with a setup key made there:
+See [`rookery serve`](/docs/extend/serve#in-a-container) for the volumes and the token. A Rookery installed on your machine, as a client, uses the container's hosts once it has logged in with a setup key made there:
 
 ```bash
 docker exec rookery rookery server setup-key
@@ -122,10 +122,6 @@ These settings stay in `config.json`, as they belong to this machine or are need
 | `store`, `store_key`, `store_ca` | Where the store is and how it is opened |
 | `server`, `server_token` | The Rookery server this machine uses, kept by `rookery login` |
 | `source`, `iso_dir` | Folders on this machine |
-
-A key Rookery does not know stays in `config.json` as it is, such as the OAuth client settings of Rookery 0.4, which Rookery has no use for any more.
-
-An older Rookery kept secrets in `secrets.json`, and registries and all settings in `config.json`. It kept each host's profile in `~/.config/rookery/hosts/NAME.json`, with `NAME.credentials.json` and `NAME.instance.json` beside it. The first run of this Rookery moves all of them into the store. It keeps the old files in `~/.config/rookery/migrated/`, and removes the copies of a Rookery server's profiles in `~/.local/share/rookery/served/`. Delete the old files once the store has what you need. It also puts Rookery's own SSH key, the token of `rookery serve` and your own plugins into the store, and leaves their files where they are. The setup key, which was in `serve.setup-key`, is in the store alone from then on.
 
 <Callout type="warn">
   Profiles hold Wi-Fi passwords, and the store holds generated passwords and the tailnet's API key. They are in clear text unless the store is encrypted, see [The store](/docs/use/store#encrypt-it). Keep the store and its key file private, and keep files that `rookery host export` writes out of version control.

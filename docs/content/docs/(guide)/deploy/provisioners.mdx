@@ -67,10 +67,6 @@ In the terminal UI, `a` on the **Provisioners** tab adds one. It asks for the na
 
 `rookery provisioner remove NAME` forgets a provisioner, with its settings and its own secrets. Rookery refuses while it holds anything, so remove what it made first. The action `remove` on its page does the same. The action `adopt` makes one you registered the provisioner of a [node](/docs/use/nodes#take-in-a-server-that-exists) that reaches the same server.
 
-### From an earlier version
-
-Rookery before named each provisioner by its type and kept one set of settings for each type. When it starts, Rookery registers each type that has settings or made something under the name `PLUGIN-ID`, such as `incus-vm` for `incus/vm`, with those settings. What it made then names that provisioner. A type that was never used is not registered. The secrets stay where they are, and every provisioner of the type shares them.
-
 ## A provisioner's page
 
 ```bash
@@ -121,7 +117,7 @@ Rookery asks the provisioner how it is each time. The lines under the state are 
 | --- | --- |
 | `ready` | It answered. Its message says how it is |
 | `unreachable` | It did not answer, as when the engine or server is down. The message says why |
-| `unusable` | Rookery does not ask it: a secret or a setting is missing, or the plugin is of an older version |
+| `unusable` | Rookery does not ask it, because a secret or a setting is missing, or the plugin is of an older version |
 
 What Rookery made is listed by kind, each with Rookery's id of the resource and the state the provisioner lists for it. One the provisioner lists with Rookery's labels, but that Rookery has no record of, is marked *Rookery has no record of it*. Rookery does not delete it. [Resources](/docs/deploy/resources) says how to look after each one.
 

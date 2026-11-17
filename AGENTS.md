@@ -1,21 +1,21 @@
 # Working on Rookery
 
-Rookery sets up and looks after agent workstations. These are Ubuntu machines with a desktop, coding agents and the tools around them. This file is for coding agents working in this repository.
+Rookery sets up Ubuntu hosts for coding agents and manages them. It provisions machines through provisioner plugins, and the coding agents come from plugins too. This file is for coding agents working in this repository.
 
 ## Layout
 
 | Path | What it is |
 | --- | --- |
-| `crates/rookery/` | The `rookery` program, for Linux, macOS and Windows. `main.rs` opens the screens, and `src/cli/` is the command line, the same on every system. In `cli/`, `args.rs` is the grammar in clap and `docs.rs` writes the reference page from it. `client.rs` reaches the server. `ask.rs` asks, `follow.rs` shows progress, and `out.rs` prints. On Linux, `src/local/` adds the commands of the server's own machine and `rookery serve` (`src/local/serve/`), behind one `#[cfg(target_os = "linux")]`, and `client_only.rs` stands in for it elsewhere. In `serve/`, `here.rs` is the server in Rookery's own process that the screens and commands use when no other is set, `actions.rs` has the actions of hosts and of the installation, `keys.rs` the key ring's routes, `provisioners.rs` and `resources.rs` those of provisioners and resources |
+| `crates/rookery/` | The `rookery` program, for Linux, macOS and Windows. `main.rs` opens the screens, and `src/cli/` is the command line, the same on every system. In `cli/`, `args.rs` is the grammar in clap and `docs.rs` writes the reference page from it. `client.rs` reaches the server. `ask.rs` asks, `follow.rs` shows progress, and `out.rs` prints. On Linux, `src/local/` adds the commands of the server's own machine and `rookery serve` (`src/local/serve/`), behind one `#[cfg(target_os = "linux")]`. `client_only.rs` takes its place on other systems. In `serve/`, `here.rs` is the server in Rookery's own process. The screens and commands use it when no other is set. Then `actions.rs` has the actions of hosts and of the installation, `keys.rs` the key ring's routes, `provisioners.rs` and `resources.rs` those of provisioners and resources |
 | `crates/rookery-api/` | Types and the operations table shared by every program (`ops.rs` names each operation, its HTTP route and its role) |
-| `crates/rookery-core/` | Hosts, profiles, links to hosts, registries and secrets, and plugins. The store is in `store/`. `kept.rs` and `plugin_state.rs` write files from it, and `import.rs` takes in the files of older versions. `kept_profile.rs` is the profile a host keeps of itself and `rookery host adopt`. `runner.rs` runs every action as a job. `keys/` is the key ring and how Rookery logs in to hosts. `host_type.rs` says what a host of each type can do. `provisioner.rs` and `resource.rs` are the provisioners of plugins and what they made. `simulate.rs` is the world of `rookery serve --simulate`: its hosts, its provisioner `sim/cloud` and its seed |
+| `crates/rookery-core/` | Hosts, profiles, links to hosts, registries and secrets, and plugins. The store is in `store/`. `kept.rs` and `plugin_state.rs` write files from it. `kept_profile.rs` is the profile a host keeps of itself and `rookery host adopt`. `runner.rs` runs every action as a job. `keys/` is the key ring and how Rookery logs in to hosts. `host_type.rs` says what each type of host can do. `provisioner.rs` and `resource.rs` are the provisioners of plugins and what they made. `simulate.rs` is the world of `rookery serve --simulate`: its hosts, its provisioner `sim/cloud` and its seed |
 | `crates/rookery-tui/` | The parts of the screens with no terminal in them. `fields.rs`, `setup.rs` and `flow.rs` describe a host's set-up once, for the screens' tabs and the command line's prompts and flags alike, and `theme.rs` has the colours both draw with |
 | `crates/rookery-pty/` | Terminals for sessions |
 | `crates/rookeryd/`, `crates/box/` | The controller on each host and the agent's own tool there |
-| `crates/rookery-page/` | Rookery's screens in a terminal. They do everything through the API of a server: one elsewhere, a `rookery serve` on its socket, or the one in the process. `net.rs` reaches it, `portal.rs` is its portal, `settings.rs` keeps the server and its token, and `device.rs` is what the program starts them with |
+| `crates/rookery-page/` | Rookery's screens in a terminal. They do everything through the API of a server. That is one elsewhere, a `rookery serve` on its socket, or the one in the process. `net.rs` reaches it, `portal.rs` is its portal, `settings.rs` keeps the server and its token, and `device.rs` is what the program starts them with |
 | `crates/vendor/` | The vendored `tui-input` crate |
 | `provision/` | The installer side of the provisioning source: the role in `ansible/`, first-boot provisioning in `bootstrap/`, the builder of seeds and releases in `bin/rookery.py` and the example profile in `config/`. Rookery names these paths in `layout` in `crates/rookery-core/src/paths.rs` |
-| `plugins/` | The plugins that come with Rookery, each an npm-format package with a `guide.md`. With `provision/` they make the provisioning source, which Rookery carries and unpacks with the same layout |
+| `plugins/` | The plugins that come with Rookery (`backup`, `docker`, `github`, `incus` and `unity`), each an npm-format package with a `guide.md`. With `provision/` they make the provisioning source, which Rookery carries and unpacks with the same layout |
 | `recipes/` | Set-ups that go with Rookery but are not installed by it. Each is a folder with a guide and a script. `recipes/README.md` lists them |
 | `.agents/skills/` | Skills for coding agents that work with Rookery, such as installing it. `.claude/skills` links here |
 | `container/` | The desktop image and Rookery's own image |
@@ -52,7 +52,7 @@ python3 -m unittest discover -s tests -v
 vale --minAlertLevel=warning README.md AGENTS.md docs/content/docs plugins/*/guide.md
 ```
 
-On macOS and Windows Rookery is the client alone. Check that it still builds there with `cargo check -p rookery --target x86_64-pc-windows-msvc` or `--target aarch64-apple-darwin`; the release builds it on those systems.
+On macOS and Windows Rookery is the client alone. Check that it still builds there with `cargo check -p rookery --target x86_64-pc-windows-msvc` or `--target aarch64-apple-darwin`. The release builds it on those systems.
 
 Development and test builds embed quick builds of rookeryd and box (the `host-dev` profile). Only `--release` embeds the release builds. The Python tests skip their YAML checks without PyYAML, so install `provision/requirements.txt` in a virtual environment to run them all.
 
@@ -118,7 +118,7 @@ Give a new thing a host, the installation, a provisioner or a resource can do an
 | A provisioner | `provisioner::actions` in `crates/rookery-core/src/provisioner.rs`: its plugin's actions and Rookery's own |
 | A resource | `resource::actions` in `crates/rookery-core/src/resource.rs`: those of its kind and its plugin's |
 
-An action that changes something runs as a job through `runner.rs`. The screens do everything through the API. What works only with the server's own machine, such as writing a USB drive, is an action that is available to a caller there alone (`Seen::local`: the socket or the process), and says why not to one over the network.
+An action that changes something runs as a job through `runner.rs`. The screens do everything through the API. What works only with the server's own machine, such as writing a USB drive, is an action for a caller there alone (`Seen::local` is the socket or the process). To one over the network it says why not.
 
 ## Versions and releases
 

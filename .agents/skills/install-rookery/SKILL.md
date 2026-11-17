@@ -7,8 +7,9 @@ description: "Use when installing or setting up Rookery. That covers the client,
 
 ## What Rookery is
 
-Rookery sets up Ubuntu 26.04 desktops for coding agents and manages them from a
-terminal. A set-up has these pieces:
+Rookery sets up Ubuntu 26.04 hosts for coding agents and manages them from a
+terminal. It creates machines through provisioner plugins, and the coding
+agents come from plugins too. A set-up has these pieces:
 
 | Piece | What it is |
 | --- | --- |
@@ -133,9 +134,8 @@ server, fetch the recipe of the new version and run
 from the new image with the options of the old one, and starts the old one
 again if the new one fails. On a node, the node's action `upgrade-server` does
 the same. Never update with `docker rm -f rookery`: a new container loses the
-options passed by hand, such as the name `incus-host` the provisioners of
-Rookery 0.5 reach. A server of Rookery 0.5 is updated before its clients and hosts:
-the page Upgrading from 0.5 in the docs has the order.
+options passed by hand, such as the name `incus-host` that a registered
+provisioner may reach it by. Update a server before its clients and hosts.
 
 ## Things that go wrong
 

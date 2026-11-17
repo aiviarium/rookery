@@ -10,7 +10,7 @@ const features: { icon: ReactNode; title: string; text: string; href: string }[]
   {
     icon: <MonitorPlay />,
     title: 'A desktop you can watch',
-    text: 'XFCE on a persistent virtual display, in your browser through noVNC, with T3 Code beside it.',
+    text: 'XFCE on a persistent virtual display, in your browser through noVNC, ready for the agents you install.',
     href: '/docs/use/access',
   },
   {
@@ -28,7 +28,7 @@ const features: { icon: ReactNode; title: string; text: string; href: string }[]
   {
     icon: <Blocks />,
     title: 'Plugins',
-    text: 'Optional software, tasks and services as npm packages: Unity, backups, or your own.',
+    text: 'Coding agents, provisioners and other software as npm packages: Docker, Incus, Unity, backups, or your own.',
     href: '/docs/extend/plugins',
   },
   {
@@ -59,8 +59,8 @@ export default function Home() {
         <img src={asset('/logo.svg')} alt="" width={64} height={64} />
         <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">Machines for coding agents</h1>
         <p className="max-w-2xl text-lg text-fd-muted-foreground">
-          rookery turns a spare laptop, a server or a container into an Ubuntu desktop for coding agents, and looks after
-          it from your terminal: status, sign-ins, updates and secrets.
+          Rookery sets up Ubuntu hosts for coding agents on a spare laptop, a server or a container, creates machines
+          through provisioner plugins, and looks after them from your terminal: status, sign-ins, updates and secrets.
         </p>
         <div className="w-full max-w-2xl text-start">
           <CodeBlock title="Install on Linux x86_64" className="my-0">
@@ -90,7 +90,7 @@ export default function Home() {
           src={asset('/screens/overview.png')}
           width={1036}
           height={886}
-          alt="rookery's terminal UI showing a host's overview with its tasks"
+          alt="Rookery's terminal UI showing a host's overview with its tasks"
           className="w-full rounded-xl border shadow-2xl"
         />
       </section>

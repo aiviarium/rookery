@@ -16,7 +16,7 @@ A command is written `rookery THING ACTION [NAME] [FLAGS]`, such as `rookery hos
 | `rookery ui [HOST]` | Open [the screens](/docs/use/terminal-ui) |
 | `rookery serve` | `rookery server run` |
 
-`rookery` alone prints a short help. A word Rookery doesn't know stops with status 2 and the command it was likely meant to be. A spelling of Rookery 0.5, such as `rookery list` or `rookery provision`, stops in the same way and names the command to use now.
+`rookery` alone prints a short help. A word Rookery doesn't know stops with status 2 and the command it was likely meant to be.
 
 ## Which server
 
@@ -183,7 +183,7 @@ See [Secrets](/docs/use/secrets) and [Registries](/docs/use/registries).
 
 | What | Command |
 | --- | --- |
-| Run it | `rookery serve`, with `--listen ADDRESS:PORT [--expose]` for the network ([rookery serve](/docs/extend/serve)) |
+| Run it | `rookery serve`, with `--listen ADDRESS:PORT [--expose]` for the network ([`rookery serve`](/docs/extend/serve)) |
 | Make a setup key for the first user | `rookery server setup-key` ([A Rookery server](/docs/use/server#with-a-setup-key)) |
 | The store and its key | `rookery server store status`, `encrypt`, `rekey`, `decrypt`, `copy` ([The store](/docs/use/store)) |
 | The API documents | `rookery server api openapi`, `asyncapi`, `operations` ([API](/docs/api#the-documents)) |

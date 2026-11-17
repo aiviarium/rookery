@@ -21,18 +21,18 @@ The line under the title is the host's load, CPU, memory, disk and uptime. Under
 | | Remove | Forgets the host, and with `destroy` destroys the machine its provisioner made ([Removing a host](/docs/use/lifecycle#removing-a-host)) |
 | Power | Reboot | Restarts the host, after asking |
 | | Start, Stop | Through the provisioner that made the host, or as its profile declares ([Starting and stopping](/docs/use/lifecycle#starting-and-stopping)) |
-| Sync | Update | `apt` update and upgrade, then what plugins keep up to date; says whether a reboot is needed |
+| Sync | Update | `apt` update and upgrade, then what plugins keep up to date. It says whether a reboot is needed |
 | | Secrets and registry logins | Sends this host's secrets and logins to the agent account |
-| Access | Terminal | A shell on the host in a panel; Space switches between the agent and the SSH user |
-| | Access links and desktop password | Links for the desktop, T3, Cockpit and SSH, and the virtual desktop's password |
-| | Publish desktop and T3 on the tailnet | `tailscale serve` for both, and the tailnet's trusted certificate for Cockpit |
-| | Use T3 from another device | A one-time pairing link for a phone or another computer |
+| Access | Terminal | A shell on the host in a panel. Space switches between the agent and the SSH user |
+| | Access links and desktop password | Links for the desktop, Cockpit, SSH and T3 Code if installed, and the virtual desktop's password |
+| | Publish desktop and T3 on the tailnet | `tailscale serve` for the desktop and for T3 Code, and the tailnet's trusted certificate for Cockpit |
+| | Use T3 from another device | A one-time pairing link for T3 Code, for a phone or another computer |
 | Sign-In | Show who is signed in | The accounts of the agent that the host's plugins know about |
-| | Sign in to Claude Code, Codex, GitHub | The tool's sign-in in a panel, from its plugin |
+| | Sign in to GitHub, Unity or an agent | The tool's sign-in in a panel, added by its plugin |
 | Set-Up | Change what is installed, accounts or install method | Opens the [set-up tabs](/docs/use/terminal-ui#a-host) |
 | | Apply this configuration | Runs the role again with this profile, such as after changing what is installed |
 
-When the host was applied before a plugin or Rookery itself changed, a **Configuration** group at the top says which, such as `claude 1.0.0 → 1.1.0`, with **Apply this configuration** below it ([Updates](/docs/use/updates#hosts-that-are-behind)).
+When the host was applied before a plugin or Rookery itself changed, a **Configuration** group at the top says which, such as `unity 1.0.0 → 1.1.0`, with **Apply this configuration** below it ([Updates](/docs/use/updates#hosts-that-are-behind)).
 
 Rookery's own actions on the host are listed beside its controller's, such as **Install the controller** for a host that is not a workstation. One the host's type or state rules out is marked `not now`, and the Information panel says why and what to do first. A host with the controller alone has only Status, Update, Reboot and the secrets.
 

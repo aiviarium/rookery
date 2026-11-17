@@ -17,7 +17,7 @@ body:
   - type: textarea
     id: what
     attributes:
-      label: What rookery should do with it
+      label: What Rookery should do with it
       description: What it should install, set up or sign in to, and what you do by hand today.
     validations:
       required: true
@@ -27,7 +27,7 @@ body:
       label: Plugin
       options:
         - A new plugin
-        - More from a plugin that comes with rookery
+        - More from a plugin that comes with Rookery
         - Not sure
   - type: checkboxes
     id: work

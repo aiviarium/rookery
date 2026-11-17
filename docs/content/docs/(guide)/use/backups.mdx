@@ -74,7 +74,7 @@ A restore writes over files in place. Files that are not in the snapshot stay as
 ## What is in a snapshot
 
 - The agent's home and everything under `/srv/agent`
-- The host's own description: `/etc/rookery`, `/etc/rookery`, `/var/lib/rookery`
+- The host's own description: `/etc/rookery` and `/var/lib/rookery`
 
 Left out, because they can be made again:
 
@@ -93,7 +93,7 @@ The full list is `/etc/rookery-backup.exclude` on the host. A plugin can leave o
 | `rookery_backup_keep_daily` | `7` |
 | `rookery_backup_keep_weekly` | `4` |
 | `rookery_backup_keep_monthly` | `6` |
-| `rookery_backup_system_paths` | `/etc/rookery`, `/etc/rookery`, `/var/lib/rookery` |
+| `rookery_backup_system_paths` | `/etc/rookery` and `/var/lib/rookery` |
 | `rookery_backup_exclude` | the list above |
 
 The T3 Code database needs an application-consistent copy. Stop the service or snapshot while it is idle before relying on a restore of it.
@@ -110,4 +110,4 @@ This page is about the agent's data on a host. On the machine that runs Rookery,
 
 With these, an installation can be [restored on another machine](/docs/use/store#restore-on-a-new-machine). `rookery host export HOST` prints one host's profile, for a copy of that alone.
 
-Copy a SQLite store with `sqlite3 rookery.db ".backup copy.db"`, which takes a consistent copy while Rookery runs.
+Copy a SQLite store with `sqlite3 rookery.db ".backup copy.db"`, which takes a consistent copy while Rookery is running.

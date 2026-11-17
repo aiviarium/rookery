@@ -4,7 +4,7 @@ description: The command on every host for the agent's side of Rookery, from des
 icon: Box
 ---
 
-`box` is installed on every host as `/usr/local/bin/box`. It talks to rookeryd at agent level and works from any shell of the agent, including those of T3 Code and the coding agents.
+`box` is installed on every host as `/usr/local/bin/box`. It talks to rookeryd at agent level and works from any shell of the agent, including those of the coding agents and of T3 Code.
 
 ```text
 box desktop screenshot [--output PATH|-] | click X Y [BUTTON] | type TEXT | key CHORD | scroll up|down [STEPS] | clipboard | pause | resume
@@ -41,7 +41,7 @@ Input is serialized per call, and `pause` blocks cooperating tools until `resume
 
 ## Desktop tools for other clients
 
-`box mcp` offers the same tools as a stdio MCP server: screenshot, click, typing, key chords, scroll and clipboard read. The Claude Code and Codex plugins register it for the agent when they are installed. For another client, merge `/etc/rookery/mcp.json` into its configuration, or register it as Claude Code would:
+`box mcp` offers the same tools as a stdio MCP server: screenshot, click, typing, key chords, scroll and clipboard read. The plugins that install a coding agent register it for the agent when they are installed. For another client, merge `/etc/rookery/mcp.json` into its configuration, or register it as Claude Code would:
 
 ```bash title="As the agent"
 claude mcp add --transport stdio --scope user desktop -- /usr/local/bin/box mcp

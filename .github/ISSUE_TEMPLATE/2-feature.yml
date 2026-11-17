@@ -1,12 +1,12 @@
 name: Feature
-description: Something rookery can't do at all yet. This comes before the pull request.
+description: Something Rookery can't do at all yet. This comes before the pull request.
 type: Feature
 labels: [needs triage]
 body:
   - type: markdown
     attributes:
       value: |
-        Read [CONTRIBUTING.md](https://github.com/aiviarium/rookery/blob/main/.github/CONTRIBUTING.md) first, in particular what rookery is and isn't. Keep one issue to one change. If rookery does this already but could do it better, use **Improvement**. For an agent, tool or service, use **Integration**.
+        Read [CONTRIBUTING.md](https://github.com/aiviarium/rookery/blob/main/.github/CONTRIBUTING.md) first, in particular what Rookery is and isn't. Keep one issue to one change. If rookery does this already but could do it better, use **Improvement**. For an agent, tool or service, use **Integration**.
   - type: textarea
     id: problem
     attributes:
@@ -18,7 +18,7 @@ body:
     id: change
     attributes:
       label: What you propose
-      description: What rookery would do that it can't do now.
+      description: What Rookery would do that it can't do now.
     validations:
       required: true
   - type: textarea
@@ -34,7 +34,7 @@ body:
       options:
         - Not sure
         - "Yes"
-        - No, it needs a change to rookery itself
+        - No, it needs a change to Rookery itself
   - type: dropdown
     id: area
     attributes:
@@ -48,7 +48,7 @@ body:
         - Sign-ins, secrets, keys or registries
         - Making hosts or resources on a node
         - Using an agent or tool on a host
-        - Running a rookery server for others
+        - Running a Rookery server for others
         - Writing a plugin or using the API
   - type: checkboxes
     id: work

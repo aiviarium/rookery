@@ -1,12 +1,12 @@
 name: Improvement
-description: Something rookery does already, but that could be easier, faster or clearer
+description: Something Rookery does already, but that could be easier, faster or clearer
 type: Improvement
 labels: [needs triage]
 body:
   - type: textarea
     id: now
     attributes:
-      label: What rookery does now
+      label: What Rookery does now
       description: What you did and what got in the way, in your own words.
     validations:
       required: true
@@ -30,7 +30,7 @@ body:
         - Sign-ins, secrets, keys or registries
         - Making hosts or resources on a node
         - Using an agent or tool on a host
-        - Running a rookery server for others
+        - Running a Rookery server for others
         - Writing a plugin or using the API
   - type: checkboxes
     id: work

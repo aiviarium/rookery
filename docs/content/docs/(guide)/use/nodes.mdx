@@ -28,7 +28,7 @@ rookery host add big 192.0.2.20 --user root --auth ssh --type node \
 rookery apply big
 ```
 
-`--feature` names the features it gets, which land in the profile's `ansible_vars` as `rookery_plugin_features`. `rookery host set big feature.incus/server=off` changes them later. `rookery host create big --type node` asks for the same at a terminal: the address, the login and the features, without a desktop or accounts. The screens show the same for a node: the type `node` on the Install tab, and only the features of a node on the Features tab.
+`--feature` names the features it gets, which go into the profile's `ansible_vars` as `rookery_plugin_features`. `rookery host set big feature.incus/server=off` changes them later. `rookery host create big --type node` asks for the address, the login and the features at a terminal, with no desktop or accounts. The screens show the type `node` on the Install tab and the features of a node on the Features tab.
 
 The first apply installs Rookery's key for the SSH user. A node added with `--auth password` is logged in to with Rookery's key afterwards, and Rookery forgets the password. `--auth ssh` stays as it is.
 
@@ -99,13 +99,13 @@ An apply with the same features doesn't change them. A feature taken out of the 
 
 ## Take in a server that exists
 
-A server that the `incus-host` recipe of Rookery 0.5 set up, or that has Incus or Docker installed by hand, is added and applied as a node like a new one. The features take what is there:
+A server that has Incus or Docker installed already is added and applied as a node like a new one. The features take what is there:
 
 - Incus with a storage pool keeps its pools, networks, profiles and trusted clients. Only the API address, when it has none, and Rookery's certificate are added.
 - An installed Docker engine stays, with its containers and volumes, also one from Docker's own packages.
 - A firewall rule made by hand that lets SSH in from some addresses only stays, and the node does not open SSH to every address. The address the apply comes from is let in too. Delete the rule by hand to open SSH wider.
 - Root keeps a login with keys it had, such as the one the Rookery server in its container uses. The node never opens root to passwords.
-- A provisioner registered by hand for the node's server becomes the node's instead of a second one, with its settings as they were. That happens only when Rookery itself can tell: the server it names is on the node's address, the same name or a name that Rookery's server finds at the same address. The recipe's `https://incus-host:8444` passes when the server reaches the node as `node`, as both resolve to the gateway of the server's container.
+- A provisioner registered by hand for the node's server becomes the node's instead of a second one, with its settings as they were. That happens only when Rookery itself can tell: the server it names is on the node's address, the same name or a name that Rookery's server finds at the same address. 
 - Rookery leaves a provisioner as it is when only the node says it's the same, and also one of another node. The node's word may be the provisioner's certificate, which is public. It may also be the provisioner's server among the aliases. The apply says so in a line and doesn't register a second one. If you know it reaches the node, make it the node's and apply again:
 
   ```bash
@@ -185,7 +185,7 @@ rookery run big upgrade-server version=0.7.0
 
 It still refuses an older version than the one running.
 
-The action needs the machine to be a node, which needs a server of this Rookery. So the recipe makes the first update of a server of Rookery 0.5, as [Upgrading from 0.5](/docs/use/upgrading) shows.
+The action needs the machine to be a node. Update a server that is not a node by running the `rookery-server` recipe again with `rookery_server_update=true`.
 
 ## What Rookery does not do
 

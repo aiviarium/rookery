@@ -1,10 +1,10 @@
 ---
 title: Plugins
-description: Optional software, actions and guides for hosts, switched on per host.
+description: Coding agents, provisioners, software and actions for hosts, installed as plugins and switched on per host.
 icon: Blocks
 ---
 
-A plugin adds optional things to a host. Each thing is a **feature**: packages, set-up steps, a guide for the agents working there, and actions on the host's overview. A plugin can have several features, each switched on by itself. Coding agents and the programs around them come as plugins too, [installed](#installing-a-plugin) like any other.
+A plugin adds things to a host. Each thing is a **feature**: packages, set-up steps, a guide for the agents working there, and actions on the host's overview. A plugin can have several features, each switched on by itself. Coding agents come as plugins too, [installed](#installing-a-plugin) like any other. A plugin can also bring a [provisioner](/docs/deploy/provisioners) that creates machines.
 
 ## Plugins that come with Rookery
 
@@ -13,8 +13,10 @@ A plugin adds optional things to a host. Each thing is a **feature**: packages, 
 | `github` | `github/cli` | `gh`, its sign-in, and git set up to use its login |
 | `unity` | `unity/cli`, `unity/editor` | The Unity CLI and an editor, with sign-in, license activation and status |
 | `backup` | `backup/restic` | Nightly restic snapshots ([Backups](/docs/use/backups)) |
+| `docker` | `docker/engine` | A Docker engine on a node, and provisioners for containers and Compose projects ([Provisioners](/docs/deploy/provisioners)) |
+| `incus` | `incus/server` | An Incus server on a node, and provisioners for VMs and containers ([Nodes](/docs/use/nodes)) |
 
-A host gets the features listed in `rookery_plugin_features`. Unless that is set, it lists `github/cli`. Older profiles with `rookery_install_agents`, `rookery_agent_*` or `rookery_install_t3` are turned into that list when Rookery opens them.
+A host gets the features listed in `rookery_plugin_features`. Unless that is set, it lists `github/cli`.
 
 ## Switching features on
 
@@ -35,7 +37,7 @@ and reaches a running host with **Apply this configuration**.
 
 The **Plugins** tab of the home screen (`6`) lists both with their features. Enter on **+ Add plugin** installs one from a package name, a `.tgz` or a folder, and `x` twice removes one of yours.
 
-<Screen name="home-plugins" alt="The Plugins tab listing the shipped plugins with their features" />
+<Screen name="home-plugins" alt="The Plugins tab listing the bundled plugins with their features" />
 
 From the command line:
 

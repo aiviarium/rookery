@@ -10,7 +10,7 @@ CI runs these on every push, without network access to hosts:
 
 | Check | Covers |
 | --- | --- |
-| `cargo test --locked` | The terminal UI's fields, profile edits, checks before Run, SSH discovery and rendered screens. The APIs of rookeryd and rookery serve against the committed documents. Links to a local rookeryd |
+| `cargo test --locked` | The terminal UI's fields, profile edits, checks before Run, SSH discovery and rendered screens. The APIs of rookeryd and `rookery serve` against the committed documents. Links to a local rookeryd |
 | `python3 -m unittest discover -s tests` | Disk selection and its refusals, profile validation, release packaging, seed generation and GRUB patching. With Ansible installed, also the rendered templates for every profile |
 | `bash -n` | The install script, bootstrap, container, role and plugin scripts |
 | `ansible-playbook --syntax-check` | The role |
@@ -37,7 +37,7 @@ After the first boot, Rookery reaches the host over SSH and checks:
 - `rookery rollout --all --reboot` refuses while a session runs, then reboots the host, waits for it and checks it
 - the end-to-end tests of commands, rookeryd's API and secrets
 
-The guest runs on QEMU's user network with a package cache and a release server on the container's side. The cache is in `build/boot/cache` and makes a second run a lot quicker. The profile leaves out the coding agents, toolchains, Docker and Cockpit, and keeps the desktop. The programs a host can do without, such as the office and graphics programs, are left out too unless `ROOKERY_CI_BOOT_EXTRAS=1` is set. On GitHub the Boot workflow runs either one when started by hand. Started by hand or by its weekly schedule, it installs those programs as well. Logs, timings and the disk and memory used are in `build/boot/KIND/`.
+The guest runs on QEMU's user network with a package cache and a release server on the container's side. The cache is in `build/boot/cache` and makes a second run a lot quicker. The profile keeps the desktop and leaves out toolchains, Docker and Cockpit. It also leaves out the office and graphics programs that a host can do without, when `ROOKERY_CI_BOOT_EXTRAS=1` is not set. On GitHub the Boot workflow runs either one when started by hand. Started by hand or by its weekly schedule, it installs those programs as well. Logs, timings and the disk and memory used are in `build/boot/KIND/`.
 
 ## Checking a build by hand
 
@@ -74,7 +74,6 @@ Package availability and external installers change over time. If a dependency f
 - [cloud-init NoCloud datasource](https://docs.cloud-init.io/en/latest/reference/datasources/nocloud.html)
 - [T3 v0.1.8 release](https://github.com/pingdotgg/t3code/releases/tag/v0.1.8), Linux x64 archive SHA-256 `b9c49dc00c23fbbc5961bdaff2d88e556d96c8dbd638c4501e2937c70650a9e5`
 - [T3 installer at the release commit](https://github.com/pingdotgg/t3code/blob/bf469bb19669671d0df2efda74ed73867a7137c0/scripts/install.sh) and [its background services](https://github.com/pingdotgg/t3code/blob/bf469bb19669671d0df2efda74ed73867a7137c0/docs/user/background-service.md)
-- [Claude Code installation](https://code.claude.com/docs/en/setup) and [v2.1.322](https://github.com/anthropics/claude-code/releases/tag/v2.1.322)
 - [Playwright for Python v1.65.0](https://github.com/microsoft/playwright-python/releases/tag/v1.65.0)
 - [ansible-core 2.21.6](https://pypi.org/project/ansible-core/2.21.6/) and [Ansible's Python support matrix](https://docs.ansible.com/projects/ansible/latest/reference_appendices/release_and_maintenance.html)
 - [Mozilla's native Firefox packages](https://support.mozilla.org/en-US/kb/install-firefox-linux)

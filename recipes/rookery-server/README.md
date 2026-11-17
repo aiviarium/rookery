@@ -156,8 +156,9 @@ and starts again if the new one does not come up. A container with an option
 the helper cannot carry over, such as `--privileged`, is left as it is, and
 the run says which option it was.
 
-On a machine that runs Incus, the container keeps the name `incus-host`, at
-which the provisioners of Rookery 0.5 reach it. A run without
+On a machine that already runs Incus, the container keeps the name
+`incus-host`, so that a provisioner registered with that address still reaches
+it. A run without
 `rookery_server_update` leaves the image as it is.
 
 Pin a version with its tag:

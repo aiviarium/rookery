@@ -444,7 +444,7 @@ Rookery checks the value of a resource before it creates the machine. It goes by
 | `memory`, `mem`, `ram`, `disk`, `size`, `storage` or `swap` | A size with its unit, such as `8GiB`, `512MiB` or `4g` |
 | anything else | Not checked |
 
-An argument that is not required may be left empty. Rookery lists a bad value as a problem of the tab that shows the argument. The command line does not check resources. The provisioner checks what it is given in any case.
+An argument that is not required may be left empty. Rookery lists a bad value as a problem of the tab that shows the argument, but the command line does not check resources. The provisioner checks what it is given in any case.
 
 ### How it is run
 
@@ -558,7 +558,7 @@ A kind with `exec` among its verbs gets Rookery's action `exec` ([Run a command 
 }
 ```
 
-A `status` without an `id` that fails is shown as `unreachable`, with the reason. Answer it quickly: Rookery asks it each time the provisioner's page opens.
+A `status` without an `id` that fails is shown as `unreachable`, with the reason. Answer it quickly, because Rookery asks it each time the provisioner's page opens.
 
 A `seed` provisioner also receives the cloud seed with `create`:
 

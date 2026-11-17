@@ -9,7 +9,7 @@ Every host has two accounts, set under **Operator Account** and **Agent Account*
 | Account | Default name | For |
 | --- | --- | --- |
 | Operator | `ops` | You: SSH, Cockpit, the console and the laptop's login |
-| Agent | `agent` | The coding agents, T3 Code and the virtual desktop; home `/home/agent` |
+| Agent | `agent` | The coding agents that plugins install, T3 Code if installed, and the virtual desktop. Its home is `/home/agent` |
 
 Separate accounts keep sessions apart, but they do not isolate data from an agent that can become root.
 
@@ -19,7 +19,7 @@ The operator is the account Rookery manages the host with. On every host it:
 
 - Uses sudo without a password. The role writes `/etc/sudoers.d/99-rookery-operator`.
 - Logs in over SSH with keys only. `/etc/ssh/sshd_config.d/00-rookery-operator.conf` holds a `Match User` block that allows only key logins for it, whatever **SSH hardening** says.
-- Takes the SSH key of [each Rookery](/docs/reference/profile#the-key-of-rookery-itself) that installs or applies the host. Each of these keys has a block of its own in the operator's `~/.ssh/authorized_keys`, and no later apply removes it. An apply stops with an error before it changes SSH if that key is not there.
+- Takes the SSH key of [each installation](/docs/reference/profile#the-key-of-rookery-itself) that installs or applies the host. Each of these keys has a block of its own in the operator's `~/.ssh/authorized_keys`, and no later apply removes it. An apply stops with an error before it changes SSH if that key is not there.
 
 None of these can be switched off, on laptops either.
 
@@ -44,8 +44,6 @@ An existing machine may not have the operator yet. Rookery then applies as an ac
 
 When the SSH user is the operator, Rookery writes what the apply made true once it has worked: `access.sudo` becomes `none`, a login with `password` becomes one with Rookery's key, and a kept `sudo/HOST` or `ssh/HOST` is deleted. The operator's sudo doesn't prompt from then on, and its SSH takes keys only. Any other SSH user keeps its setting.
 
-A profile from before these rules may still say `"operator_passwordless_sudo": false` or `"rookery_ssh_key": false`. Rookery reads it as usual and ignores both. The next apply gives the operator sudo without a password and the key of Rookery.
-
 ## Agent privileges
 
 `agent_privileges` in the profile, **Agent privileges** on the Settings tab:
@@ -62,7 +60,7 @@ Under `limited` and `none` the agent cannot change SSH, Tailscale, the firewall,
   What a package installs runs as root, so an agent that may install packages can become root if it tries. An agent with `full` can administer the whole host. Use a dedicated machine or VM either way.
 </Callout>
 
-A profile without the setting keeps what it had before the setting existed: `full`, or sudo with the agent's password when `agent_passwordless_sudo` is off.
+A profile without the setting has `full`, or sudo with the agent's password when `agent_passwordless_sudo` is off.
 
 ## Logging in as the agent
 
@@ -142,7 +140,7 @@ Where the first key comes from depends on where the server runs:
 | With no server set, or with a `rookery serve` of your own on this machine | The key `~/.ssh/known_hosts` of the server's user has for the host's address, when it has one. Otherwise the key the host shows at the first login |
 | With a server elsewhere | The key the host shows the server at the first login. Nothing of your own files is sent to the server. Compare the fingerprint it prints, or `rookery host verify studio`, with the host's own |
 
-`rookery host verify studio` shows the recorded key. When Rookery itself creates a host's machine again, it forgets the old key and records the new one without asking. When a profile of Rookery 0.4 is converted, a host keeps the key your `~/.ssh/known_hosts` has for its address.
+`rookery host verify studio` shows the recorded key. When Rookery itself creates a host's machine again, it forgets the old key and records the new one without asking.
 
 ### Rekeying
 

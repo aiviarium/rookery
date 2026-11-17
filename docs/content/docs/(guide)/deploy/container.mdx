@@ -4,7 +4,7 @@ description: Run the desktop as a Docker container to try Rookery without a spar
 icon: Container
 ---
 
-The container image is the desktop, the agents and T3 Code built with the same role, for trying things out. It is not a full host: there is no systemd, and browsers cannot start under Docker's default seccomp profile.
+The container image is the desktop and its tools built with the same role, for trying things out. Plugins add the coding agents and T3 Code to the build ([Plugins](/docs/extend/plugins#other-install-methods)). It is not a full host: there is no systemd, and browsers cannot start under Docker's default seccomp profile.
 
 ## Run it
 
@@ -19,7 +19,7 @@ docker compose -f container/compose.yml logs -f
 | Open | For |
 | --- | --- |
 | `http://127.0.0.1:16080/vnc.html` | The desktop |
-| `http://127.0.0.1:13773/` | T3 Code |
+| `http://127.0.0.1:13773/` | T3 Code, when a plugin installed it |
 
 The desktop's password is generated when the container starts and is not part of the image:
 

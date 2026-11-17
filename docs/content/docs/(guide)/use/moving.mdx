@@ -1,13 +1,13 @@
 ---
 title: Moving a host
-description: Take a host over in another Rookery, or get a lost profile back, from the copy of its profile that the host keeps.
+description: Take a host over in another Rookery installation, or get a lost profile back, from the copy of its profile that the host keeps.
 icon: ArrowRightLeft
 ---
 
-Every apply and every first boot from a seed leaves the host's profile on the host, at `/etc/rookery/profile.json`. Only root can read it. A Rookery that does not have the profile can take the host over from it with `rookery host adopt`. This helps when:
+Every apply and every first boot from a seed leaves the host's profile on the host, at `/etc/rookery/profile.json`. Only root can read it. A Rookery installation that does not have the profile can take the host over from it with `rookery host adopt`. This helps when:
 
 - you move to another Rookery installation
-- a Rookery lost its profiles
+- an installation lost its profiles
 - a broken set-up needs repair, even when rookeryd on the host does not answer
 
 ## The kept profile
@@ -16,15 +16,15 @@ The file contains the profile as Rookery stores it, with a few fields left out:
 
 | Field | Kept | Why |
 | --- | --- | --- |
-| `tailscale_auth_key`, `tailscale_auto_key`, `tailscale_login_server` | No | Fields of older rookeries. Rookery makes a key when the host has to join the tailnet again, at the control server of its own settings |
-| `access` | No | `rookery host adopt` sets the address, user and port from how it reached the host. A key name means a key of the old Rookery's key ring, and a link command is a program of the old Rookery's machine |
-| `builder.served` | No | A server of the old Rookery means nothing to another one |
+| Tailscale keys and the login server | No | Rookery makes a key when the host has to join the tailnet again, at the control server of its own settings |
+| `access` | No | `rookery host adopt` sets the address, user and port from how it reached the host. A key name means a key of the old installation's key ring, and a link command is a program of the old installation's machine |
+| `builder.served` | No | A server of the old installation means nothing to another one |
 | `secrets`, `registries` | Names only | Their values stay in each Rookery's own store and are never in a profile |
 | `operator_password_hash`, `agent_password_hash` | Yes | They are in `/etc/shadow` already. Without its hash, an apply would lock the agent's password |
 | `wifi` | Yes | The USB installer wrote the same network into the host's network settings |
 | The machine a provisioner made | Yes | Its record, so it is still a [resource](/docs/deploy/resources) of the host. Its token is a label on the machine and does not grant access |
 
-The file also says its format, the version of the Rookery that wrote it, the time, and the host's name there. A file of Rookery 0.4.1 has format 1 and the profile layout of then. Format 2, of Rookery 0.5, has the [older names](/docs/reference/profile#older-profiles) `level` and `profile`. `rookery host adopt` converts both, and writes format 3. A Rookery that knows only format 2 refuses a file of format 3 and asks to be updated.
+The file also says its format, the version of the Rookery that wrote it, the time, and the host's name there. A Rookery that does not know the format refuses the file and asks to be updated.
 
 rookeryd serves the same file to an administrator as `GET /v1/applied/profile`. Through a Rookery server that is `GET /v1/hosts/NAME/controller/applied/profile`.
 
@@ -49,11 +49,11 @@ With a [Rookery server](/docs/use/server), `rookery host adopt` runs on the serv
 
 ## Getting in
 
-`rookery host adopt` logs in with this Rookery's own key, your SSH agent and your usual keys. A new Rookery's key is not on the host yet, so use one of these two ways.
+`rookery host adopt` logs in with this Rookery's own key, your SSH agent and your usual keys. The new installation's key is not on the host yet, so use one of these two ways.
 
-### Bring the old Rookery's key
+### Bring the old installation's key
 
-Give `rookery host adopt` the old Rookery's private key with `--key FILE`. A Rookery since 0.5 keeps its key in its store, and writes it to `keys/rookery` in its data directory, `~/.local/share/rookery` by default, when it logs in to a host. A Rookery of 0.4 kept it as `id_ed25519` there. Copy it through a pipe, so the key is never part of a command line:
+Give `rookery host adopt` the old installation's private key with `--key FILE`. Rookery keeps its key in its store, and writes it to `keys/rookery` in its data directory, `~/.local/share/rookery` by default, when it logs in to a host. Copy it through a pipe, so the key is never part of a command line:
 
 ```bash
 umask 077
@@ -67,9 +67,9 @@ rm old-rookery.key
 
 `rookery key trust` logs in once with the old key and gives the operator this Rookery's key. The first apply then logs in without the old key. The key file is never saved.
 
-### Authorize the new Rookery's key
+### Authorize the new installation's key
 
-Print the new Rookery's public key:
+Print the new installation's public key:
 
 ```bash
 rookery key show
@@ -85,23 +85,23 @@ echo 'ssh-ed25519 AAAA… rookery@new-machine' >> ~/.ssh/authorized_keys
 
 ## The keys after the first apply
 
-In the operator's `authorized_keys`, the keys in the profile have one block. Each Rookery that applies the host has a block of its own, named `ROOKERY` and an ID. No later apply removes a Rookery's block. So after the first apply of the new Rookery:
+In the operator's `authorized_keys`, the keys in the profile have one block. Each installation that applies the host has a block of its own, named `ROOKERY` and an ID. No later apply removes an installation's block. So after the first apply of the new installation:
 
-- the new Rookery's key is in its own block
-- the old Rookery's key is still in its block, and the old Rookery still has access
+- the new installation's key is in its own block
+- the old installation's key is still in its block, and the old installation still has access
 - lines outside the blocks stay, such as a key you added by hand
 
-The new Rookery then logs in with its own key. You can remove the line you added.
+The new installation then logs in with its own key. You can remove the line you added.
 
-To take the old Rookery's access away, delete its block on the host as the operator. ID is the hex after `# BEGIN ROOKERY` on the line above the old Rookery's key:
+To take the old installation's access away, delete its block on the host as the operator. ID is the hex after `# BEGIN ROOKERY` on the line above the old installation's key:
 
 ```bash
 sed -i '/^# BEGIN ROOKERY ID$/,/^# END ROOKERY ID$/d' ~/.ssh/authorized_keys
 ```
 
-## A Rookery that still has the host
+## An installation that still has the host
 
-There is nothing to do. Each apply writes the file again when the profile changed. The host keeps the profile of its last apply. A host set up by an older Rookery keeps nothing until the next apply.
+There is nothing to do. Each apply writes the file again when the profile changed. The host keeps the profile of its last apply.
 
 ## Renaming a host
 

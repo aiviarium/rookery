@@ -4,7 +4,7 @@ description: Where Rookery keeps its state, how to put it in PostgreSQL and encr
 icon: Database
 ---
 
-Rookery keeps its state in one store: the hosts, their passwords, secrets, Rookery's own SSH key and the rest. An installation can be restored on another machine from the store and its key file alone. By default the store is the SQLite file `rookery.db` in Rookery's data directory. A [Rookery server](/docs/use/server) can keep it in a PostgreSQL database instead.
+Rookery keeps its state in one store. It holds the hosts, their passwords, secrets, Rookery's own SSH key and the rest. An installation can be restored on another machine from the store and its key file alone. By default the store is the SQLite file `rookery.db` in Rookery's data directory. A [Rookery server](/docs/use/server) can keep it in a PostgreSQL database instead.
 
 ## Choose the store
 
@@ -52,7 +52,7 @@ Stop `rookery serve` before you run them, as it would go on sealing with the key
 | Your own plugins, as npm's `package.json` and lock file, uploaded `.tgz` files and folders you copied in | Builds and installer ISOs | |
 | The inbox, the jobs and the key-value store of `rookery serve` | | |
 
-Rookery still uses the SSH keys and the token as files, as ssh, Ansible and people read them there. When the store has them, Rookery writes the files from it, each key to `keys/NAME` of the data directory when ssh needs it. A file that differs is moved aside to `keys/NAME.replaced` or `serve.token.replaced`, and Rookery says so. Rookery 0.4 kept its key in `id_ed25519` of the data directory. Rookery takes that file into the store once as the key `rookery`. The file stays where it is.
+Rookery still uses the SSH keys and the token as files, as ssh, Ansible and people read them there. When the store has them, Rookery writes the files from it, each key to `keys/NAME` of the data directory when ssh needs it. A file that differs is moved aside to `keys/NAME.replaced` or `serve.token.replaced`, and Rookery says so.
 
 On a machine whose plugin directory lacks plugins of the store, Rookery writes them back and runs `npm ci` or `npm install` there. That happens when `rookery serve` starts, and before the terminal UI or a command that uses plugins. A plugin installed from a folder or file of another machine is left out, and Rookery names it. Without npm, Rookery says so and goes on without the plugins npm installs.
 

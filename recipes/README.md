@@ -13,8 +13,7 @@ with `ansible-core`, and share the tasks in `shared/`.
 
 A server that hosts Incus and Docker machines is not a recipe: Rookery applies
 it as a [node](../docs/content/docs/%28guide%29/use/nodes.mdx), whose features
-install and update the engines and register their provisioners. A server the
-earlier `incus-host` recipe set up is taken in as a node in the same way.
+install and update the engines and register their provisioners.
 
 The recipes that set up a Rookery server end with a setup key. With it the
 first user collects the server's token, with `rookery login URL`, so the token never has to be read out or passed on.

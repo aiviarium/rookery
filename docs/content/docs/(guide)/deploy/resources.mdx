@@ -195,10 +195,6 @@ Each change is a job whose subject is `resource:ID`, and it holds the resource's
 
 A caller of the API can give a token of its own, as `token` in a request. The same token again answers with the job the first call started, and nothing runs a second time.
 
-### From an older Rookery
-
-An older Rookery kept the record of a host's machine beside its profile. The first run of this Rookery makes each of those a resource of the kind `machine`, with its provisioner's id and token. It says how many it converted, and does it once. `rookery resource list` lists them afterwards.
-
 ## In the terminal UI
 
 The **Provisioners** tab of the home screen (`2`) lists the provisioners. Enter opens a provisioner's page, which lists what it holds, grouped by kind:

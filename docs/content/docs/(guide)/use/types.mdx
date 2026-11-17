@@ -11,11 +11,9 @@ Rookery does not have to set a machine up to work with it. A host is anything Ro
 | `ssh` | Nothing of Rookery | Logs in over SSH for a terminal, commands and the inventory |
 | `managed` | rookeryd and box | Also sessions, the channel, files, actions and secrets |
 | `node` | A server's part of the profile: rookeryd, a firewall and plugin features | Also applying, roll-outs and plugin features, such as the engines that host machines ([Nodes](/docs/use/nodes)) |
-| `workstation` | The whole profile | Also the desktop, the agents and the accounts, cloud seeds and the USB installer |
+| `workstation` | The whole profile | Also the desktop, the accounts and what plugins install, such as agents, cloud seeds and the USB installer |
 
-The type is part of the host's [profile](/docs/reference/profile#type), as `type`. A profile that doesn't say is a workstation, so older profiles mean what they always did. What the host has right now is asked of it. The overview and the Hosts tab show both when they differ, such as for a controller installed by hand.
-
-A profile of Rookery 0.5 or earlier calls the type `level`, with the values `reachable`, `controller` and `workstation`. Rookery reads it with the names of now ([Older profiles](/docs/reference/profile#older-profiles)).
+The type is part of the host's [profile](/docs/reference/profile#type), as `type`. A profile that doesn't say is a workstation. What the host has right now is asked of it. The overview and the Hosts tab show both when they differ, such as for a controller installed by hand.
 
 ## Capabilities
 
@@ -96,7 +94,7 @@ The same is the host's action **Install the controller** on its overview, and ov
 Rookery also refuses it on a host that is a workstation or a node whatever its profile here says. It asks the host's controller first. The role checks again on the host before it changes anything. It stops when the host's record says workstation or node. It also stops when rookeryd there serves an account other than the SSH user. Installing the controller alone on such a host would take the workstation's controller apart. The overview and `rookery action list` say when a host is more than its profile, and how to adopt it.
 
 <Callout type="warn" title="A host without systemd">
-  On a host with systemd the controller is a service that starts at boot. Without systemd, as in most containers, the controller is installed but nothing on the host starts it. Rookery says so and waits a minute for it to answer. The install fails when it doesn't. Something on the host then has to run `/usr/local/bin/rookeryd`, as the init of a container can.
+  On a host with systemd the controller is a service that starts at boot. Without systemd, as in most containers, the controller is installed but nothing on the host starts it. Rookery says so and waits a minute for it to answer, and the install fails when it doesn't. Something on the host then has to run `/usr/local/bin/rookeryd`, as the init of a container can.
 </Callout>
 
 ## Changing the type

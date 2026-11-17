@@ -4,8 +4,8 @@ import { Provider } from '@/components/provider';
 import './global.css';
 
 export const metadata: Metadata = {
-  title: { default: 'rookery', template: '%s · rookery' },
-  description: 'Set up and look after agent machines.',
+  title: { default: 'Rookery', template: '%s · Rookery' },
+  description: 'Set up and look after hosts for coding agents.',
   icons: { icon: '/logo.svg' },
 };
 

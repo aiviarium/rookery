@@ -1,5 +1,5 @@
 name: Bug
-description: Something rookery does wrong, or something that used to work and doesn't any more
+description: Something Rookery does wrong, or something that used to work and doesn't any more
 type: Bug
 labels: [needs triage]
 body:
@@ -35,7 +35,7 @@ body:
         - Sign-ins, secrets, keys or registries
         - Making hosts or resources on a node
         - Using an agent or tool on a host
-        - Running a rookery server for others
+        - Running a Rookery server for others
         - Writing a plugin or using the API
   - type: dropdown
     id: surface
@@ -49,7 +49,7 @@ body:
   - type: dropdown
     id: client
     attributes:
-      label: Where rookery runs
+      label: Where Rookery runs
       options:
         - Linux
         - macOS

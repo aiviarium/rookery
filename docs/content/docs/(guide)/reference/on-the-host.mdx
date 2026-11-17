@@ -17,8 +17,6 @@ icon: FolderTree
     <File name="expected-commands" />
     <File name="mcp.json" />
     <File name="environment" />
-  </Folder>
-  <Folder name="/etc/rookery" defaultOpen>
     <File name="rookeryd.json" />
     <File name="actions.json" />
     <File name="services.json" />
@@ -78,13 +76,13 @@ icon: FolderTree
 | `rookeryd.service` | rookeryd, as root |
 | `rookery-svc-PLUGIN-NAME.service` | One per [plugin service](/docs/extend/services) |
 | `rookery-provision.service` | The first-boot provisioning of a USB or cloud install, with a retry timer |
-| The agent's user services | The virtual desktop, noVNC and T3 Code |
+| The agent's user services | The virtual desktop, noVNC and, when a plugin installed it, T3 Code |
 
 ## What agents read
 
 `/etc/rookery/AGENT.md` is generated on each host from what was installed there. It lists the tool categories, the coding agents and the CPU or GPU rendering, with one line per plugin feature. It stays short and points to `/etc/rookery/guides/` for the rest.
 
-The agents' own instruction files reference it, without overwriting existing text:
+When a plugin installs a coding agent, the agent's own instruction file points to it, without overwriting existing text. The files are:
 
 | Agent | File |
 | --- | --- |
@@ -92,7 +90,7 @@ The agents' own instruction files reference it, without overwriting existing tex
 | Codex | `~/.codex/AGENTS.md` |
 | Pi | `~/.pi/agent/AGENTS.md` |
 
-GUI programs, T3 Code and the commands it starts share the desktop's `DISPLAY`, Xauthority and session bus. Ordinary shell commands get them with [`box exec`](/docs/reference/box#desktop-environment).
+GUI programs, and T3 Code and the commands it starts, share the desktop's `DISPLAY`, Xauthority and session bus. Ordinary shell commands get them with [`box exec`](/docs/reference/box#desktop-environment).
 
 ## The self-test
 

@@ -1,6 +1,6 @@
 ---
 title: A Rookery server
-description: Run rookery serve on one machine and use its hosts from Rookery on other machines.
+description: Run a Rookery server on one machine and use its hosts from Rookery on other machines.
 icon: ServerCog
 ---
 
@@ -146,4 +146,4 @@ With the role `admin` on the server, which its token has, Rookery sets the serve
 - The server logs in to hosts with the keys of [its own key ring](/docs/use/accounts#keys), by default its key `rookery`. `rookery key` acts on the server's ring, and its private halves stay there. `rookery key trust HOST` and `rookery host verify HOST --accept` make first contact and accept a changed host key from the server.
 - `rookery key rotate` replaces a key on the hosts that take it, as a job of the server ([Rekeying](/docs/use/accounts#rekeying)).
 
-With a lesser role the set-up tabs say *This host is set up on the Rookery server at URL*, and the host's overview works as before. The roles, access tokens of an OAuth 2.0 issuer in place of the token, and how to keep set-up on the server itself are in [rookery serve](/docs/extend/serve#who-gets-in).
+With a lesser role the set-up tabs say *This host is set up on the Rookery server at URL*, and the host's overview works as before. The roles, access tokens of an OAuth 2.0 issuer in place of the token, and how to keep set-up on the server itself are in [`rookery serve`](/docs/extend/serve#who-gets-in).

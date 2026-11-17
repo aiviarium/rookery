@@ -2,13 +2,14 @@
 
 # Rookery
 
-Rookery sets up Ubuntu 26.04 desktops for coding agents on a spare laptop, a
-server or a container, and manages them from your terminal.
+Rookery sets up Ubuntu 26.04 hosts for coding agents on a spare laptop, a
+server or a container, and manages them from your terminal. It can also create
+the machines, through provisioner plugins.
 
-A host runs XFCE on a virtual display that you open in a browser. Plugins add
-the coding agents and the tools they work with. Each host has a profile that Rookery
-installs and can apply again. Once the host runs, its page in Rookery has the
-status, sign-ins, updates and secrets. A machine you only log in to can be
+A host runs XFCE on a virtual display that you open in a browser. The coding
+agents come from plugins, installed like any other plugin. Each host has a
+profile that Rookery installs and can apply again. Once the host runs, its page
+in Rookery has the status, sign-ins, updates and secrets. A machine you only log in to can be
 a host too: `rookery host add forge 192.0.2.4 --user ops`.
 
 <img src="docs/public/screens/overview.png" alt="Rookery's terminal UI showing the overview of a host with its actions">
@@ -43,10 +44,6 @@ same screens. `install.sh` installs it on macOS too, and on Windows:
 irm https://raw.githubusercontent.com/aiviarium/rookery/main/install.ps1 | iex
 ```
 
-Coming from Rookery 0.5? Update the server first, then the clients and the
-hosts, as [Upgrading from 0.5](docs/content/docs/%28guide%29/use/upgrading.mdx)
-says.
-
 ## Quick start
 
 ```bash
@@ -68,7 +65,6 @@ The documentation site is built from [`docs/`](docs) (`cd docs && npm install &&
 - [Getting started](docs/content/docs/%28guide%29/start/install.mdx): installing Rookery and a first host.
 - [Deploying](docs/content/docs/%28guide%29/deploy/index.mdx): the install methods, and testing in QEMU.
 - [Using Rookery](docs/content/docs/%28guide%29/use/index.mdx): the terminal UI and commands, sign-ins, secrets and updates.
-- [Upgrading from 0.5](docs/content/docs/%28guide%29/use/upgrading.mdx): the order, what is converted, and going back.
 - [Extending](docs/content/docs/%28guide%29/extend/index.mdx): plugins, services and `rookery serve`.
 - [Reference](docs/content/docs/%28guide%29/reference/index.mdx): tools, `box`, profile fields, building and releasing.
 - The API reference of rookeryd and `rookery serve`, generated from [`docs/openapi/`](docs/openapi).
@@ -85,6 +81,6 @@ Licensed under either of the [Apache License, Version 2.0](LICENSE-APACHE) or
 the [MIT license](LICENSE-MIT), at your option. Contributions are licensed the same way.
 
 The vendored `tui-input` crate under `crates/vendor` has its own MIT license. The
-agents and tools that plugins install, such as Claude Code, Codex and Unity,
-are separate products under their vendors' terms. Rookery downloads them from
-their vendors and doesn't include them.
+agents and tools that plugins install, such as coding agents and Unity,
+are separate products under their vendors' terms. Rookery doesn't include them,
+and a plugin downloads them from their vendors.

@@ -17,7 +17,7 @@ Each host, provisioner, resource, registry, secret and key that Rookery keeps ha
 | Secret | `sec_` | `github_token` |
 | Key | `key_` | `rookery` |
 
-A plugin is known by its package name, such as `claude`. That name is already permanent, and profiles refer to a plugin's features by it on every installation, so a plugin has no id of its own.
+A plugin is known by its package name, such as `unity`. That name is already permanent, and profiles refer to a plugin's features by it on every installation, so a plugin has no id of its own.
 
 ## The form of an id
 
@@ -88,8 +88,3 @@ In a profile you see or edit, registries and secrets and keys are given by name.
 
 The profile a host keeps of itself carries the host's id. `rookery host adopt` gives the host that id again when no other host here has it, so jobs and messages of the host find it once more.
 
-## After an upgrade
-
-The first start of a Rookery with ids converts the store once, after the copy of the store Rookery makes before converting it. It gives every thing an id, and moves the secrets that belong to a provisioner, a registry or a host under their owners.
-
-A provisioner that had no certificate of its own and used a global secret of the same name gets a copy of that secret as its own. The global one goes when nothing else uses it. An older Rookery cannot read the converted store, so going back needs that copy.

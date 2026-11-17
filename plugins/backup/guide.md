@@ -1,12 +1,12 @@
 # Backups
 
 This machine takes a snapshot every night with restic. The owner runs and
-restores them from Rookery; you do not need to do anything for them to happen.
+restores them from Rookery. They happen without anything from you.
 
 ## What is in a snapshot
 
 - Your home, `{{ rookery_home }}`, and everything under `/srv/agent`.
-- The machine's own description: `/etc/rookery`, `/etc/rookery`, `/var/lib/rookery`.
+- The machine's own description: `/etc/rookery` and `/var/lib/rookery`.
 
 Left out, because it can be made again: caches, downloaded dependencies such as
 `node_modules`, build output such as `target/debug` and `target/release`, and
@@ -24,5 +24,4 @@ Taking, listing and restoring snapshots needs root: `/usr/local/sbin/rookery-bac
 A restore writes over files in place. Leave it to the owner unless you were asked.
 
 The repository password is `~/.config/rookery-backup/password` and the rclone
-configuration `~/.config/rclone/rclone.conf`. Both are secrets: never print,
-copy or commit them, and do not change them, or the snapshots become unreadable.
+configuration `~/.config/rclone/rclone.conf`. Both are secrets. Never print them, copy them or commit them. Do not change them either, or the snapshots become unreadable.

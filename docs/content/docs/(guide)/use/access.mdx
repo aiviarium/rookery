@@ -4,7 +4,7 @@ description: How to reach a host's desktop, T3 Code, Cockpit and SSH, on the tai
 icon: MonitorSmartphone
 ---
 
-A host serves its desktop, T3 Code and Cockpit only to the tailnet or to loopback. **Access links and desktop password** on the overview prints the addresses and the desktop's password, or from the command line:
+A host serves its desktop, Cockpit and T3 Code, when a plugin installed it, only to the tailnet or to loopback. **Access links and desktop password** on the overview prints the addresses and the desktop's password, or from the command line:
 
 ```bash
 rookery run studio access
@@ -13,7 +13,7 @@ rookery run studio access
 | Service | Address on the tailnet | Port on the host |
 | --- | --- | --- |
 | Desktop (noVNC) | `https://HOST.TAILNET.ts.net/vnc.html` | 6080 |
-| T3 Code | `https://HOST.TAILNET.ts.net:8443/` | 3773 |
+| T3 Code, when installed | `https://HOST.TAILNET.ts.net:8443/` | 3773 |
 | Cockpit | `https://HOST.TAILNET.ts.net:9090` | 9090 |
 | SSH | `ssh ops@TAILNET-ADDRESS` | 22 |
 
@@ -53,7 +53,7 @@ Every key joins one host once. It's pre-approved, not reusable and not ephemeral
 
 When Rookery writes a seed or an installer, it says until when the key works. A machine first started later is set up without the tailnet, and the next apply from Rookery joins it with a new key.
 
-A host that's on the tailnet already is left alone, so applying again goes without a key and leaves the host logged in. Once it has joined, it publishes the desktop and T3 there. That's `rookery_tailscale_serve`, on by default, and it needs HTTPS certificates enabled for the tailnet. Enable them if Tailscale asks, then run **Publish desktop and T3 on the tailnet**. That action also gives Cockpit the tailnet's trusted certificate in place of its self-signed one.
+A host that's on the tailnet already is left alone, so applying again goes without a key and leaves the host logged in. Once it has joined, it publishes the desktop and T3 Code, if installed, there. That's `rookery_tailscale_serve`, on by default, and it needs HTTPS certificates enabled for the tailnet. Enable them if Tailscale asks, then run **Publish desktop and T3 on the tailnet**. That action also gives Cockpit the tailnet's trusted certificate in place of its self-signed one.
 
 ### The host's device
 
@@ -69,7 +69,7 @@ The rename waits for the apply so the name on the tailnet changes when the machi
 
 Removing a host without `--destroy` leaves its device alone, and so does a rename without `--hostname`. A copy made with [duplicate](/docs/use/lifecycle#duplicating-a-host) joins as a device of its own.
 
-A host set up by an older Rookery has no record until its next apply. Until then Rookery looks for its device among the tailnet's devices, by the host's address and then by its hostname. It acts only when exactly one device matches, and says so otherwise.
+A host that has not been applied since it joined has no record. Until its next apply Rookery looks for its device among the tailnet's devices, by the host's address and then by its hostname. It acts only when exactly one device matches, and says so otherwise.
 
 The key needs these permissions:
 
@@ -85,7 +85,7 @@ When the control server refuses, or Rookery has no key, the job says so, and the
 
 A host whose profile wants the tailnet needs the secret. Without it, Rookery stops before anything runs and says what to do: set the secret, or switch **Tailscale** off for the host. A seed, an installer or a new machine isn't made, and the set-up tabs show the problem for them. An apply stops before its first change. A host that's on the tailnet already is applied as usual, as it doesn't need a key.
 
-A new host on a Rookery without the secret starts with **Tailscale** off.
+A new host on an installation without the secret starts with **Tailscale** off.
 
 ### Headscale
 

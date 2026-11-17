@@ -62,19 +62,17 @@ Settings of the Ansible role go under `ansible_vars`, and how Rookery reaches an
   }}
 />
 
-The operator always has sudo without a password and logs in over SSH with keys only. See [Accounts and sudo](/docs/use/accounts#the-operator). Older profiles may have `operator_passwordless_sudo` and `rookery_ssh_key`. Rookery ignores both.
-
-A profile written before the lists has one key in `operator_ssh_public_key` or `agent_ssh_public_key`. Rookery still reads it, and moves it into the list when the keys are next changed.
+The operator always has sudo without a password and logs in over SSH with keys only. See [Accounts and sudo](/docs/use/accounts#the-operator).
 
 ### The key of Rookery itself
 
-Each Rookery makes an ed25519 key of its own the first time it needs one: the key `rookery` of its [key ring](/docs/use/accounts#keys). It keeps the key in its [store](/docs/use/store). An installation restored from the store gets the same key back. The operator of a host always takes it along with the keys in the profile, so the Rookery that set a host up can always log in to it without a key of yours. That matters most for a [Rookery server](/docs/use/server), which has no keys until you give it some. A host that logs in with another key of the ring, `key:NAME`, takes that key too. During a [rotation](/docs/use/accounts#rekeying) the operator takes the new key as well.
+Each installation makes an ed25519 key of its own the first time it needs one: the key `rookery` of its [key ring](/docs/use/accounts#keys). It keeps the key in its [store](/docs/use/store). An installation restored from the store gets the same key back. The operator of a host always takes it along with the keys in the profile, so the Rookery that set a host up can always log in to it without a key of yours. That matters most for a [Rookery server](/docs/use/server), which has no keys until you give it some. A host that logs in with another key of the ring, `key:NAME`, takes that key too. During a [rotation](/docs/use/accounts#rekeying) the operator takes the new key as well.
 
 `rookery key show` prints the public half. To copy it, choose **This Rookery's SSH key** on the Settings tab of the home screen. With a Rookery server set, it copies the server's key.
 
 Add the key as an SSH key at your cloud provider, and every machine you create there takes it. Rookery then logs in to a new machine without a key of yours. On a host set up some other way, add it to the operator's `~/.ssh/authorized_keys`.
 
-Each Rookery that installs or applies a host leaves its key there in a block of its own in the operator's `~/.ssh/authorized_keys`. A later apply, from this Rookery or another, does not remove it. To take a Rookery's key away, delete its `ROOKERY` block by hand.
+Each installation that installs or applies a host leaves its key there in a block of its own in the operator's `~/.ssh/authorized_keys`. A later apply, from this installation or another, does not remove it. To take a Rookery's key away, delete its `ROOKERY` block by hand.
 
 ## USB installer
 
@@ -107,13 +105,13 @@ Any `rookery_` setting of the role. The ones the terminal UI edits:
 | `rookery_install_docker` | Docker on host, Features tab | on |
 | `rookery_install_tailscale` | Tailscale, Install tab: whether the host joins the tailnet, with a key Rookery makes | on, or off for a new host while Rookery has no secret `tailnet_api_key` |
 
-Others, such as `rookery_tailscale_serve`, the agent versions and the backup settings, are described where they are used. Rookery sets the variables of joining the tailnet itself, and a profile's `ansible_vars` can't: `rookery_tailscale_auth_key`, `rookery_tailscale_login_server`, `rookery_tailscale_key_command` and `rookery_tailnet_problem`.
+Others, such as `rookery_tailscale_serve` and the backup settings, are described where they are used. Rookery sets the variables of joining the tailnet itself, and a profile's `ansible_vars` can't: `rookery_tailscale_auth_key`, `rookery_tailscale_login_server`, `rookery_tailscale_key_command` and `rookery_tailnet_problem`.
 
-Only `rookery_` settings are taken. Ansible's own variables, such as `ansible_connection`, `ansible_ssh_common_args` or `ansible_python_interpreter`, would change how and where Ansible runs commands. Rookery sets the connection itself from `access`, so it refuses them in a profile from any caller. Each entry of `rookery_plugin_features` is `PLUGIN/FEATURE`. A profile saved before still loads, and its apply leaves such variables out and says so in a line.
+Only `rookery_` settings are taken. Ansible's own variables, such as `ansible_connection`, `ansible_ssh_common_args` or `ansible_python_interpreter`, would change how and where Ansible runs commands. Rookery sets the connection itself from `access`, so it refuses them in a profile from any caller. Each entry of `rookery_plugin_features` is `PLUGIN/FEATURE`. An apply leaves such variables out and says so in a line.
 
 Rookery marks the values it gives Ansible as text, so `{{ … }}` in a setting is never a template.
 
-A profile of an older Rookery may still hold `tailscale_auth_key`, `tailscale_auto_key` or `tailscale_login_server`. Rookery drops them when it reads the profile, and says so once. The host then joins the tailnet on its next apply, with a key Rookery makes, unless it's on the tailnet already. All defaults are in [`defaults/main.yml`](https://github.com/aiviarium/rookery/blob/main/ansible/roles/rookery/defaults/main.yml).
+A host joins the tailnet on its apply with a key Rookery makes, unless it's on the tailnet already. All defaults are in [`defaults/main.yml`](https://github.com/aiviarium/rookery/blob/main/ansible/roles/rookery/defaults/main.yml).
 
 ## Type
 
@@ -162,38 +160,13 @@ Where the host is and how Rookery logs in to it. Every host has it. See [Logging
     address: { type: 'string', description: 'Hostname, IP address or Host alias from ~/.ssh/config. A host with one opens on its overview.' },
     user: { type: 'string', description: 'The SSH user. Blank uses your SSH configuration.' },
     port: { type: 'string', description: 'The SSH port. Blank uses your SSH configuration.' },
-    auth: { type: '"Rookery" | "key:NAME" | "password" | "ssh"', default: '"Rookery"', description: 'How Rookery logs in: its own key, another key of its key ring, a password kept as the secret ssh/HOST, or your own SSH configuration and agent with rookery\'s key offered after them.' },
+    auth: { type: '"rookery" | "key:NAME" | "password" | "ssh"', default: '"rookery"', description: 'How Rookery logs in: its own key, another key of its key ring, a password kept as the secret ssh/HOST, or your own SSH configuration and agent with Rookery\'s key offered after them.' },
     sudo: { type: '"none" | "password"', description: 'Whether the SSH user\'s sudo asks for a password, as for a first apply as an account of the machine\'s own. Left out, it does not.' },
     link: { type: 'string[]', description: 'A command that connects to rookeryd instead of SSH, such as docker exec -i NAME rookeryd connect. A host with one needs no address.' },
   }}
 />
 
 After an apply as the operator, Rookery writes what the role made true: `sudo` becomes `none`, and a host that logged in with `password` logs in with `rookery`, as the operator takes keys only. `key:NAME` and `ssh` stay. A password kept for the first apply, as the secret `ssh/HOST` or `sudo/HOST`, is deleted.
-
-A profile of Rookery 0.4 kept these under `builder`:
-
-| Rookery 0.4 | Now |
-| --- | --- |
-| `ssh_host`, `ssh_user`, `ssh_port` | `address`, `user`, `port` |
-| `ssh_key` | `auth`: `key:NAME` |
-| `ask_pass` | `auth`: `password` |
-| `ask_become_pass` | `sudo` |
-| `link` | `link` |
-
- Rookery converts stored profiles once, and reads a profile in a file in the new layout. The file keeps the old layout until you save it. A key file that `ssh_key` named becomes a key of the key ring, and the host logs in with it. If Rookery cannot read the file, the host logs in with `ssh`, and Rookery says so. A host without a key file logs in with `ssh`, which is what it did before.
-
-## Older profiles
-
-A profile of Rookery 0.5 or earlier names two fields differently:
-
-| Rookery 0.5 | Now |
-| --- | --- |
-| `level`: `reachable` | `type`: `ssh` |
-| `level`: `controller` | `type`: `managed` |
-| `level`: `workstation` | No `type`, which means a workstation |
-| `profile` | `target` |
-
-Rookery converts its stored profiles once, the profiles of a Rookery server's hosts with them. It reads the old names wherever a profile comes from: a file that `rookery host import HOST FILE` reads, and the profile a host keeps, which [`rookery host adopt`](/docs/use/moving) reads. A file keeps the old names until you save it. Rookery writes `type` and `target` and nothing else, and the API of `rookery serve` takes no other spelling.
 
 ## Install (`builder`)
 

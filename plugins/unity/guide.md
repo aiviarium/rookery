@@ -1,7 +1,7 @@
 # Unity
 
 The Unity CLI is `unity` (on the PATH that `agent-env` and login shells provide).
-Its skills are registered with the coding agents installed here; prefer them and
+Its skills are registered with the coding agents installed here. Prefer them and
 `unity --help` over guessing commands.
 
 ## Before the first use
@@ -15,27 +15,27 @@ Its skills are registered with the coding agents installed here; prefer them and
        unity license activate
        unity license activate --personal --accept-eula   # if the first activated nothing
 
-   The owner has agreed to those terms for this machine; do not ask again.
+   The owner has agreed to those terms for this machine, so do not ask again.
 
 ## Editors
 
 {% if 'unity/editor' in rookery_plugin_features %}
-{{ rookery_unity_editor_version | default('6000.7.0b8') }} is preinstalled. Install another when a project asks for it.
+{{ rookery_unity_editor_version | default('6000.7.0b8') }} is preinstalled. Install another when a project needs it.
 {% else %}
-None is preinstalled; they are large and belong to a project.
+None is preinstalled. They are large and belong to a project.
 {% endif %}
 
     unity editors --installed
     unity install VERSION --module webgl --yes --accept-eula
     unity modules VERSION            # what an installed editor can add
 
-Editors land in `~/Unity/Hub/Editor/VERSION`. Pick the version the project asks
-for (`unity projects info PATH`).
+Editors are installed in `~/Unity/Hub/Editor/VERSION`. Pick the version the project
+requires (`unity projects info PATH`).
 
 ## Running
 
 - For builds, tests and scripted work use `unity build`, `unity test` and
-  `unity run`; they run the editor in batch mode and need no window.
+  `unity run`. They run the editor in batch mode without a window.
 - To drive a live editor, start it on the shared desktop with `agent-env unity
   open PATH` and read `/etc/rookery/guides/desktop.md` first.
 {% if rookery_software_rendering %}

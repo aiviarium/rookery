@@ -6,18 +6,20 @@ should also read [AGENTS.md](../AGENTS.md).
 
 ## What Rookery is
 
-Rookery sets up a machine for coding agents and manages it afterwards. It
+Rookery sets up Ubuntu hosts for coding agents and manages them afterwards. It
 installs a desktop, an agent account, and whatever a host's profile switches
-on. Once the host runs, Rookery shows its status and handles its sign-ins,
-updates, secrets and shells.
+on. It can also create the machines, through provisioner plugins. Once the host
+runs, Rookery shows its status and handles its sign-ins, updates, secrets and
+shells.
 
 It's a tool at the level of a framework, and it's kept narrow on purpose:
 
 - **Not an agent runner.** Rookery doesn't run agents, schedule their work or judge
-  their output. It prepares the machine they run on. Orchestrators such as T3
-  Code are things Rookery installs, and it doesn't try to become one.
-- **Not a bundle.** The core is small, and we want it no larger. An agent, a
-  toolchain or a service is a plugin, and a host only gets the ones its
+  their output. It prepares the machine they run on. An
+  orchestrator is something a plugin installs, and Rookery doesn't try to
+  become one.
+- **Not a bundle.** The core is small, and we want it no larger. Coding agents, provisioners,
+  toolchains and services are plugins, and a host only gets the ones its
   profile names. Whatever works as a plugin should be one, often in a
   repository of its own.
 - **One host, described once.** A profile is a JSON file that says what a host

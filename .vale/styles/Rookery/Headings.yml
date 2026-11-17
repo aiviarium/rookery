@@ -4,6 +4,7 @@ level: warning
 scope: heading
 match: $sentence
 exceptions:
+  - Rookery
   - rookery
   - Ansible
   - Claude Code
