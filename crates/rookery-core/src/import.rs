@@ -1971,7 +1971,7 @@ mod tests {
         store
             .change(&[], &[(kind::META, OWN, NAMES_MARKER)])
             .unwrap();
-        for (name, level) in [("dock", "reachable"), ("pier", "controller")] {
+        for (name, level) in [("forge", "reachable"), ("annex", "controller")] {
             let old =
                 json!({"level": level, "profile": "cloud", "access": {"address": "192.0.2.4"}});
             store
@@ -1985,13 +1985,13 @@ mod tests {
         let found = installation(&paths);
         run(&paths, &found, &store).unwrap();
         assert!(read(&store, kind::META, NAMES_MARKER).is_some());
-        let dock = json_row(&store, kind::PROFILE, "dock").unwrap();
+        let forge = json_row(&store, kind::PROFILE, "forge").unwrap();
         assert_eq!(
-            (&dock["type"], &dock["target"]),
+            (&forge["type"], &forge["target"]),
             (&json!("ssh"), &json!("cloud"))
         );
         assert_eq!(
-            json_row(&store, kind::PROFILE, "pier").unwrap()["type"],
+            json_row(&store, kind::PROFILE, "annex").unwrap()["type"],
             "managed"
         );
         assert_eq!(
@@ -2034,13 +2034,13 @@ mod tests {
             ),
             (
                 OWN,
-                "dock",
-                json!({"hostname": "dock", "tailscale_auto_key": false}),
+                "forge",
+                json!({"hostname": "forge", "tailscale_auto_key": false}),
             ),
             (
                 OWN,
-                "pier",
-                json!({"hostname": "pier", "tailscale_auto_key": true}),
+                "annex",
+                json!({"hostname": "annex", "tailscale_auto_key": true}),
             ),
             (OWN, "attic", json!({"hostname": "attic", "builder": {}})),
             (
@@ -2059,7 +2059,7 @@ mod tests {
             taken,
             TakenTailnet {
                 pasted: vec!["studio".into()],
-                optional: vec!["attic".into(), "dock".into()],
+                optional: vec!["attic".into(), "forge".into()],
             }
         );
         assert!(read(&store, kind::META, TAILNET_MARKER).is_some());
@@ -2068,8 +2068,8 @@ mod tests {
             json!({"hostname": "studio"})
         );
         assert_eq!(
-            json_row(&store, kind::PROFILE, "pier").unwrap(),
-            json!({"hostname": "pier"})
+            json_row(&store, kind::PROFILE, "annex").unwrap(),
+            json!({"hostname": "annex"})
         );
         // rookery 0.5 joined neither of these by itself, and an apply goes on without the tailnet still.
         assert_eq!(
@@ -2077,8 +2077,8 @@ mod tests {
             json!({"hostname": "attic", "builder": {}, "ansible_vars": {(TAILNET_OPTIONAL): true}})
         );
         assert_eq!(
-            json_row(&store, kind::PROFILE, "dock").unwrap(),
-            json!({"hostname": "dock", "ansible_vars": {(TAILNET_OPTIONAL): true}})
+            json_row(&store, kind::PROFILE, "forge").unwrap(),
+            json!({"hostname": "forge", "ansible_vars": {(TAILNET_OPTIONAL): true}})
         );
         // No key is left in any row of the store, of any scope.
         let crate::store::Rows::State(all) = store.export(crate::store::Table::State).unwrap()
@@ -2092,7 +2092,7 @@ mod tests {
         let said = tailnet_message(&taken, &store).unwrap().unwrap();
         assert_eq!(
             said,
-            "rookery makes the keys hosts join the tailnet with itself now. The keys pasted into the profiles of studio are removed. studio joins the tailnet on the next apply, unless already on it, once the secret tailnet_api_key is set: rookery secret set tailnet_api_key. attic, dock join the tailnet once the secret tailnet_api_key is set: rookery secret set tailnet_api_key. Until then an apply leaves them off the tailnet, as rookery 0.5 did."
+            "rookery makes the keys hosts join the tailnet with itself now. The keys pasted into the profiles of studio are removed. studio joins the tailnet on the next apply, unless already on it, once the secret tailnet_api_key is set: rookery secret set tailnet_api_key. attic, forge join the tailnet once the secret tailnet_api_key is set: rookery secret set tailnet_api_key. Until then an apply leaves them off the tailnet, as rookery 0.5 did."
         );
         store
             .write(
@@ -2115,13 +2115,13 @@ mod tests {
         // One host joins, several join.
         let one = TakenTailnet {
             pasted: vec![],
-            optional: vec!["dock".into()],
+            optional: vec!["forge".into()],
         };
         assert!(
             tailnet_message(&one, &store)
                 .unwrap()
                 .unwrap()
-                .contains(" dock joins the tailnet on the next apply")
+                .contains(" forge joins the tailnet on the next apply")
         );
         // Once is enough: the next start finds the marker and changes nothing.
         let before = store.export(crate::store::Table::State).unwrap();
@@ -2133,7 +2133,7 @@ mod tests {
     #[test]
     fn a_profile_given_in_a_file_is_read_with_the_names_of_now() {
         let (dir, paths) = scratch();
-        let file = dir.path().join("dock.json");
+        let file = dir.path().join("forge.json");
         fs::write(
             &file,
             r#"{"level": "reachable", "profile": "cloud", "access": {"address": "192.0.2.4"}}"#,
@@ -2228,7 +2228,7 @@ mod tests {
         fs::write(hosts.join("attic.json"), r#"{"builder": {}}"#).unwrap();
         let served = paths.data_dir.join("served/http---192-0-2-7-7777/hosts");
         fs::create_dir_all(&served).unwrap();
-        fs::write(served.join("yard.json"), "{}").unwrap();
+        fs::write(served.join("depot.json"), "{}").unwrap();
     }
 
     #[test]
@@ -2393,7 +2393,7 @@ mod tests {
         for (scope, host) in [
             (OWN, "studio"),
             (crate::profiles::FILE_SCOPE, file),
-            (served, "yard"),
+            (served, "depot"),
         ] {
             store
                 .write(kind::INSTANCE, scope, host, RECORD.as_bytes())
@@ -2404,7 +2404,7 @@ mod tests {
         for (scope, host, name) in [
             (OWN, "studio", "studio"),
             (crate::profiles::FILE_SCOPE, file, "attic"),
-            (served, "yard", "yard"),
+            (served, "depot", "depot"),
         ] {
             let found: Vec<crate::resource::Record> = store
                 .entries(kind::RESOURCE, scope)
@@ -2633,7 +2633,7 @@ mod tests {
             ),
             (
                 served,
-                "yard",
+                "depot",
                 json!({"builder": {"ssh_host": "192.0.2.20", "served": "http://192.0.2.7:7777"}}),
             ),
         ];
@@ -2682,7 +2682,7 @@ mod tests {
             access(OWN, "new"),
             json!({"address": "192.0.2.15", "auth": "rookery"})
         );
-        assert_eq!(access(served, "yard")["auth"], "rookery");
+        assert_eq!(access(served, "depot")["auth"], "rookery");
         assert!(
             notices.iter().any(|notice| notice.contains("/nowhere/key")),
             "{notices:?}"

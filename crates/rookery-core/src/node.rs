@@ -1097,11 +1097,11 @@ mod tests {
         let host = world.host(&["fake/engine"]);
         provisioner::save_entry(
             &world.paths,
-            "dock-fake-vm",
+            "forge-fake-vm",
             &Entry {
                 kind: "fake/vm".into(),
                 settings: [("server".into(), "https://192.0.2.40:8444".into())].into(),
-                node: "dock".into(),
+                node: "forge".into(),
                 feature: "fake/engine".into(),
                 ..Entry::default()
             },
@@ -1114,16 +1114,16 @@ mod tests {
         let said = register_by(&world.paths, &world.store, &host, &[claims], &lookup).unwrap();
         assert!(
             said.iter().any(|line| line
-                == "! big offers fake/vm, and says it is the server of dock-fake-vm, which is dock's; both are left as they are"),
+                == "! big offers fake/vm, and says it is the server of forge-fake-vm, which is forge's; both are left as they are"),
             "{said:?}"
         );
-        assert_eq!(names(&world), ["dock-fake-vm"]);
-        let theirs = provisioner::entry(&world.paths, "dock-fake-vm")
+        assert_eq!(names(&world), ["forge-fake-vm"]);
+        let theirs = provisioner::entry(&world.paths, "forge-fake-vm")
             .unwrap()
             .unwrap();
         assert_eq!(
             (theirs.node.as_str(), theirs.settings["server"].as_str()),
-            ("dock", "https://192.0.2.40:8444")
+            ("forge", "https://192.0.2.40:8444")
         );
     }
 
@@ -1173,10 +1173,10 @@ mod tests {
             "No provisioner nothing is registered"
         );
         assert_eq!(
-            adopt(&world.paths, "incus-vm", "dock")
+            adopt(&world.paths, "incus-vm", "forge")
                 .unwrap_err()
                 .to_string(),
-            "No host dock"
+            "No host forge"
         );
         world.host(&[]);
         assert!(

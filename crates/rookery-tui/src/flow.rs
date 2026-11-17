@@ -1148,7 +1148,7 @@ mod tests {
 
     #[test]
     fn a_host_over_ssh_needs_its_address() {
-        let mut flow = Flow::new("dock", catalogue());
+        let mut flow = Flow::new("forge", catalogue());
         let given = Given {
             method: Action::by_key("ssh-only"),
             ..Given::default()
@@ -1159,7 +1159,7 @@ mod tests {
         }
         let mut given = given;
         given.set(&["address=192.0.2.11".into()]).unwrap();
-        let mut flow = Flow::new("dock", catalogue());
+        let mut flow = Flow::new("forge", catalogue());
         flow.run(&given, &mut Nobody, &mut Hashes).unwrap();
         assert_eq!(flow.config["access"]["address"], "192.0.2.11");
         assert_eq!(flow.config["type"], "ssh");

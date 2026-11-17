@@ -1,4 +1,4 @@
-"""A node on the bare test host `dock`: rookery applies it without a desktop,
+"""A node on the bare test host `forge`: rookery applies it without a desktop,
 with a made-up plugin's feature for a node that offers a provisioner, and
 registers that provisioner, naming the node. Applying again changes nothing
 of it; a feature that is taken out takes its provisioner along, but not while
@@ -13,7 +13,7 @@ firewall and Tailscale are left out, and so are the features incus/server and
 docker/engine, whose engines do not run here: tests/test_node.py reads them,
 and runs the firewall's helper and the server's upgrade against fakes.
 
-It runs last on `dock`, as it leaves a node behind."""
+It runs last on `forge`, as it leaves a node behind."""
 import json
 import stat
 import unittest
@@ -34,7 +34,7 @@ request = json.load(sys.stdin)
 with open(__file__ + '.node', 'w') as said:
     said.write(request.get('node', ''))
 if verb == 'status' and not request.get('id'):
-    print(json.dumps({'message': 'The crane at ' + request['arguments'].get('place', 'nowhere') + ' answers'}))
+    print(json.dumps({'message': 'The lathe at ' + request['arguments'].get('place', 'nowhere') + ' answers'}))
 elif verb in ('create', 'change'):
     print(json.dumps({'id': 'load-' + request['name'], 'state': 'running'}))
 elif verb == 'status':
@@ -48,38 +48,38 @@ else:
     print(json.dumps({}))
 '''
 
-# The crane's tasks: what a feature of a node does to offer its provisioner.
+# The lathe's tasks: what a feature of a node does to offer its provisioner.
 TASKS = '''---
-- name: Keep the certificate rookery gave the crane to trust
+- name: Keep the certificate rookery gave the lathe to trust
   ansible.builtin.copy:
-    dest: /etc/yard-crane.crt
+    dest: /etc/depot-lathe.crt
     content: "{{ rookery_client_certificates[rookery_plugin_feature].certificate }}"
     mode: '0644'
-- name: Offer the crane's provisioner
+- name: Offer the lathe's provisioner
   ansible.builtin.set_fact:
-    rookery_node_units: "{{ rookery_node_units + ['yard-crane'] }}"
+    rookery_node_units: "{{ rookery_node_units + ['depot-lathe'] }}"
     rookery_offer:
       settings:
         place: "https://{address}:9999"
       secrets:
-        yard_server_cert: "PUBLIC-CERT-OF-THE-CRANE"
+        depot_server_cert: "PUBLIC-CERT-OF-THE-LATHE"
       fingerprint: "0123abcd"
 '''
 
 MANIFEST = {
-    'name': 'rookery-plugin-yard', 'version': '1.0.0', 'displayName': 'Yard', 'files': ['bin', 'tasks'],
+    'name': 'rookery-plugin-depot', 'version': '1.0.0', 'displayName': 'Depot', 'files': ['bin', 'tasks'],
     'rookery': {
         'features': [
-            {'id': 'crane', 'label': 'Crane', 'types': ['node'], 'offers': ['box'],
-             'trusts': {'certificate': 'yard_client_cert', 'key': 'yard_client_key'},
-             'tasks': 'tasks/crane.yml',
-             'actions': [{'name': 'crane-status', 'label': 'Crane', 'user': 'root', 'extends': 'status',
-                          'run': 'echo crane'}]},
+            {'id': 'lathe', 'label': 'Lathe', 'types': ['node'], 'offers': ['box'],
+             'trusts': {'certificate': 'depot_client_cert', 'key': 'depot_client_key'},
+             'tasks': 'tasks/lathe.yml',
+             'actions': [{'name': 'lathe-status', 'label': 'Lathe', 'user': 'root', 'extends': 'status',
+                          'run': 'echo lathe'}]},
             {'id': 'bench', 'label': 'Bench'},
         ],
         'provisioners': [{
-            'id': 'box', 'label': 'Yard box', 'command': 'bin/provision', 'protocol': 2,
-            'secrets': ['yard_client_cert', 'yard_client_key', {'name': 'yard_server_cert', 'required': False}],
+            'id': 'box', 'label': 'Depot box', 'command': 'bin/provision', 'protocol': 2,
+            'secrets': ['depot_client_cert', 'depot_client_key', {'name': 'depot_server_cert', 'required': False}],
             'arguments': [{'name': 'place', 'label': 'Place', 'required': True}],
             'kinds': [{'id': 'deployment', 'label': 'Load', 'spec': {'format': 'text', 'label': 'Load'}}],
         }],
@@ -91,7 +91,7 @@ MANIFEST = {
 class Node(unittest.TestCase):
     """The tests build on each other, in the order of their names."""
 
-    # What the workstations of the tests before this one left on `dock`: a node
+    # What the workstations of the tests before this one left on `forge`: a node
     # is not applied over a workstation that rookery set up, so it goes first.
     LEFT = ('pkill -x rookeryd; userdel -r agent; rm -rf /etc/rookery /var/lib/rookeryd /etc/rookery /var/lib/rookery '
             '/etc/sudoers.d/90-rookery-agent /etc/ssh/sshd_config.d/00-rookery.conf; true')
@@ -99,11 +99,11 @@ class Node(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.station = Workstation('node', ssh_key=False)
-        folder = cls.station.rookery_dir / 'plugins/yard'
+        folder = cls.station.rookery_dir / 'plugins/depot'
         (folder / 'bin').mkdir(parents=True)
         (folder / 'tasks').mkdir()
         (folder / 'package.json').write_text(json.dumps(MANIFEST))
-        (folder / 'tasks/crane.yml').write_text(TASKS)
+        (folder / 'tasks/lathe.yml').write_text(TASKS)
         program = folder / 'bin/provision'
         program.write_text(PROGRAM.replace('ECHO', str(ECHO)).replace('HOST', repr(HOST)))
         program.chmod(program.stat().st_mode | stat.S_IXUSR)
@@ -113,7 +113,7 @@ class Node(unittest.TestCase):
             OPERATOR, 'true', key=key, check=False).returncode == 0, timeout=60)
         cls.station.ssh(OPERATOR, f'sudo -n sh -c {shell_quote(cls.LEFT)}', key=key, check=False)
         cls.station.rookery('host', 'add', HOST, HOST, '--user', OPERATOR, '--type', 'node',
-                          '--feature', 'yard/crane', input='')
+                          '--feature', 'depot/lathe', input='')
 
     @classmethod
     def tearDownClass(cls):
@@ -143,36 +143,36 @@ class Node(unittest.TestCase):
     def test_1_a_feature_for_a_workstation_is_refused_before_anything_runs(self):
         added = self.station.read_profile()
         self.assertEqual(added['type'], 'node')
-        self.assertEqual(added['ansible_vars']['rookery_plugin_features'], ['yard/crane'])
+        self.assertEqual(added['ansible_vars']['rookery_plugin_features'], ['depot/lathe'])
         # A feature that is not for a node is refused when it is set, too.
-        refused = self.rookery('host', 'set', HOST, 'feature.yard/bench=on', check=False)
+        refused = self.rookery('host', 'set', HOST, 'feature.depot/bench=on', check=False)
         self.assertEqual(refused.returncode, 2, refused.output)
         self.assertIn('not for a host of the type node', refused.stderr)
-        self.profile(['yard/crane', 'yard/bench'])
+        self.profile(['depot/lathe', 'depot/bench'])
         refused = self.rookery('apply', HOST, check=False)
         self.assertNotEqual(refused.returncode, 0)
-        self.assertIn(f'{HOST} is a node, and yard/bench is for a workstation', refused.stderr)
+        self.assertIn(f'{HOST} is a node, and depot/bench is for a workstation', refused.stderr)
         self.assertNotEqual(self.root('test -e /etc/rookery/applied.json', check=False).returncode, 0)
 
     def test_2_applying_the_node_registers_what_its_feature_offers(self):
-        self.profile(['yard/crane'])
+        self.profile(['depot/lathe'])
         done = self.rookery('apply', HOST, timeout=900)
-        name = f'{HOST}-yard-box'
-        self.assertIn(f'✓ Registered the provisioner {name} (yard/box) of {HOST}', done.stdout)
+        name = f'{HOST}-depot-box'
+        self.assertIn(f'✓ Registered the provisioner {name} (depot/box) of {HOST}', done.stdout)
         self.assertIn('pins the server\'s certificate 0123abcd', done.stdout)
         page = self.rookery('provisioner', 'show', name).stdout
         self.assertIn(f'place=https://{HOST}:9999', page)
-        self.assertIn(f'The crane at https://{HOST}:9999 answers', page)
+        self.assertIn(f'The lathe at https://{HOST}:9999 answers', page)
         self.assertIn(f'Node      {HOST}, whose feature offers it', page)
         # The host records what it is and what it offers, and says so.
         applied = json.loads(self.root('cat /etc/rookery/applied.json').stdout)
         self.assertEqual(applied['level'], 'node')
-        self.assertEqual(applied['offers'][0]['feature'], 'yard/crane')
+        self.assertEqual(applied['offers'][0]['feature'], 'depot/lathe')
         self.assertEqual(self.station.link().get('/v1/version')['type'], 'node')
         # Only the certificate rookery made went to the node, never its key.
-        trusted = self.root('cat /etc/yard-crane.crt').stdout
+        trusted = self.root('cat /etc/depot-lathe.crt').stdout
         self.assertTrue(trusted.startswith('-----BEGIN CERTIFICATE-----'))
-        self.assertNotIn('PRIVATE KEY', self.root('cat /etc/rookery/*.json /etc/yard-crane.crt').stdout)
+        self.assertNotIn('PRIVATE KEY', self.root('cat /etc/rookery/*.json /etc/depot-lathe.crt').stdout)
         # Sessions run as the SSH user; nothing of a workstation is there.
         self.assertEqual(self.rookery('exec', HOST, '--', 'id', '-un').stdout.strip(), OPERATOR)
         for absent in ('id agent', 'test -e /etc/rookery/AGENT.md', 'test -e /etc/sudoers.d/90-rookery-agent',
@@ -184,8 +184,8 @@ class Node(unittest.TestCase):
         # No rookery server's container here, so no upgrade of one.
         self.assertNotRegex(listed, r'(?m)^upgrade-server\s+')
         # The list names the node it lives on.
-        self.assertRegex(self.rookery('provisioner', 'list').stdout, rf'(?m)^{name}\s+yard/box\s+{HOST}\s')
-        self.assertIn('crane', self.rookery('run', HOST, 'status').stdout)
+        self.assertRegex(self.rookery('provisioner', 'list').stdout, rf'(?m)^{name}\s+depot/box\s+{HOST}\s')
+        self.assertIn('lathe', self.rookery('run', HOST, 'status').stdout)
         # SSH takes keys only, and leaves root none, as rookery logs in as the operator.
         sshd = self.root('cat /etc/ssh/sshd_config.d/00-rookery.conf').stdout
         self.assertIn('PasswordAuthentication no', sshd)
@@ -194,15 +194,15 @@ class Node(unittest.TestCase):
     def test_3_applying_again_registers_nothing_new(self):
         done = self.rookery('apply', HOST, timeout=900)
         self.assertNotIn('Registered the provisioner', done.stdout)
-        self.assertEqual(self.provisioners().count(f'{HOST}-yard-box'), 1)
+        self.assertEqual(self.provisioners().count(f'{HOST}-depot-box'), 1)
 
     def test_4_a_provisioner_that_holds_a_deployment_stays_with_its_node(self):
-        name = f'{HOST}-yard-box'
+        name = f'{HOST}-depot-box'
         self.rookery('resource', 'create', 'crate', '--provisioner', name, '--spec', '-', input='one crate\n')
         self.profile([])
         refused = self.rookery('apply', HOST, check=False)
         self.assertNotEqual(refused.returncode, 0)
-        self.assertIn(f'offers the provisioner {name} through yard/crane, which still holds', refused.stderr)
+        self.assertIn(f'offers the provisioner {name} through depot/lathe, which still holds', refused.stderr)
         removed = self.station.remove_host(check=False)
         self.assertNotEqual(removed.returncode, 0)
         self.assertIn(f'is the node of the provisioner {name}', removed.stderr)
@@ -226,7 +226,7 @@ class Node(unittest.TestCase):
             [crate] = [resource for resource in resources if resource['name'] == 'crate']
             seen = serve.call('GET', f'/v1/resources/{crate["id"]}')
             self.assertEqual([endpoint['name'] for endpoint in seen['endpoints']], ['db', 'lan', 'far'], seen)
-            node = (self.station.rookery_dir / 'plugins/yard/bin/provision.node').read_text()
+            node = (self.station.rookery_dir / 'plugins/depot/bin/provision.node').read_text()
             self.assertEqual(node, HOST)
             path = f'/v1/resources/{crate["id"]}/endpoints'
             data = bytes(range(256)) * 4096
@@ -264,7 +264,7 @@ class Node(unittest.TestCase):
             tunnel.close()
 
     def test_6_without_its_feature_the_provisioner_goes(self):
-        name = f'{HOST}-yard-box'
+        name = f'{HOST}-depot-box'
         self.rookery('resource', 'remove', 'crate', '-y')
         done = self.rookery('apply', HOST, timeout=900)
         self.assertIn(f'✓ Forgot the provisioner {name}', done.stdout)

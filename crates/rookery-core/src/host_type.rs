@@ -484,8 +484,8 @@ mod tests {
     #[test]
     fn the_apply_guard_reads_the_profile() {
         let host = |config| Host {
-            name: "dock".into(),
-            place: crate::profiles::Place::File("/dock.json".into()),
+            name: "forge".into(),
+            place: crate::profiles::Place::File("/forge.json".into()),
             config,
         };
         let ssh = host(serde_json::json!({"type": "ssh", "access": {"address": "192.0.2.4"}}));
@@ -519,39 +519,39 @@ mod tests {
 
     #[test]
     fn installing_the_controller_is_offered_to_a_host_that_is_not_a_workstation() {
-        let action = install_controller_action("dock", HostType::Ssh, None);
+        let action = install_controller_action("forge", HostType::Ssh, None);
         assert!(action.available && action.label == "Install the controller");
         assert_eq!(
-            install_controller_action("dock", HostType::Managed, None).label,
+            install_controller_action("forge", HostType::Managed, None).label,
             "Update the controller"
         );
-        let action = install_controller_action("dock", HostType::Workstation, None);
-        assert!(!action.available && action.why.contains("rookery apply dock"));
+        let action = install_controller_action("forge", HostType::Workstation, None);
+        assert!(!action.available && action.why.contains("rookery apply forge"));
         // A controller seen to be one is updated as its profile says.
-        let action = install_controller_action("dock", HostType::Ssh, Some(HostType::Managed));
+        let action = install_controller_action("forge", HostType::Ssh, Some(HostType::Managed));
         assert!(action.available);
     }
 
     #[test]
     fn a_host_seen_to_be_a_workstation_never_gets_the_controller_alone() {
         for intended in [HostType::Ssh, HostType::Managed] {
-            let action = install_controller_action("dock", intended, Some(HostType::Workstation));
+            let action = install_controller_action("forge", intended, Some(HostType::Workstation));
             assert!(!action.available);
             assert!(
                 action.why.starts_with(&format!(
-                    "dock is a workstation; its profile here says {intended}"
+                    "forge is a workstation; its profile here says {intended}"
                 )),
                 "{}",
                 action.why
             );
-            assert!(action.why.contains("rookery host adopt dock"));
+            assert!(action.why.contains("rookery host adopt forge"));
         }
         assert_eq!(
-            mismatch("dock", HostType::Ssh, Some(HostType::Managed)).unwrap(),
-            "dock has rookery's controller; its profile here says ssh. To adopt it: rookery host set dock type=managed"
+            mismatch("forge", HostType::Ssh, Some(HostType::Managed)).unwrap(),
+            "forge has rookery's controller; its profile here says ssh. To adopt it: rookery host set forge type=managed"
         );
-        assert!(mismatch("dock", HostType::Workstation, Some(HostType::Managed)).is_none());
-        assert!(mismatch("dock", HostType::Managed, None).is_none());
+        assert!(mismatch("forge", HostType::Workstation, Some(HostType::Managed)).is_none());
+        assert!(mismatch("forge", HostType::Managed, None).is_none());
     }
 
     fn machine(verbs: &[&str], state: &str, made: bool) -> Resource {
@@ -618,35 +618,35 @@ mod tests {
     #[test]
     fn any_other_host_declares_how_it_is_stopped() {
         let bare = serde_json::json!({"type": "managed", "access": {"address": "192.0.2.4"}});
-        let powered = power("dock", &bare, None);
+        let powered = power("forge", &bare, None);
         assert_eq!(powered.power, rookery_api::Power::default());
         assert!(
             powered
                 .why("stop")
                 .unwrap()
-                .contains("rookery host set dock power_stop=controller")
+                .contains("rookery host set forge power_stop=controller")
         );
         assert!(
             powered
                 .why("start")
                 .unwrap()
-                .starts_with("dock declares no way to start it")
+                .starts_with("forge declares no way to start it")
         );
         let declared = serde_json::json!({"type": "managed", "access": {"address": "192.0.2.4"},
                                           "power": {"stop": {"by": "controller"}}});
-        let powered = power("dock", &declared, None);
+        let powered = power("forge", &declared, None);
         assert!(powered.power.stop && !powered.power.start);
         assert_eq!(powered.power.stop_by, "controller");
         // Without a controller there is nothing to shut it down.
         let ssh = serde_json::json!({"type": "ssh", "access": {"address": "192.0.2.4"},
                                      "power": {"stop": {"by": "controller"}}});
-        let powered = power("dock", &ssh, None);
+        let powered = power("forge", &ssh, None);
         assert!(!powered.power.stop);
         assert!(
             powered
                 .why("stop")
                 .unwrap()
-                .contains("rookery run dock install-controller")
+                .contains("rookery run forge install-controller")
         );
     }
 }

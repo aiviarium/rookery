@@ -125,7 +125,7 @@ A profile of an older Rookery may still hold `tailscale_auth_key`, `tailscale_au
 
 An `ssh` or `managed` host needs only its type and `access`. A node also takes `target`, the Tailscale fields and `ansible_vars`, and refuses the fields of the agent and the operator ([Nodes](/docs/use/nodes)). The other fields are for a workstation. See [Host types](/docs/use/types).
 
-```json title="dock's profile"
+```json title="forge's profile"
 {
   "type": "ssh",
   "access": { "address": "192.0.2.4", "user": "ops", "auth": "rookery" }
@@ -143,7 +143,7 @@ How Rookery stops a host that no provisioner made. A host a provisioner made is 
   }}
 />
 
-```json title="dock's profile"
+```json title="forge's profile"
 {
   "type": "managed",
   "access": { "address": "192.0.2.4", "user": "ops" },

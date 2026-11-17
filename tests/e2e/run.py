@@ -79,7 +79,7 @@ HOSTS = {
     # alone, which leave it as they found it. Then a host that only ever
     # takes rookery's own key. The provisioners' tests and the one of a store
     # of rookery 0.5.2 need no host at all. Last, a node, which stays one.
-    'dock': ['e2e_access', 'e2e_controller.Controller', 'e2e_own_key', 'e2e_provisioners',
+    'forge': ['e2e_access', 'e2e_controller.Controller', 'e2e_own_key', 'e2e_provisioners',
              'e2e_update.FromRookery052', 'e2e_node'],
 }
 
@@ -87,7 +87,7 @@ HOSTS = {
 # The tests of each host cut into shards, in the order HOSTS has them. Each
 # shard starts from a fresh host, so it pays for the first apply and the
 # states it uses; one state is never cut in two. The shards `studio` and
-# `dock` are the tests that make no apply but the first: ci/plan.py runs them
+# `forge` are the tests that make no apply but the first: ci/plan.py runs them
 # for any change to rookery, and the others only for changes to what the role
 # is given (its SEAM) on a pull request.
 SHARDS = {
@@ -100,7 +100,7 @@ SHARDS = {
     'plain': ['e2e_plugins.PluginRemoved', 'e2e_tailnet.JoinedByHand'],
     'served-extended': ['e2e_tailnet.ThroughTheServer', 'e2e_serve.ApplyJob', 'e2e_client.ClientApply',
                         'e2e_update.UpdateServed'],
-    'dock': ['e2e_access', 'e2e_provisioners', 'e2e_update.FromRookery052'],
+    'forge': ['e2e_access', 'e2e_provisioners', 'e2e_update.FromRookery052'],
     'controller': ['e2e_controller.Controller'],
     'own-key': ['e2e_own_key'],
     'node': ['e2e_node'],

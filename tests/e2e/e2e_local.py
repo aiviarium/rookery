@@ -65,23 +65,23 @@ class Profiles(unittest.TestCase):
 
     def test_a_profile_goes_out_and_in_and_is_removed_with_what_is_kept_of_it(self):
         station = Workstation('profiles', ssh_key=False, trust=False)
-        kept = profile(hostname='yard', access={'address': '192.0.2.50', 'user': OPERATOR})
-        station.write_profile(kept, name='yard')
-        self.assertEqual(station.read_profile('yard'), kept)
-        self.assertIn(('yard', '192.0.2.50'), listed(station))
+        kept = profile(hostname='depot', access={'address': '192.0.2.50', 'user': OPERATOR})
+        station.write_profile(kept, name='depot')
+        self.assertEqual(station.read_profile('depot'), kept)
+        self.assertIn(('depot', '192.0.2.50'), listed(station))
         self.assertFalse((station.rookery_dir / 'hosts').exists())
         # What is not a profile is refused, and the saved one stays.
-        refused = station.rookery('host', 'import', 'yard', '-', input='[]', check=False)
+        refused = station.rookery('host', 'import', 'depot', '-', input='[]', check=False)
         self.assertNotEqual(refused.returncode, 0)
-        self.assertEqual(station.read_profile('yard'), kept)
+        self.assertEqual(station.read_profile('depot'), kept)
         # Passwords go to a terminal, or to a pipe only when asked to.
-        piped = station.rookery('host', 'credentials', 'yard', check=False)
+        piped = station.rookery('host', 'credentials', 'depot', check=False)
         self.assertNotEqual(piped.returncode, 0)
         self.assertIn('--show', piped.stderr)
-        self.assertIn('no passwords', station.rookery('host', 'credentials', 'yard', '--show').stderr)
-        station.remove_host('yard')
-        self.assertNotIn('yard', station.rookery('ls').stdout)
-        self.assertNotEqual(station.rookery('host', 'export', 'yard', check=False).returncode, 0)
+        self.assertIn('no passwords', station.rookery('host', 'credentials', 'depot', '--show').stderr)
+        station.remove_host('depot')
+        self.assertNotIn('depot', station.rookery('ls').stdout)
+        self.assertNotEqual(station.rookery('host', 'export', 'depot', check=False).returncode, 0)
 
     def test_the_hosts_of_an_older_rookery_move_into_the_store(self):
         station = Workstation('older-hosts', ssh_key=False, trust=False)
@@ -95,7 +95,7 @@ class Profiles(unittest.TestCase):
         (hosts / 'attic.instance.lock').write_text('')
         mirrored = station.data / 'rookery/served/http---192-0-2-7-7777/hosts'
         mirrored.mkdir(parents=True)
-        (mirrored / 'yard.json').write_text('{}')
+        (mirrored / 'depot.json').write_text('{}')
         moved = station.rookery('ls', '-o', 'json')
         self.assertIn(('attic', '192.0.2.60'), [(host['name'], host['address']) for host in json.loads(moved.stdout)])
         self.assertIn('moved 1 host into rookery', moved.stderr)

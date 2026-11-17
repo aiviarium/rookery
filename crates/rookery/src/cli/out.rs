@@ -320,14 +320,14 @@ mod tests {
             "192.0.2.10".into(),
             "\x1b[32manswers\x1b[0m".into(),
         ]);
-        table.row(vec!["dock".into(), "".into(), "no address".into()]);
+        table.row(vec!["forge".into(), "".into(), "no address".into()]);
         let lines = table.render(false);
         assert_eq!(
             lines,
             [
                 "NAME     ADDRESS      STATE",
                 "studio   192.0.2.10   \x1b[32manswers\x1b[0m",
-                "dock                  no address",
+                "forge                  no address",
             ]
         );
     }

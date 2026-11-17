@@ -3,8 +3,8 @@
 # dev     the toolchain, with the checkout at /src, as the user who owns it
 # runner  the same image on a network of its own, which drives the tests
 # studio  the test host the tests set up over SSH
-# dock    a second test host, for the tests that need one to themselves
-#         (tests/e2e/run.py says which); its keys come from /seed/dock
+# forge    a second test host, for the tests that need one to themselves
+#         (tests/e2e/run.py says which); its keys come from /seed/forge
 # headscale  a Headscale server the test host can join (see below)
 # postgres   a throw-away PostgreSQL for the store's tests (rust-tests)
 # docker     a Docker engine (docker:dind) for the tests of the Docker plugin
@@ -66,7 +66,7 @@ services:
     # the checkout, which is mounted read-only.
     user: "0:0"
     networks: [e2e]
-    depends_on: [studio, dock, headscale]
+    depends_on: [studio, forge, headscale]
     volumes:
       - ..:/src:ro
       - ${ROOKERY_CI_TARGET:-target}:/src/target:ro
@@ -90,13 +90,13 @@ services:
     volumes:
       - seed:/seed:ro
 
-  dock:
+  forge:
     image: ${ROOKERY_CI_HOST_IMAGE:-rookery-ci-host}
     profiles: [e2e]
-    hostname: dock
+    hostname: forge
     networks: [e2e]
     environment:
-      ROOKERY_CI_SEED: /seed/dock
+      ROOKERY_CI_SEED: /seed/forge
     volumes:
       - seed:/seed:ro
 

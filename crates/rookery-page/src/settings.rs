@@ -262,7 +262,7 @@ mod tests {
         let settings = Settings::new(Some(scratch.path().to_owned()));
         std::fs::write(scratch.path().join("config.json"), "{not json").unwrap();
         assert_eq!(settings.get(SERVER), None);
-        assert!(settings.set(&[(SERVER, "https://dock.example")]).is_err());
+        assert!(settings.set(&[(SERVER, "https://forge.example")]).is_err());
         let left = std::fs::read_to_string(scratch.path().join("config.json")).unwrap();
         assert_eq!(left, "{not json");
     }
@@ -324,7 +324,7 @@ mod tests {
             .set(&[(SERVER, "https://studio.example"), (TOKEN, "mine")])
             .unwrap();
         for other in [
-            r#"{"server": "https://dock.example", "token": "other"}"#,
+            r#"{"server": "https://forge.example", "token": "other"}"#,
             r#"{"server": "https://studio.example", "token": "other"}"#,
         ] {
             let old = remote(scratch.path(), other);

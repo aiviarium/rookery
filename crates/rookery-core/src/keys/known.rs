@@ -309,10 +309,10 @@ mod tests {
                 .is_empty()
         );
         // A port of its own is looked up as ssh writes it.
-        let dock = Place::own(&paths, "dock").unwrap();
+        let forge = Place::own(&paths, "forge").unwrap();
         let config = serde_json::json!({"access": {"address": "192.0.2.11", "port": "2222"}});
         std::fs::write(&known_hosts, "[192.0.2.11]:2222 ssh-ed25519 AAAAdock\n").unwrap();
-        let taken = take_from_user(&paths, &store, &dock, &config, &known_hosts).unwrap();
+        let taken = take_from_user(&paths, &store, &forge, &config, &known_hosts).unwrap();
         assert_eq!(taken, ["ssh-ed25519 AAAAdock"]);
     }
 

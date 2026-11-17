@@ -2,7 +2,7 @@
 provisioner of a plugin in the workstation's own plugin folder, its page, its
 settings and its actions, and a deployment it makes as a resource, from the
 command line and through rookery serve, with the endpoints it reports and the
-commands it runs. It needs no test host, and runs on `dock` beside the
+commands it runs. It needs no test host, and runs on `forge` beside the
 modules there.
 
 With ROOKERY_E2E_DOCKER_HOST set to a Docker engine the runner may use, such as
@@ -288,17 +288,17 @@ class HostLifecycle(unittest.TestCase):
         self.assertFalse([machine for machine in machines if machine['kind'] == 'machine'], machines)
 
     def test_4_a_host_no_provisioner_made_has_nothing_to_destroy(self):
-        profile = self.station.root / 'dock.json'
+        profile = self.station.root / 'forge.json'
         profile.write_text(json.dumps({'type': 'ssh', 'access': {'address': '192.0.2.4', 'user': 'ops'}}))
-        self.rookery('host', 'import', 'dock', str(profile))
-        power = self.host('dock')['power']
+        self.rookery('host', 'import', 'forge', str(profile))
+        power = self.host('forge')['power']
         self.assertEqual((power['start'], power['stop']), (False, False))
-        refused = self.rookery('host', 'remove', 'dock', '--destroy', '--yes', check=False)
+        refused = self.rookery('host', 'remove', 'forge', '--destroy', '--yes', check=False)
         self.assertNotEqual(refused.returncode, 0)
-        self.assertIn('No provisioner made dock', refused.stderr)
-        self.assertIsNotNone(self.host('dock'))
-        self.rookery('host', 'remove', 'dock', '--yes')
-        self.assertIsNone(self.host('dock'))
+        self.assertIn('No provisioner made forge', refused.stderr)
+        self.assertIsNotNone(self.host('forge'))
+        self.rookery('host', 'remove', 'forge', '--yes')
+        self.assertIsNone(self.host('forge'))
 
 
 @needs_e2e
@@ -348,8 +348,8 @@ class Deployments(unittest.TestCase):
     def test_3_through_rookery_serve_with_a_token_asked_twice(self):
         serve = Serve(self.station)
         try:
-            body = {'provisioner': 'box', 'kind': 'deployment', 'name': 'yard', 'spec': 'yard: 1\n',
-                    'secrets': [{'name': 'bench_token', 'env': 'TOKEN'}], 'token': 'yard-1'}
+            body = {'provisioner': 'box', 'kind': 'deployment', 'name': 'depot', 'spec': 'depot: 1\n',
+                    'secrets': [{'name': 'bench_token', 'env': 'TOKEN'}], 'token': 'depot-1'}
             created = serve.call('POST', '/v1/resources', body, expect=202)
             again = serve.call('POST', '/v1/resources', body, expect=202)
             self.assertEqual((again['resource']['id'], again['job']['id']),
@@ -361,7 +361,7 @@ class Deployments(unittest.TestCase):
             rid = created['resource']['id']
             self.assertEqual(serve.call('GET', f'/v1/resources/{rid}')['state'], 'running')
             listed = serve.call('GET', '/v1/resources?kind=deployment')
-            self.assertEqual(sorted(found['name'] for found in listed), ['bench', 'yard'])
+            self.assertEqual(sorted(found['name'] for found in listed), ['bench', 'depot'])
             removed = serve.call('DELETE', f'/v1/resources/{rid}', expect=202)
             portal.stream('jobs.follow', {'id': removed['job']['id']},
                           until=lambda texts, data: any('exited' in t for t in texts if t))

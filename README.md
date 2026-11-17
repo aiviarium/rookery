@@ -9,7 +9,7 @@ A host runs XFCE on a virtual display that you open in a browser. Plugins add
 the coding agents and the tools they work with. Each host has a profile that Rookery
 installs and can apply again. Once the host runs, its page in Rookery has the
 status, sign-ins, updates and secrets. A machine you only log in to can be
-a host too: `rookery host add dock 192.0.2.4 --user ops`.
+a host too: `rookery host add forge 192.0.2.4 --user ops`.
 
 <img src="docs/public/screens/overview.png" alt="Rookery's terminal UI showing the overview of a host with its actions">
 

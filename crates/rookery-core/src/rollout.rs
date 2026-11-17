@@ -844,14 +844,14 @@ mod tests {
         };
         let (taken, skipped) = workstations(vec![
             host("studio", json!({"builder": {}})),
-            host("dock", json!({"type": "managed"})),
-            host("pier", json!({"type": "ssh"})),
+            host("forge", json!({"type": "managed"})),
+            host("annex", json!({"type": "ssh"})),
         ]);
         assert_eq!(taken.len(), 1);
         assert_eq!(taken[0].name, "studio");
         assert_eq!(
             skipped_note(&skipped).unwrap(),
-            "! Skipped 2 hosts that are neither nodes nor workstations: dock, pier"
+            "! Skipped 2 hosts that are neither nodes nor workstations: forge, annex"
         );
         assert!(skipped_note(&[]).is_none());
     }

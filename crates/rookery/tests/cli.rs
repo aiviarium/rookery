@@ -126,7 +126,7 @@ fn exit_statuses_follow_the_documented_table() {
         (&["host", "list"], 0),
         (&["-o", "json", "job", "list"], 0),
         // 1: the work failed.
-        (&["host", "show", "dock"], 1),
+        (&["host", "show", "forge"], 1),
         (&["host", "add", "studio", "192.0.2.11", "--no-contact"], 1),
         // 2: the command line was wrong.
         (&["aply", "studio"], 2),

@@ -1096,14 +1096,14 @@ fn store_of_names(store: &Store) {
         ),
         (
             kind::PROFILE,
-            "dock",
+            "forge",
             json(json!({"type": "node", "access": {"address": "192.0.2.20"}})),
         ),
         (kind::CREDENTIALS, "studio", json(json!({"ops": "made-up"}))),
         (
             kind::PROVISIONER_ENTRY,
             "lab",
-            json(json!({"type": "fake/vm", "node": "dock"})),
+            json(json!({"type": "fake/vm", "node": "forge"})),
         ),
         (
             kind::REGISTRY,
@@ -1144,7 +1144,7 @@ fn store_of_names(store: &Store) {
     store
         .add_job(&Job {
             id: "j1".into(),
-            host: "studio, dock".into(),
+            host: "studio, forge".into(),
             what: "settings".into(),
             started: rfc3339(unix_now()),
             output_path: "/tmp/j1.log".into(),
@@ -1180,9 +1180,9 @@ fn a_store_of_names_takes_ids_once(place: &Place) {
     assert_eq!(taken.copied, ["lab: api_token"]);
     assert_eq!(taken.dropped, ["api_token"]);
     let id = |kind: &str, name: &str| store.id_of(kind, OWN, name).unwrap().unwrap();
-    let (studio, dock, lab) = (
+    let (studio, forge, lab) = (
         id(kind::PROFILE, "studio"),
-        id(kind::PROFILE, "dock"),
+        id(kind::PROFILE, "forge"),
         id(kind::PROVISIONER_ENTRY, "lab"),
     );
     let (nexus, github, deploy) = (
@@ -1196,7 +1196,7 @@ fn a_store_of_names_takes_ids_once(place: &Place) {
     assert_eq!(profile["registries"], json!([nexus]));
     assert_eq!(profile["secrets"][0]["name"], github.as_str());
     assert_eq!(profile["access"]["auth"], format!("key:{deploy}"));
-    assert_eq!(json(kind::PROVISIONER_ENTRY, &lab)["node"], dock.as_str());
+    assert_eq!(json(kind::PROVISIONER_ENTRY, &lab)["node"], forge.as_str());
     assert_eq!(json(kind::CREDENTIALS, &studio)["ops"], "made-up");
     // Owned secrets are under their owners; the one all shared went once lab had a copy.
     assert_eq!(
@@ -1239,14 +1239,14 @@ fn a_store_of_names_takes_ids_once(place: &Place) {
     assert_eq!(read(kind::SPEC, resource).unwrap(), b"spec");
     let job = store.job("j1").unwrap().unwrap();
     assert_eq!(job.subject, format!("provisioner:{lab}"));
-    assert_eq!(job.host, format!("{studio}, {dock}"));
+    assert_eq!(job.host, format!("{studio}, {forge}"));
     assert_eq!(all(&store)[0].host, studio);
     // Nothing is left under a name, and every row of a thing has its label.
     let left: Vec<_> = all_names(&store)
         .into_iter()
         .filter(|(kind, _, name)| {
             kind != "meta"
-                && ["studio", "dock", "lab", "nexus", "github", "deploy"].contains(&name.as_str())
+                && ["studio", "forge", "lab", "nexus", "github", "deploy"].contains(&name.as_str())
         })
         .collect();
     assert!(left.is_empty(), "{left:?}");
@@ -1355,17 +1355,17 @@ fn renames_keep_what_belongs_and_refers(place: &Place) {
     );
 
     // A provisioner of a node, with its secret and a resource.
-    crate::profiles::Place::own(&paths, "dock")
+    crate::profiles::Place::own(&paths, "forge")
         .unwrap()
         .save(
             &paths,
             &json!({"type": "node", "access": {"address": "192.0.2.20"}}),
         )
         .unwrap();
-    let dock = crate::profiles::Place::own(&paths, "dock").unwrap();
+    let forge = crate::profiles::Place::own(&paths, "forge").unwrap();
     let entry = crate::provisioner::Entry {
         kind: "fake/vm".into(),
-        node: dock.key(),
+        node: forge.key(),
         ..Default::default()
     };
     let lab = crate::provisioner::save_entry(&paths, "lab", &entry).unwrap();
@@ -1401,14 +1401,14 @@ fn renames_keep_what_belongs_and_refers(place: &Place) {
             .unwrap()
             .unwrap()
             .node,
-        dock.key()
+        forge.key()
     );
     let held = crate::provisioner::remove_entry(&paths, &secrets, "big").unwrap_err();
     assert!(held.to_string().contains("still holds"), "{held}");
     // A host renamed keeps being the node.
-    let pier = crate::profiles::rename(&paths, &dock, "pier", false).unwrap();
-    assert_eq!(crate::provisioner::node_of(&paths, "big"), "pier");
-    assert_eq!(pier.key(), dock.key());
+    let annex = crate::profiles::rename(&paths, &forge, "annex", false).unwrap();
+    assert_eq!(crate::provisioner::node_of(&paths, "big"), "annex");
+    assert_eq!(annex.key(), forge.key());
 
     // Removed, the provisioner takes what belongs to it along.
     for kept in crate::resource::list(&paths).unwrap() {
@@ -1905,7 +1905,7 @@ fn sealed_profiles_of_an_older_rookery_take_the_names_of_now(place: &Place) {
         json!({"level": level, "profile": "cloud", "access": {"address": "192.0.2.4"}}).to_string()
     };
     store
-        .write(kind::PROFILE, OWN, "dock", old("reachable").as_bytes())
+        .write(kind::PROFILE, OWN, "forge", old("reachable").as_bytes())
         .unwrap();
     store
         .write(kind::PROFILE, OWN, "studio", old("workstation").as_bytes())
@@ -1914,13 +1914,13 @@ fn sealed_profiles_of_an_older_rookery_take_the_names_of_now(place: &Place) {
         .write(
             kind::PROFILE,
             "served:http://192.0.2.7:7777",
-            "yard",
+            "depot",
             old("controller").as_bytes(),
         )
         .unwrap();
     let now = br#"{"type":"ssh","target":"laptop"}"#;
-    store.write(kind::PROFILE, OWN, "pier", now).unwrap();
-    let before = stored_row(&store, kind::PROFILE, OWN, "pier");
+    store.write(kind::PROFILE, OWN, "annex", now).unwrap();
+    let before = stored_row(&store, kind::PROFILE, OWN, "annex");
     assert_eq!(crate::import::take_in_names(&store).unwrap(), 3);
     let read = |scope: &str, name: &str| {
         store
@@ -1929,7 +1929,7 @@ fn sealed_profiles_of_an_older_rookery_take_the_names_of_now(place: &Place) {
             .unwrap()
     };
     assert_eq!(
-        read(OWN, "dock"),
+        read(OWN, "forge"),
         json!({"type": "ssh", "target": "cloud", "access": {"address": "192.0.2.4"}})
     );
     assert_eq!(
@@ -1937,11 +1937,11 @@ fn sealed_profiles_of_an_older_rookery_take_the_names_of_now(place: &Place) {
         json!({"target": "cloud", "access": {"address": "192.0.2.4"}})
     );
     assert_eq!(
-        read("served:http://192.0.2.7:7777", "yard")["type"],
+        read("served:http://192.0.2.7:7777", "depot")["type"],
         "managed"
     );
-    assert!(stored_row(&store, kind::PROFILE, OWN, "dock").sealed);
-    assert_eq!(stored_row(&store, kind::PROFILE, OWN, "pier"), before);
+    assert!(stored_row(&store, kind::PROFILE, OWN, "forge").sealed);
+    assert_eq!(stored_row(&store, kind::PROFILE, OWN, "annex"), before);
     assert!(
         store
             .names(kind::META, OWN)
@@ -2007,7 +2007,7 @@ fn filled(store: &Store) {
     let row = stored_row(&sealed, kind::SECRET, OWN, "api");
     store.backend().put_state(&row).unwrap();
     store
-        .write(kind::PROFILE, "served:http://192.0.2.7:7777", "yard", b"{}")
+        .write(kind::PROFILE, "served:http://192.0.2.7:7777", "depot", b"{}")
         .unwrap();
 }
 

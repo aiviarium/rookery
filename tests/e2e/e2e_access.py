@@ -4,7 +4,7 @@ rookery's own key, a key added to the key ring, a password through rookery's
 askpass helper, a changed host key refused until it is accepted, and a
 rotation of rookery's key. No profile is applied.
 
-It runs on `dock` before e2e_own_key, which wants that host as a provider
+It runs on `forge` before e2e_own_key, which wants that host as a provider
 hands it over: at the end the operator's password, its authorized_keys, the
 provided key and the host's SSH host keys are as they were."""
 import json

@@ -267,9 +267,9 @@ class FromRookery052(unittest.TestCase):
         studio = json.loads(first.stdout)
         self.assertNotIn('level', studio)
         self.assertNotIn('tailscale_auth_key', studio)
-        pier = json.loads(self.station.rookery('host', 'export', 'pier').stdout)
-        self.assertEqual(pier['type'], 'managed')
-        self.assertTrue(pier['ansible_vars']['rookery_tailnet_optional'])
+        annex = json.loads(self.station.rookery('host', 'export', 'annex').stdout)
+        self.assertEqual(annex['type'], 'managed')
+        self.assertTrue(annex['ansible_vars']['rookery_tailnet_optional'])
         # The next start finds nothing to convert or copy.
         copy.unlink()
         again = self.station.rookery('host', 'export', 'studio')

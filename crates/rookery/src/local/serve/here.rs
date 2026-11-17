@@ -194,8 +194,8 @@ mod tests {
     #[test]
     fn a_client_in_the_process_calls_streams_and_runs_a_job_to_its_end() {
         let (_dir, paths) = scratch();
-        let profile = json!({"hostname": "dock", "builder": {}, "access": {"address": "192.0.2.7", "link": ["sh", "-c", "exit 1"]}});
-        rookery_core::profiles::Place::own(&paths, "dock")
+        let profile = json!({"hostname": "forge", "builder": {}, "access": {"address": "192.0.2.7", "link": ["sh", "-c", "exit 1"]}});
+        rookery_core::profiles::Place::own(&paths, "forge")
             .unwrap()
             .save(&paths, &profile)
             .unwrap();
@@ -224,14 +224,14 @@ mod tests {
                 .call("hosts.list", None, json!({}), None)
                 .await
                 .unwrap();
-            assert_eq!(hosts[0]["name"], "dock", "{hosts}");
+            assert_eq!(hosts[0]["name"], "forge", "{hosts}");
 
             // A job, followed on its stream to its end.
             let body = json!({"arguments": {"name": "studio", "hostname": "yes"}});
             let answer = client
                 .send(
                     "POST",
-                    "/v1/hosts/dock/actions/rename",
+                    "/v1/hosts/forge/actions/rename",
                     &[("content-type", "application/json")],
                     body.to_string().into(),
                 )
@@ -290,7 +290,7 @@ mod tests {
     #[test]
     fn the_screens_list_and_open_a_host_through_it() {
         let (dir, paths) = scratch();
-        for (name, address) in [("studio", "192.0.2.10"), ("dock", "192.0.2.11")] {
+        for (name, address) in [("studio", "192.0.2.10"), ("forge", "192.0.2.11")] {
             let profile = json!({"hostname": name, "builder": {}, "access": {"address": address, "link": ["sh", "-c", "exit 1"]}});
             rookery_core::profiles::Place::own(&paths, name)
                 .unwrap()
@@ -309,7 +309,7 @@ mod tests {
             rookery_page::settings::Settings::new(Some(kept.clone())),
         );
         let mut app = rookery_page::App::new();
-        app.open_when_listed("dock");
+        app.open_when_listed("forge");
         let started = std::time::Instant::now();
         let shown = loop {
             rookery_page::pump();

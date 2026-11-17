@@ -267,41 +267,41 @@ async fn a_host_lives_its_whole_life_on_a_simulated_server() {
         .unwrap();
 
     // A new host, made by the simulated provisioner and applied.
-    let profile = json!({"hostname": "dock", "builder": {}, "access": {"user": "ops"}});
+    let profile = json!({"hostname": "forge", "builder": {}, "access": {"user": "ops"}});
     server
-        .call("PUT", "/v1/hosts/dock/profile", Some(profile))
+        .call("PUT", "/v1/hosts/forge/profile", Some(profile))
         .await;
     assert_eq!(
         change_of(&mut events, "host", "added").await["host"],
-        "dock"
+        "forge"
     );
-    let made = json!({"provisioner": "sim", "kind": "machine", "host": "dock"});
+    let made = json!({"provisioner": "sim", "kind": "machine", "host": "forge"});
     let acted = server.call("POST", "/v1/resources", Some(made)).await;
     let machine = acted["resource"]["id"].as_str().unwrap().to_owned();
     let (_, output) = server.job_done(&acted).await;
-    assert!(output.contains("✓ dock is applied"), "{output}");
+    assert!(output.contains("✓ forge is applied"), "{output}");
     assert_eq!(
         change_of(&mut events, "resource", "created").await["resource"],
         machine.as_str()
     );
-    let dock = server
-        .host_until("dock", |host| host["applied"].is_string())
+    let forge = server
+        .host_until("forge", |host| host["applied"].is_string())
         .await;
     assert!(
-        dock["address"].as_str().unwrap().starts_with("192.0.2."),
-        "{dock}"
+        forge["address"].as_str().unwrap().starts_with("192.0.2."),
+        "{forge}"
     );
-    assert_eq!(dock["power"]["state"], "running");
+    assert_eq!(forge["power"]["state"], "running");
 
     // Applied again, with an action and a session of its controller.
-    let (_, output) = server.act("dock", "apply").await;
-    assert!(output.contains("PLAY RECAP dock"), "{output}");
-    let (_, output) = server.act("dock", "status").await;
-    assert!(output.contains("dock: simulated"), "{output}");
+    let (_, output) = server.act("forge", "apply").await;
+    assert!(output.contains("PLAY RECAP forge"), "{output}");
+    let (_, output) = server.act("forge", "status").await;
+    assert!(output.contains("forge: simulated"), "{output}");
     let started = portal
         .call(
             "sessions.start",
-            Some("dock"),
+            Some("forge"),
             json!({"wait": "10s"}),
             Some(json!({"kind": "process", "command": "hostname; echo hello; rm -rf /"})),
         )
@@ -310,7 +310,7 @@ async fn a_host_lives_its_whole_life_on_a_simulated_server() {
     let said = |key: &str| {
         String::from_utf8(rookery_api::unb64(started[key].as_str().unwrap()).unwrap()).unwrap()
     };
-    assert_eq!(said("stdout_b64"), "dock\nhello\n");
+    assert_eq!(said("stdout_b64"), "forge\nhello\n");
     assert!(
         said("stderr_b64").contains("rm: not a command"),
         "{started}"
@@ -318,7 +318,7 @@ async fn a_host_lives_its_whole_life_on_a_simulated_server() {
     assert_eq!(started["exit_code"], 127);
     // Nothing of the machine it runs on is the host's.
     let processes = server
-        .call("GET", "/v1/hosts/dock/controller/processes", None)
+        .call("GET", "/v1/hosts/forge/controller/processes", None)
         .await;
     let state = server.state.to_string_lossy().into_owned();
     let commands: Vec<&str> = processes
@@ -332,20 +332,20 @@ async fn a_host_lives_its_whole_life_on_a_simulated_server() {
         "{commands:?}"
     );
     let port = server
-        .send("GET", "/v1/hosts/dock/controller/ports/22", None)
+        .send("GET", "/v1/hosts/forge/controller/ports/22", None)
         .await;
     let said = String::from_utf8_lossy(&port.body);
     assert!(said.contains("no ports to reach"), "{said}");
 
     // Stopped, it does not answer; started, it does again.
-    server.act("dock", "stop").await;
+    server.act("forge", "stop").await;
     let stopped = server
-        .host_until("dock", |host| host["reachable"] == false)
+        .host_until("forge", |host| host["reachable"] == false)
         .await;
     assert_eq!(stopped["power"]["state"], "stopped");
-    server.act("dock", "start").await;
+    server.act("forge", "start").await;
     server
-        .host_until("dock", |host| host["reachable"] == true)
+        .host_until("forge", |host| host["reachable"] == true)
         .await;
 
     // Removed with its machine.
@@ -357,10 +357,10 @@ async fn a_host_lives_its_whole_life_on_a_simulated_server() {
         change_of(&mut events, "resource", "removed").await["resource"],
         machine.as_str()
     );
-    server.act("dock", "remove").await;
+    server.act("forge", "remove").await;
     assert_eq!(
         change_of(&mut events, "host", "removed").await["host"],
-        "dock"
+        "forge"
     );
     let hosts = server.call("GET", "/v1/hosts", None).await;
     assert_eq!(hosts.as_array().unwrap().len(), 1, "{hosts}");

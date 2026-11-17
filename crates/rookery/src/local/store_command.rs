@@ -466,7 +466,7 @@ mod tests {
         s.run(&["encrypt"]).unwrap();
         let store = store::shared(&s.paths).unwrap();
         store
-            .write(kind::PROFILE, "served:http://192.0.2.7:7777", "yard", b"{}")
+            .write(kind::PROFILE, "served:http://192.0.2.7:7777", "depot", b"{}")
             .unwrap();
         store
             .put("ui", "k", &serde_json::json!(1), store::When::Always)

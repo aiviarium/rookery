@@ -3,7 +3,7 @@ address is reachable and refuses what needs more, install-controller puts
 rookeryd and box on it without the rest of the role, and sessions, tasks and
 secrets then work there without a full apply.
 
-It runs on `dock` after e2e_access and before e2e_own_key, with one playbook
+It runs on `forge` after e2e_access and before e2e_own_key, with one playbook
 run. At the end the controller's files are gone again, rookeryd is stopped and
 the key it handed over is taken back, so e2e_own_key finds the host as a
 provider hands it over. The container has no systemd: its init starts rookeryd

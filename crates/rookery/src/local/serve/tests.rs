@@ -2772,11 +2772,11 @@ async fn a_provisioner_is_renamed_with_everything_that_names_it() {
         .save(paths)
         .unwrap();
     // A node's provisioner stays the node's.
-    let dock = rookery_core::store::new_id();
+    let forge = rookery_core::store::new_id();
     let mut offered = rookery_core::provisioner::entry(paths, "vm")
         .unwrap()
         .unwrap();
-    offered.node = dock.clone();
+    offered.node = forge.clone();
     rookery_core::provisioner::save_entry(paths, "vm", &offered).unwrap();
 
     // A name that is taken or no name is refused before anything starts.
@@ -2823,7 +2823,7 @@ async fn a_provisioner_is_renamed_with_everything_that_names_it() {
         .unwrap();
     assert_eq!(
         (entry.id.as_str(), entry.kind.as_str(), entry.node.as_str()),
-        (vm.as_str(), "fake/vm", dock.as_str())
+        (vm.as_str(), "fake/vm", forge.as_str())
     );
     assert_eq!(entry.settings["server"], "https://192.0.2.10:8443");
     assert_eq!(
@@ -3717,19 +3717,19 @@ async fn hosts_and_resources_that_change_are_told_on_the_events_stream() {
         change_of(&mut events, "host", "changed").await["host"],
         "studio"
     );
-    let rename = json!({"arguments": {"name": "dock", "hostname": "no"}});
+    let rename = json!({"arguments": {"name": "forge", "hostname": "no"}});
     let (status, acted) = send(client, "POST", "/v1/hosts/studio/actions/rename", rename).await;
     assert_eq!(status, 202, "{acted}");
     assert_eq!(
         change_of(&mut events, "host", "renamed").await,
-        json!({"source": "host", "host": "dock", "change": "renamed", "from": "studio"})
+        json!({"source": "host", "host": "forge", "change": "renamed", "from": "studio"})
     );
     job_done(client, acted["job"]["id"].as_str().unwrap()).await;
-    let (status, said) = send(client, "DELETE", "/v1/hosts/dock", Value::Null).await;
+    let (status, said) = send(client, "DELETE", "/v1/hosts/forge", Value::Null).await;
     assert_eq!(status, 200, "{said}");
     assert_eq!(
         change_of(&mut events, "host", "removed").await["host"],
-        "dock"
+        "forge"
     );
 
     send(
@@ -3784,7 +3784,7 @@ async fn hosts_and_resources_that_change_are_told_on_the_events_stream() {
         .unwrap();
     let follow = json!({"kv": ["ui"]}).to_string();
     quiet.send(Frame::Text(follow.into())).await.unwrap();
-    rookery_core::profiles::Place::own(paths, "pier")
+    rookery_core::profiles::Place::own(paths, "annex")
         .unwrap()
         .save(paths, &profile)
         .unwrap();
@@ -3953,7 +3953,7 @@ async fn a_caller_on_this_machine_takes_the_host_key_its_user_knows() {
     let known_hosts = dir.path().join("known_hosts");
     std::fs::write(&known_hosts, "192.0.2.8 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEdockdockdockdockdockdockdockdockdockdockdo\n").unwrap();
     *state.known_hosts.lock().unwrap() = Some(known_hosts);
-    for name in ["dock", "studio"] {
+    for name in ["forge", "studio"] {
         rookery_core::profiles::Place::own(&state.paths, name)
             .unwrap()
             .save(
@@ -3973,7 +3973,7 @@ async fn a_caller_on_this_machine_takes_the_host_key_its_user_knows() {
     let answer = far
         .send(
             "POST",
-            "/v1/hosts/dock/actions/host-key",
+            "/v1/hosts/forge/actions/host-key",
             &[("authorization", "Bearer s3cret-token")],
             Default::default(),
         )
@@ -4143,7 +4143,7 @@ async fn a_host_added_by_its_address_has_a_type_and_actions_to_match() {
     let client = &mut client;
     // Its type and how it is reached are all a host that is not a workstation needs.
     let ssh = json!({"type": "ssh", "access": {"address": "192.0.2.8", "user": "ops"}});
-    let (status, said) = send(client, "PUT", "/v1/hosts/dock/profile", ssh).await;
+    let (status, said) = send(client, "PUT", "/v1/hosts/forge/profile", ssh).await;
     assert_eq!(status, 200, "{said}");
     for (refused, why) in [
         (
@@ -4158,18 +4158,18 @@ async fn a_host_added_by_its_address_has_a_type_and_actions_to_match() {
         ),
         (json!({"access": {"address": "192.0.2.9"}}), "builder"),
     ] {
-        let (status, said) = send(client, "PUT", "/v1/hosts/pier/profile", refused).await;
+        let (status, said) = send(client, "PUT", "/v1/hosts/annex/profile", refused).await;
         assert_eq!(status, 400, "{said}");
         assert!(
             said["error"]["message"].as_str().unwrap().contains(why),
             "{said}"
         );
     }
-    let (_, dock) = send(client, "GET", "/v1/hosts/dock", Value::Null).await;
-    assert_eq!(dock["type"], "ssh", "{dock}");
+    let (_, forge) = send(client, "GET", "/v1/hosts/forge", Value::Null).await;
+    assert_eq!(forge["type"], "ssh", "{forge}");
 
     // rookery's own actions say what the type allows, and how to change it.
-    let (_, actions) = send(client, "GET", "/v1/hosts/dock/actions", Value::Null).await;
+    let (_, actions) = send(client, "GET", "/v1/hosts/forge/actions", Value::Null).await;
     let find = |name: &str| {
         actions
             .as_array()
@@ -4187,14 +4187,14 @@ async fn a_host_added_by_its_address_has_a_type_and_actions_to_match() {
     for (name, why) in [
         ("apply", "neither a node nor a workstation"),
         ("seed", "not a workstation"),
-        ("secrets", "rookery run dock install-controller"),
+        ("secrets", "rookery run forge install-controller"),
     ] {
         let action = find(name);
         assert_eq!(action["available"], false, "{action}");
         assert!(action["why"].as_str().unwrap().contains(why), "{action}");
     }
     // Asked anyway, it is refused with the reason, before any job.
-    let (status, said) = send(client, "POST", "/v1/hosts/dock/actions/apply", Value::Null).await;
+    let (status, said) = send(client, "POST", "/v1/hosts/forge/actions/apply", Value::Null).await;
     assert_eq!(
         (status, &said["error"]["code"]),
         (501, &json!("not_available"))
@@ -4205,7 +4205,7 @@ async fn a_host_added_by_its_address_has_a_type_and_actions_to_match() {
             .unwrap()
             .contains("or a workstation in its set-up")
     );
-    let (status, _) = send(client, "POST", "/v1/hosts/dock/actions/seed", Value::Null).await;
+    let (status, _) = send(client, "POST", "/v1/hosts/forge/actions/seed", Value::Null).await;
     assert_eq!(status, 501);
 
     // A roll-out leaves it, and says so.
@@ -4221,21 +4221,21 @@ async fn a_host_added_by_its_address_has_a_type_and_actions_to_match() {
     let (output, code) = job_ended(&served.socket, &id).await;
     assert_eq!(code, 0, "{output}");
     assert!(
-        output.contains("Skipped 1 host that is neither a node nor a workstation: dock"),
+        output.contains("Skipped 1 host that is neither a node nor a workstation: forge"),
         "{output}"
     );
 
     // A managed host is offered an update of its controller, a
     // workstation none, as applying installs it.
-    let mut profile = said_profile(client, "dock").await;
+    let mut profile = said_profile(client, "forge").await;
     profile["type"] = json!("managed");
     assert_eq!(
-        send(client, "PUT", "/v1/hosts/dock/profile", profile.clone())
+        send(client, "PUT", "/v1/hosts/forge/profile", profile.clone())
             .await
             .0,
         200
     );
-    let (_, actions) = send(client, "GET", "/v1/hosts/dock/actions", Value::Null).await;
+    let (_, actions) = send(client, "GET", "/v1/hosts/forge/actions", Value::Null).await;
     let install = actions
         .as_array()
         .unwrap()
@@ -4247,7 +4247,7 @@ async fn a_host_added_by_its_address_has_a_type_and_actions_to_match() {
     profile.as_object_mut().unwrap().remove("type");
     profile["builder"] = json!({});
     assert_eq!(
-        send(client, "PUT", "/v1/hosts/dock/profile", profile)
+        send(client, "PUT", "/v1/hosts/forge/profile", profile)
             .await
             .0,
         200
@@ -4255,7 +4255,7 @@ async fn a_host_added_by_its_address_has_a_type_and_actions_to_match() {
     let (status, said) = send(
         client,
         "POST",
-        "/v1/hosts/dock/actions/install-controller",
+        "/v1/hosts/forge/actions/install-controller",
         Value::Null,
     )
     .await;
@@ -4264,7 +4264,7 @@ async fn a_host_added_by_its_address_has_a_type_and_actions_to_match() {
         said["error"]["message"]
             .as_str()
             .unwrap()
-            .contains("rookery apply dock")
+            .contains("rookery apply forge")
     );
 }
 
@@ -4335,7 +4335,7 @@ async fn a_host_whose_controller_does_not_answer_says_why_and_keeps_rookerys_own
     let said = "ssh: connect to host 192.0.2.11 port 22: Network is unreachable";
     let profile = json!({"type": "managed", "access": {"address": "192.0.2.11",
         "link": ["sh", "-c", format!("echo '{said}' >&2; exit 255")]}});
-    rookery_core::profiles::Place::own(&served.state.paths, "dock")
+    rookery_core::profiles::Place::own(&served.state.paths, "forge")
         .unwrap()
         .save(&served.state.paths, &profile)
         .unwrap();
@@ -4352,7 +4352,7 @@ async fn a_host_whose_controller_does_not_answer_says_why_and_keeps_rookerys_own
             send(
                 &mut client,
                 "GET",
-                "/v1/hosts/dock/controller/version",
+                "/v1/hosts/forge/controller/version",
                 Value::Null,
             )
             .await
@@ -4371,7 +4371,7 @@ async fn a_host_whose_controller_does_not_answer_says_why_and_keeps_rookerys_own
 
     // rookery's own actions are listed; what goes through the controller is not
     // available, with the reason.
-    let (status, actions) = send(client, "GET", "/v1/hosts/dock/actions", Value::Null).await;
+    let (status, actions) = send(client, "GET", "/v1/hosts/forge/actions", Value::Null).await;
     assert_eq!(status, 200, "{actions}");
     let find = |name: &str| {
         actions
@@ -4397,7 +4397,7 @@ async fn a_host_whose_controller_does_not_answer_says_why_and_keeps_rookerys_own
     let (status, said) = send(
         client,
         "POST",
-        "/v1/hosts/dock/actions/secrets",
+        "/v1/hosts/forge/actions/secrets",
         Value::Null,
     )
     .await;
@@ -5142,7 +5142,7 @@ async fn a_profile_does_not_say_how_ansible_reaches_the_host() {
     // A profile saved before still lists and reads.
     let paths = &served.state.paths;
     paths.prepare().unwrap();
-    rookery_core::profiles::Place::own(paths, "dock")
+    rookery_core::profiles::Place::own(paths, "forge")
         .unwrap()
         .save(
             paths,
@@ -5152,8 +5152,8 @@ async fn a_profile_does_not_say_how_ansible_reaches_the_host() {
         .unwrap();
     let (status, listed) = send(&mut client, "GET", "/v1/hosts", Value::Null).await;
     assert_eq!(status, 200, "{listed}");
-    assert!(listed.to_string().contains("\"dock\""), "{listed}");
-    let (status, profile) = send(&mut client, "GET", "/v1/hosts/dock/profile", Value::Null).await;
+    assert!(listed.to_string().contains("\"forge\""), "{listed}");
+    let (status, profile) = send(&mut client, "GET", "/v1/hosts/forge/profile", Value::Null).await;
     assert_eq!(status, 200, "{profile}");
 }
 
@@ -5449,41 +5449,41 @@ async fn a_host_that_declares_its_controller_stops_it_asks_the_controller() {
     let paths = &served.state.paths;
     let profile = json!({"type": "managed", "access": {"address": "192.0.2.7", "link": ["sh", "-c", "exit 1"]},
                          "power": {"stop": {"by": "controller"}}});
-    let (status, said) = send(client, "PUT", "/v1/hosts/dock/profile", profile).await;
+    let (status, said) = send(client, "PUT", "/v1/hosts/forge/profile", profile).await;
     assert_eq!(status, 200, "{said}");
     let (status, said) = send(
         client,
         "PUT",
-        "/v1/hosts/yard/profile",
+        "/v1/hosts/depot/profile",
         json!({"type": "managed", "access": {"address": "192.0.2.8"}, "power": {"stop": {"by": "magic"}}}),
     )
     .await;
     assert_eq!(status, 400, "{said}");
     assert!(
-        rookery_core::profiles::Place::own(paths, "yard")
+        rookery_core::profiles::Place::own(paths, "depot")
             .unwrap()
             .load(paths)
             .unwrap()
             .is_none()
     );
-    let (_, host) = send(client, "GET", "/v1/hosts/dock", Value::Null).await;
+    let (_, host) = send(client, "GET", "/v1/hosts/forge", Value::Null).await;
     assert_eq!(
         host["power"],
         json!({"start": false, "stop": true, "state": "unknown", "stop_by": "controller"})
     );
     // Its controller does not answer, so it cannot be asked to shut the host down.
-    let stop = host_action(client, "dock", "stop").await;
+    let stop = host_action(client, "forge", "stop").await;
     assert_eq!(stop["available"], false, "{stop}");
     assert!(
         stop["why"]
             .as_str()
             .unwrap()
-            .starts_with("The controller on dock does not answer"),
+            .starts_with("The controller on forge does not answer"),
         "{stop}"
     );
     assert_eq!(stop["arguments"][0]["name"], "force");
     assert_eq!(stop["role"], "operate");
-    let (status, said) = send(client, "POST", "/v1/hosts/dock/actions/stop", Value::Null).await;
+    let (status, said) = send(client, "POST", "/v1/hosts/forge/actions/stop", Value::Null).await;
     assert_eq!(status, 501, "{said}");
 }
 
@@ -5676,15 +5676,15 @@ async fn an_apply_records_the_device_its_host_reports_on_the_tailnet() {
         json!({"hostname": "studio", "builder": {}, "access": {"user": "ops", "link": command}});
     place.save(&paths, &config).unwrap();
     // A rename with the hostname waits for this apply.
-    let (url, asked) = fake_control(200, json!({"node": {"id": "12", "givenName": "pier"}}));
+    let (url, asked) = fake_control(200, json!({"node": {"id": "12", "givenName": "annex"}}));
     on_headscale(&paths, &url);
-    let place = rookery_core::profiles::rename(&paths, &place, "pier", true).unwrap();
-    let pier = rookery_core::host::Host::load_at(&paths, place.clone()).unwrap();
+    let place = rookery_core::profiles::rename(&paths, &place, "annex", true).unwrap();
+    let annex = rookery_core::host::Host::load_at(&paths, place.clone()).unwrap();
     let mut out = vec![];
     let settled = {
         let paths = paths.clone();
         tokio::task::spawn_blocking(move || {
-            rookery_core::apply::settle_with(&paths, &pier, &mut out)
+            rookery_core::apply::settle_with(&paths, &annex, &mut out)
                 .map(|_| out)
                 .map_err(|error| error.to_string())
         })
@@ -5693,14 +5693,14 @@ async fn an_apply_records_the_device_its_host_reports_on_the_tailnet() {
     };
     let out = String::from_utf8(settled.unwrap()).unwrap();
     assert!(
-        out.contains("✓ Renamed pier's device on the tailnet from studio.hs.example.org to pier.hs.example.org"),
+        out.contains("✓ Renamed annex's device on the tailnet from studio.hs.example.org to annex.hs.example.org"),
         "{out}"
     );
     assert_eq!(
         *asked.lock().unwrap(),
-        ["POST /api/v1/node/12/rename/pier HTTP/1.1"]
+        ["POST /api/v1/node/12/rename/annex HTTP/1.1"]
     );
     let kept = rookery_core::tailnet::Kept::of(&paths, &place).unwrap();
     assert_eq!(kept.rename, None);
-    assert_eq!(kept.device.unwrap().dns_name, "pier.hs.example.org");
+    assert_eq!(kept.device.unwrap().dns_name, "annex.hs.example.org");
 }

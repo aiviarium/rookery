@@ -38,7 +38,7 @@ The screens, the commands and the API all use the same check in Rookery. An acti
 A machine you can already log in to is added by its address, and Rookery leaves it as it is.
 
 ```bash
-rookery host add dock 192.0.2.4 --user ops
+rookery host add forge 192.0.2.4 --user ops
 ```
 
 | Option | Default | For |
@@ -56,13 +56,13 @@ Then Rookery asks the host what it is. A machine that Rookery set up before has 
 A workstation or a node keeps its profile on the host as well. Rookery offers to [adopt](/docs/use/moving) it from there:
 
 ```bash
-rookery host adopt dock
+rookery host adopt forge
 ```
 
 A host with Rookery's controller alone has nothing more to keep, and Rookery offers to save its type:
 
 ```bash
-rookery host set dock type=managed
+rookery host set forge type=managed
 ```
 
 `rookery host set HOST type=TYPE` only changes the profile here. A host's page says the same when its controller reports more than its profile says. Rookery refuses to install the controller alone on a host that is a workstation or a node, whatever its profile here says. It asks the host's controller first, and the playbook checks the host's own record and the profile it keeps.
@@ -74,7 +74,7 @@ Over the API, `hosts.save` takes a profile with only the type and `access`:
 ```bash
 curl --unix-socket "$XDG_RUNTIME_DIR/rookery/serve.sock" -X PUT \
   -d '{"type": "ssh", "access": {"address": "192.0.2.4", "user": "ops"}}' \
-  http://rookery/v1/hosts/dock/profile
+  http://rookery/v1/hosts/forge/profile
 ```
 
 The host's `trust-key` action then installs the server's key, with a password used once in its arguments ([Actions](/docs/extend/serve#actions)).
@@ -86,7 +86,7 @@ A server that hosts Incus or Docker machines is a [node](/docs/use/nodes). Rooke
 ## Installing the controller
 
 ```bash
-rookery run dock install-controller
+rookery run forge install-controller
 ```
 
 The controller is rookeryd and box with the files they read, from the same part of the role that a full apply runs. Nothing else of a workstation is installed: no accounts, desktop, agents or plugins. The SSH user is the account sessions run as, and its home is where the file calls may go. The host's type becomes `managed`, and its actions are status, update, reboot and secrets.

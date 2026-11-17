@@ -119,7 +119,7 @@ class Handler(BaseHTTPRequestHandler):
         server.events.append(('client-cert', bool(self.connection.getpeercert())))
         if url.path == '/1.0':
             return self.answer(200, {'auth': 'trusted' if server.trusted else 'untrusted', 'api_version': '1.0',
-                                     'environment': {'server_version': '6.18', 'server_name': 'dock',
+                                     'environment': {'server_version': '6.18', 'server_name': 'forge',
                                                      'kernel': 'Linux', 'kernel_version': '6.17.0',
                                                      'storage_supported_drivers': [{'name': 'zfs'}, {'name': 'dir'}]},
                                      'api_extensions': server.extensions})
@@ -525,7 +525,7 @@ class IncusPluginTests(unittest.TestCase):
         self.assertEqual(answer['values'], {'pool': ['default', 'disk', 'fast'], 'network': ['eth0', 'incusbr0'],
                                             'instance': []})
         rows = {row['label']: row['value'] for row in answer['details']}
-        self.assertEqual((rows['Name'], rows['Storage'], rows['Kernel']), ('dock', 'zfs, dir', 'Linux 6.17.0'))
+        self.assertEqual((rows['Name'], rows['Storage'], rows['Kernel']), ('forge', 'zfs, dir', 'Linux 6.17.0'))
 
     def test_status_gives_the_items_of_each_collection_as_rows(self):
         gib = 1024 ** 3

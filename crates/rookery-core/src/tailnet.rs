@@ -1576,7 +1576,7 @@ mod tests {
         let listed = json!([
             {"id": "111", "nodeId": "nSTUDIO", "name": "studio.example.ts.net", "hostname": "studio", "addresses": ["100.64.0.7"]},
             {"id": "222", "nodeId": "nSTUDIO1", "name": "studio-1.example.ts.net", "hostname": "studio", "addresses": ["100.64.0.9"]},
-            {"id": "333", "nodeId": "nDOCK", "name": "dock.example.ts.net", "hostname": "dock", "addresses": ["100.64.0.8"]},
+            {"id": "333", "nodeId": "nFORGE", "name": "forge.example.ts.net", "hostname": "forge", "addresses": ["100.64.0.8"]},
         ]);
 
         // At its address: that device alone, though two have its hostname.
@@ -1621,7 +1621,7 @@ mod tests {
         // None has its address or hostname: nothing to remove.
         let host = studio(
             &paths,
-            json!({"hostname": "pier", "access": {"address": "192.0.2.10"}}),
+            json!({"hostname": "annex", "access": {"address": "192.0.2.10"}}),
         );
         let (url, _seen) = fake(vec![tailscale_list(listed)]);
         let said =
@@ -1634,14 +1634,14 @@ mod tests {
         // On Headscale, by its MagicDNS name, the node's given name.
         let host = studio(
             &paths,
-            json!({"hostname": "pier", "access": {"address": "studio.hs.example.org"}}),
+            json!({"hostname": "annex", "access": {"address": "studio.hs.example.org"}}),
         );
         let (url, seen) = fake(vec![
             (
                 200,
                 json!({"nodes": [
                     {"id": "12", "name": "studio", "givenName": "studio", "ipAddresses": ["100.64.0.7"]},
-                    {"id": "13", "name": "dock", "givenName": "dock", "ipAddresses": ["100.64.0.8"]},
+                    {"id": "13", "name": "forge", "givenName": "forge", "ipAddresses": ["100.64.0.8"]},
                 ]}),
             ),
             (200, json!({})),
@@ -1680,41 +1680,41 @@ mod tests {
         );
 
         // A rename with the hostname leaves the device for the apply.
-        let place = crate::profiles::rename(&paths, &host.place, "pier", true).unwrap();
+        let place = crate::profiles::rename(&paths, &host.place, "annex", true).unwrap();
         let kept = Kept::of(&paths, &place).unwrap();
-        assert_eq!(kept.rename.as_deref(), Some("pier"));
+        assert_eq!(kept.rename.as_deref(), Some("annex"));
         assert_eq!(kept.device.as_ref(), Some(&reported));
-        let pier = crate::host::Host::load_at(&paths, place.clone()).unwrap();
+        let annex = crate::host::Host::load_at(&paths, place.clone()).unwrap();
 
         // A refusal keeps the rename for the next apply.
         let (url, _seen) = fake(vec![(403, json!({"message": "not enough permissions"}))]);
         let lines =
-            after_apply_at(&control(None, &url), &paths, &pier, Some(reported.clone())).unwrap();
-        assert!(lines[0].starts_with("! pier's device on the tailnet is still studio.example.ts.net: Tailscale refused to rename the device (HTTP 403)"), "{lines:?}");
+            after_apply_at(&control(None, &url), &paths, &annex, Some(reported.clone())).unwrap();
+        assert!(lines[0].starts_with("! annex's device on the tailnet is still studio.example.ts.net: Tailscale refused to rename the device (HTTP 403)"), "{lines:?}");
         assert_eq!(
             Kept::of(&paths, &place).unwrap().rename.as_deref(),
-            Some("pier")
+            Some("annex")
         );
 
         let (url, seen) = fake(vec![(200, json!({}))]);
         let lines =
-            after_apply_at(&control(None, &url), &paths, &pier, Some(reported.clone())).unwrap();
+            after_apply_at(&control(None, &url), &paths, &annex, Some(reported.clone())).unwrap();
         let asked = seen.recv().unwrap();
         assert_eq!(asked.line, "POST /api/v2/device/nFAKE1CNTRL/name HTTP/1.1");
-        assert_eq!(asked.body, json!({"name": "pier"}));
+        assert_eq!(asked.body, json!({"name": "annex"}));
         assert_eq!(
             lines,
             [
-                "✓ Renamed pier's device on the tailnet from studio.example.ts.net to pier.example.ts.net",
-                "pier is reached at pier.example.ts.net now",
+                "✓ Renamed annex's device on the tailnet from studio.example.ts.net to annex.example.ts.net",
+                "annex is reached at annex.example.ts.net now",
             ]
         );
         let kept = Kept::of(&paths, &place).unwrap();
         assert_eq!(kept.rename, None);
-        assert_eq!(kept.device.unwrap().dns_name, "pier.example.ts.net");
+        assert_eq!(kept.device.unwrap().dns_name, "annex.example.ts.net");
         assert_eq!(
             place.load(&paths).unwrap().unwrap()["access"]["address"],
-            "pier.example.ts.net"
+            "annex.example.ts.net"
         );
 
         // On Headscale the new name is in the path.
@@ -1728,7 +1728,7 @@ mod tests {
             &control(Some(&url), ""),
             &paths,
             &attic,
-            Some(device("12", "pier.hs.example.org", &[])),
+            Some(device("12", "annex.hs.example.org", &[])),
         )
         .unwrap();
         assert_eq!(
@@ -1748,14 +1748,14 @@ mod tests {
             rename: None,
         };
         record(&paths, &host.place, &kept);
-        let place = crate::profiles::rename(&paths, &host.place, "pier", false).unwrap();
+        let place = crate::profiles::rename(&paths, &host.place, "annex", false).unwrap();
         assert_eq!(Kept::of(&paths, &place).unwrap(), kept);
         // Nothing is asked of the control server: its address goes nowhere.
-        let pier = crate::host::Host::load_at(&paths, place.clone()).unwrap();
+        let annex = crate::host::Host::load_at(&paths, place.clone()).unwrap();
         let lines = after_apply_at(
             &control(None, "http://127.0.0.1:9"),
             &paths,
-            &pier,
+            &annex,
             Some(reported),
         )
         .unwrap();
@@ -1772,12 +1772,12 @@ mod tests {
     fn names_and_ids_are_checked_before_they_go_into_a_path() {
         let control = control(None, "http://127.0.0.1:9");
         assert!(control.delete_device("../keys").is_err());
-        assert!(control.rename_device("nFAKE", "Pier/x").is_err());
-        assert!(control.rename_device("nFAKE", "-pier").is_err());
+        assert!(control.rename_device("nFAKE", "Annex/x").is_err());
+        assert!(control.rename_device("nFAKE", "-annex").is_err());
         assert_eq!(
-            renamed("studio.example.ts.net", "pier"),
-            "pier.example.ts.net"
+            renamed("studio.example.ts.net", "annex"),
+            "annex.example.ts.net"
         );
-        assert_eq!(renamed("studio", "pier"), "pier");
+        assert_eq!(renamed("studio", "annex"), "annex");
     }
 }

@@ -34,10 +34,10 @@ A host declares whether it can be started and stopped. Rookery says so in `power
 A host that declares nothing can be neither started nor stopped, and the action's reason says so. To let a host's controller shut it down, set the way in its profile:
 
 ```bash
-rookery host set dock power_stop=controller
+rookery host set forge power_stop=controller
 ```
 
-For a host installed over SSH, the **Stopped by** row on the Install tab of its set-up sets the same field. Stopping by the controller ends the sessions on the host. The controller refuses while sessions run, unless you stop it with `rookery run dock stop force=yes`. Rookery can't start such a host again, as nothing of Rookery runs on it while it's off: it's started by hand, or by whatever powers it. The [profile reference](/docs/reference/profile#power-power) lists the field.
+For a host installed over SSH, the **Stopped by** row on the Install tab of its set-up sets the same field. Stopping by the controller ends the sessions on the host. The controller refuses while sessions run, unless you stop it with `rookery run forge stop force=yes`. Rookery can't start such a host again, as nothing of Rookery runs on it while it's off: it's started by hand, or by whatever powers it. The [profile reference](/docs/reference/profile#power-power) lists the field.
 
 The home screen shows a host that is off as `◌ stopped` rather than as a host that doesn't answer. `s` starts the selected host when Rookery can start it.
 

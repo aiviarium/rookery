@@ -560,7 +560,7 @@ mod tests {
         assert!(matches!(begin(&[offered], 0, false), Begin::Ask(_)));
         let values = |hostname: &str| {
             BTreeMap::from([
-                ("new".to_owned(), "dock".to_owned()),
+                ("new".to_owned(), "forge".to_owned()),
                 ("hostname".to_owned(), hostname.to_owned()),
             ])
         };
@@ -643,7 +643,7 @@ mod tests {
         assert_eq!(removal.key('d'), Removing::Stay);
         assert_eq!(removal.key('y'), Removing::Run { destroy: false });
         assert_eq!(
-            Removal::of(&serde_json::json!({"name": "dock"})).key('n'),
+            Removal::of(&serde_json::json!({"name": "forge"})).key('n'),
             Removing::Cancel
         );
     }

@@ -989,19 +989,19 @@ mod tests {
         let seed = Seed::parse(
             r#"{"token": "0123456789abcdef0123456789abcdef",
                 "hosts": {"studio": {"applied": true},
-                          "dock": {"profile": {"type": "node", "access": {"address": "192.0.2.7", "user": "admin"}}}},
+                          "forge": {"profile": {"type": "node", "access": {"address": "192.0.2.7", "user": "admin"}}}},
                 "provisioners": {"cloud": {"type": "sim/cloud", "settings": {"region": "sim-2"}}},
                 "secrets": {"api_token": "made-up"}}"#,
         )
         .unwrap();
         let profiles = seed.profiles();
-        let (name, dock, applied) = &profiles[0];
-        assert_eq!((name.as_str(), *applied), ("dock", false));
+        let (name, forge, applied) = &profiles[0];
+        assert_eq!((name.as_str(), *applied), ("forge", false));
         assert_eq!(
-            dock["access"],
+            forge["access"],
             json!({"address": "192.0.2.7", "user": "admin"})
         );
-        assert_eq!(dock["hostname"], "dock");
+        assert_eq!(forge["hostname"], "forge");
         let (name, studio, applied) = &profiles[1];
         assert_eq!((name.as_str(), *applied), ("studio", true));
         assert_eq!(studio["access"]["address"], "192.0.2.21");

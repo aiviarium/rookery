@@ -6,7 +6,7 @@ account of the machine's own whose sudo asks for a password and then as the
 operator that apply set up, and once from a rookery serve on that workstation,
 which has only the same key, with a terminal client using it.
 
-It runs on a test host of its own, `dock`, which nothing else applies a profile to: run.py
+It runs on a test host of its own, `forge`, which nothing else applies a profile to: run.py
 runs it there alongside the other modules on `studio`. Direct is the first
 apply that host sees; Served applies the server's profile over it."""
 import json

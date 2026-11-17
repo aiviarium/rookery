@@ -71,8 +71,8 @@ mod tests {
 
     #[test]
     fn an_older_server_is_named_with_both_versions() {
-        assert_eq!(older_server("https://pier.example", VERSION, API), None);
-        let said = older_server("https://pier.example", "0.5.2", 1).unwrap();
+        assert_eq!(older_server("https://annex.example", VERSION, API), None);
+        let said = older_server("https://annex.example", "0.5.2", 1).unwrap();
         assert!(said.contains("is rookery 0.5.2 (API 1)"), "{said}");
         assert!(
             said.contains(&format!("this rookery {VERSION} (API {API})")),
@@ -98,9 +98,9 @@ mod tests {
         );
         let said = older_controller("big", "0.5.2", 1, HostType::Node).unwrap();
         assert!(said.ends_with("rookery apply big"), "{said}");
-        let said = older_controller("pier", "0.5.2", 1, HostType::Managed).unwrap();
+        let said = older_controller("annex", "0.5.2", 1, HostType::Managed).unwrap();
         assert!(
-            said.ends_with("rookery run pier install-controller"),
+            said.ends_with("rookery run annex install-controller"),
             "{said}"
         );
     }

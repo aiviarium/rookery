@@ -791,13 +791,13 @@ mod tests {
         assert!(!known.exists());
 
         // With hostname, the profile's is the new name.
-        let lab = rename(&paths, &studio, "pier", true).unwrap();
-        assert_eq!(lab.load(&paths).unwrap().unwrap()["hostname"], "pier");
+        let lab = rename(&paths, &studio, "annex", true).unwrap();
+        assert_eq!(lab.load(&paths).unwrap().unwrap()["hostname"], "annex");
 
         // Removing it removes what belongs to it, and leaves the other host's.
         remove(&paths, &lab).unwrap();
         assert!(crate::credentials::load(&paths, &lab).unwrap().is_empty());
-        assert_eq!(secrets.secret("ssh/pier").unwrap(), None);
+        assert_eq!(secrets.secret("ssh/annex").unwrap(), None);
         assert_eq!(store.read(kind::ACCESS, OWN, &id).unwrap(), None);
         assert_eq!(
             secrets.secret("ssh/lab").unwrap().as_deref(),
@@ -939,17 +939,17 @@ mod tests {
             "test has that name already"
         );
         // Only a workstation is given a hostname by rookery.
-        let dock = Place::own(&paths, "dock").unwrap();
-        dock.save(
+        let forge = Place::own(&paths, "forge").unwrap();
+        forge.save(
             &paths,
             &json!({"type": "ssh", "access": {"address": "192.0.2.30"}}),
         )
         .unwrap();
         assert_eq!(
-            error(rename(&paths, &dock, "pier", true)),
-            "dock is a host of the type ssh, and only a workstation is given its hostname by rookery"
+            error(rename(&paths, &forge, "annex", true)),
+            "forge is a host of the type ssh, and only a workstation is given its hostname by rookery"
         );
-        assert!(dock.load(&paths).unwrap().is_some());
+        assert!(forge.load(&paths).unwrap().is_some());
         let file = Place::File(home.path().join("attic.json"));
         assert!(rename(&paths, &file, "attic2", false).is_err());
         // Something being done to the host, such as creating its machine, stops it.

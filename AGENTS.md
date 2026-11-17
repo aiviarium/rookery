@@ -68,7 +68,7 @@ ci/run.sh shell            # a shell in the dev container
 ci/run.sh boot cloud|iso   # real installs in QEMU, with KVM; slow
 ```
 
-The end-to-end tests in `tests/e2e/` use throw-away containers over SSH, with Rookery, rookeryd and `rookery serve`. They run on a network with nothing else on it, in scratch directories. There are two test hosts, `studio` and `dock`, and the two run in parallel. The modules need different amounts of that setup:
+The end-to-end tests in `tests/e2e/` use throw-away containers over SSH, with Rookery, rookeryd and `rookery serve`. They run on a network with nothing else on it, in scratch directories. There are two test hosts, `studio` and `forge`, and the two run in parallel. The modules need different amounts of that setup:
 
 | Tests | Need |
 | --- | --- |
@@ -76,7 +76,7 @@ The end-to-end tests in `tests/e2e/` use throw-away containers over SSH, with Ro
 | `e2e_controller.Controller` | The same host and Rookery's controller alone, with one playbook run |
 | `e2e_provisioners` | A provisioner of a made-up plugin, and no test host. With Docker, `ci/run.sh` starts an engine on the test network for the Docker plugin's cases |
 | `e2e_restore` | The host `studio` as it is, and a server of its own with an encrypted store. It leaves the host as it is |
-| `e2e_node` | The bare host `dock` applied as a node, with a made-up plugin's feature that offers a provisioner. It runs last there and leaves the node |
+| `e2e_node` | The bare host `forge` applied as a node, with a made-up plugin's feature that offers a provisioner. It runs last there and leaves the node |
 | The rest | A full apply of the profile |
 
 That engine starts with Docker when the run is complete, names `e2e_provisioners` or is the shard that holds it. `ROOKERY_CI_DOCKER` (`1` or `0`) forces it on or off, and `ROOKERY_CI_DIND_IMAGES` lists images of your own engine to load into it, as it cannot pull. The header of `ci/run.sh` has the rest.
@@ -91,7 +91,7 @@ CI runs the checks on the runner itself, each in a job of its own, and the end-t
 | --- | --- |
 | `rust-tests`, `clippy` | anything but the docs site, the recipes and the other workflows |
 | `python-tests` | anything but the Rust code and the docs site |
-| The shards `studio` and `dock` | anything Rookery is built from: they apply only once |
+| The shards `studio` and `forge` | anything Rookery is built from: they apply only once |
 | The other shards | the role, the plugins, the end-to-end tests, or the Rust code in `SEAM` of `ci/plan.py` (on main: anything Rookery is built from) |
 
 `SEAM` is the Rust code that decides what the role is given or finds on a host. The test `ansible_contract` in `crates/rookery-core/src/apply.rs` compares the variables of made-up profiles with the files in `crates/rookery-core/tests/fixtures/ansible/`, which are in `SEAM` too. A change elsewhere that alters them makes the test fail, and writing them again runs the shards. Code that moves into a new file that feeds the role belongs in `SEAM`.

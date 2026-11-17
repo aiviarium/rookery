@@ -150,7 +150,7 @@ e2e() {
   e2e_down
   trap e2e_down EXIT
   # A shard needs its own host alone, and Headscale beside studio.
-  local hosts=(studio dock)
+  local hosts=(studio forge)
   if [[ ${1:-} == --shard ]]; then
     hosts=("$(python3 tests/e2e/run.py --host-of "${2:-}")") || return 1
   fi

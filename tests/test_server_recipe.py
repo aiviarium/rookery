@@ -81,7 +81,7 @@ if args[:1] == ['run']:
         tasks[2]['vars']['rookery_server_helper'] = str(UPGRADE)
         variables = yaml.safe_load((RECIPE / 'vars.yml').read_text())
         variables.update(rookery_server_dir=str(self.scratch / 'srv'), rookery_server_port=self.port,
-                         rookery_server_tailscale_serve=False, tailscale_hostname='pier')
+                         rookery_server_tailscale_serve=False, tailscale_hostname='annex')
         playbook = self.scratch / 'site.yml'
         playbook.write_text(yaml.safe_dump([{
             'name': play['name'], 'hosts': 'all', 'gather_facts': False, 'vars': variables, 'tasks': tasks}],
