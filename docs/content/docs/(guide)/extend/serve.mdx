@@ -17,7 +17,7 @@ It prints where it listens and how many hosts it knows. Only one runs per user. 
 | Operations | For |
 | --- | --- |
 | [`hosts.*`](/docs/api/serve/hosts) | The saved hosts and their profiles, and whether each is behind. Each says its [type](/docs/use/types), the type it was seen to be, and whether a key rotation has yet to reach it. `hosts.save` takes a host that is not a workstation with only `type` and `access`. `hosts.actions` lists what can be done to a host and `hosts.act` runs one of those [actions](#actions) |
-| [`actions.*`](/docs/api/serve/actions) | The actions of the installation itself, such as `rollout`, which applies the hosts that are behind one after another |
+| [`installation.*`](/docs/api/serve/installation) | The actions of the installation itself, such as `rollout`, which applies the hosts that are behind one after another |
 | [`secrets.*`](/docs/api/serve/secrets), [`registries.*`](/docs/api/serve/registries), [`settings.*`](/docs/api/serve/settings) | What the server keeps beside the hosts. A secret's value goes in and never comes back out |
 | [`plugins.*`](/docs/api/serve/plugins) | The server's plugins. One is installed from its npm registry, from an `https://` address, or from a `.tgz` that is sent, and one of its own is removed. `plugins.check` asks the registries for newer versions and `plugins.update` installs them. `setup.catalogue` lists the new features straight away |
 | [`provisioners.*`](/docs/api/serve/provisioners) | The provisioners of the plugins with their pages and actions. A page lists what Rookery made with the provisioner, by kind. An action of a provisioner has its own role ([Provisioners](/docs/deploy/provisioners#with-a-rookery-server)) |
