@@ -1,6 +1,6 @@
 # Working on Rookery
 
-Rookery sets up Ubuntu hosts for coding agents and manages them. It provisions machines through provisioner plugins, and the coding agents come from plugins too. This file is for coding agents working in this repository.
+Rookery provisions and manages development machines. It sets up Ubuntu hosts and creates machines through provisioner plugins. The software on a host, coding tools among it, comes from plugins. This file is for coding agents working in this repository.
 
 ## Layout
 

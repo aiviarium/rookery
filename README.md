@@ -1,21 +1,21 @@
-<img src="docs/public/logo.svg" alt="" width="72" align="right">
+<h1><a href="#license"><img align="right" src="https://aiviarium-badges.helight.workers.dev/rookery/github/license/aiviarium/rookery" alt="License"></a><a href="https://github.com/aiviarium/rookery/releases"><img align="right" src="https://aiviarium-badges.helight.workers.dev/rookery/github/v/release/aiviarium/rookery?include_prereleases" alt="Release"></a><a href="https://github.com/aiviarium/rookery/actions/workflows/ci.yml"><img align="right" src="https://aiviarium-badges.helight.workers.dev/rookery/github/actions/workflow/status/aiviarium/rookery/ci.yml?branch=main&label=CI" alt="CI"></a><a href="https://github.com/aiviarium/rookery"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/aiviarium/.github/main/brand/lockups/lockup-rookery.svg"><img src="https://raw.githubusercontent.com/aiviarium/.github/main/brand/lockups/lockup-rookery-light.svg" alt="Rookery" height="56"></picture></a></h1>
 
-# Rookery
+Provisioning and management for development machines.
 
-Rookery sets up Ubuntu 26.04 hosts for coding agents on a spare laptop, a
-server or a container, and manages them from your terminal. It can also create
-the machines, through provisioner plugins.
+Rookery sets up Ubuntu 26.04 hosts on a spare laptop, a server, a cloud machine
+or a container, and manages them from a terminal UI and a command line.
+Provisioner plugins create the machines. A machine that already runs can be a
+host too: `rookery host add forge 192.0.2.4 --user ops`.
 
-A host runs XFCE on a virtual display that you open in a browser. The coding
-agents come from plugins, installed like any other plugin. Each host has a
-profile that Rookery installs and can apply again. Once the host runs, its page
-in Rookery has the status, sign-ins, updates and secrets. A machine you only log in to can be
-a host too: `rookery host add forge 192.0.2.4 --user ops`.
+Each host has a profile that Rookery installs and can apply again, and a page
+with its status, sign-ins, updates and secrets. A host runs XFCE on a virtual
+display that opens in a browser, and Cockpit for administration. The software
+on a host, coding tools among it, comes from plugins.
 
 <img src="docs/public/screens/overview.png" alt="Rookery's terminal UI showing the overview of a host with its actions">
 
-**Status:** early. Try a profile in the container or a VM before booting the
-installer on real hardware: **the installer erases the disk it selects.**
+Rookery is at an early stage. **The installer erases the disk it selects**, so a
+profile is best tried in the container or a VM before it boots on real hardware.
 
 ## Install
 
@@ -37,8 +37,8 @@ Setting up hosts also needs `ssh`, `python3` and `ansible-playbook` on your
 machine. Rookery is also an image, `ghcr.io/aiviarium/rookery`, which runs its
 local API server by default.
 
-On macOS and Windows Rookery uses the hosts of a Rookery server elsewhere, with the
-same screens. `install.sh` installs it on macOS too, and on Windows:
+On macOS and Windows, Rookery works with the hosts of a Rookery server elsewhere,
+with the same screens. `install.sh` covers macOS. On Windows:
 
 ```powershell
 irm https://raw.githubusercontent.com/aiviarium/rookery/main/install.ps1 | iex
@@ -52,11 +52,11 @@ rookery                 # the home screen with all hosts
 rookery run studio status
 ```
 
-A new host opens on its Install tab, where you choose how to install it. The
-methods are a machine a plugin creates, a USB installer, a cloud-init seed, SSH
-to an existing Ubuntu server, and a container image. Features and Settings
-follow, and Run installs it. Once it runs, `rookery studio` opens its overview, where you sign the
-agents in and find the address of its desktop.
+A new host opens on its Install tab. It offers five install methods. A plugin
+creates a machine, or the host boots a USB installer or a cloud-init seed, or
+Rookery connects over SSH to an existing Ubuntu server, or runs a container image. Features and Settings follow, and Run installs
+it. Once the host runs, `rookery studio` opens its overview, with the sign-ins
+and the address of its desktop.
 
 ## Documentation
 
@@ -71,9 +71,9 @@ The documentation site is built from [`docs/`](docs) (`cd docs && npm install &&
 
 ## Contributing and security
 
-[CONTRIBUTING.md](.github/CONTRIBUTING.md) says what Rookery is meant to be and how changes
-get in. Open an issue before a pull request. [SECURITY.md](.github/SECURITY.md) says how
-to report a vulnerability and where Rookery's API is meant to be reachable from.
+[CONTRIBUTING.md](.github/CONTRIBUTING.md) says what Rookery is meant to be and how
+changes get in. A pull request starts with an issue. [SECURITY.md](.github/SECURITY.md)
+says how to report a vulnerability and where Rookery's API is meant to be reachable from.
 
 ## License
 
@@ -81,6 +81,6 @@ Licensed under either of the [Apache License, Version 2.0](LICENSE-APACHE) or
 the [MIT license](LICENSE-MIT), at your option. Contributions are licensed the same way.
 
 The vendored `tui-input` crate under `crates/vendor` has its own MIT license. The
-agents and tools that plugins install, such as coding agents and Unity,
-are separate products under their vendors' terms. Rookery doesn't include them,
+tools that plugins install, such as coding tools and Unity, are separate
+products under their vendors' terms. Rookery doesn't include them,
 and a plugin downloads them from their vendors.
