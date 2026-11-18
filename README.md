@@ -60,7 +60,7 @@ and the address of its desktop.
 
 ## Documentation
 
-The documentation site is built from [`docs/`](docs) (`cd docs && npm install && npm run dev`).
+The documentation is at [rookery.helight.dev](https://rookery.helight.dev/). The site is built from [`docs/`](docs) (`cd docs && npm install && npm run dev`).
 
 - [Getting started](docs/content/docs/%28guide%29/start/install.mdx): installing Rookery and a first host.
 - [Deploying](docs/content/docs/%28guide%29/deploy/index.mdx): the install methods, and testing in QEMU.

@@ -1,6 +1,6 @@
 # Working on Rookery's docs site
 
-This folder is Rookery's documentation site, a static Fumadocs site on Next.js. It is published to GitHub Pages at https://aiviarium.github.io/rookery/. This file is for coding agents working in it.
+This folder is Rookery's documentation site, a static Fumadocs site on Next.js. It is published to GitHub Pages at https://rookery.helight.dev/. This file is for coding agents working in it.
 
 ## The docs base
 
