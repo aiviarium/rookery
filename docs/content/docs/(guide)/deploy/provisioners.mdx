@@ -351,7 +351,7 @@ For an engine at `ssh://user@address`, the provisioner only sets `DOCKER_HOST`, 
 | `build` | Builds the image the plugin brings ahead of the first machine |
 | `prune` | Removes the plugin's images of older versions that no container uses. With `volumes=yes` it also removes the volumes Rookery made that no container uses, with the agent's work in them |
 
-The container runs privileged by default. With `runtime=sysbox` it runs under [Sysbox](https://github.com/nestybox/sysbox) instead, which the Docker host needs to have. Read the limits in `plugins/docker/rookery/guide.md` before you use an engine that others share. In the container Chromium uses its setuid sandbox helper, as the [self-test](/docs/reference/on-the-host#the-self-test) describes.
+The container runs privileged by default. With `runtime=sysbox` it runs under [Sysbox](https://github.com/nestybox/sysbox) instead, which the Docker host needs to have. Read the limits in `plugins/rookery/docker/rookery/guide.md` before you use an engine that others share. In the container Chromium uses its setuid sandbox helper, as the [self-test](/docs/reference/on-the-host#the-self-test) describes.
 
 ```bash
 rookery host create studio-2 --provisioner docker runtime=sysbox
@@ -361,7 +361,7 @@ rookery host create studio-2 --provisioner docker runtime=sysbox
 
 A provisioner of the type `incus/vm` makes a virtual machine, and one of `incus/container` a system container, on an Incus server. Both are set up from the cloud seed, and the plugin puts the release archive into the machine. The profile does without a `release_url`. They offer `start`, `stop`, `change`, `logs` and `list`. In a container Chromium uses its setuid sandbox helper, and in a virtual machine a user namespace, as the [self-test](/docs/reference/on-the-host#the-self-test) describes.
 
-Rookery talks to the Incus API over HTTPS. `server` is required, as a setting or for each machine. Incus must trust a certificate of Rookery, which you store as the provisioner's own secrets `incus_client_cert` and `incus_client_key`. The secret `incus_server_cert` is optional and pins the server's own certificate. `plugins/incus/guide.md` shows how to make and trust the certificate.
+Rookery talks to the Incus API over HTTPS. `server` is required, as a setting or for each machine. Incus must trust a certificate of Rookery, which you store as the provisioner's own secrets `incus_client_cert` and `incus_client_key`. The secret `incus_server_cert` is optional and pins the server's own certificate. `plugins/rookery/incus/guide.md` shows how to make and trust the certificate.
 
 The page offers the server's pools, networks and instances for the arguments `pool`, `network` and `instance`.
 
@@ -378,7 +378,7 @@ The page offers the server's pools, networks and instances for the arguments `po
 | `resize-disk` | Grows the root disk of `instance` to `size`. A container has it at once. A running virtual machine needs a restart, which happens only with `restart=yes` |
 | `remove-image` | Removes a cached image |
 
-A size is a whole number and a unit, such as `50GiB` or `200GB`. The plugin checks it before it asks Incus. `plugins/incus/rookery/guide.md` has what each driver allows.
+A size is a whole number and a unit, such as `50GiB` or `200GB`. The plugin checks it before it asks Incus. `plugins/rookery/incus/rookery/guide.md` has what each driver allows.
 
 ```bash
 rookery provisioner add ovh-incus incus/vm server=https://192.0.2.10:8443

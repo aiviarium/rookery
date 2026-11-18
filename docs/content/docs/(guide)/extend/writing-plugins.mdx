@@ -4,7 +4,7 @@ description: The plugin package format, from a minimal example to every field of
 icon: FileCode
 ---
 
-A plugin is a [Hatchery](https://aiviarium.github.io/hatchery/) package with a `rookery` target. The package is a folder with a `package.kdl`. The plugin's files are in its `rookery/` folder, and `rookery/rookery.json` lists its features and provisioners. Plugins are shared through plugin registries, such as a git repository of packages ([Installing a plugin](/docs/extend/plugins#installing-a-plugin)). The Unity plugin in `plugins/unity/` is a good one to copy.
+A plugin is a [Hatchery](https://aiviarium.github.io/hatchery/) package with a `rookery` target. The package is a folder with a `package.kdl`. The plugin's files are in its `rookery/` folder, and `rookery/rookery.json` lists its features and provisioners. Plugins are shared through plugin registries, such as a git repository of packages ([Installing a plugin](/docs/extend/plugins#installing-a-plugin)). The Unity plugin in `plugins/rookery/unity/` is a good one to copy.
 
 ## A minimal plugin
 
@@ -105,7 +105,7 @@ targets {
 
 | Node | Meaning |
 | --- | --- |
-| `package` | The group, id and version. The plugin's id is the package's id, so `aiviarium/unity` is `unity` |
+| `package` | The group, id and version. The plugin's id is the package's id, so `rookery/unity` is `unity` |
 | `about` | `name` is the name Rookery shows, and `summary` its description. Without a name, Rookery shows the id |
 | `targets` | `rookery` is the target Rookery installs. `requires` names the Rookery versions the plugin works with |
 
@@ -720,7 +720,7 @@ Run `rookery host create --provisioner` a second time while the first has failed
 rookery plugin check ./hello
 ```
 
-`rookery plugin check` packs the folder as `rookery plugin add` does and checks it against Rookery's plugin contract. It works without a server. It prints each problem with the file it is in and exits with status 1 when there is one.
+`rookery plugin check` packs the folder as `rookery plugin add` does and checks it against Rookery's plugin contract. It works without a server. It prints each problem with the file it is in and exits with status 1 when there is one. Given the folder of a static registry, one with an `index.json`, it checks each package the registry lists, as Rookery's CI does with `rookery plugin check plugins`.
 
 | Checked | Rule |
 | --- | --- |
