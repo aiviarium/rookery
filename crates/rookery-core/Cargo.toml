@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-rookery-api = { workspace = true, features = ["client"] }
+rookery-api = { workspace = true, features = ["client", "plugins"] }
 serde_json.workspace = true
 tempfile.workspace = true
 libc.workspace = true
@@ -20,6 +20,9 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 webpki-roots = "1"
 sha2 = "0.11"
+hatchery = { workspace = true, features = ["http"] }
+# eggs.lock, read and adjusted when the store restores it.
+toml = "1"
 chacha20poly1305.workspace = true
 ed25519-dalek = { version = "2", default-features = false }
 hmac = "0.12"

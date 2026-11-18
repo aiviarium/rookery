@@ -15,11 +15,10 @@ and runs the firewall's helper and the server's upgrade against fakes.
 
 It runs last on `forge`, as it leaves a node behind."""
 import json
-import stat
 import unittest
 
-from harness import (HOST, OPERATOR, Serve, WebSocket, Workstation, hand_over_operator_key, needs_e2e, shell_quote,
-                     wait_for)
+from harness import (HOST, OPERATOR, SCRATCH, Serve, WebSocket, Workstation, hand_over_operator_key, needs_e2e,
+                     plugin_package, shell_quote, wait_for)
 
 # The port of the listener on the node that sends back what it gets.
 ECHO = 7071
@@ -67,23 +66,20 @@ TASKS = '''---
 '''
 
 MANIFEST = {
-    'name': 'rookery-plugin-depot', 'version': '1.0.0', 'displayName': 'Depot', 'files': ['bin', 'tasks'],
-    'rookery': {
-        'features': [
-            {'id': 'lathe', 'label': 'Lathe', 'types': ['node'], 'offers': ['box'],
-             'trusts': {'certificate': 'depot_client_cert', 'key': 'depot_client_key'},
-             'tasks': 'tasks/lathe.yml',
-             'actions': [{'name': 'lathe-status', 'label': 'Lathe', 'user': 'root', 'extends': 'status',
-                          'run': 'echo lathe'}]},
-            {'id': 'bench', 'label': 'Bench'},
-        ],
-        'provisioners': [{
-            'id': 'box', 'label': 'Depot box', 'command': 'bin/provision', 'protocol': 2,
-            'secrets': ['depot_client_cert', 'depot_client_key', {'name': 'depot_server_cert', 'required': False}],
-            'arguments': [{'name': 'place', 'label': 'Place', 'required': True}],
-            'kinds': [{'id': 'deployment', 'label': 'Load', 'spec': {'format': 'text', 'label': 'Load'}}],
-        }],
-    },
+    'features': [
+        {'id': 'lathe', 'label': 'Lathe', 'types': ['node'], 'offers': ['box'],
+         'trusts': {'certificate': 'depot_client_cert', 'key': 'depot_client_key'},
+         'tasks': 'tasks/lathe.yml',
+         'actions': [{'name': 'lathe-status', 'label': 'Lathe', 'user': 'root', 'extends': 'status',
+                      'run': 'echo lathe'}]},
+        {'id': 'bench', 'label': 'Bench'},
+    ],
+    'provisioners': [{
+        'id': 'box', 'label': 'Depot box', 'command': 'bin/provision', 'protocol': 2,
+        'secrets': ['depot_client_cert', 'depot_client_key', {'name': 'depot_server_cert', 'required': False}],
+        'arguments': [{'name': 'place', 'label': 'Place', 'required': True}],
+        'kinds': [{'id': 'deployment', 'label': 'Load', 'spec': {'format': 'text', 'label': 'Load'}}],
+    }],
 }
 
 
@@ -99,14 +95,12 @@ class Node(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.station = Workstation('node', ssh_key=False)
-        folder = cls.station.rookery_dir / 'plugins/depot'
-        (folder / 'bin').mkdir(parents=True)
-        (folder / 'tasks').mkdir()
-        (folder / 'package.json').write_text(json.dumps(MANIFEST))
-        (folder / 'tasks/lathe.yml').write_text(TASKS)
-        program = folder / 'bin/provision'
-        program.write_text(PROGRAM.replace('ECHO', str(ECHO)).replace('HOST', repr(HOST)))
-        program.chmod(program.stat().st_mode | stat.S_IXUSR)
+        package = SCRATCH / 'depot'
+        program = PROGRAM.replace('ECHO', str(ECHO)).replace('HOST', repr(HOST))
+        target = plugin_package(package, 'depot', MANIFEST,
+                                {'bin/provision': program, 'tasks/lathe.yml': TASKS})
+        (target / 'bin/provision').chmod(0o755)
+        cls.station.rookery('plugin', 'add', str(package))
         hand_over_operator_key(cls.station.own_public())
         key = cls.station.own_key_file()
         wait_for('the operator taking the key of rookery', lambda: cls.station.ssh(
@@ -226,7 +220,7 @@ class Node(unittest.TestCase):
             [crate] = [resource for resource in resources if resource['name'] == 'crate']
             seen = serve.call('GET', f'/v1/resources/{crate["id"]}')
             self.assertEqual([endpoint['name'] for endpoint in seen['endpoints']], ['db', 'lan', 'far'], seen)
-            node = (self.station.rookery_dir / 'plugins/depot/bin/provision.node').read_text()
+            node = (self.station.rookery_dir / 'plugins/example/depot/rookery/bin/provision.node').read_text()
             self.assertEqual(node, HOST)
             path = f'/v1/resources/{crate["id"]}/endpoints'
             data = bytes(range(256)) * 4096

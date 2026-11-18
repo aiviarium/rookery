@@ -1722,17 +1722,33 @@ async fn plugins_are_managed_through_the_api() {
         404
     );
 
-    // A folder copied to the server's plugin directory is one of its own, and
-    // a new host can have its features at once.
-    let own = served.dir.path().join("config/plugins/hello");
-    std::fs::create_dir_all(&own).unwrap();
-    std::fs::write(
-        own.join("package.json"),
-        r#"{"name":"rookery-plugin-hello","version":"1.0.0","displayName":"Hello",
-            "rookery":{"features":[{"id":"cow","label":"cowsay","group":"Development Tools",
-              "actions":[{"name":"moo","run":"cowsay moo","agent":true}]}]}}"#,
+    // A package of a plugin registry is installed, and a new host can have
+    // its features at once.
+    let registry = plugin_registry(served.dir.path());
+    let location = registry.display().to_string();
+    let asked = json!({"kind": "git", "location": location});
+    let (status, said) = send(client, "POST", "/v1/plugins/registries", asked).await;
+    assert_eq!(status, 200, "{said}");
+    let (_, listed) = send(client, "GET", "/v1/plugins/registries", Value::Null).await;
+    assert_eq!(listed["registries"][0]["location"], json!(location));
+    assert!(
+        listed["file"]
+            .as_str()
+            .unwrap()
+            .ends_with("config/hatchery.kdl")
+    );
+    let (status, said) = send(
+        client,
+        "POST",
+        "/v1/plugins",
+        json!({"spec": "example/hello"}),
     )
-    .unwrap();
+    .await;
+    assert_eq!(status, 200, "{said}");
+    assert_eq!(
+        said["lines"][0],
+        json!(format!("✓ Installed example/hello 1.0.0 from {location}"))
+    );
     let (_, listed) = send(client, "GET", "/v1/plugins", Value::Null).await;
     let hello = listed["plugins"]
         .as_array()
@@ -1742,38 +1758,41 @@ async fn plugins_are_managed_through_the_api() {
         .unwrap()
         .clone();
     assert_eq!(
-        (&hello["origin"], &hello["package"], &hello["version"]),
         (
-            &json!("folder"),
-            &json!("rookery-plugin-hello"),
-            &json!("1.0.0")
+            &hello["origin"],
+            &hello["package"],
+            &hello["version"],
+            &hello["label"]
+        ),
+        (
+            &json!("registry"),
+            &json!("example/hello"),
+            &json!("1.0.0"),
+            &json!("Hello")
         )
     );
+    assert_eq!(hello["source"], json!(location));
     assert_eq!(hello["features"][0]["actions"][0]["name"], "moo");
     assert!(listed["dir"].as_str().unwrap().ends_with("config/plugins"));
     let (_, found) = send(client, "GET", "/v1/setup", Value::Null).await;
     assert!(keys(&found).contains(&"hello/cow".to_owned()));
-    // A folder has no registry to ask for a newer version, nor has rookery's own.
+    // Its registry is asked for a newer version.
     let (status, checked) = send(client, "GET", "/v1/plugins/updates", Value::Null).await;
     assert_eq!(status, 200, "{checked}");
     assert_eq!(checked["plugins"][0]["id"], "hello");
-    assert!(
-        checked["plugins"][0]["note"]
-            .as_str()
-            .unwrap()
-            .contains("folder")
-    );
+    assert_eq!(checked["plugins"][0]["latest"], Value::Null);
     for (id, status, says) in [
-        ("hello", 400, "copy the new one"),
+        ("hello", 200, "hello 1.0.0 is the latest"),
         ("github", 400, "comes with rookery"),
         ("nothing", 404, "No plugin"),
     ] {
         let (got, said) = send(client, "POST", "/v1/plugins/update", json!({"id": id})).await;
         assert_eq!(got, status, "{id}: {said}");
-        assert!(
-            said["error"]["message"].as_str().unwrap().contains(says),
-            "{said}"
-        );
+        let text = said["lines"][0]
+            .as_str()
+            .or(said["error"]["message"].as_str())
+            .unwrap();
+        assert!(text.contains(says), "{said}");
     }
     let asked = json!({"arguments": {"hosts": "nothing"}});
     let (status, said) = send(client, "POST", "/v1/installation/actions/rollout", asked).await;
@@ -1784,37 +1803,78 @@ async fn plugins_are_managed_through_the_api() {
     let (status, said) = send(client, "DELETE", "/v1/plugins/hello", Value::Null).await;
     assert_eq!(status, 200, "{said}");
     assert!(said["lines"][0].as_str().unwrap().starts_with('✓'));
-    assert!(!own.exists());
+    assert!(
+        !served
+            .dir
+            .path()
+            .join("config/plugins/example/hello")
+            .exists()
+    );
     let (_, found) = send(client, "GET", "/v1/setup", Value::Null).await;
     assert!(!keys(&found).contains(&"hello/cow".to_owned()));
+    let asked = json!({"location": location});
+    let (status, said) = send(client, "POST", "/v1/plugins/registries/remove", asked).await;
+    assert_eq!(status, 200, "{said}");
 
-    // npm is given a package of a registry or an address, and never a path of
-    // the server, a repository or an option.
-    for spec in [
-        "../x",
-        "/etc",
-        "-g",
-        "git+ssh://x/y",
-        "file:x",
-        "a b",
-        "Bad",
-        "@x",
-    ] {
+    // The server installs what it can fetch, and never a path of its own.
+    for spec in ["../x", "/etc", "-g", "a b", "Bad", "@x", "example/"] {
         let (status, said) = send(client, "POST", "/v1/plugins", json!({"spec": spec})).await;
         assert_eq!(status, 400, "{spec}: {said}");
     }
-    // What is sent has to be a .tgz.
+    let asked = json!({"kind": "npm", "location": "https://example.org"});
+    let (status, said) = send(client, "POST", "/v1/plugins/registries", asked).await;
+    assert_eq!(status, 400, "{said}");
+    // What is sent has to be an egg.
     let headers = [("content-type", "application/gzip")];
     let answer = client
-        .send(
-            "POST",
-            "/v1/plugins/package",
-            &headers,
-            "not a tarball".into(),
-        )
+        .send("POST", "/v1/plugins/package", &headers, "not an egg".into())
         .await
         .unwrap();
     assert_eq!(answer.status, 400);
+}
+
+/// A git repository under `home` that is a plugin registry with
+/// example/hello 1.0.0.
+fn plugin_registry(home: &std::path::Path) -> PathBuf {
+    let repo = home.join("registry");
+    let package = repo.join("hello");
+    std::fs::create_dir_all(package.join("rookery")).unwrap();
+    std::fs::write(
+        repo.join("packages.kdl"),
+        "format 1\npackages {\n  find \"*\"\n}\nrelease {\n  tag \"{id}-v{version}\"\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        package.join("package.kdl"),
+        "format 1\npackage {\n  group example\n  id hello\n  version \"1.0.0\"\n}\nabout {\n  name Hello\n}\ntargets {\n  rookery {\n    requires {\n      rookery \">=0.6\"\n    }\n  }\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        package.join("rookery/rookery.json"),
+        r#"{"features":[{"id":"cow","label":"cowsay","group":"Development Tools",
+            "actions":[{"name":"moo","run":"cowsay moo","agent":true}]}]}"#,
+    )
+    .unwrap();
+    for args in [
+        &["init", "-q", "-b", "main"][..],
+        &["add", "-A"],
+        &["commit", "-q", "-m", "hello"],
+        &["tag", "hello-v1.0.0"],
+    ] {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&repo)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "Test")
+            .env("GIT_AUTHOR_EMAIL", "test@example.org")
+            .env("GIT_COMMITTER_NAME", "Test")
+            .env("GIT_COMMITTER_EMAIL", "test@example.org")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+    }
+    repo
 }
 
 /// An issuer for the tests: a key pair, and its public half as a key set.
@@ -2190,7 +2250,7 @@ async fn set_up_can_be_closed_to_the_network() {
                 .contains("set-up")
         );
         // Installing a plugin is set-up too: its Ansible tasks run when a host is applied.
-        let spec = json!({"spec": "rookery-plugin-foo"});
+        let spec = json!({"spec": "example/foo"});
         assert_eq!(
             as_bearer(address, token, "POST", "/v1/plugins", spec)
                 .await
@@ -2300,8 +2360,14 @@ fn fake_provisioner(served: &Served) -> PathBuf {
 /// The fake provisioner in the plugins of the server whose folder is `home`.
 fn write_fake_provisioner(home: &std::path::Path) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
-    let dir = home.join("config/plugins/fake");
+    let package = home.join("fake-package");
+    let dir = package.join("rookery");
     std::fs::create_dir_all(dir.join("bin")).unwrap();
+    std::fs::write(
+        package.join("package.kdl"),
+        "format 1\npackage {\n  group example\n  id fake\n  version \"1.0.0\"\n}\ntargets {\n  rookery {\n    requires {\n      rookery \">=0.6\"\n    }\n  }\n}\n",
+    )
+    .unwrap();
     std::fs::write(dir.join("bin/provision"), FAKE_PROVISIONER).unwrap();
     std::fs::set_permissions(
         dir.join("bin/provision"),
@@ -2309,8 +2375,8 @@ fn write_fake_provisioner(home: &std::path::Path) -> PathBuf {
     )
     .unwrap();
     std::fs::write(
-        dir.join("package.json"),
-        r#"{"name": "rookery-plugin-fake", "rookery": {"provisioners": [
+        dir.join("rookery.json"),
+        r#"{"provisioners": [
             {"id": "vm", "label": "Fake VM", "command": "bin/provision", "protocol": 2,
              "verbs": ["list"], "secrets": ["api_token"],
              "arguments": [{"name": "server", "required": true}],
@@ -2327,10 +2393,18 @@ fn write_fake_provisioner(home: &std::path::Path) -> PathBuf {
                {"name": "prune", "label": "Prune", "confirm": "Prune?",
                 "arguments": [{"name": "password", "secret": true}]},
                {"name": "restart", "role": "operate"}]},
-            {"id": "old", "command": "bin/provision", "setup": "apply"}]}}"#,
+            {"id": "old", "command": "bin/provision", "setup": "apply"}]}"#,
     )
     .unwrap();
-    dir
+    let paths = Paths {
+        config_dir: home.join("config"),
+        data_dir: home.join("data"),
+    };
+    let own = rookery_core::eggs::own_dir(&paths.config_dir);
+    std::fs::create_dir_all(&own).unwrap();
+    let client = rookery_core::eggs::client(&paths).unwrap();
+    hatchery::block_on(client.add(&hatchery::Spec::Folder(package.clone()), &own)).unwrap();
+    own.join("example/fake/rookery")
 }
 
 /// A job's output and exit code once it has ended.

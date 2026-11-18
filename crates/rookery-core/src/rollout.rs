@@ -600,7 +600,7 @@ mod tests {
             rookery: api::VERSION.into(),
             plugins: vec![AppliedPlugin {
                 id: "x".into(),
-                package: "rookery-plugin-x".into(),
+                package: "example/x".into(),
                 version: version.into(),
                 digest: version.into(),
             }],

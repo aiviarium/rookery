@@ -745,6 +745,7 @@ pub fn plugin(client: &Client, command: Plugin) -> Result<()> {
             let found = client.call("plugins.list", json!({}), None)?;
             out::data(&found, || {
                 let mut table = Table::new(&["id", "version", "from", "features"]);
+                let mut refused = vec![];
                 for plugin in found["plugins"].as_array().into_iter().flatten() {
                     let features: Vec<String> = plugin["features"]
                         .as_array()
@@ -759,14 +760,25 @@ pub fn plugin(client: &Client, command: Plugin) -> Result<()> {
                             .and_then(|origin| origin.keys().next().cloned())
                             .unwrap_or_default(),
                     };
+                    let problem = plugin["problem"].as_str().unwrap_or("");
+                    let id = plugin["id"].as_str().unwrap_or("").to_owned();
+                    if !problem.is_empty() {
+                        refused.push(format!("{id} is not used: {problem}"));
+                    }
                     table.row(vec![
-                        plugin["id"].as_str().unwrap_or("").to_owned(),
+                        id,
                         plugin["version"].as_str().unwrap_or("").to_owned(),
                         origin,
-                        features.join(", "),
+                        match problem.is_empty() {
+                            true => features.join(", "),
+                            false => styled("not used", Style::Warn),
+                        },
                     ]);
                 }
                 table.print("No plugins");
+                for line in refused {
+                    out::warn(line);
+                }
             });
             Ok(())
         }
@@ -784,13 +796,31 @@ pub fn plugin(client: &Client, command: Plugin) -> Result<()> {
             });
             Ok(())
         }
-        Plugin::Add { spec } => {
-            let local = std::path::Path::new(spec.strip_prefix("file:").unwrap_or(&spec));
-            if !local.exists() {
-                report(&client.call("plugins.add", json!({}), Some(json!({"spec": spec})))?);
+        Plugin::Add {
+            spec,
+            git,
+            path,
+            git_ref,
+            allow_young,
+        } => {
+            let spec = spec.unwrap_or_default();
+            let local = std::path::Path::new(&spec);
+            if git.is_some() || spec.is_empty() || !local.exists() {
+                let asked = rookery_api::PluginSpec {
+                    spec,
+                    git,
+                    path,
+                    git_ref,
+                    allow_young,
+                };
+                report(&client.call(
+                    "plugins.add",
+                    json!({}),
+                    Some(serde_json::to_value(asked)?),
+                )?);
                 return Ok(());
             }
-            // A file or folder of this machine is sent as the .tgz npm packs.
+            // A file or folder of this machine is sent as an egg.
             let package = match local.is_dir() {
                 true => pack(local)?,
                 false => std::fs::read(local)?,
@@ -805,7 +835,7 @@ pub fn plugin(client: &Client, command: Plugin) -> Result<()> {
             Ok(())
         }
         Plugin::Remove { id } => {
-            // A plugin is named by its id or by its npm name.
+            // A plugin is named by its id or by its package.
             let found = client.call("plugins.list", json!({}), None)?;
             let id = found["plugins"]
                 .as_array()
@@ -841,7 +871,7 @@ pub fn plugin(client: &Client, command: Plugin) -> Result<()> {
                         latest,
                     ]);
                 }
-                table.print("None of the server's own plugins came from a registry");
+                table.print("The server has no plugins of its own");
             });
             Ok(())
         }
@@ -853,35 +883,107 @@ pub fn plugin(client: &Client, command: Plugin) -> Result<()> {
             report(&client.call("plugins.update", json!({}), Some(body))?);
             Ok(())
         }
+        Plugin::Check { dir } => check_plugin(&dir),
+        Plugin::Registry(command) => plugin_registry(client, command),
     }
 }
 
-/// A folder as the .tgz `npm pack` makes of it, without running its scripts.
+fn plugin_registry(client: &Client, command: args::PluginRegistry) -> Result<()> {
+    match command {
+        args::PluginRegistry::List => {
+            let found = client.call("plugins.registries", json!({}), None)?;
+            out::data(&found, || {
+                let listed: rookery_api::PluginRegistries =
+                    serde_json::from_value(found.clone()).unwrap_or_default();
+                let mut table = Table::new(&["kind", "location", "groups", "min age", "key"]);
+                for registry in &listed.registries {
+                    table.row(vec![
+                        registry.kind.clone(),
+                        registry.location.clone(),
+                        match registry.only.is_empty() {
+                            true => "any".to_owned(),
+                            false => registry.only.join(", "),
+                        },
+                        registry.min_age.clone().unwrap_or_else(|| "default".into()),
+                        match (&registry.key, registry.unsigned_tags) {
+                            (None, _) => "none".to_owned(),
+                            (Some(_), false) => "signed eggs".to_owned(),
+                            (Some(_), true) => "signed eggs, unsigned tags".to_owned(),
+                        },
+                    ]);
+                }
+                table.print("No plugin registries: rookery plugin registry add adds one");
+                if !listed.file.is_empty() {
+                    out::hint(format!("They are kept in {}", listed.file));
+                }
+            });
+            Ok(())
+        }
+        args::PluginRegistry::Add {
+            kind,
+            location,
+            only,
+            key,
+            min_age,
+            unsigned_tags,
+        } => {
+            let asked = rookery_api::PluginRegistry {
+                kind: match kind {
+                    args::RegistryKind::Git => "git",
+                    args::RegistryKind::Http => "http",
+                    args::RegistryKind::Dir => "dir",
+                }
+                .into(),
+                location,
+                only,
+                key,
+                min_age,
+                unsigned_tags,
+            };
+            report(&client.call(
+                "plugins.registries.add",
+                json!({}),
+                Some(serde_json::to_value(asked)?),
+            )?);
+            Ok(())
+        }
+        args::PluginRegistry::Remove { location } => {
+            ask::confirm(&format!("This removes the plugin registry {location}."))?;
+            report(&client.call(
+                "plugins.registries.remove",
+                json!({}),
+                Some(json!({"location": location})),
+            )?);
+            Ok(())
+        }
+    }
+}
+
+/// Check a package folder against the plugin contract, on this machine.
+pub fn check_plugin(dir: &std::path::Path) -> Result<()> {
+    let problems = rookery_api::plugin_contract::check_dir(dir);
+    if problems.is_empty() {
+        out::done(format!("{} keeps Rookery's plugin contract", dir.display()));
+        return Ok(());
+    }
+    for problem in &problems {
+        eprintln!("{problem}");
+    }
+    Err(Fail::failed(format!(
+        "{} breaks Rookery's plugin contract in {} place{}",
+        dir.display(),
+        problems.len(),
+        if problems.len() == 1 { "" } else { "s" }
+    )))
+}
+
+/// A package folder as the base egg Hatchery makes of it, without a build
+/// and checked as an install checks it.
 fn pack(folder: &std::path::Path) -> Result<Vec<u8>> {
-    let into = tempfile::tempdir()?;
-    let output = std::process::Command::new("npm")
-        .args(["pack", "--ignore-scripts", "--silent", "--pack-destination"])
-        .arg(into.path())
-        .arg("--")
-        .arg(folder)
-        .stdin(std::process::Stdio::null())
-        .output()
-        .map_err(|error| Fail::failed(format!("npm could not be started: {error}")))?;
-    if !output.status.success() {
-        return Err(Fail::failed(format!(
-            "npm pack {}: {}",
-            folder.display(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        )));
-    }
-    let packed = std::fs::read_dir(into.path())?
-        .flatten()
-        .map(|entry| entry.path())
-        .find(|path| path.extension().is_some_and(|end| end == "tgz"))
-        .ok_or_else(|| Fail::failed("npm pack made no .tgz"))?;
-    Ok(std::fs::read(packed)?)
+    let egg = hatchery::Egg::pack(folder, &[&rookery_api::plugin_contract::RookeryTarget])
+        .map_err(|error| Fail::failed(format!("{}: {error}", folder.display())))?;
+    Ok(egg.bytes().to_vec())
 }
-
 // ── settings ────────────────────────────────────────────────────────────────
 
 /// The settings of rookery itself, on this machine, beside those of the

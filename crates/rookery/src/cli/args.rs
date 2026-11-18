@@ -826,18 +826,76 @@ pub enum Plugin {
     List,
     /// What a plugin brings: its features with their actions, services and channels, and its provisioners.
     Show { id: String },
-    /// Install a plugin with npm: a name, or the address of a tarball.
-    Add { spec: String },
+    /// Install a plugin: a package of the plugin registries, such as example/hello@^1, the address of an egg, an egg or package folder of this machine, or with --git one folder of a git repository.
+    Add {
+        #[arg(required_unless_present = "git")]
+        spec: Option<String>,
+        /// A git repository to install one folder of.
+        #[arg(long, conflicts_with = "spec")]
+        git: Option<String>,
+        /// With --git: the package's folder in the repository.
+        #[arg(long, requires = "git")]
+        path: Option<String>,
+        /// With --git: a tag, branch or commit.
+        #[arg(long = "ref", value_name = "REF", requires = "git")]
+        git_ref: Option<String>,
+        /// Install a version younger than the registry's minimum release age.
+        #[arg(long)]
+        allow_young: bool,
+    },
     /// Remove one of the server's own plugins.
     #[command(visible_alias = "rm")]
     Remove { id: String },
-    /// Update one plugin or all to their registry's latest version.
+    /// Update one plugin or all to the newest version their registry allows.
     Update {
         id: Option<String>,
         /// Only say which have a newer version.
         #[arg(long)]
         check: bool,
     },
+    /// Check a package folder against Rookery's plugin contract, as the CI of a repository of plugins does.
+    Check { dir: std::path::PathBuf },
+    /// The registries the server installs plugins from.
+    #[command(subcommand)]
+    Registry(PluginRegistry),
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RegistryKind {
+    /// A git repository with a packages.kdl.
+    Git,
+    /// A static registry over HTTPS.
+    Http,
+    /// A static registry in a folder of the server.
+    Dir,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum PluginRegistry {
+    /// The plugin registries, in the order they are searched.
+    #[command(visible_alias = "ls")]
+    List,
+    /// Add a plugin registry after the others, or change the one at the same location.
+    Add {
+        kind: RegistryKind,
+        /// A repository address, a base URL or a folder.
+        location: String,
+        /// Serve only this group. Again for more.
+        #[arg(long = "only", value_name = "GROUP")]
+        only: Vec<String>,
+        /// The registry's public key, ed25519:…; eggs from it must then be signed.
+        #[arg(long)]
+        key: Option<String>,
+        /// How long a new version waits before it is installed, such as 3d or 0.
+        #[arg(long)]
+        min_age: Option<String>,
+        /// With --key: install versions of a git registry that have only a tag, unsigned.
+        #[arg(long, requires = "key")]
+        unsigned_tags: bool,
+    },
+    /// Remove a plugin registry. What was installed from it stays.
+    #[command(visible_alias = "rm")]
+    Remove { location: String },
 }
 
 #[derive(Subcommand, Debug)]

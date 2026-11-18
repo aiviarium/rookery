@@ -1,0 +1,24 @@
+format 1
+
+package {
+  group aiviarium
+  id github
+  version "0.1.0"
+}
+
+about {
+  name "GitHub"
+  summary "GitHub's CLI and sign-in for rookery machines."
+  license MIT
+  license Apache-2.0
+  repository "https://github.com/aiviarium/rookery"
+  keywords rookery-plugin
+}
+
+targets {
+  rookery {
+    requires {
+      rookery ">=0.6"
+    }
+  }
+}

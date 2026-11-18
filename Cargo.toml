@@ -8,7 +8,7 @@ default-members = ["crates/rookery-api", "crates/rookery-pty", "crates/rookery-c
 [workspace.package]
 version = "0.6.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.95"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
@@ -37,6 +37,8 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 postgres = "0.19"
 tokio-postgres-rustls = { version = "0.14", default-features = false, features = ["ring"] }
 chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+# Plugins are Hatchery packages: resolving, locking and installing eggs.
+hatchery = { git = "https://github.com/aiviarium/hatchery", rev = "5ece78ce5324da064731ae47c6ec76ef13d23aa4" }
 
 # Development and test builds: line numbers in backtraces, and no debug
 # information for dependencies, which makes them quicker to build and link.

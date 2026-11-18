@@ -1,5 +1,5 @@
 # rookery itself, for running `rookery serve` or the terminal UI without installing
-# anything: the program with SSH, Python and Ansible beside it, and Docker's
+# anything: the program with SSH, Python, Ansible and git beside it, and Docker's
 # client for the Docker plugin. The engine is another machine's, or this
 # machine's through its socket.
 #
@@ -17,7 +17,7 @@
 FROM debian:trixie-slim
 COPY requirements.txt /tmp/requirements.txt
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl docker-buildx docker-cli docker-compose npm openssh-client openssl \
+      ca-certificates curl docker-buildx docker-cli docker-compose git openssh-client openssl \
       python3 python3-pip tar tini \
     && pip install --no-cache-dir --break-system-packages -r /tmp/requirements.txt \
     && apt-get purge -y python3-pip && apt-get autoremove -y \

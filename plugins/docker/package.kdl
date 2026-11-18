@@ -1,0 +1,24 @@
+format 1
+
+package {
+  group aiviarium
+  id docker
+  version "0.2.0"
+}
+
+about {
+  name "Docker"
+  summary "Creates a long-running Ubuntu container with systemd and SSH, to be set up like any other machine, and runs Compose projects as deployments."
+  license MIT
+  license Apache-2.0
+  repository "https://github.com/aiviarium/rookery"
+  keywords rookery-plugin
+}
+
+targets {
+  rookery {
+    requires {
+      rookery ">=0.6"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+format 1
+
+package {
+  group aiviarium
+  id backup
+  version "0.1.0"
+}
+
+about {
+  name "Backup"
+  summary "Snapshots of the agent's data with restic, sent anywhere rclone reaches."
+  license MIT
+  license Apache-2.0
+  repository "https://github.com/aiviarium/rookery"
+  keywords rookery-plugin
+}
+
+targets {
+  rookery {
+    requires {
+      rookery ">=0.6"
+    }
+  }
+}

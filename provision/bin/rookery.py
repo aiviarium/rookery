@@ -258,7 +258,7 @@ def release():
             paths.append(p)
     entries = {str(p.relative_to(ROOT)): p for p in paths}
     # The user's own plugins travel with the release; theirs win over the source's.
-    # rookery names them as {id: directory}; each lands in plugins/ID like a shipped one.
+    # rookery names them as {id: package folder}; each lands in plugins/ID like a shipped one.
     for name, directory in sorted(json.loads(os.environ.get('ROOKERY_PLUGINS') or '{}').items()):
         directory = Path(directory).resolve()
         if not re.fullmatch(r'[a-z][a-z0-9_-]*', name) or directory == ROOT / 'plugins' / name:
@@ -267,8 +267,7 @@ def release():
         for entry in stale:
             del entries[entry]
         for p in directory.rglob('*'):
-            # Only the plugin's own dependencies: rookery installs the plugin itself in a node_modules.
-            if p.is_file() and not {'node_modules', '__pycache__'} & set(p.relative_to(directory).parts):
+            if p.is_file() and '__pycache__' not in p.relative_to(directory).parts:
                 entries[str(Path('plugins') / name / p.relative_to(directory))] = p
     with target.open('wb') as stream, \
             gzip.GzipFile(fileobj=stream, mode='wb', mtime=0, filename='') as gz, \

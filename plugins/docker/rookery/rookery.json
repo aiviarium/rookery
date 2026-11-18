@@ -1,0 +1,168 @@
+{
+  "features": [
+    {
+      "id": "engine",
+      "group": "Servers",
+      "label": "Docker engine",
+      "description": "Install the Docker engine on a node for rookery's machines, Compose projects and instances, with Sysbox beside it when rookery_docker_sysbox is true in the profile's ansible_vars. An engine that is installed already is kept as it is. rookery registers the provisioner docker/container of this node after the apply, which reaches the engine over SSH.",
+      "summary": "The Docker engine (`docker`) runs containers here.",
+      "types": [
+        "node"
+      ],
+      "offers": [
+        "container"
+      ],
+      "commands": [
+        "docker"
+      ],
+      "tasks": "tasks/engine.yml",
+      "actions": [
+        {
+          "name": "engine-status",
+          "label": "Docker",
+          "user": "root",
+          "extends": "status",
+          "help": "The version of the Docker engine, its runtimes and its containers. Part of Status.",
+          "run": "echo; echo '── Docker'; docker version | sed -n '/^Server/,$p' | sed -n '1,3p'; docker info 2>/dev/null | grep -i '^ *runtimes:'; docker ps --all"
+        }
+      ]
+    }
+  ],
+  "provisioners": [
+    {
+      "id": "container",
+      "label": "Docker container",
+      "description": "An Ubuntu 26.04 container with systemd and an SSH server, on the local Docker or on the engine named by host. rookery applies its role to it over SSH. It also runs Compose projects there as deployments.",
+      "command": "bin/provision",
+      "protocol": 2,
+      "verbs": ["list"],
+      "arguments": [
+        {"name": "host", "label": "Docker endpoint", "default": "", "help": "The Docker engine to use, such as ssh://ops@192.0.2.10. Empty uses the local default."}
+      ],
+      "kinds": [
+        {
+          "id": "machine",
+          "label": "Machine",
+          "setup": "apply",
+          "verbs": ["start", "stop", "change", "logs"],
+          "arguments": [
+            {"name": "image", "label": "Image", "default": "", "help": "The image to start from. Empty builds the one that comes with the plugin."},
+            {"name": "runtime", "label": "Runtime", "default": "privileged", "values": ["privileged", "sysbox"], "help": "privileged runs the container with --privileged, so root in it is root on the Docker host. sysbox runs it with the Sysbox runtime instead, which needs Sysbox on the Docker host."},
+            {"name": "ssh_port", "label": "SSH port", "default": "", "help": "A port of the Docker host to publish the container's SSH on, such as 2222. Empty publishes none."},
+            {"name": "publish_address", "label": "Publish address", "default": "127.0.0.1", "help": "The address rookery reaches the published SSH port at. A loopback address such as 127.0.0.1 keeps the port on the Docker host's loopback; any other publishes it on every address of the Docker host."},
+            {"name": "volume", "label": "Volume", "default": "", "help": "The volume for /srv/agent, the agent's work. Empty uses rookery-HOST-data."},
+            {"name": "cpus", "label": "CPUs", "default": "", "kind": "resource", "help": "How many CPUs the container may use, such as 4. Empty sets no limit."},
+            {"name": "memory", "label": "Memory", "default": "", "kind": "resource", "help": "How much memory the container may use, such as 8g. Empty sets no limit."},
+            {"name": "keep_volume", "label": "Keep volume on destroy", "default": "no", "kind": "boolean", "values": ["no", "yes"], "help": "Whether deleting the machine keeps its volume, so a new machine can take the agent's work over."}
+          ]
+        },
+        {
+          "id": "deployment",
+          "label": "Compose project",
+          "verbs": ["start", "stop", "change", "logs"],
+          "spec": {"format": "compose", "label": "Compose file"},
+          "arguments": [
+            {"name": "keep_volumes", "label": "Keep volumes on remove", "default": "no", "kind": "boolean", "values": ["no", "yes"], "help": "Whether removing the deployment keeps the named volumes of its project. no removes them with what is in them."}
+          ],
+          "actions": [
+            {"name": "services", "label": "Services", "group": "Compose", "changes": false, "help": "Each container of the project, with its service and its state."},
+            {"name": "restart", "label": "Restart", "group": "Compose", "confirm": "Restart every container of this deployment?", "help": "Restart the project's containers as they are, without reading the Compose file again."},
+            {"name": "pull", "label": "Pull and update", "group": "Compose", "confirm": "Pull the images of this deployment and recreate the containers whose image changed?", "help": "Pull the images the Compose file names, then bring the project up again, so containers whose image changed are recreated."}
+          ]
+        },
+        {
+          "id": "instance",
+          "label": "Container from an image",
+          "verbs": ["start", "stop", "change", "logs", "exec"],
+          "arguments": [
+            {"name": "image", "label": "Image", "default": "", "help": "The image to start from, such as debian:12 or any image reference. It becomes no rookery host: nothing of rookery is put in it."},
+            {"name": "command", "label": "Command", "default": "", "help": "The command to run in the container, such as sleep infinity. Empty runs the image's own command."},
+            {"name": "environment", "label": "Environment", "default": "", "kind": "text", "help": "Variables for the container, one NAME=VALUE a line. A line starting with # is a comment."},
+            {"name": "ports", "label": "Ports", "default": "", "help": "Ports to publish, comma-separated, such as 8080:80. Empty publishes none."},
+            {"name": "volumes", "label": "Volumes", "default": "", "help": "Volumes to mount, comma-separated, as NAME:/path or /host/path:/path. Bind mounts need absolute paths on the Docker host."},
+            {"name": "network", "label": "Network", "default": "", "help": "The network to attach to. Empty uses the engine's default network."},
+            {"name": "restart", "label": "Restart", "default": "no", "values": ["no", "unless-stopped", "always"], "help": "Whether the container starts again when the engine or the machine restarts."},
+            {"name": "cpus", "label": "CPUs", "default": "", "kind": "resource", "help": "How many CPUs the container may use, such as 2. Empty sets no limit."},
+            {"name": "memory", "label": "Memory", "default": "", "kind": "resource", "help": "How much memory the container may use, such as 2g. Empty sets no limit."}
+          ]
+        }
+      ],
+      "collections": [
+        {
+          "id": "images",
+          "label": "Image",
+          "plural": "Images",
+          "group": "Engine",
+          "help": "The images the engine has. A new one is pulled from its registry, or is the image the plugin brings, built here.",
+          "key": ["image"],
+          "columns": [
+            {"name": "id", "label": "ID"},
+            {"name": "size", "label": "Size"},
+            {"name": "created", "label": "Created"},
+            {"name": "used_by", "label": "Used by"}
+          ],
+          "new": [
+            {"action": "pull-image", "label": "Pull an image"},
+            {"action": "build", "label": "Build rookery's image"}
+          ],
+          "item": [
+            {"action": "remove-image", "label": "Remove"}
+          ],
+          "list": [
+            {"action": "prune"}
+          ],
+          "remove": "remove-image",
+          "show": "images"
+        },
+        {
+          "id": "volumes",
+          "label": "Volume",
+          "plural": "Volumes",
+          "group": "Storage",
+          "help": "The named volumes of the engine, with the host rookery made each for, if any, and the containers that use it. One kept with keep_volume stays here until it is removed.",
+          "key": ["volume"],
+          "columns": [
+            {"name": "driver", "label": "Driver"},
+            {"name": "size", "label": "Size"},
+            {"name": "made_for", "label": "Made for"},
+            {"name": "used_by", "label": "Used by"}
+          ],
+          "new": [
+            {"action": "create-volume"}
+          ],
+          "item": [
+            {"action": "remove-volume", "label": "Remove", "arguments": {"volume": "name"}}
+          ],
+          "remove": "remove-volume",
+          "show": "volumes"
+        }
+      ],
+      "actions": [
+        {"name": "engine", "label": "Check the engine", "group": "Engine", "changes": false, "help": "Ask the Docker engine for its version, its runtimes and how many containers rookery made there."},
+        {"name": "images", "label": "Images", "group": "Engine", "changes": false, "help": "The images the engine has, with their sizes."},
+        {"name": "volumes", "label": "Volumes", "group": "Storage", "changes": false, "help": "Every volume of the engine, marked when rookery made it, and whether a container uses each. One kept with keep_volume stays here until it is removed."},
+        {"name": "create-volume", "label": "New volume", "group": "Storage", "help": "Create a named volume on the engine, which a container can mount.",
+         "arguments": [
+           {"name": "name", "label": "Name", "default": "", "help": "The name of the volume, such as wiki-data."}
+         ]},
+        {"name": "remove-volume", "label": "Remove volume", "group": "Storage", "confirm": "Remove this volume and everything in it?", "help": "Remove a named volume and what is in it. Docker refuses it while a container uses it.",
+         "arguments": [
+           {"name": "name", "label": "Name", "default": "", "help": "The name of the volume to remove."}
+         ]},
+        {"name": "pull-image", "label": "Pull image", "group": "Engine", "help": "Fetch an image from its registry onto the engine.",
+         "arguments": [
+           {"name": "image", "label": "Image", "default": "", "help": "The image to pull, such as debian:12."}
+         ]},
+        {"name": "remove-image", "label": "Remove image", "group": "Engine", "confirm": "Remove this image from the engine?", "help": "Remove an image from the engine. Docker refuses it while a container uses it.",
+         "arguments": [
+           {"name": "image", "label": "Image", "default": "", "help": "The image to remove, such as debian:12."}
+         ]},
+        {"name": "build", "label": "Build the image", "group": "Engine", "help": "Build the image the plugin brings, which a new machine starts from unless it names another. Creating the first machine builds it too; this does it ahead of time."},
+        {"name": "prune", "label": "Remove what rookery left behind", "group": "Storage", "confirm": "Remove the images of older versions of this plugin that no container uses, and with volumes=yes the volumes rookery made that no container uses?", "help": "Remove the images of older versions of this plugin that no container uses. With volumes=yes also the volumes rookery made that no container uses, such as those kept with keep_volume, and the agent's work in them. Nothing rookery did not make is touched, and no container is.",
+         "arguments": [
+           {"name": "volumes", "label": "Also volumes", "default": "no", "kind": "boolean", "values": ["no", "yes"], "help": "yes also removes the volumes rookery made that no container uses, with what is in them."}
+         ]}
+      ]
+    }
+  ]
+}

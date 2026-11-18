@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aiviarium/rookery/blob/main/schemas/rookery-plugin.schema.json",
+  "title": "rookery.json",
+  "description": "The manifest of a package's rookery target: the features and provisioners of a Rookery plugin.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "features": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/feature" }
+    },
+    "provisioners": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/provisioner" }
+    }
+  },
+  "$defs": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "names": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/name" }
+    },
+    "strings": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "path": {
+      "description": "A path in the target's folder.",
+      "type": "string",
+      "minLength": 1,
+      "not": { "pattern": "(^/|^\\.\\.(/|$)|/\\.\\.(/|$)|\\\\)" }
+    },
+    "feature": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/name" },
+        "group": { "type": "string" },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "summary": { "type": "string" },
+        "packages": { "$ref": "#/$defs/strings" },
+        "commands": { "$ref": "#/$defs/strings" },
+        "tasks": { "$ref": "#/$defs/path" },
+        "guide": { "$ref": "#/$defs/path" },
+        "actions": { "type": "array", "items": { "$ref": "#/$defs/action" } },
+        "services": { "type": "array", "items": { "$ref": "#/$defs/service" } },
+        "channels": { "type": "array", "items": { "$ref": "#/$defs/channel" } },
+        "types": {
+          "type": "array",
+          "items": { "enum": ["workstation", "node"] }
+        },
+        "offers": { "$ref": "#/$defs/names" },
+        "trusts": {
+          "type": "object",
+          "required": ["certificate", "key"],
+          "properties": {
+            "certificate": { "$ref": "#/$defs/name" },
+            "key": { "$ref": "#/$defs/name" }
+          }
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "required": ["name", "run"],
+      "properties": {
+        "name": { "$ref": "#/$defs/name" },
+        "run": { "type": "string", "minLength": 1 },
+        "label": { "type": "string" },
+        "help": { "type": "string" },
+        "user": { "enum": ["agent", "operator", "root"] },
+        "agent": { "type": "boolean" },
+        "arguments": { "type": "array", "items": { "$ref": "#/$defs/argument" } },
+        "confirm": { "type": "string" },
+        "terminal": { "type": "boolean" },
+        "group": { "type": "string" },
+        "extends": {
+          "oneOf": [{ "type": "string" }, { "$ref": "#/$defs/strings" }]
+        }
+      }
+    },
+    "argument": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "$ref": "#/$defs/name" },
+        "label": { "type": "string" },
+        "required": { "type": "boolean" },
+        "default": { "type": "string" },
+        "choices": { "type": "string" },
+        "values": { "$ref": "#/$defs/strings" },
+        "kind": { "type": "string" },
+        "help": { "type": "string" },
+        "secret": { "type": "boolean" }
+      }
+    },
+    "service": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "$ref": "#/$defs/name" },
+        "user": { "type": "string" },
+        "methods": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": { "name": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "channel": {
+      "type": "object",
+      "required": ["topic"],
+      "properties": {
+        "topic": { "type": "string", "minLength": 1 },
+        "keep": { "enum": ["none", "last", "log"] },
+        "max": { "type": "integer", "minimum": 0 },
+        "days": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "provisioner": {
+      "type": "object",
+      "required": ["id", "command"],
+      "properties": {
+        "id": { "$ref": "#/$defs/name" },
+        "command": { "$ref": "#/$defs/path" },
+        "protocol": {
+          "description": "The version of the provisioner protocol the command speaks. Rookery 0.6 speaks 2, and does not use a provisioner that declares another version or none.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "verbs": { "$ref": "#/$defs/strings" },
+        "secrets": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/name" },
+              {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": { "$ref": "#/$defs/name" },
+                  "required": { "type": "boolean" }
+                }
+              }
+            ]
+          }
+        },
+        "arguments": { "type": "array", "items": { "$ref": "#/$defs/argument" } },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": { "$ref": "#/$defs/name" },
+              "label": { "type": "string" },
+              "setup": { "enum": ["seed", "apply"] },
+              "archive": { "type": "boolean" },
+              "verbs": { "$ref": "#/$defs/strings" },
+              "arguments": { "type": "array", "items": { "$ref": "#/$defs/argument" } },
+              "spec": { "type": "object" },
+              "actions": { "type": "array", "items": { "$ref": "#/$defs/provisionerAction" } }
+            }
+          }
+        },
+        "actions": { "type": "array", "items": { "$ref": "#/$defs/provisionerAction" } },
+        "collections": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "provisionerAction": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "$ref": "#/$defs/name" },
+        "label": { "type": "string" },
+        "help": { "type": "string" },
+        "group": { "type": "string" },
+        "arguments": { "type": "array", "items": { "$ref": "#/$defs/argument" } },
+        "confirm": { "type": "string" },
+        "changes": { "type": "boolean" },
+        "role": { "enum": ["view", "operate", "admin"] }
+      }
+    }
+  }
+}

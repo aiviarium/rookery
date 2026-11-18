@@ -622,19 +622,22 @@ mod tests {
             .unwrap();
         paths.own_key().unwrap();
         let token = crate::local::serve::token(paths).unwrap();
-        // A plugin from an upload and one copied in as a folder.
-        let own = rookery_core::plugins::own_dir(&paths.config_dir);
-        fs::create_dir_all(own.join("uploads")).unwrap();
-        fs::write(own.join("uploads/1.tgz"), "an upload").unwrap();
+        // A plugin registry, and a plugin from an egg that was sent.
         fs::write(
-            own.join("package.json"),
-            r#"{"dependencies": {"rookery-plugin-up": "file:uploads/1.tgz"}}"#,
+            rookery_core::eggs::config_file(paths),
+            "registries {\n  git \"https://example.org/plugins.git\"\n}\n",
         )
         .unwrap();
-        fs::create_dir_all(own.join("hand-made")).unwrap();
+        let own = rookery_core::eggs::own_dir(&paths.config_dir);
+        let uploads = rookery_core::eggs::uploads(&own);
+        fs::create_dir_all(&uploads).unwrap();
+        fs::write(uploads.join("example.up-1.0.0-0123456789ab.egg"), "an egg").unwrap();
         fs::write(
-            own.join("hand-made/package.json"),
-            r#"{"name": "rookery-plugin-local", "rookery": {}}"#,
+            own.join("eggs.lock"),
+            format!(
+                "[[package]]\nname = \"example/up\"\nversion = \"1.0.0\"\ntargets = [\"rookery\"]\nfile = \"{}\"\nsha256 = \"aa\"\n",
+                uploads.join("example.up-1.0.0-0123456789ab.egg").display()
+            ),
         )
         .unwrap();
         rookery_core::plugin_state::remember(paths).unwrap();
@@ -683,22 +686,23 @@ mod tests {
                 .trim(),
             token
         );
-        // The plugins: package.json and the upload are written, the folder unpacked.
-        let own = rookery_core::plugins::own_dir(&paths.config_dir);
+        // The plugins: the registries, the lock and the egg are written, and
+        // the package is installed.
+        let own = rookery_core::eggs::own_dir(&paths.config_dir);
         let store = store::shared(paths).unwrap();
-        let plan = rookery_core::plugin_state::plan(&own, &store)
+        let plan = rookery_core::plugin_state::plan(paths, &store)
             .unwrap()
             .unwrap();
-        let files: Vec<_> = plan
-            .files
-            .iter()
-            .map(|(file, _)| file.display().to_string())
-            .collect();
-        assert_eq!(files, ["package.json", "uploads/1.tgz"]);
-        let folders: Vec<_> = plan.folders.iter().map(|(id, _)| id.as_str()).collect();
-        assert_eq!(folders, ["local"]);
-        assert_eq!(plan.install, rookery_core::plugin_state::Install::All);
-        assert!(plan.left_out.is_empty());
+        let files: Vec<_> = plan.files.iter().map(|(file, _)| file.clone()).collect();
+        assert_eq!(
+            files,
+            [
+                rookery_core::eggs::config_file(paths),
+                own.join("eggs.lock"),
+                rookery_core::eggs::uploads(&own).join("example.up-1.0.0-0123456789ab.egg"),
+            ]
+        );
+        assert_eq!(plan.install, ["example/up"]);
     }
 
     #[test]

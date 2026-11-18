@@ -1108,17 +1108,20 @@ impl Default for Config {
 
 // ── Plugins ─────────────────────────────────────────────────────────────────
 
-/// Where a plugin comes from, which says whether it can be removed.
+/// Where a plugin comes from, which says whether it can be removed and how
+/// it is updated.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum PluginOrigin {
     /// It is part of the provisioning source and stays.
     #[default]
     Shipped,
-    /// Installed with npm into the plugin directory.
-    Npm,
-    /// A folder copied into the plugin directory.
-    Folder,
+    /// Installed as an egg from one of the plugin registries.
+    Registry,
+    /// Installed from one folder of a git repository.
+    Git,
+    /// Installed from an egg file that was sent, or from an address.
+    File,
 }
 
 /// An action a feature adds to a host.
@@ -1174,14 +1177,21 @@ pub struct PluginFeature {
 pub struct PluginInfo {
     pub id: String,
     pub label: String,
-    /// Its npm name.
+    /// Its package, `GROUP/ID`.
     pub package: String,
     pub version: String,
     #[serde(default)]
     pub description: String,
     pub origin: PluginOrigin,
+    /// The registry, repository or file it was installed from.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub source: String,
     /// Where it is on the machine that has it.
     pub dir: String,
+    /// Why Rookery does not use it, such as a Rookery version it does not
+    /// accept. A plugin with a problem has no features or provisioners.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub problem: String,
     #[serde(default)]
     pub features: Vec<PluginFeature>,
     /// What it can create machines with.
@@ -1193,11 +1203,11 @@ pub struct PluginInfo {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 pub struct PluginList {
     pub plugins: Vec<PluginInfo>,
-    /// The directory of its own plugins; a folder copied there is one too.
+    /// The folder its own plugins are installed in.
     pub dir: String,
 }
 
-/// What npm said of a change, a few lines; the first starts with ✓.
+/// What a change of the plugins did, a few lines; the first starts with ✓.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 pub struct PluginReport {
     pub lines: Vec<String>,
@@ -1213,11 +1223,12 @@ pub struct PluginUpdate {
     pub package: String,
     /// The version installed.
     pub version: String,
-    /// The registry's latest version, when it is another one.
+    /// The newest version that can be installed, when it is another one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest: Option<String>,
     /// Why there is nothing to ask, or what asking said: a plugin from a
-    /// .tgz or a folder has no registry to ask.
+    /// file has no registry to ask, and a new version may be held back for
+    /// its minimum release age.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub note: String,
 }
@@ -1228,11 +1239,65 @@ pub struct PluginUpdates {
     pub plugins: Vec<PluginUpdate>,
 }
 
-/// What to update: one plugin by its id or npm name, or all of them.
+/// What to update: one plugin by its id or package, or all of them.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 pub struct PluginUpdateSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+}
+
+/// What to install as a plugin: a package of the plugin registries, the
+/// address of an egg, or one folder of a git repository.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+pub struct PluginSpec {
+    /// `GROUP/ID[@RANGE]`, `ID[@RANGE]`, or the https address of an egg.
+    /// Empty with `git`.
+    #[serde(default)]
+    pub spec: String,
+    /// A git repository to install one folder of, instead of `spec`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git: Option<String>,
+    /// With `git`: the package's folder in the repository; its root without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// With `git`: a tag, branch or commit; the default branch without one.
+    #[serde(default, rename = "ref", skip_serializing_if = "Option::is_none")]
+    pub git_ref: Option<String>,
+    /// Install a version even when it is younger than the registry's
+    /// minimum release age.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub allow_young: bool,
+}
+
+/// A registry plugins are installed from, a line of `hatchery.kdl`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct PluginRegistry {
+    /// `git`, `http` or `dir`.
+    pub kind: String,
+    /// A repository address, a base URL or a folder.
+    pub location: String,
+    /// The groups it may serve; any when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub only: Vec<String>,
+    /// Its public key, `ed25519:…`. Eggs from it must then be signed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    /// How long a new version waits before it is installed, such as `3d`.
+    /// Without it, the default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_age: Option<String>,
+    /// With a key: versions of a git registry that have only a tag are
+    /// installed too, unsigned.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unsigned_tags: bool,
+}
+
+/// The answer of `plugins.registries`, in the order they are searched.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+pub struct PluginRegistries {
+    pub registries: Vec<PluginRegistry>,
+    /// The file they are kept in.
+    pub file: String,
 }
 
 /// A thing rookery keeps, by its id and its name.

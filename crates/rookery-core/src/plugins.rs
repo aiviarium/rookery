@@ -1,18 +1,21 @@
-//! Plugins: npm-format packages whose `package.json` has a `rookery` section.
-//! Each contributes features to the groups of the Features page, and actions
-//! to the overview of a host. The role does the installing from the same manifest.
-//! A plugin can also bring provisioners, programs that create the machine a
-//! profile describes; rookery runs those itself (see [`crate::provision`]).
+//! Plugins: Hatchery packages with a `rookery` target. The package's
+//! `package.kdl` names it and the Rookery versions it works with, and the
+//! target's `rookery.json` says what it brings. Each contributes features to
+//! the groups of the Features page, and actions to the overview of a host.
+//! The role does the installing from the same manifest. A plugin can also
+//! bring provisioners, programs that create the machine a profile describes;
+//! rookery runs those itself (see [`crate::provision`]). Installing,
+//! updating and removing them is in [`crate::eggs`].
 
-use crate::{Result, paths::Paths};
 use rookery_api::{
-    AppliedPlugin, PluginAction as ListedAction, PluginFeature, PluginInfo, PluginList as Listing,
-    PluginOrigin, PluginReport as Report, PluginService, PluginUpdate, PluginUpdates,
-    ProvisionerInfo,
+    AppliedPlugin, PluginAction as ListedAction, PluginFeature, PluginInfo, PluginOrigin,
+    PluginService, ProvisionerInfo,
 };
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+pub use rookery_api::plugin_contract::{MANIFEST, TARGET, valid_name};
 
 pub struct PluginAction {
     pub name: String,
@@ -71,13 +74,13 @@ pub struct Hosting {
 /// What each feature of a plugin says of the hosts it is for, read from its
 /// manifest.
 pub fn hosting(plugin: &Plugin) -> Vec<Hosting> {
-    let Some(data) = fs::read(plugin.dir.join("package.json"))
+    let Some(data) = fs::read(plugin.dir.join(MANIFEST))
         .ok()
         .and_then(|data| serde_json::from_slice::<Value>(&data).ok())
     else {
         return vec![];
     };
-    data["rookery"]["features"]
+    data["features"]
         .as_array()
         .into_iter()
         .flatten()
@@ -231,39 +234,56 @@ impl Provisioner {
 pub struct Plugin {
     pub id: String,
     pub label: String,
-    /// The npm name and version, for listing.
+    /// Its package, `GROUP/ID`.
     pub package: String,
     pub version: String,
     pub description: String,
+    /// The folder of its `rookery` target, which holds `rookery.json` and
+    /// what it names.
     pub dir: PathBuf,
-    /// Where it was found, before links are followed: what npm installed
-    /// from a folder is a link to that folder.
-    pub found: PathBuf,
+    /// The package's folder, with its `package.kdl`.
+    pub package_dir: PathBuf,
+    /// Where it comes from.
+    pub origin: PluginOrigin,
+    /// The registry, repository or file it was installed from.
+    pub source: String,
+    /// Why Rookery does not use it. Such a plugin has no features or
+    /// provisioners, and [`load`] leaves it out.
+    pub problem: Option<String>,
     pub features: Vec<Feature>,
     pub provisioners: Vec<Provisioner>,
 }
 
-/// A name that is safe as a directory name and inside a remote command.
-pub fn valid_name(name: &str) -> bool {
-    name.starts_with(|ch: char| ch.is_ascii_lowercase())
-        && name
-            .chars()
-            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-' || ch == '_')
+/// The plugins found in the given directories, without those Rookery does
+/// not use. A later directory replaces a plugin of the same id from an
+/// earlier one.
+pub fn load(dirs: &[PathBuf]) -> Vec<Plugin> {
+    scan(dirs)
+        .into_iter()
+        .filter(|plugin| plugin.problem.is_none())
+        .collect()
 }
 
-/// The plugins found in the given directories. Packages sit directly in a
-/// directory, in its `node_modules` (where `npm install --prefix` puts them) or
-/// one level further down under an `@scope`. A later directory replaces a plugin
-/// of the same id from an earlier one. Packages without a usable `rookery`
-/// section are skipped.
-pub fn load(dirs: &[PathBuf]) -> Vec<Plugin> {
+/// Every plugin package found in the given directories, with the reason
+/// for each that Rookery does not use. A directory with an `eggs.lock` or a
+/// `.hatchery` folder is an install folder, whose packages are those it locks. Any other holds a
+/// package in each folder that has a `package.kdl`, as the provisioning
+/// source does. A package without a `rookery` target is no plugin.
+pub fn scan(dirs: &[PathBuf]) -> Vec<Plugin> {
     let mut plugins: Vec<Plugin> = vec![];
     for dir in dirs {
-        for package in packages(dir)
-            .into_iter()
-            .chain(packages(&dir.join("node_modules")))
-        {
-            if let Some(plugin) = read(&package) {
+        for (package, origin, source) in packages(dir) {
+            if let Some(mut plugin) = read(&package) {
+                plugin.origin = origin;
+                plugin.source = source;
+                // One that cannot be used leaves a usable one of the same id.
+                if plugin.problem.is_some()
+                    && plugins
+                        .iter()
+                        .any(|known| known.id == plugin.id && known.problem.is_none())
+                {
+                    continue;
+                }
                 plugins.retain(|known| known.id != plugin.id);
                 plugins.push(plugin);
             }
@@ -273,31 +293,116 @@ pub fn load(dirs: &[PathBuf]) -> Vec<Plugin> {
     plugins
 }
 
-fn packages(dir: &Path) -> Vec<PathBuf> {
-    let children = |dir: &Path| -> Vec<PathBuf> {
-        let mut paths: Vec<PathBuf> = fs::read_dir(dir)
-            .map(|entries| entries.flatten().map(|entry| entry.path()).collect())
-            .unwrap_or_default();
-        paths.sort();
-        paths
-    };
-    let mut found = vec![];
-    for path in children(dir) {
-        let scoped = path
-            .file_name()
-            .is_some_and(|name| name.to_string_lossy().starts_with('@'));
-        if scoped {
-            found.extend(children(&path));
-        } else {
-            found.push(path);
-        }
+/// The package folders of a directory, with where each comes from.
+fn packages(dir: &Path) -> Vec<(PathBuf, PluginOrigin, String)> {
+    if dir.join(hatchery::lock::FILE).is_file() || dir.join(".hatchery").is_dir() {
+        let Ok(lock) = hatchery::Lock::load(dir) else {
+            return vec![];
+        };
+        return lock
+            .packages
+            .iter()
+            .map(|locked| {
+                let (origin, source) = crate::eggs::origin(locked);
+                (dir.join(locked.name.dir()), origin, source)
+            })
+            .collect();
     }
-    found
+    let mut paths: Vec<PathBuf> = fs::read_dir(dir)
+        .map(|entries| entries.flatten().map(|entry| entry.path()).collect())
+        .unwrap_or_default();
+    paths.sort();
+    paths
+        .into_iter()
+        .filter(|path| path.join(hatchery::manifest::FILE).is_file())
+        .map(|path| (path, PluginOrigin::Shipped, String::new()))
+        .collect()
 }
 
-fn read(dir: &Path) -> Option<Plugin> {
-    let data: Value = serde_json::from_slice(&fs::read(dir.join("package.json")).ok()?).ok()?;
-    let rookery = data.get("rookery")?;
+/// Why a package's `rookery` target cannot be installed here, or None. Its
+/// `requires` block has to name the Rookery versions it works with.
+pub fn unmet(target: &hatchery::TargetSpec) -> Option<String> {
+    if !target.requires.iter().any(|line| line.fact == TARGET) {
+        return Some(
+            "its package.kdl does not say which Rookery it works with: its rookery target needs a line such as rookery \">=0.6\" in requires".into(),
+        );
+    }
+    let (line, found) = hatchery::target::unmet(
+        &rookery_api::plugin_contract::RookeryTarget,
+        &target.requires,
+    )?;
+    Some(match (line.fact.as_str(), found) {
+        (TARGET, _) => format!(
+            "it works with Rookery {}, and this is {}",
+            line.values.join(" or "),
+            rookery_api::VERSION
+        ),
+        (fact, Some(found)) => format!(
+            "it needs {fact} {}, and this machine has {found}",
+            line.values.join(" or ")
+        ),
+        (fact, None) => format!("it needs {fact}, which Rookery does not have"),
+    })
+}
+
+/// The plugin of a package folder, or None when it is no package with a
+/// `rookery` target. One Rookery cannot use has a problem.
+pub fn read(package: &Path) -> Option<Plugin> {
+    let text = fs::read_to_string(package.join(hatchery::manifest::FILE)).ok()?;
+    let manifest = hatchery::Manifest::parse(&text).ok()?;
+    let target = manifest.target(TARGET)?;
+    let dir = package.join(target.dir());
+    let real = fs::canonicalize(&dir).unwrap_or_else(|_| dir.clone());
+    let id = manifest.package.id.clone();
+    let label = manifest.about.name.clone().unwrap_or_else(|| id.clone());
+    let mut plugin = Plugin {
+        id: id.clone(),
+        label: label.clone(),
+        package: manifest.name().to_string(),
+        version: manifest.package.version.to_string(),
+        description: manifest.about.summary.clone().unwrap_or_default(),
+        dir: real.clone(),
+        package_dir: package.to_owned(),
+        origin: PluginOrigin::Shipped,
+        source: String::new(),
+        problem: None,
+        features: vec![],
+        provisioners: vec![],
+    };
+    // `sign-in:NAME` are rookery's own sign-ins.
+    plugin.problem = if !valid_name(&id) || id == "sign-in" {
+        Some(format!(
+            "{id} is no plugin id: ids are lower-case letters, digits, - and _, start with a letter, and are not sign-in"
+        ))
+    } else if target
+        .manifest
+        .as_deref()
+        .is_some_and(|name| name != MANIFEST)
+    {
+        Some(format!(
+            "its rookery target names {} as its manifest, and Rookery reads {MANIFEST}",
+            target.manifest.as_deref().unwrap_or("")
+        ))
+    } else {
+        unmet(target)
+    };
+    let data = match fs::read(real.join(MANIFEST)) {
+        Ok(data) => serde_json::from_slice::<Value>(&data).ok(),
+        Err(_) => None,
+    };
+    let Some(rookery) = data.filter(Value::is_object) else {
+        plugin.problem.get_or_insert_with(|| {
+            format!(
+                "{}/{MANIFEST} is missing or not a JSON object",
+                target.dir()
+            )
+        });
+        return Some(plugin);
+    };
+    if plugin.problem.is_some() {
+        return Some(plugin);
+    }
+    let rookery = &rookery;
     let text = |value: &Value, key: &str| value[key].as_str().unwrap_or("").to_owned();
     let or = |first: String, second: &str| {
         if first.is_empty() {
@@ -308,18 +413,6 @@ fn read(dir: &Path) -> Option<Plugin> {
     };
     // Help texts live as long as the program; there are only a handful.
     let keep = |text: String| -> &'static str { Box::leak(text.into_boxed_str()) };
-    let package = text(&data, "name");
-    // `@scope/rookery-plugin-unity` is the plugin `unity` unless it says otherwise.
-    let short = package.rsplit('/').next().unwrap_or("");
-    let id = or(
-        text(rookery, "id"),
-        short.strip_prefix("rookery-plugin-").unwrap_or(short),
-    );
-    // `sign-in:NAME` are rookery's own sign-ins.
-    if !valid_name(&id) || id == "sign-in" {
-        return None;
-    }
-    let label = or(text(&data, "displayName"), &id);
     let list = |value: &Value| value.as_array().cloned().unwrap_or_default();
     let features = list(&rookery["features"])
         .iter()
@@ -386,22 +479,13 @@ fn read(dir: &Path) -> Option<Plugin> {
                 .collect(),
         })
         .collect();
-    let real = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_owned());
     let provisioners = list(&rookery["provisioners"])
         .iter()
         .filter_map(|provisioner| read_provisioner(&id, provisioner, &real))
         .collect();
-    Some(Plugin {
-        id,
-        label,
-        package,
-        version: text(&data, "version"),
-        description: text(&data, "description"),
-        dir: real,
-        found: dir.to_owned(),
-        features,
-        provisioners,
-    })
+    plugin.features = features;
+    plugin.provisioners = provisioners;
+    Some(plugin)
 }
 
 /// The arguments of a provisioner's manifest that rookery uses. A kind rookery
@@ -795,27 +879,18 @@ pub fn found(source: &Path, own: &Path) -> Vec<Plugin> {
 }
 
 impl Plugin {
-    /// Where it comes from, judged by where it was found.
-    pub fn origin(&self, own: &Path) -> PluginOrigin {
-        if self.found.starts_with(own.join("node_modules")) {
-            PluginOrigin::Npm
-        } else if self.found.starts_with(own) {
-            PluginOrigin::Folder
-        } else {
-            PluginOrigin::Shipped
-        }
-    }
-
     /// What is said of it to a screen or over the API.
-    pub fn info(&self, own: &Path) -> PluginInfo {
+    pub fn info(&self) -> PluginInfo {
         PluginInfo {
             id: self.id.clone(),
             label: self.label.clone(),
             package: self.package.clone(),
             version: self.version.clone(),
             description: self.description.clone(),
-            origin: self.origin(own),
-            dir: self.dir.display().to_string(),
+            origin: self.origin,
+            source: self.source.clone(),
+            dir: self.package_dir.display().to_string(),
+            problem: self.problem.clone().unwrap_or_default(),
             features: self
                 .features
                 .iter()
@@ -869,9 +944,10 @@ impl Plugin {
     }
 }
 
-/// SHA-256 over a plugin's files, their paths and contents, so a plugin
-/// that changed without a new version is told apart. What npm installed
-/// beside it (`node_modules`) and a `.git` folder are not part of it.
+/// SHA-256 over the files of a plugin's target folder, their paths and
+/// contents, so a plugin that changed without a new version is told apart.
+/// A `__pycache__` or `.git` folder is not part of it, as the release leaves
+/// them out too.
 pub fn digest(dir: &Path) -> String {
     use sha2::{Digest, Sha256};
     fn walk(base: &Path, dir: &Path, files: &mut Vec<PathBuf>) {
@@ -881,7 +957,7 @@ pub fn digest(dir: &Path) -> String {
         for entry in entries.flatten() {
             let path = entry.path();
             let name = entry.file_name();
-            if name == "node_modules" || name == ".git" {
+            if name == "__pycache__" || name == ".git" {
                 continue;
             }
             match fs::metadata(&path) {
@@ -927,432 +1003,57 @@ pub fn behind(applied: &rookery_api::Applied, plugins: &[Plugin]) -> Option<rook
     rookery_api::Behind::compare(applied, rookery_api::VERSION, &records(plugins))
 }
 
-/// Run npm on the user's plugin directory, and say what it said: a line
-/// with ✓ or ✗, then a few of npm's. Nothing of a plugin runs: its scripts
-/// are off. Every change rookery makes to the directory with npm goes through
-/// here, and the store is told of it afterwards.
-pub fn npm(paths: &Paths, verb: &str, what: &str) -> Result<Vec<String>> {
-    let own = own_dir(&paths.config_dir);
-    fs::create_dir_all(&own)?;
-    let output = std::process::Command::new("npm")
-        .arg(verb)
-        .args([
-            "--ignore-scripts",
-            "--no-audit",
-            "--no-fund",
-            "--no-progress",
-            "--prefix",
-        ])
-        .arg(&own)
-        .arg("--")
-        .arg(what)
-        .stdin(std::process::Stdio::null())
-        .output()
-        .map_err(|error| format!("✗ npm could not be started: {error}"))?;
-    let mut lines = vec![match output.status.success() {
-        true => format!("✓ npm {verb} {what}"),
-        false => format!("✗ npm {verb} {what} failed"),
-    }];
-    let said = [output.stdout, output.stderr].concat();
-    lines.extend(
-        String::from_utf8_lossy(&said)
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .take(12)
-            .map(str::to_owned),
-    );
-    forget_uploads(&own);
-    // npm may have changed the directory even when it failed.
-    if let Some(line) = remembered(paths) {
-        lines.push(line);
-    }
-    match output.status.success() {
-        true => Ok(lines),
-        false => Err(lines.join("\n").into()),
-    }
-}
-
-/// Write the plugin directory to the store; a line that says so when that
-/// failed, as the change itself is done.
-pub fn remembered(paths: &Paths) -> Option<String> {
-    crate::plugin_state::remember(paths)
-        .err()
-        .map(|error| format!("✗ rookery's store does not have this change of the plugins: {error}"))
-}
-
-/// Install a plugin with npm: a package name, an address or a path.
-pub fn install(paths: &Paths, spec: &str) -> Result<Vec<String>> {
-    npm(paths, "install", spec)
-}
-
-/// The folder of uploaded packages in a plugin directory. npm installs from
-/// there and finds them again when it installs something else.
-fn uploads(own: &Path) -> PathBuf {
-    own.join("uploads")
-}
-
-/// Install a package that was sent as a .tgz, as `npm pack` makes one.
-pub fn install_upload(paths: &Paths, package: &[u8]) -> Result<Vec<String>> {
-    if !package.starts_with(&[0x1f, 0x8b]) {
-        return Err("A plugin is sent as a .tgz, as npm pack makes it".into());
-    }
-    let dir = uploads(&own_dir(&paths.config_dir));
-    fs::create_dir_all(&dir)?;
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|since| since.as_nanos())
-        .unwrap_or_default();
-    let path = dir.join(format!("{stamp}.tgz"));
-    fs::write(&path, package)?;
-    let mut lines = install(paths, &path.to_string_lossy())?;
-    // Where it was kept says nothing to whoever sent it.
-    lines[0] = "✓ npm install of the .tgz that was sent".into();
-    Ok(lines)
-}
-
-/// Remove the uploaded packages that npm no longer has a dependency on.
-fn forget_uploads(own: &Path) {
-    let wanted = fs::read(own.join("package.json"))
-        .ok()
-        .and_then(|data| serde_json::from_slice::<Value>(&data).ok())
-        .map(|manifest| manifest["dependencies"].to_string())
-        .unwrap_or_default();
-    let Ok(entries) = fs::read_dir(uploads(own)) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if !wanted.contains(&format!("uploads/{name}")) {
-            let _ = fs::remove_file(entry.path());
-        }
-    }
-}
-
-/// Remove one of the user's plugins: with npm when npm installed it, and
-/// otherwise its folder. One that comes with rookery stays.
-pub fn remove(paths: &Paths, plugin: &Plugin) -> Result<Vec<String>> {
-    let own = own_dir(&paths.config_dir);
-    match plugin.origin(&own) {
-        PluginOrigin::Shipped => {
-            Err(format!("{} comes with rookery and stays", plugin.label).into())
-        }
-        PluginOrigin::Npm => npm(paths, "uninstall", &plugin.package),
-        PluginOrigin::Folder => {
-            fs::remove_dir_all(&plugin.found)?;
-            let mut lines = vec![format!("✓ Removed {}", plugin.label)];
-            lines.extend(remembered(paths));
-            Ok(lines)
-        }
-    }
-}
-
-/// What the plugin directory's `package.json` says each package was
-/// installed from: a version range or tag for a registry, `file:…` for a
-/// .tgz or a folder, or an address.
-fn installed_from(own: &Path) -> serde_json::Map<String, Value> {
-    fs::read(own.join("package.json"))
-        .ok()
-        .and_then(|data| serde_json::from_slice::<Value>(&data).ok())
-        .and_then(|manifest| manifest["dependencies"].as_object().cloned())
-        .unwrap_or_default()
-}
-
-/// Whether a dependency's spec is one a registry answers for.
-fn from_registry(spec: &str) -> bool {
-    !spec.is_empty() && !spec.contains(':') && !spec.contains('/')
-}
-
-/// What can be said of updates without asking a registry: shipped plugins
-/// are not listed, and those without a registry say so. The rest are the
-/// packages to ask npm about.
-fn updatable(own: &Path, plugins: &[Plugin]) -> (Vec<PluginUpdate>, Vec<String>) {
-    let from = installed_from(own);
-    let mut updates = vec![];
-    let mut ask = vec![];
-    for plugin in plugins {
-        let note = match plugin.origin(own) {
-            PluginOrigin::Shipped => continue,
-            PluginOrigin::Folder => {
-                "A folder copied into the plugin directory: copy the new one over it".to_owned()
-            }
-            PluginOrigin::Npm => match from.get(&plugin.package).and_then(Value::as_str) {
-                Some(spec) if from_registry(spec) => {
-                    ask.push(plugin.package.clone());
-                    String::new()
-                }
-                _ => "Installed from a .tgz, a folder or an address, which has no newer version to ask for: add it again to replace it".to_owned(),
-            },
-        };
-        updates.push(PluginUpdate {
-            id: plugin.id.clone(),
-            package: plugin.package.clone(),
-            version: plugin.version.clone(),
-            latest: None,
-            note,
-        });
-    }
-    (updates, ask)
-}
-
-/// Take in what `npm outdated --json` said: by package, the latest version.
-/// npm says `{"error": …}` when it could not ask.
-fn take_outdated(updates: &mut [PluginUpdate], asked: &[String], said: &str) {
-    let said: Value = serde_json::from_str(said.trim()).unwrap_or(json!({}));
-    let error = said["error"]["summary"]
-        .as_str()
-        .or(said["error"]["code"].as_str())
-        .map(str::to_owned);
-    for update in updates
-        .iter_mut()
-        .filter(|update| asked.contains(&update.package))
-    {
-        if let Some(error) = &error {
-            update.note = format!("npm could not ask the registry: {error}");
-            continue;
-        }
-        // An entry per place a package is installed, or one.
-        let entry = match &said[&update.package] {
-            Value::Array(entries) => entries.first().cloned().unwrap_or(Value::Null),
-            entry => entry.clone(),
-        };
-        if let Some(latest) = entry["latest"].as_str()
-            && latest != update.version
-        {
-            update.latest = Some(latest.to_owned());
-        }
-    }
-}
-
-/// Ask npm, with its configuration as installing has it, for the latest
-/// versions of these packages.
-fn ask_npm(own: &Path, updates: &mut [PluginUpdate], ask: &[String]) -> Result<()> {
-    if ask.is_empty() {
-        return Ok(());
-    }
-    let output = std::process::Command::new("npm")
-        .args(["outdated", "--json", "--prefix"])
-        .arg(own)
-        .arg("--")
-        .args(ask)
-        .stdin(std::process::Stdio::null())
-        .output()
-        .map_err(|error| format!("npm could not be started: {error}"))?;
-    // npm ends with 1 when something is outdated; what it printed counts.
-    take_outdated(updates, ask, &String::from_utf8_lossy(&output.stdout));
-    Ok(())
-}
-
-/// Ask the registries the user's plugins came from whether they have newer
-/// versions.
-pub fn check(own: &Path, plugins: &[Plugin]) -> Result<PluginUpdates> {
-    let (mut updates, ask) = updatable(own, plugins);
-    ask_npm(own, &mut updates, &ask)?;
-    Ok(PluginUpdates { plugins: updates })
-}
-
-/// Update one plugin, by its id or npm name, or all of them to the latest
-/// version their registry has. A plugin without a registry says why not.
-pub fn update(paths: &Paths, plugins: &[Plugin], name: Option<&str>) -> Result<Vec<String>> {
-    let own = &own_dir(&paths.config_dir);
-    let (mut updates, mut ask) = updatable(own, plugins);
-    if let Some(name) = name {
-        let Some(plugin) = plugins
-            .iter()
-            .find(|plugin| plugin.id == name || plugin.package == name)
-        else {
-            return Err(format!("No plugin {name}. See: rookery plugin list").into());
-        };
-        match updates.iter().find(|update| update.id == plugin.id) {
-            None => {
-                return Err(format!(
-                    "{} comes with rookery and is updated with it: rookery update",
-                    plugin.label
-                )
-                .into());
-            }
-            Some(update) if !update.note.is_empty() => {
-                return Err(format!("✗ {}: {}", update.id, update.note).into());
-            }
-            Some(_) => {
-                ask = vec![plugin.package.clone()];
-                updates.retain(|update| update.id == plugin.id);
-            }
-        }
-    }
-    ask_npm(own, &mut updates, &ask)?;
-    let mut lines = vec![];
-    for update in updates
-        .iter()
-        .filter(|update| ask.contains(&update.package))
-    {
-        match &update.latest {
-            Some(latest) => {
-                npm(paths, "install", &format!("{}@{latest}", update.package))?;
-                lines.push(format!("✓ {} {} → {latest}", update.id, update.version));
-            }
-            None if update.note.is_empty() && name.is_some() => {
-                lines.push(format!("✓ {} {} is the latest", update.id, update.version));
-            }
-            None => {}
-        }
-    }
-    if lines.is_empty() {
-        lines.push("✓ No plugin has a newer version".into());
-    }
-    for update in updates.iter().filter(|update| !update.note.is_empty()) {
-        lines.push(format!("  {}: {}", update.id, update.note));
-    }
-    Ok(lines)
-}
-
-/// Whether a spec names a package of a registry, `[@SCOPE/]NAME[@VERSION]`,
-/// or a .tgz at an https address. A path, a git repository or anything npm
-/// would take as an option is something else.
-pub fn registry_spec(spec: &str) -> bool {
-    if let Some(rest) = spec.strip_prefix("https://") {
-        return !rest.is_empty()
-            && !rest.contains(|ch: char| ch.is_whitespace() || ch.is_control());
-    }
-    let part = |text: &str| {
-        text.starts_with(|ch: char| ch.is_ascii_lowercase() || ch.is_ascii_digit())
-            && text.chars().all(|ch| {
-                ch.is_ascii_lowercase()
-                    || ch.is_ascii_digit()
-                    || matches!(ch, '-' | '.' | '_' | '~')
-            })
-    };
-    let rest = match spec.strip_prefix('@') {
-        Some(scoped) => match scoped.split_once('/') {
-            Some((scope, rest)) if part(scope) => rest,
-            _ => return false,
-        },
-        None => spec,
-    };
-    let (name, version) = match rest.split_once('@') {
-        Some((name, version)) => (name, Some(version)),
-        None => (rest, None),
-    };
-    part(name)
-        && version.is_none_or(|version| {
-            !version.is_empty()
-                && version.chars().all(|ch| {
-                    ch.is_ascii_alphanumeric()
-                        || matches!(
-                            ch,
-                            '.' | '-' | '+' | '^' | '~' | '<' | '>' | '=' | '*' | '_'
-                        )
-                })
-        })
-}
-
-/// Whether a spec is a file or folder on this machine rather than a package
-/// of a registry, the way npm tells them apart.
-pub fn local_spec(spec: &str) -> bool {
-    if spec.contains("://") {
-        return false;
-    }
-    spec.starts_with(['~', '.', '/'])
-        || spec.starts_with("file:")
-        || [".tgz", ".tar.gz", ".tar"]
-            .iter()
-            .any(|end| spec.ends_with(end))
-}
-
-/// Where plugins are managed: this machine's plugin directory.
-pub struct Manager {
-    paths: Paths,
-    source: Option<PathBuf>,
-    own: PathBuf,
-}
-
-impl Manager {
-    pub fn new(paths: &Paths) -> Manager {
-        Manager {
-            paths: paths.clone(),
-            source: paths.source().ok(),
-            own: own_dir(&paths.config_dir),
-        }
-    }
-
-    fn found(&self) -> Vec<Plugin> {
-        match &self.source {
-            Some(source) => found(source, &self.own),
-            None => load(std::slice::from_ref(&self.own)),
-        }
-    }
-
-    /// The plugins there are, and where the user's own are kept.
-    pub fn list(&self) -> Result<Listing> {
-        Ok(Listing {
-            plugins: self
-                .found()
-                .iter()
-                .map(|plugin| plugin.info(&self.own))
-                .collect(),
-            dir: self.own.display().to_string(),
-        })
-    }
-
-    /// Install a plugin: a package of a registry, or a file or folder of
-    /// this machine.
-    pub fn add(&self, spec: &str) -> Result<Vec<String>> {
-        if !local_spec(spec) {
-            return install(&self.paths, spec);
-        }
-        let path = fs::canonicalize(crate::discovery::expand_path(
-            spec.strip_prefix("file:").unwrap_or(spec),
-        ))
-        .map_err(|error| format!("{spec}: {error}"))?;
-        install(&self.paths, path.to_str().unwrap_or(spec))
-    }
-
-    /// Remove a plugin by its id or its npm name.
-    pub fn remove(&self, name: &str) -> Result<Vec<String>> {
-        let found = self.found();
-        let plugin = found
-            .iter()
-            .find(|plugin| plugin.id == name || plugin.package == name)
-            .ok_or_else(|| format!("No plugin {name}. See: rookery plugin list"))?;
-        remove(&self.paths, plugin)
-    }
-
-    /// Which of the user's plugins have a newer version.
-    pub fn check(&self) -> Result<PluginUpdates> {
-        check(&self.own, &self.found())
-    }
-
-    /// Update one plugin, by its id or npm name, or all.
-    pub fn update(&self, name: Option<&str>) -> Result<Report> {
-        Ok(Report {
-            lines: update(&self.paths, &self.found(), name)?,
-            behind: vec![],
-        })
-    }
-}
-
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    /// A plugin package in `dir`: its `package.kdl`, with a label when
+    /// given, and its target's `rookery.json`. Gives the target's folder.
+    pub(crate) fn write_package(
+        dir: &Path,
+        id: &str,
+        version: &str,
+        label: Option<&str>,
+        rookery: &str,
+    ) -> PathBuf {
+        let about = label
+            .map(|label| format!("about {{\n  name \"{label}\"\n}}\n"))
+            .unwrap_or_default();
+        fs::create_dir_all(dir.join(TARGET)).unwrap();
+        fs::write(
+            dir.join("package.kdl"),
+            format!(
+                "format 1\npackage {{\n  group example\n  id \"{id}\"\n  version \"{version}\"\n}}\n{about}targets {{\n  rookery {{\n    requires {{\n      rookery \">=0.6\"\n    }}\n  }}\n}}\n"
+            ),
+        )
+        .unwrap();
+        fs::write(dir.join(TARGET).join(MANIFEST), rookery).unwrap();
+        dir.join(TARGET)
+    }
 
     #[test]
     fn packages_are_found_named_and_replaced() {
         let base = tempfile::tempdir().unwrap();
-        let write = |dir: &str, body: &str| {
-            let path = base.path().join(dir);
-            fs::create_dir_all(&path).unwrap();
-            fs::write(path.join("package.json"), body).unwrap();
-        };
-        write(
-            "a/one",
-            r#"{"name":"rookery-plugin-one","displayName":"First","rookery":{}}"#,
-        );
-        write("a/not-a-plugin", r#"{"name":"left-pad"}"#);
-        write("a/broken", "{");
-        write("a/bad", r#"{"name":"Bad Name","rookery":{}}"#);
-        write(
-            "b/node_modules/@me/rookery-plugin-one",
-            r#"{"name":"@me/rookery-plugin-one","version":"2.0.0","displayName":"Second",
-                "rookery":{"features":[
+        let at = |dir: &str| base.path().join(dir);
+        write_package(&at("a/one"), "one", "1.0.0", Some("First"), "{}");
+        fs::create_dir_all(at("a/not-a-package")).unwrap();
+        fs::create_dir_all(at("a/broken")).unwrap();
+        fs::write(at("a/broken/package.kdl"), "package {").unwrap();
+        write_package(&at("a/bad"), "Bad_Name", "1.0.0", None, "{}");
+        write_package(&at("a/noise"), "noise", "1.0.0", None, "[1]");
+        // A package for another tool alone is no plugin.
+        fs::create_dir_all(at("a/other")).unwrap();
+        fs::write(
+            at("a/other/package.kdl"),
+            "package {\n  group example\n  id other\n  version \"1.0.0\"\n}\ntargets {\n  crow\n}\n",
+        )
+        .unwrap();
+        write_package(
+            &at("b/one"),
+            "one",
+            "2.0.0",
+            Some("Second"),
+            r#"{"features":[
                   {"id":"x","group":"Development Tools","actions":[
                     {"name":"go","run":"true","user":"root","agent":true,"confirm":"Sure?",
                      "arguments":[{"name":"folder","required":true},{"name":"Bad Name"}]},
@@ -1360,25 +1061,29 @@ mod tests {
                     {"name":"plain","run":"id"}]},
                   {"id":"y","services":[{"name":"manager","user":"root","methods":[{"name":"start"}]}],
                    "channels":[{"topic":"progress","keep":"none","max":1000}]},
-                  {"id":"Not Valid"}]}}"#,
+                  {"id":"Not Valid"}]}"#,
         );
-        write(
-            "b/node_modules/other",
-            r#"{"name":"other","rookery":{"id":"renamed"}}"#,
-        );
-        let plugins = load(&[
-            base.path().join("a"),
-            base.path().join("b"),
-            "missing".into(),
-        ]);
+        let dirs = [at("a"), at("b"), "missing".into()];
+        let plugins = load(&dirs);
         let ids: Vec<_> = plugins.iter().map(|plugin| plugin.id.as_str()).collect();
-        assert_eq!(ids, ["one", "renamed"]);
+        assert_eq!(ids, ["one"]);
+        // What Rookery cannot use is listed with the reason.
+        let refused: Vec<_> = scan(&dirs)
+            .into_iter()
+            .filter(|plugin| plugin.problem.is_some())
+            .map(|plugin| plugin.id)
+            .collect();
+        assert_eq!(refused, ["Bad_Name", "noise"]);
         let one = &plugins[0];
         assert_eq!(
-            (one.label.as_str(), one.version.as_str()),
-            ("Second", "2.0.0")
+            (
+                one.label.as_str(),
+                one.version.as_str(),
+                one.package.as_str()
+            ),
+            ("Second", "2.0.0", "example/one")
         );
-        assert!(one.dir.ends_with("node_modules/@me/rookery-plugin-one"));
+        assert!(one.dir.ends_with("b/one/rookery"));
         let features: Vec<_> = one
             .features
             .iter()
@@ -1401,15 +1106,54 @@ mod tests {
         assert_eq!(extra.channels[0].keep, Some(rookery_api::Keep::None));
     }
 
+    #[test]
+    fn a_plugin_says_which_rookery_it_works_with() {
+        let base = tempfile::tempdir().unwrap();
+        let write = |id: &str, requires: &str| {
+            let dir = base.path().join(id);
+            fs::create_dir_all(dir.join("rookery")).unwrap();
+            fs::write(dir.join("rookery/rookery.json"), "{}").unwrap();
+            fs::write(
+                dir.join("package.kdl"),
+                format!("package {{\n  group example\n  id {id}\n  version \"1.0.0\"\n}}\ntargets {{\n  rookery {{\n    requires {{\n{requires}\n    }}\n  }}\n}}\n"),
+            )
+            .unwrap();
+        };
+        write("fits", "      rookery \">=0.6\"");
+        write("silent", "      os linux");
+        write("later", "      rookery \">=99\"");
+        write("gpu", "      rookery \">=0.6\"\n      gpu");
+        let said: Vec<(String, String)> = scan(&[base.path().to_owned()])
+            .into_iter()
+            .map(|plugin| (plugin.id, plugin.problem.unwrap_or_default()))
+            .collect();
+        assert_eq!(said[0].0, "fits");
+        assert_eq!(said[0].1, "");
+        assert_eq!(said[1].1, "it needs gpu, which Rookery does not have");
+        assert!(
+            said[2]
+                .1
+                .starts_with("it works with Rookery >=99, and this is "),
+            "{}",
+            said[2].1
+        );
+        assert!(
+            said[3].1.contains("does not say which Rookery"),
+            "{}",
+            said[3].1
+        );
+    }
+
     /// The provisioner `vm` of a plugin whose manifest declares `collections`
     /// beside a few actions and the kinds machine and instance.
     fn with_collections(collections: &str) -> Provisioner {
         let base = tempfile::tempdir().unwrap();
-        let dir = base.path().join("plugins/cloud");
+        let package = base.path().join("plugins/cloud");
+        let dir = package.join(TARGET);
         fs::create_dir_all(dir.join("bin")).unwrap();
         fs::write(dir.join("bin/provision"), "#!/bin/sh\n").unwrap();
         let manifest = format!(
-            r#"{{"name": "rookery-plugin-cloud", "rookery": {{"provisioners": [
+            r#"{{"provisioners": [
                 {{"id": "vm", "command": "bin/provision", "protocol": 2,
                  "kinds": [{{"id": "machine", "setup": "apply"}}, {{"id": "instance"}}],
                  "actions": [
@@ -1421,9 +1165,9 @@ mod tests {
                    {{"name": "remove-volume", "arguments": [{{"name": "pool"}}, {{"name": "name"}}]}},
                    {{"name": "grow-disk", "arguments": [{{"name": "instance"}}, {{"name": "size"}}]}},
                    {{"name": "clean"}}, {{"name": "check", "changes": false}}],
-                 "collections": {collections}}}]}}}}"#
+                 "collections": {collections}}}]}}"#
         );
-        fs::write(dir.join("package.json"), manifest).unwrap();
+        write_package(&package, "cloud", "1.0.0", None, &manifest);
         load(&[base.path().join("plugins")])
             .remove(0)
             .provisioners
@@ -1581,15 +1325,18 @@ mod tests {
     #[test]
     fn provisioners_are_read_and_their_commands_kept_inside_the_package() {
         let base = tempfile::tempdir().unwrap();
-        let dir = base.path().join("plugins/cloud");
+        let package = base.path().join("plugins/cloud");
+        let dir = package.join(TARGET);
         fs::create_dir_all(dir.join("bin")).unwrap();
         fs::write(dir.join("bin/provision"), "#!/bin/sh\n").unwrap();
-        fs::write(base.path().join("plugins/outside"), "#!/bin/sh\n").unwrap();
-        std::os::unix::fs::symlink(base.path().join("plugins/outside"), dir.join("bin/out"))
-            .unwrap();
-        fs::write(
-            dir.join("package.json"),
-            r#"{"name": "rookery-plugin-cloud", "rookery": {"provisioners": [
+        fs::write(package.join("outside"), "#!/bin/sh\n").unwrap();
+        std::os::unix::fs::symlink(package.join("outside"), dir.join("bin/out")).unwrap();
+        write_package(
+            &package,
+            "cloud",
+            "1.0.0",
+            None,
+            r#"{"provisioners": [
                 {"id": "vm", "label": "A VM", "description": "One machine.", "command": "bin/provision",
                  "protocol": 2, "verbs": ["list", "reboot"],
                  "secrets": ["key", {"name": "cert", "required": false}, {"name": "Bad Name"}, "key"],
@@ -1620,9 +1367,8 @@ mod tests {
                 {"id": "folder", "command": "bin", "protocol": 2},
                 {"id": "odd", "command": "bin/provision", "protocol": 2,
                  "kinds": [{"id": "machine", "setup": "magic"}]},
-                {"id": "Bad Id", "command": "bin/provision", "protocol": 2}]}}"#,
-        )
-        .unwrap();
+                {"id": "Bad Id", "command": "bin/provision", "protocol": 2}]}"#,
+        );
         // Provisioners and no features is a plugin too.
         let plugins = load(&[base.path().join("plugins")]);
         assert_eq!(plugins.len(), 1);
@@ -1733,7 +1479,7 @@ mod tests {
             (ssh.setup, ssh.archive, ssh.label.as_str()),
             (Setup::Apply, false, "ssh")
         );
-        let info = plugins[0].info(base.path());
+        let info = plugins[0].info();
         assert_eq!(info.provisioners[0].id, "cloud/vm");
         assert!(info.provisioners[0].problem.is_empty());
         assert!(info.provisioners[2].problem.contains("version 1"));
@@ -1757,186 +1503,12 @@ mod tests {
     }
 
     #[test]
-    fn specs_for_a_server_are_packages_or_addresses() {
-        for spec in [
-            "rookery-plugin-foo",
-            "@acme/rookery-plugin-foo",
-            "@acme/rookery-plugin-foo@1.2.0",
-            "foo@^2",
-            "foo@latest",
-            "https://npm.example/foo-1.0.0.tgz",
-        ] {
-            assert!(registry_spec(spec), "{spec}");
-        }
-        for spec in [
-            "",
-            "-g",
-            "--prefix=/",
-            "./x",
-            "/etc",
-            "~/x",
-            "file:x",
-            "git+ssh://x/y",
-            "github:a/b",
-            "http://x/y.tgz",
-            "a b",
-            "Foo",
-            "@acme",
-            "@/x",
-            "foo@",
-            "foo@1 <2",
-        ] {
-            assert!(!registry_spec(spec), "{spec}");
-        }
-        assert!(local_spec("./x") && local_spec("foo-1.0.0.tgz") && local_spec("~/src/x"));
-        assert!(!local_spec("@acme/foo") && !local_spec("https://x/y.tgz"));
-    }
-
-    #[test]
-    fn where_a_plugin_comes_from_says_whether_it_goes() {
-        let base = tempfile::tempdir().unwrap();
-        let paths = Paths {
-            config_dir: base.path().join("config"),
-            data_dir: base.path().join("data"),
-        };
-        let own = own_dir(&paths.config_dir);
-        let write = |dir: &Path| {
-            fs::create_dir_all(dir).unwrap();
-            fs::write(
-                dir.join("package.json"),
-                r#"{"name":"rookery-plugin-x","rookery":{"features":[{"id":"a","actions":[{"name":"go","run":"true"}]}]}}"#,
-            )
-            .unwrap();
-        };
-        let outside = base.path().join("elsewhere/x");
-        write(&base.path().join("source/plugins/x"));
-        write(&outside);
-        // npm installs a folder as a link to it.
-        fs::create_dir_all(own.join("node_modules")).unwrap();
-        std::os::unix::fs::symlink(&outside, own.join("node_modules/rookery-plugin-x")).unwrap();
-        let shipped = load(&[base.path().join("source/plugins")]);
-        assert_eq!(shipped[0].origin(&own), PluginOrigin::Shipped);
-        let linked = found(&base.path().join("source"), &own);
-        assert_eq!(linked.len(), 1);
-        assert_eq!(linked[0].origin(&own), PluginOrigin::Npm);
-        let info = linked[0].info(&own);
-        assert_eq!(info.features[0].actions[0].name, "go");
-        assert!(remove(&paths, &shipped[0]).is_err());
-        fs::remove_file(own.join("node_modules/rookery-plugin-x")).unwrap();
-        write(&own.join("x"));
-        let copied = load(std::slice::from_ref(&own));
-        assert_eq!(copied[0].origin(&own), PluginOrigin::Folder);
-        remove(&paths, &copied[0]).unwrap();
-        assert!(!own.join("x").exists() && outside.exists());
-        // The store was told: the folder is not kept any more.
-        let store = crate::store::shared(&paths).unwrap();
-        let kept = store
-            .names(crate::store::kind::PLUGIN, crate::store::OWN)
-            .unwrap();
-        assert!(kept.is_empty(), "{kept:?}");
-    }
-
-    #[test]
-    fn uploads_go_when_npm_no_longer_needs_them() {
-        let base = tempfile::tempdir().unwrap();
-        let paths = Paths {
-            config_dir: base.path().join("config"),
-            data_dir: base.path().join("data"),
-        };
-        let own = &own_dir(&paths.config_dir);
-        fs::create_dir_all(uploads(own)).unwrap();
-        fs::write(uploads(own).join("1.tgz"), "").unwrap();
-        fs::write(uploads(own).join("2.tgz"), "").unwrap();
-        fs::write(
-            own.join("package.json"),
-            r#"{"dependencies":{"rookery-plugin-x":"file:uploads/2.tgz"}}"#,
-        )
-        .unwrap();
-        forget_uploads(own);
-        assert!(!uploads(own).join("1.tgz").exists() && uploads(own).join("2.tgz").exists());
-        assert!(install_upload(&paths, b"not a tarball").is_err());
-    }
-
-    #[test]
-    fn updates_are_asked_for_packages_of_a_registry_only() {
-        let base = tempfile::tempdir().unwrap();
-        let paths = Paths {
-            config_dir: base.path().join("config"),
-            data_dir: base.path().join("data"),
-        };
-        let own = own_dir(&paths.config_dir);
-        let write = |dir: &Path, name: &str| {
-            fs::create_dir_all(dir).unwrap();
-            fs::write(
-                dir.join("package.json"),
-                format!(r#"{{"name":"{name}","version":"1.0.0","rookery":{{}}}}"#),
-            )
-            .unwrap();
-        };
-        write(
-            &base.path().join("source/plugins/shipped"),
-            "rookery-plugin-shipped",
-        );
-        write(
-            &own.join("node_modules/rookery-plugin-a"),
-            "rookery-plugin-a",
-        );
-        write(
-            &own.join("node_modules/@acme/rookery-plugin-b"),
-            "@acme/rookery-plugin-b",
-        );
-        write(
-            &own.join("node_modules/rookery-plugin-c"),
-            "rookery-plugin-c",
-        );
-        write(&own.join("d"), "rookery-plugin-d");
-        fs::write(
-            own.join("package.json"),
-            r#"{"dependencies":{"rookery-plugin-a":"^1.0.0","@acme/rookery-plugin-b":"latest",
-                "rookery-plugin-c":"file:uploads/1.tgz"}}"#,
-        )
-        .unwrap();
-        let plugins = found(&base.path().join("source"), &own);
-        let (mut updates, ask) = updatable(&own, &plugins);
-        assert_eq!(ask, ["rookery-plugin-a", "@acme/rookery-plugin-b"]);
-        let ids: Vec<_> = updates.iter().map(|update| update.id.as_str()).collect();
-        assert_eq!(ids, ["a", "b", "c", "d"]);
-        assert!(updates[2].note.contains("add it again") && updates[3].note.contains("folder"));
-        take_outdated(
-            &mut updates,
-            &ask,
-            r#"{"rookery-plugin-a":{"current":"1.0.0","wanted":"1.0.0","latest":"2.0.0"},
-                "@acme/rookery-plugin-b":[{"current":"1.0.0","latest":"1.0.0"}]}"#,
-        );
-        assert_eq!(updates[0].latest.as_deref(), Some("2.0.0"));
-        assert_eq!(updates[1].latest, None);
-        take_outdated(
-            &mut updates,
-            &ask,
-            r#"{"error":{"code":"ENOTFOUND","summary":"no"}}"#,
-        );
-        assert!(updates[1].note.contains("could not ask"));
-        // A shipped plugin is updated with rookery.
-        let error = update(&paths, &plugins, Some("shipped"))
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("rookery update"), "{error}");
-        let error = update(&paths, &plugins, Some("c")).unwrap_err().to_string();
-        assert!(error.contains("add it again"), "{error}");
-    }
-
-    #[test]
     fn a_changed_file_changes_the_digest_and_shows_the_host_behind() {
         let base = tempfile::tempdir().unwrap();
-        let dir = base.path().join("plugins/x");
+        let dir = write_package(&base.path().join("plugins/x"), "x", "1.0.0", None, "{}");
         fs::create_dir_all(dir.join("tasks")).unwrap();
-        fs::write(
-            dir.join("package.json"),
-            r#"{"name":"rookery-plugin-x","version":"1.0.0","rookery":{}}"#,
-        )
-        .unwrap();
         fs::write(dir.join("tasks/main.yml"), "- debug: {msg: one}\n").unwrap();
-        fs::create_dir_all(dir.join("node_modules/dep")).unwrap();
+        fs::create_dir_all(dir.join("__pycache__")).unwrap();
         let plugins = load(&[base.path().join("plugins")]);
         let before = rookery_api::Applied {
             rookery: rookery_api::VERSION.into(),
@@ -1944,8 +1516,8 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(behind(&before, &plugins), None);
-        // What npm put beside it does not count; a task does.
-        fs::write(dir.join("node_modules/dep/index.js"), "").unwrap();
+        // Python's cache beside it does not count; a task does.
+        fs::write(dir.join("__pycache__/x.pyc"), "").unwrap();
         assert_eq!(behind(&before, &plugins), None);
         fs::write(dir.join("tasks/main.yml"), "- debug: {msg: two}\n").unwrap();
         let changed = behind(&before, &plugins).unwrap();

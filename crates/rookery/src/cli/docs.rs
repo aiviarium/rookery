@@ -75,8 +75,12 @@ fn named(id: &str) -> &'static str {
         "key" => "The setting or key.",
         "value" => "The value.",
         "namespace" => "The namespace.",
-        "spec" => "A plugin's npm name, or the address of its .tgz.",
+        "spec" => {
+            "A package, such as example/hello@^1, an egg's address, or an egg or package folder."
+        }
         "url" => "The address.",
+        "location" => "The registry's address or folder.",
+        "dir" => "A folder.",
         "service" => "PLUGIN/NAME of the service.",
         "method" => "The service's method.",
         "prompt" => "The prompt.",

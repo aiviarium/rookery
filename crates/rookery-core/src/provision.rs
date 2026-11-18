@@ -1336,17 +1336,12 @@ print(out)
             fs::create_dir_all(source.join("provision/bin")).unwrap();
             fs::write(source.join(crate::paths::layout::BUILDER), BUILDER).unwrap();
             paths.set("source", source.to_str().unwrap()).unwrap();
-            let plugin = source.join("plugins/fake");
-            fs::create_dir_all(plugin.join("bin")).unwrap();
-            fs::write(plugin.join("bin/provision"), FAKE).unwrap();
-            fs::set_permissions(
-                plugin.join("bin/provision"),
-                fs::Permissions::from_mode(0o755),
-            )
-            .unwrap();
-            fs::write(
-                plugin.join("package.json"),
-                r#"{"name": "rookery-plugin-fake", "rookery": {"provisioners": [
+            let plugin = crate::plugins::tests::write_package(
+                &source.join("plugins/fake"),
+                "fake",
+                "1.0.0",
+                None,
+                r#"{"provisioners": [
                     {"id": "vm", "label": "Fake VM", "command": "bin/provision", "protocol": 2,
                      "verbs": ["list"],
                      "secrets": ["api_token", {"name": "extra", "required": false}],
@@ -1360,7 +1355,13 @@ print(out)
                         "arguments": [{"name": "password", "secret": true}]}]},
                     {"id": "seeded", "command": "bin/provision", "protocol": 2,
                      "kinds": [{"id": "machine", "setup": "seed", "archive": true, "verbs": ["logs"]}]},
-                    {"id": "old", "command": "bin/provision", "setup": "apply"}]}}"#,
+                    {"id": "old", "command": "bin/provision", "setup": "apply"}]}"#,
+            );
+            fs::create_dir_all(plugin.join("bin")).unwrap();
+            fs::write(plugin.join("bin/provision"), FAKE).unwrap();
+            fs::set_permissions(
+                plugin.join("bin/provision"),
+                fs::Permissions::from_mode(0o755),
             )
             .unwrap();
             let world = World {

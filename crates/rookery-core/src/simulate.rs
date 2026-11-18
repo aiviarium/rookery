@@ -651,13 +651,15 @@ esac
 
 // ── The simulated provisioner ───────────────────────────────────────────────
 
-/// The plugin that holds the simulated provisioner, written into the
-/// server's own plugins. Its command runs `rookery` at `program` again.
+/// The plugin that holds the simulated provisioner, installed among the
+/// server's own plugins from a package folder in the data directory. Its
+/// command runs `rookery` at `program` again.
 pub fn write_plugin(paths: &Paths, program: &Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     // Opened first, so the store takes the plugin as one added now.
     crate::store::shared(paths)?;
-    let dir = crate::plugins::own_dir(&paths.config_dir).join(REGISTERED);
+    let package = paths.data_dir.join("simulate").join(REGISTERED);
+    let dir = package.join(crate::plugins::TARGET);
     fs::create_dir_all(dir.join("bin"))?;
     let quoted = program.to_string_lossy().replace('\'', r"'\''");
     let script = dir.join("bin/provision");
@@ -666,19 +668,31 @@ pub fn write_plugin(paths: &Paths, program: &Path) -> Result<()> {
         format!("#!/bin/sh\nexec '{quoted}' simulated-provisioner \"$@\"\n"),
     )?;
     fs::set_permissions(&script, fs::Permissions::from_mode(0o755))?;
-    let mut manifest = manifest();
-    manifest["version"] = json!(rookery_api::VERSION);
-    fs::write(dir.join("package.json"), format!("{manifest:#}\n"))?;
+    fs::write(
+        package.join(hatchery::manifest::FILE),
+        format!(
+            "format 1\n\npackage {{\n  group rookery\n  id {REGISTERED}\n  version \"{}\"\n}}\n\nabout {{\n  name \"Simulated\"\n  summary \"Machines and services of rookery serve --simulate, which make nothing.\"\n}}\n\ntargets {{\n  rookery {{\n    requires {{\n      rookery \">=0.6\"\n    }}\n  }}\n}}\n",
+            rookery_api::VERSION
+        ),
+    )?;
+    fs::write(
+        dir.join(crate::plugins::MANIFEST),
+        format!("{:#}\n", manifest()),
+    )?;
+    // Installed again each time, as the program it runs may be another.
+    let own = crate::plugins::own_dir(&paths.config_dir);
+    let client = crate::eggs::client(paths)?;
+    match client.remove(&hatchery::Name::new("rookery", REGISTERED)?, &own) {
+        Ok(()) | Err(hatchery::Error::NotFound { .. }) => {}
+        Err(error) => return Err(error.into()),
+    }
+    hatchery::block_on(client.add(&hatchery::Spec::Folder(package), &own))?;
     crate::plugin_state::remember(paths)
 }
 
 fn manifest() -> Value {
     json!({
-        "name": "rookery-plugin-sim",
-        "displayName": "Simulated",
-        "description": "Machines and services of rookery serve --simulate, which make nothing.",
-        "files": ["bin"],
-        "rookery": {"provisioners": [{
+        "provisioners": [{
             "id": "cloud",
             "label": "Simulated cloud",
             "description": "Makes simulated machines for hosts and simulated services, with addresses of 192.0.2.0/24.",
@@ -710,7 +724,7 @@ fn manifest() -> Value {
                 "item": [{"action": "inspect"}],
                 "show": "images"
             }]
-        }]}
+        }]
     })
 }
 

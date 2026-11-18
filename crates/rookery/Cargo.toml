@@ -7,7 +7,9 @@ license.workspace = true
 
 # The screens and the client of a rookery serve, on every system.
 [dependencies]
-rookery-api = { workspace = true, features = ["client"] }
+rookery-api = { workspace = true, features = ["client", "plugins"] }
+# Packs a plugin folder into an egg to send it to a server.
+hatchery.workspace = true
 rookery-page.workspace = true
 rookery-tui.workspace = true
 tokio.workspace = true

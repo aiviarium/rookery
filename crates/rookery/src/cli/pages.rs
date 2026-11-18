@@ -617,7 +617,7 @@ mod tests {
     fn a_plugin_is_shown_with_its_actions_and_its_provisioners() {
         let plugin = PluginInfo {
             id: "cloud".into(),
-            package: "rookery-plugin-cloud".into(),
+            package: "example/cloud".into(),
             version: "1.0.0".into(),
             dir: "/srv/plugins/cloud".into(),
             features: vec![rookery_api::PluginFeature {
@@ -656,7 +656,7 @@ mod tests {
         };
         let text = plugins(&[plugin]);
         for line in [
-            "cloud  rookery-plugin-cloud 1.0.0  /srv/plugins/cloud\n",
+            "cloud  example/cloud 1.0.0  /srv/plugins/cloud\n",
             "  cloud/cli  CLI (Tools)\n",
             "    action   cloud:go  Go (as agent; the agent may run it; asks where)\n",
             "    channel  cloud/notes\n",

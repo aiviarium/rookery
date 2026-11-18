@@ -303,6 +303,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Key(command) => setup::key(&open()?, command),
         Command::Secret(command) => setup::secret(&open()?, command),
         Command::Registry(command) => setup::registry(&global, command),
+        Command::Plugin(args::Plugin::Check { dir }) => setup::check_plugin(&dir),
         Command::Plugin(command) => setup::plugin(&open()?, command),
         Command::Config(command) => setup::config(&open()?, command),
         Command::Port(args::Port::Forward {

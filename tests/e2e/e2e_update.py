@@ -11,10 +11,10 @@ ShippedChanged starts from. UpdateServed uses the shared state of rookery serve
 import json
 import unittest
 
-from harness import (AGENT, HOST, SCRATCH, Workstation, extended, light_vars, needs_e2e, package_registry,
+from harness import (AGENT, HOST, SCRATCH, Workstation, extended, light_vars, needs_e2e, plugin_registry,
                      plugin_version, random_text, served_extended, unb64, wait_for)
 
-PACKAGE = 'rookery-plugin-up'
+PACKAGE = 'example/up'
 
 
 def version_of(applied, plugin):
@@ -47,8 +47,7 @@ class Update(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.station = extended().station
-        cls.registry = package_registry()
-        cls.npm = cls.registry.env()
+        cls.registry = plugin_registry()
         cls.link = cls.station.link()
 
     @classmethod
@@ -83,10 +82,10 @@ class Update(unittest.TestCase):
 
         # A newer version in the registry.
         self.registry.publish(plugin_version('2.0.0'))
-        checked = station.rookery('plugin', 'update', '--check', env=self.npm).stdout
+        checked = station.rookery('plugin', 'update', '--check').stdout
         self.assertRegex(checked, r'(?m)^up\s+1\.0\.0\s+2\.0\.0\s*$')
-        updated = station.rookery('plugin', 'update', 'up', env=self.npm).output
-        self.assertIn('✓ up 1.0.0 → 2.0.0', updated)
+        updated = station.rookery('plugin', 'update', 'up').output
+        self.assertIn('✓ example/up 1.0.0 → 2.0.0', updated)
         self.assertIn(f'{HOST} needs applying: up 1.0.0 → 2.0.0', updated)
         plugins = json.loads(station.rookery('plugin', 'list', '-o', 'json').stdout)['plugins']
         self.assertIn(('up', PACKAGE, '2.0.0'), [(p['id'], p['package'], p['version']) for p in plugins])
@@ -152,9 +151,9 @@ class ShippedChanged(unittest.TestCase):
         cls.current = station.rookery('rollout').stdout
         cls.refused = station.rookery('plugin', 'update', 'shipit', check=False).stderr
         # The same version, another task.
-        source = SCRATCH / 'source-shipped/plugins/shipit/package.json'
+        source = SCRATCH / 'source-shipped/plugins/shipit/rookery/rookery.json'
         manifest = json.loads(source.read_text())
-        manifest['rookery']['features'][0]['actions'][0]['run'] = 'echo "hello from the new rookery"'
+        manifest['features'][0]['actions'][0]['run'] = 'echo "hello from the new rookery"'
         source.write_text(json.dumps(manifest))
         station.root_on_host('touch /var/run/reboot-required')
         sleeper = cls.link.post('/v1/sessions', {'kind': 'process', 'title': 'busy', 'command': ['sleep', '600']})
@@ -183,7 +182,7 @@ class UpdateServed(unittest.TestCase):
     def setUpClass(cls):
         applied = served_extended()
         cls.serve = applied.serve
-        cls.registry = package_registry()
+        cls.registry = plugin_registry()
         # The job that applied the plugin ended well.
         ended = cls.serve.call('GET', f'/v1/jobs/{applied.job["id"]}')
         assert ended['exit_code'] == 0, unb64(
@@ -205,7 +204,7 @@ class UpdateServed(unittest.TestCase):
             return station.rookery('exec', HOST, '--', 'bash', '-c', command).stdout
         kept.plant(station, run)
 
-        self.registry.publish(plugin_version('2.0.0', 'rookery-plugin-served'))
+        self.registry.publish(plugin_version('2.0.0', 'served'))
         # The tab of the terminal client asks the server. It lists every plugin
         # with its features before the row that adds one, so it is tall.
         home = station.terminal('ui', cols=160, rows=46)
@@ -218,7 +217,7 @@ class UpdateServed(unittest.TestCase):
         finally:
             home.close()
         updated = station.rookery('plugin', 'update').output
-        self.assertIn('✓ served 1.0.0 → 2.0.0', updated)
+        self.assertIn('✓ example/served 1.0.0 → 2.0.0', updated)
         self.assertIn(f'{HOST} needs applying: served 1.0.0 → 2.0.0', updated)
         behind = self.host()['behind']
         self.assertEqual(behind['changes'], [{'id': 'served', 'from': '1.0.0', 'to': '2.0.0'}])

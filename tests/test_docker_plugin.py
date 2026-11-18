@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-PLUGIN = Path(__file__).resolve().parents[1] / 'plugins/docker'
+PLUGIN = Path(__file__).resolve().parents[1] / 'plugins/docker/rookery'
 KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyForTestsOnly rookery'
 
 # Answers by the start of the argument list. Each rule has results, [code, stdout, stderr],
@@ -119,11 +119,11 @@ class Harness(unittest.TestCase):
 
 class Provision(Harness):
     def test_manifest_has_provisioner_and_the_engine_of_a_node(self):
-        package = json.loads((PLUGIN / 'package.json').read_text())
+        package = json.loads((PLUGIN / 'rookery.json').read_text())
         # Its one feature is for a node; a workstation has Docker from the role.
-        self.assertEqual([(feature['id'], feature['types']) for feature in package['rookery']['features']],
+        self.assertEqual([(feature['id'], feature['types']) for feature in package['features']],
                          [('engine', ['node'])])
-        [entry] = package['rookery']['provisioners']
+        [entry] = package['provisioners']
         self.assertEqual((entry['id'], entry['protocol'], entry['command']), ('container', 2, 'bin/provision'))
         self.assertEqual(entry['verbs'], ['list'])
         self.assertNotIn('secrets', entry)
@@ -419,7 +419,7 @@ class Provision(Harness):
         self.assertEqual(volumes['wiki-data']['unavailable'], {})
 
     def test_the_manifest_puts_the_list_and_change_actions_in_collections(self):
-        [entry] = json.loads((PLUGIN / 'package.json').read_text())['rookery']['provisioners']
+        [entry] = json.loads((PLUGIN / 'rookery.json').read_text())['provisioners']
         collections = {collection['id']: collection for collection in entry['collections']}
         self.assertEqual(sorted(collections), ['images', 'volumes'])
         images, volumes = collections['images'], collections['volumes']

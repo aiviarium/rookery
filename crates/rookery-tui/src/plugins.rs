@@ -13,19 +13,28 @@ use rookery_api::{HostBehind, PluginInfo, PluginOrigin, PluginReport, PluginUpda
 use tui_input::Input;
 
 /// The title of the editor for what to install.
-pub const EDITOR_TITLE: &str = " Package or address of a .tgz ";
+pub const EDITOR_TITLE: &str = " Package or address of an egg ";
 
-/// What the row that adds a plugin means. `dir` is where the own ones are.
-pub fn adding(dir: &str) -> String {
+/// What the row that adds a plugin means. `dir` is where the own ones are,
+/// and `registries` the locations they are installed from.
+pub fn adding(dir: &str, registries: &[String]) -> String {
     format!(
-        "The server installs it with npm: a package name from its registry, or the https:// address of a .tgz. u sends a .tgz from this device instead.\n\n{}",
-        server_note(dir)
+        "The server installs it from its plugin registries: a package such as example/hello or hello, maybe with @1.2.0 or a range such as @^1.2, or the https:// address of an egg. u sends an egg from this device instead.\n\n{}",
+        server_note(dir, registries)
     )
 }
 
-fn server_note(dir: &str) -> String {
+fn server_note(dir: &str, registries: &[String]) -> String {
+    let listed = match registries {
+        [] => "The server has no plugin registry yet: rookery plugin registry add gives it one."
+            .to_owned(),
+        registries => format!(
+            "Its plugin registries, searched in this order: {}.",
+            registries.join(", ")
+        ),
+    };
     format!(
-        "Registries and logins come from the server's npm configuration. npm runs none of the plugin's scripts; its Ansible tasks run when a host is applied.\n\nA folder copied to {dir} on the server works as well."
+        "{listed} Installing runs none of the plugin's code; its Ansible tasks run when a host is applied.\n\nThe server installs plugins in {dir}."
     )
 }
 
@@ -50,6 +59,9 @@ pub fn rows(
                 muted,
             ),
         ];
+        if !plugin.problem.is_empty() {
+            spans.push(Span::styled("  · not used", Style::new().fg(theme::WARN)));
+        }
         if let Some(latest) = updates
             .iter()
             .find(|update| update.id == plugin.id)
@@ -94,11 +106,17 @@ pub fn help(plugin: Option<&PluginInfo>, report: &[String], adding: &str) -> Str
         return adding.to_owned();
     };
     let mut text = format!("{}\n\n", plugin.description);
+    if !plugin.problem.is_empty() {
+        text += &format!("Rookery does not use it: {}.\n\n", plugin.problem);
+    }
     for feature in &plugin.features {
         text += &format!("{}: {}\n\n", feature.label, feature.help);
     }
+    if !plugin.source.is_empty() {
+        text += &format!("Installed from {}.\n\n", plugin.source);
+    }
     text + &format!(
-        "Its features are switched on per host, on the Features page.\n\nFrom {}",
+        "Its features are switched on per host, on the Features page.\n\nIn {}",
         plugin.dir
     )
 }
@@ -196,7 +214,7 @@ impl Tab {
         lines
     }
 
-    /// Take what an update said: npm's lines, then the hosts that are behind
+    /// Take what an update said: its lines, then the hosts that are behind
     /// and how to bring them up to date.
     pub fn updated(&mut self, report: PluginReport) -> Vec<String> {
         let mut lines = report.lines;
@@ -381,7 +399,7 @@ mod tests {
         PluginInfo {
             id: id.into(),
             label: id.to_uppercase(),
-            package: format!("rookery-plugin-{id}"),
+            package: format!("example/{id}"),
             version: "1.0.0".into(),
             origin,
             features: vec![PluginFeature {
@@ -397,7 +415,7 @@ mod tests {
     #[test]
     fn a_plugin_is_added_and_removed_from_the_tab() {
         let plugins = [
-            plugin("aa", PluginOrigin::Npm),
+            plugin("aa", PluginOrigin::Registry),
             plugin("zz", PluginOrigin::Shipped),
         ];
         let text: Vec<String> = rows(&plugins, &[])
@@ -409,12 +427,12 @@ mod tests {
                     .collect()
             })
             .collect();
-        assert_eq!(text[0], "AA  rookery-plugin-aa 1.0.0  · yours");
+        assert_eq!(text[0], "AA  example/aa 1.0.0  · yours");
         assert_eq!(text[1], "  └─ CLI  in Development Tools");
         assert_eq!(text[4], "+ Add plugin");
         let mut tab = Tab::default();
         let mut editor = None;
-        let mut report = vec!["✓ npm install x".to_owned()];
+        let mut report = vec!["✓ Installed example/x 1.0.0".to_owned()];
         let mut press =
             |tab: &mut Tab, code| tab.key(Key::plain(code), &mut editor, &plugins, &mut report);
         // The one that comes with rookery stays; another goes after x twice.
@@ -434,21 +452,28 @@ mod tests {
             press(&mut tab, Code::Down);
         }
         press(&mut tab, Code::Enter);
-        for ch in "@acme/foo".chars() {
+        for ch in "example/foo@^1".chars() {
             press(&mut tab, Code::Char(ch));
         }
         assert_eq!(
             press(&mut tab, Code::Enter),
-            Asked::Install("@acme/foo".into())
+            Asked::Install("example/foo@^1".into())
         );
         assert!(report.is_empty() && editor.is_none());
-        assert!(help(None, &[], &adding("/srv/plugins")).contains("/srv/plugins on the server"));
+        let said = help(None, &[], &adding("/srv/plugins", &[]));
+        assert!(said.contains("plugins in /srv/plugins."), "{said}");
+        assert!(said.contains("no plugin registry yet"), "{said}");
+        let said = adding("/srv/plugins", &["https://eggs.example.org".into()]);
+        assert!(
+            said.contains("in this order: https://eggs.example.org."),
+            "{said}"
+        );
     }
 
     #[test]
     fn updates_are_checked_made_and_rolled_out_from_the_tab() {
         let plugins = [
-            plugin("aa", PluginOrigin::Npm),
+            plugin("aa", PluginOrigin::Registry),
             plugin("zz", PluginOrigin::Shipped),
         ];
         let mut tab = Tab::default();
@@ -460,7 +485,7 @@ mod tests {
         assert_eq!(press(&mut tab, &mut report, Code::Char('c')), Asked::Check);
         let said = tab.checked(vec![PluginUpdate {
             id: "aa".into(),
-            package: "rookery-plugin-aa".into(),
+            package: "example/aa".into(),
             version: "1.0.0".into(),
             latest: Some("2.0.0".into()),
             note: String::new(),

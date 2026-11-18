@@ -1,0 +1,24 @@
+format 1
+
+package {
+  group aiviarium
+  id incus
+  version "0.2.0"
+}
+
+about {
+  name "Incus"
+  summary "Virtual machines and containers on an Incus server for rookery hosts."
+  license MIT
+  license Apache-2.0
+  repository "https://github.com/aiviarium/rookery"
+  keywords rookery-plugin
+}
+
+targets {
+  rookery {
+    requires {
+      rookery ">=0.6"
+    }
+  }
+}

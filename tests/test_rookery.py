@@ -305,8 +305,8 @@ class RenderTests(unittest.TestCase):
             with tarfile.open(Path(temp)/'rookery-release.tar.gz') as archive:
                 names=archive.getnames()
                 # rookery runs a provisioner's command straight from the unpacked release.
-                self.assertEqual(archive.getmember('plugins/incus/bin/provision').mode,0o755)
-                self.assertEqual(archive.getmember('plugins/incus/package.json').mode,0o644)
+                self.assertEqual(archive.getmember('plugins/incus/rookery/bin/provision').mode,0o755)
+                self.assertEqual(archive.getmember('plugins/incus/rookery/rookery.json').mode,0o644)
             self.assertIn('provision/bootstrap/bootstrap.sh',names)
             # What bootstrap.sh and rookery look for in an unpacked release.
             for need in ['provision/bin/rookery.py','provision/requirements.txt','provision/ansible.cfg',
@@ -351,19 +351,20 @@ class RenderTests(unittest.TestCase):
             path.write_text(json.dumps(config()))
             builder.checked_config(path,'cloud')
     def test_release_carries_plugins_rookery_installed(self):
-        # rookery plugin add puts a plugin in node_modules of rookery's plugins folder.
+        # rookery plugin add installs a package in GROUP/ID of rookery's plugins folder.
         with tempfile.TemporaryDirectory() as temp, patch.object(builder,'BUILD',Path(temp)/'build'):
-            plugin=Path(temp)/'plugins/node_modules/rookery-plugin-demo'
-            (plugin/'tasks').mkdir(parents=True); (plugin/'node_modules/dep').mkdir(parents=True)
-            (plugin/'package.json').write_text('{}'); (plugin/'tasks/install.yml').write_text('---\n')
-            (plugin/'node_modules/dep/index.js').write_text('')
+            plugin=Path(temp)/'plugins/example/demo'
+            (plugin/'rookery/tasks').mkdir(parents=True); (plugin/'rookery/__pycache__').mkdir(parents=True)
+            (plugin/'package.kdl').write_text(''); (plugin/'rookery/rookery.json').write_text('{}')
+            (plugin/'rookery/tasks/install.yml').write_text('---\n')
+            (plugin/'rookery/__pycache__/x.pyc').write_text('')
             with patch.dict(os.environ,{'ROOKERY_PLUGINS':json.dumps({'demo':str(plugin)})}):
                 import tarfile
                 with tarfile.open(builder.release()) as archive:
                     names=archive.getnames()
-            self.assertIn('plugins/demo/package.json',names)
-            self.assertIn('plugins/demo/tasks/install.yml',names)
-            self.assertFalse(any(name.startswith('plugins/demo/node_modules') for name in names))
+            self.assertIn('plugins/demo/package.kdl',names)
+            self.assertIn('plugins/demo/rookery/tasks/install.yml',names)
+            self.assertFalse(any('__pycache__' in name for name in names))
     def test_rendered_seeds_roundtrip_and_are_private(self):
         with tempfile.TemporaryDirectory() as temp, patch.object(builder,'BUILD',Path(temp)/'build'):
             path=Path(temp)/'host.json'; path.write_text(json.dumps(config()))
@@ -379,7 +380,7 @@ class HostTaskTests(unittest.TestCase):
     def test_task_scripts_parse_and_share_the_helpers(self):
         scripts=sorted(self.TASKS.glob('*.sh'))
         self.assertEqual({p.stem for p in scripts},{'common','status','access','publish','pair','update','reboot'})
-        for script in scripts+[ROOT/'plugins/backup/files/backup.sh']:
+        for script in scripts+[ROOT/'plugins/backup/rookery/files/backup.sh']:
             with self.subTest(script=script.name):
                 subprocess.run(['bash','-n',str(script)],check=True)
         for name in ['status','access','publish','pair']:
@@ -396,6 +397,6 @@ class HostTaskTests(unittest.TestCase):
         for name in ['rookeryd','box']:
             self.assertIn(f'provision/ansible/roles/rookery/files/bin/{name}',names)
         self.assertIn('provision/ansible/roles/rookery/files/tasks/status.sh',names)
-        self.assertIn('plugins/backup/files/backup.sh',names)
+        self.assertIn('plugins/backup/rookery/files/backup.sh',names)
 
 if __name__=='__main__': unittest.main()

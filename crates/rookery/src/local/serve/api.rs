@@ -347,6 +347,11 @@ fn guarded_routes() -> OpenApiRouter<Arc<Serve>> {
         .routes(routes!(setup::upload_plugin))
         .routes(routes!(setup::remove_plugin))
         .routes(routes!(setup::check_plugins))
+        .routes(routes!(
+            setup::plugin_registries,
+            setup::add_plugin_registry
+        ))
+        .routes(routes!(setup::remove_plugin_registry))
         .routes(routes!(setup::update_plugins))
         .routes(routes!(setup::catalogue))
         .routes(routes!(setup::generate))

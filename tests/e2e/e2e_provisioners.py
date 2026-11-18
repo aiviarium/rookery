@@ -18,7 +18,7 @@ import struct
 import threading
 import unittest
 
-from harness import Serve, WebSocket, Workstation, needs_e2e
+from harness import SCRATCH, Serve, WebSocket, Workstation, needs_e2e, plugin_package
 
 # A provisioner that answers from what it is asked: it writes each request,
 # secrets left out, to requests.jsonl of its folder.
@@ -87,8 +87,7 @@ else:
 '''
 
 MANIFEST = {
-    'name': 'rookery-plugin-lab', 'version': '1.0.0', 'displayName': 'Lab',
-    'rookery': {'provisioners': [{
+    'provisioners': [{
         'id': 'box', 'label': 'Lab box', 'command': 'bin/provision', 'protocol': 2, 'verbs': ['list'],
         'arguments': [{'name': 'place', 'label': 'Place', 'required': True}],
         'kinds': [{'id': 'machine', 'setup': 'apply', 'verbs': ['start', 'stop']},
@@ -107,19 +106,19 @@ MANIFEST = {
                          'item': [{'action': 'tidy', 'label': 'Tidy'}]}],
     }, {
         'id': 'old', 'label': 'Old box', 'command': 'bin/provision', 'setup': 'apply',
-    }]},
+    }],
 }
 
 
 def lab(station):
-    """The plugin in the workstation's own plugin folder, registered as `box`
-    and `old`, and that folder."""
-    folder = station.rookery_dir / 'plugins/lab'
-    (folder / 'bin').mkdir(parents=True)
-    (folder / 'package.json').write_text(json.dumps(MANIFEST))
-    program = folder / 'bin/provision'
-    program.write_text(PROGRAM)
+    """The plugin added to the workstation's own plugins, registered as `box`
+    and `old`, and the folder it was installed in."""
+    package = SCRATCH / f'lab-{station.root.name}'
+    target = plugin_package(package, 'lab', MANIFEST, {'bin/provision': PROGRAM})
+    program = target / 'bin/provision'
     program.chmod(program.stat().st_mode | stat.S_IXUSR)
+    station.rookery('plugin', 'add', str(package))
+    folder = station.rookery_dir / 'plugins/example/lab/rookery'
     # rookery runs each type under a name of its own.
     station.rookery('provisioner', 'add', 'box', 'lab/box')
     station.rookery('provisioner', 'add', 'old', 'lab/old')

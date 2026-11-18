@@ -13,9 +13,11 @@ use axum::{
     extract::{Extension, Path, State},
 };
 use rookery_api::{
-    Done, ErrorBody, PluginList, PluginOrigin, PluginReport, PluginUpdateSpec, PluginUpdates, code,
+    Done, ErrorBody, PluginList, PluginOrigin, PluginRegistries, PluginRegistry, PluginReport,
+    PluginSpec, PluginUpdateSpec, PluginUpdates, code,
 };
 use rookery_core::{
+    eggs,
     paths::{SETTINGS, layout},
     plugins,
     profiles::{self, Place},
@@ -506,147 +508,172 @@ pub async fn set_setting(
 
 // ── Plugins ─────────────────────────────────────────────────────────────────
 
-/// Where the server keeps its own plugins.
-fn plugin_dir(state: &Serve) -> std::path::PathBuf {
-    plugins::own_dir(&state.paths.config_dir)
-}
+/// One change at a time works on the plugins.
+static PLUGINS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// One npm at a time works on the plugin directory.
-static NPM: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// Run a change of the plugin directory, which waits for npm.
-async fn change_plugins(
-    work: impl FnOnce() -> rookery_core::Result<Vec<String>> + Send + 'static,
-) -> Answer<Json<PluginReport>> {
-    let lines = tokio::task::spawn_blocking(move || {
-        let _one = NPM.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+/// Run work on the plugins, which waits for registries and git, on a
+/// thread for blocking work. An error that names no plugin is the asker's.
+async fn on_plugins<T: Send + 'static>(
+    work: impl FnOnce() -> rookery_core::Result<T> + Send + 'static,
+) -> Answer<T> {
+    tokio::task::spawn_blocking(move || {
+        let _one = PLUGINS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         work().map_err(|error| error.to_string())
     })
     .await
     .map_err(internal)?
-    .map_err(bad)?;
+    .map_err(|error| match error.starts_with("No plugin") {
+        true => missing(error),
+        false => bad(error),
+    })
+}
+
+/// Run a change of the plugins and say what it did.
+async fn change_plugins(
+    work: impl FnOnce() -> rookery_core::Result<Vec<String>> + Send + 'static,
+) -> Answer<Json<PluginReport>> {
+    let lines = on_plugins(work).await?;
     Ok(Json(PluginReport {
         lines,
         behind: vec![],
     }))
 }
 
-/// What npm installs, with the server's npm configuration and none of the
-/// package's scripts.
-#[derive(Deserialize, ToSchema)]
-pub struct PluginSpec {
-    /// A package of the server's npm registry, `[@SCOPE/]NAME[@VERSION]`, or
-    /// the https address of a .tgz.
-    pub spec: String,
-}
-
 #[utoipa::path(get, path = "/v1/plugins", summary = "The plugins: those that come with rookery and the server's own.", tag = "set-up",
-    responses((status = 200, description = "The plugins with their features", body = PluginList)))]
+    responses((status = 200, description = "The plugins with their features, and why Rookery does not use one", body = PluginList)))]
 pub async fn plugins(State(state): App) -> Answer<Json<PluginList>> {
-    let source = state.paths.source().map_err(internal)?;
-    let own = plugin_dir(&state);
-    Ok(Json(PluginList {
-        plugins: plugins::found(&source, &own)
-            .iter()
-            .map(|plugin| plugin.info(&own))
-            .collect(),
-        dir: own.display().to_string(),
-    }))
+    Ok(Json(eggs::Manager::new(&state.paths).list()))
 }
 
-#[utoipa::path(post, path = "/v1/plugins", summary = "Install a plugin with npm from a registry or an address.", tag = "set-up",
+#[utoipa::path(post, path = "/v1/plugins", summary = "Install a plugin from the plugin registries, an egg's address or a git repository.", tag = "set-up",
     request_body(content = PluginSpec, description = "What to install"),
-    responses((status = 200, description = "Installed; what npm said", body = PluginReport),
-              (status = 400, description = "Not a package or address, or npm failed; the message has its output", body = ErrorBody)))]
+    responses((status = 200, description = "Installed; what was installed", body = PluginReport),
+              (status = 400, description = "Not a package, address or repository, or it could not be installed; the message says why", body = ErrorBody)))]
 pub async fn add_plugin(
     State(state): App,
     Json(asked): Json<PluginSpec>,
 ) -> Answer<Json<PluginReport>> {
-    let spec = asked.spec.trim().to_owned();
-    if !plugins::registry_spec(&spec) {
-        return Err(bad(format!(
-            "{spec} is no package of a registry or https address of a .tgz. A file of yours is sent with plugins.upload"
-        )));
-    }
     let paths = state.paths.clone();
-    change_plugins(move || plugins::install(&paths, &spec)).await
+    change_plugins(move || eggs::Manager::new(&paths).add(&asked)).await
 }
 
-#[utoipa::path(post, path = "/v1/plugins/package", summary = "Install a plugin from a .tgz, as npm pack makes one, which the server keeps.", tag = "set-up",
-    request_body(content = Vec<u8>, content_type = "application/gzip", description = "The .tgz"),
-    responses((status = 200, description = "Installed; what npm said", body = PluginReport),
-              (status = 400, description = "Not a .tgz, or npm failed; the message has its output", body = ErrorBody)))]
+#[utoipa::path(post, path = "/v1/plugins/package", summary = "Install a plugin from an egg, as hatchery pack makes one, which the server keeps.", tag = "set-up",
+    request_body(content = Vec<u8>, content_type = "application/gzip", description = "The egg"),
+    responses((status = 200, description = "Installed; what was installed", body = PluginReport),
+              (status = 400, description = "Not an egg, or it could not be installed; the message says why", body = ErrorBody)))]
 pub async fn upload_plugin(State(state): App, body: Bytes) -> Answer<Json<PluginReport>> {
     let paths = state.paths.clone();
-    change_plugins(move || plugins::install_upload(&paths, &body)).await
+    change_plugins(move || eggs::Manager::new(&paths).upload(&body)).await
 }
 
 #[utoipa::path(delete, path = "/v1/plugins/{id}", summary = "Remove one of the server's own plugins.", tag = "set-up",
-    params(("id" = String, Path, description = "The plugin's id")),
-    responses((status = 200, description = "Removed; what npm said", body = PluginReport),
+    params(("id" = String, Path, description = "The plugin's id or package")),
+    responses((status = 200, description = "Removed", body = PluginReport),
               (status = 404, description = "No such plugin", body = ErrorBody),
               (status = 409, description = "It comes with rookery and stays", body = ErrorBody)))]
 pub async fn remove_plugin(
     State(state): App,
     Path(id): Path<String>,
 ) -> Answer<Json<PluginReport>> {
-    let source = state.paths.source().map_err(internal)?;
-    let own = plugin_dir(&state);
-    let plugin = plugins::found(&source, &own)
+    let manager = eggs::Manager::new(&state.paths);
+    let plugin = manager
+        .scan()
         .into_iter()
-        .find(|plugin| plugin.id == id)
+        .find(|plugin| plugin.id == id || plugin.package == id)
         .ok_or_else(|| missing(format!("No plugin {id}")))?;
-    if plugin.origin(&own) == PluginOrigin::Shipped {
+    if plugin.origin == PluginOrigin::Shipped {
         return Err(Fail::new(
             code::CONFLICT,
             format!("{} comes with rookery and stays", plugin.label),
         ));
     }
-    let paths = state.paths.clone();
-    change_plugins(move || plugins::remove(&paths, &plugin)).await
+    change_plugins(move || manager.remove(&id)).await
 }
 
 #[utoipa::path(get, path = "/v1/plugins/updates", summary = "Ask the registries the server's own plugins came from whether they have newer versions.", tag = "set-up",
-    responses((status = 200, description = "Each of the server's own plugins, with the latest version where there is a newer one", body = PluginUpdates),
-              (status = 400, description = "npm could not be run", body = ErrorBody)))]
+    responses((status = 200, description = "Each of the server's own plugins, with the newest version that can be installed where it is newer", body = PluginUpdates),
+              (status = 400, description = "The plugin registries could not be read", body = ErrorBody)))]
 pub async fn check_plugins(State(state): App) -> Answer<Json<PluginUpdates>> {
-    let source = state.paths.source().map_err(internal)?;
-    let own = plugin_dir(&state);
-    let checked = tokio::task::spawn_blocking(move || {
-        let _one = NPM.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        plugins::check(&own, &plugins::found(&source, &own)).map_err(|error| error.to_string())
-    })
-    .await
-    .map_err(internal)?
-    .map_err(bad)?;
-    Ok(Json(checked))
+    let paths = state.paths.clone();
+    Ok(Json(
+        on_plugins(move || eggs::Manager::new(&paths).check()).await?,
+    ))
 }
 
-#[utoipa::path(post, path = "/v1/plugins/update", summary = "Update one of the server's own plugins, or all, to the latest version of their registry, and say which hosts are behind then.", tag = "set-up",
-    request_body(content = Option<PluginUpdateSpec>, description = "The plugin, by id or npm name; all without one"),
-    responses((status = 200, description = "Updated; what npm said, and the hosts that need applying", body = PluginReport),
-              (status = 400, description = "It has no registry to ask, comes with rookery, or npm failed; the message says which", body = ErrorBody),
+#[utoipa::path(post, path = "/v1/plugins/update", summary = "Update one of the server's own plugins, or all, to the newest versions that can be installed, and say which hosts are behind then.", tag = "set-up",
+    request_body(content = Option<PluginUpdateSpec>, description = "The plugin, by id or package; all without one"),
+    responses((status = 200, description = "Updated; what changed, and the hosts that need applying", body = PluginReport),
+              (status = 400, description = "It has no registry to ask, comes with rookery, or could not be updated; the message says which", body = ErrorBody),
               (status = 404, description = "No such plugin", body = ErrorBody)))]
 pub async fn update_plugins(State(state): App, body: Bytes) -> Answer<Json<PluginReport>> {
     let asked: PluginUpdateSpec = match body.is_empty() {
         true => PluginUpdateSpec::default(),
         false => serde_json::from_slice(&body).map_err(bad)?,
     };
-    let source = state.paths.source().map_err(internal)?;
-    let own = plugin_dir(&state);
-    let found = plugins::found(&source, &own);
-    if let Some(name) = &asked.id
-        && !found
-            .iter()
-            .any(|plugin| &plugin.id == name || &plugin.package == name)
-    {
-        return Err(missing(format!("No plugin {name}")));
-    }
     let paths = state.paths.clone();
     let Json(mut report) =
-        change_plugins(move || plugins::update(&paths, &found, asked.id.as_deref())).await?;
+        change_plugins(move || eggs::Manager::new(&paths).update(asked.id.as_deref())).await?;
     report.behind = super::api::behind_hosts(&state).await;
     Ok(Json(report))
+}
+
+#[utoipa::path(get, path = "/v1/plugins/registries", summary = "The registries the server installs plugins from, in the order they are searched.", tag = "set-up",
+    responses((status = 200, description = "The plugin registries", body = PluginRegistries),
+              (status = 400, description = "hatchery.kdl does not read", body = ErrorBody)))]
+pub async fn plugin_registries(State(state): App) -> Answer<Json<PluginRegistries>> {
+    let paths = state.paths.clone();
+    Ok(Json(
+        on_plugins(move || eggs::Manager::new(&paths).registries()).await?,
+    ))
+}
+
+#[utoipa::path(post, path = "/v1/plugins/registries", summary = "Add a plugin registry after the others, or change the one at its location.", tag = "set-up",
+    request_body(content = PluginRegistry, description = "The registry"),
+    responses((status = 200, description = "Added or changed", body = PluginReport),
+              (status = 400, description = "Not a registry the server can read; the message says why", body = ErrorBody)))]
+pub async fn add_plugin_registry(
+    State(state): App,
+    Json(asked): Json<PluginRegistry>,
+) -> Answer<Json<PluginReport>> {
+    let paths = state.paths.clone();
+    change_plugins(move || eggs::Manager::new(&paths).add_registry(&asked)).await
+}
+
+/// A plugin registry, by its location.
+#[derive(Deserialize, ToSchema)]
+pub struct RegistryLocation {
+    pub location: String,
+}
+
+#[utoipa::path(post, path = "/v1/plugins/registries/remove", summary = "Remove a plugin registry. What was installed from it stays.", tag = "set-up",
+    request_body(content = RegistryLocation, description = "The registry's location"),
+    responses((status = 200, description = "Removed", body = PluginReport),
+              (status = 404, description = "No such registry", body = ErrorBody)))]
+pub async fn remove_plugin_registry(
+    State(state): App,
+    Json(asked): Json<RegistryLocation>,
+) -> Answer<Json<PluginReport>> {
+    let paths = state.paths.clone();
+    let lines = tokio::task::spawn_blocking(move || {
+        let _one = PLUGINS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        eggs::Manager::new(&paths)
+            .remove_registry(&asked.location)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(internal)?
+    .map_err(|error| match error.starts_with("No plugin registry") {
+        true => missing(error),
+        false => bad(error),
+    })?;
+    Ok(Json(PluginReport {
+        lines,
+        behind: vec![],
+    }))
 }
 
 // ── What a set-up screen needs ──────────────────────────────────────────────
