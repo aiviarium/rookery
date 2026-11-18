@@ -94,7 +94,7 @@ jobs:
       # The SSH tests start an sshd of their own.
       - name: Install sshd
         run: command -v sshd >/dev/null || [ -x /usr/sbin/sshd ] || { sudo apt-get update -q && sudo apt-get install -y --no-install-recommends openssh-server; }
-      - run: ci/checks.sh rust-tests
+      - run: ci/checks.sh rust-tests plugin-check
       - uses: ./.github/actions/rust-save
         with:
           cache: test

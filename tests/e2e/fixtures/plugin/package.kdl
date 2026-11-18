@@ -1,0 +1,22 @@
+format 1
+
+package {
+  group example
+  id e2e
+  version "1.0.0"
+}
+
+about {
+  name "End-to-end"
+  summary "A plugin for rookery's end-to-end tests: a task, a service and a topic."
+  license MIT
+  license Apache-2.0
+}
+
+targets {
+  rookery {
+      requires {
+      rookery ">=0.6"
+      }
+  }
+}

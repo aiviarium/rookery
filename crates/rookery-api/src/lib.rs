@@ -7,6 +7,8 @@ pub mod compat;
 pub mod escape;
 pub mod ids;
 pub mod ops;
+#[cfg(feature = "plugins")]
+pub mod plugin_contract;
 #[cfg(feature = "client")]
 pub mod portal;
 pub mod profile;

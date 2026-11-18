@@ -315,6 +315,17 @@ pub static SERVE: &[Op] = &[
     admin(call("plugins.remove", "DELETE", "/v1/plugins/{id}")),
     admin(call("plugins.check", "GET", "/v1/plugins/updates")),
     admin(call("plugins.update", "POST", "/v1/plugins/update")),
+    admin(call("plugins.registries", "GET", "/v1/plugins/registries")),
+    admin(call(
+        "plugins.registries.add",
+        "POST",
+        "/v1/plugins/registries",
+    )),
+    admin(call(
+        "plugins.registries.remove",
+        "POST",
+        "/v1/plugins/registries/remove",
+    )),
     admin(call("setup.catalogue", "GET", "/v1/setup")),
     admin(call("setup.generate", "POST", "/v1/setup/generate")),
     call("provisioners.list", "GET", "/v1/provisioners"),

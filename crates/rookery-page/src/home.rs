@@ -894,7 +894,11 @@ impl Home {
         let listed = plugins::rows(&data.plugins, &data.updates);
         let selected = self.plugins.selected(&data.plugins);
         let plugin = listed[selected].0.map(|index| &data.plugins[index]);
-        let help = plugins::help(plugin, &data.report, &plugins::adding(&data.plugin_dir));
+        let help = plugins::help(
+            plugin,
+            &data.report,
+            &plugins::adding(&data.plugin_dir, &data.plugin_registries),
+        );
         Shown {
             rows: listed.into_iter().map(|(_, line)| line).collect(),
             selected,
@@ -903,7 +907,7 @@ impl Home {
             keys: match self.editor {
                 Some(_) => "Enter install · Esc cancel · Ctrl+O copy",
                 None => {
-                    "↑↓ select · Enter add · u send a .tgz · c check · U update · A all · x remove · Esc hosts"
+                    "↑↓ select · Enter add · u send an egg · c check · U update · A all · x remove · Esc hosts"
                 }
             },
         }
@@ -935,7 +939,7 @@ impl Home {
             Asked::Rollout(options) => admin.roll_out(&options),
             Asked::Other if key.code == Code::Char('u') => {
                 let admin = admin.clone();
-                let chosen = crate::device::choose_file(".tgz,.tar.gz", move |name, package| {
+                let chosen = crate::device::choose_file(".egg", move |name, package| {
                     admin.upload_plugin(&name, &package)
                 });
                 if let Err(why) = chosen {

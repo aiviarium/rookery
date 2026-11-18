@@ -3,7 +3,7 @@
 # Docker or Podman with compose, and nothing else.
 #
 #   ci/run.sh check [CHECK…]    the checks of CI: fmt, shell-syntax, ansible-syntax,
-#                               vale, python-tests, rust-tests, clippy
+#                               vale, python-tests, rust-tests, plugin-check, clippy
 #   ci/run.sh e2e [TEST…]       build rookery, start a test host and run the
 #                               end-to-end tests against it (names as in
 #                               unittest: e2e_serve, e2e_serve.Roles)

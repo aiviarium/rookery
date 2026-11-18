@@ -1998,7 +1998,11 @@
             "$ref": "#/components/schemas/PluginOrigin"
           },
           "package": {
-            "description": "Its npm name.",
+            "description": "Its package, `GROUP/ID`.",
+            "type": "string"
+          },
+          "problem": {
+            "description": "Why Rookery does not use it, such as a Rookery version it does not\naccept. A plugin with a problem has no features or provisioners.",
             "type": "string"
           },
           "provisioners": {
@@ -2007,6 +2011,10 @@
               "$ref": "#/components/schemas/ProvisionerInfo"
             },
             "type": "array"
+          },
+          "source": {
+            "description": "The registry, repository or file it was installed from.",
+            "type": "string"
           },
           "version": {
             "type": "string"
@@ -2026,7 +2034,7 @@
         "description": "The plugins a rookery serve has, and where it keeps its own.",
         "properties": {
           "dir": {
-            "description": "The directory of its own plugins; a folder copied there is one too.",
+            "description": "The folder its own plugins are installed in.",
             "type": "string"
           },
           "plugins": {
@@ -2043,16 +2051,88 @@
         "type": "object"
       },
       "PluginOrigin": {
-        "description": "Where a plugin comes from, which says whether it can be removed.",
+        "description": "Where a plugin comes from, which says whether it can be removed and how\nit is updated.",
         "enum": [
           "shipped",
-          "npm",
-          "folder"
+          "registry",
+          "git",
+          "file"
         ],
         "type": "string"
       },
+      "PluginRegistries": {
+        "description": "The answer of `plugins.registries`, in the order they are searched.",
+        "properties": {
+          "file": {
+            "description": "The file they are kept in.",
+            "type": "string"
+          },
+          "registries": {
+            "items": {
+              "$ref": "#/components/schemas/PluginRegistry"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "registries",
+          "file"
+        ],
+        "type": "object"
+      },
+      "PluginRegistry": {
+        "description": "A registry plugins are installed from, a line of `hatchery.kdl`.",
+        "properties": {
+          "builtin": {
+            "description": "It is the registry in Rookery's own source, searched first because\nno line of `hatchery.kdl` has its name.",
+            "type": "boolean"
+          },
+          "key": {
+            "description": "Its public key, `ed25519:…`. Eggs from it must then be signed.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "description": "`git`, `http` or `dir`. `builtin` for the registry in Rookery's own\nsource, and `off` for a line that turns the registry its location\nnames off.",
+            "type": "string"
+          },
+          "location": {
+            "description": "A repository address, a base URL or a folder. The registry's name\nfor an `off` line.",
+            "type": "string"
+          },
+          "min_age": {
+            "description": "How long a new version waits before it is installed, such as `3d`.\nWithout it, the default.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "description": "Its name, which a line of its own keeps. The one named `rookery`\nholds the plugins that come with Rookery.",
+            "type": "string"
+          },
+          "only": {
+            "description": "The groups it may serve; any when empty.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "unsigned_tags": {
+            "description": "With a key: versions of a git registry that have only a tag are\ninstalled too, unsigned.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
+          "location"
+        ],
+        "type": "object"
+      },
       "PluginReport": {
-        "description": "What npm said of a change, a few lines; the first starts with ✓.",
+        "description": "What a change of the plugins did, a few lines; the first starts with ✓.",
         "properties": {
           "behind": {
             "description": "After an update: the hosts whose configuration is now behind.",
@@ -2097,16 +2177,38 @@
         "type": "object"
       },
       "PluginSpec": {
-        "description": "What npm installs, with the server's npm configuration and none of the\npackage's scripts.",
+        "description": "What to install as a plugin: a package of the plugin registries, the\naddress of an egg, or one folder of a git repository.",
         "properties": {
+          "allow_young": {
+            "description": "Install a version even when it is younger than the registry's\nminimum release age.",
+            "type": "boolean"
+          },
+          "git": {
+            "description": "A git repository to install one folder of, instead of `spec`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path": {
+            "description": "With `git`: the package's folder in the repository; its root without one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ref": {
+            "description": "With `git`: a tag, branch or commit; the default branch without one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "spec": {
-            "description": "A package of the server's npm registry, `[@SCOPE/]NAME[@VERSION]`, or\nthe https address of a .tgz.",
+            "description": "`GROUP/ID[@RANGE]`, `ID[@RANGE]`, or the https address of an egg.\nEmpty with `git`.",
             "type": "string"
           }
         },
-        "required": [
-          "spec"
-        ],
         "type": "object"
       },
       "PluginUpdate": {
@@ -2116,14 +2218,14 @@
             "type": "string"
           },
           "latest": {
-            "description": "The registry's latest version, when it is another one.",
+            "description": "The newest version that can be installed, when it is another one.",
             "type": [
               "string",
               "null"
             ]
           },
           "note": {
-            "description": "Why there is nothing to ask, or what asking said: a plugin from a\n.tgz or a folder has no registry to ask.",
+            "description": "Why there is nothing to ask, or what asking said: a plugin from a\nfile has no registry to ask, and a new version may be held back for\nits minimum release age.",
             "type": "string"
           },
           "package": {
@@ -2142,7 +2244,7 @@
         "type": "object"
       },
       "PluginUpdateSpec": {
-        "description": "What to update: one plugin by its id or npm name, or all of them.",
+        "description": "What to update: one plugin by its id or package, or all of them.",
         "properties": {
           "id": {
             "type": [
@@ -2514,6 +2616,18 @@
         },
         "required": [
           "registries"
+        ],
+        "type": "object"
+      },
+      "RegistryLocation": {
+        "description": "A plugin registry, by its location or name.",
+        "properties": {
+          "location": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "location"
         ],
         "type": "object"
       },
@@ -6972,7 +7086,7 @@
                 }
               }
             },
-            "description": "The plugins with their features"
+            "description": "The plugins with their features, and why Rookery does not use one"
           }
         },
         "summary": "The plugins: those that come with rookery and the server's own.",
@@ -7002,7 +7116,7 @@
                 }
               }
             },
-            "description": "Installed; what npm said"
+            "description": "Installed; what was installed"
           },
           "400": {
             "content": {
@@ -7012,10 +7126,10 @@
                 }
               }
             },
-            "description": "Not a package or address, or npm failed; the message has its output"
+            "description": "Not a package, address or repository, or it could not be installed; the message says why"
           }
         },
-        "summary": "Install a plugin with npm from a registry or an address.",
+        "summary": "Install a plugin from the plugin registries, an egg's address or a git repository.",
         "tags": [
           "set-up"
         ]
@@ -7037,7 +7151,7 @@
               }
             }
           },
-          "description": "The .tgz",
+          "description": "The egg",
           "required": true
         },
         "responses": {
@@ -7049,7 +7163,7 @@
                 }
               }
             },
-            "description": "Installed; what npm said"
+            "description": "Installed; what was installed"
           },
           "400": {
             "content": {
@@ -7059,10 +7173,133 @@
                 }
               }
             },
-            "description": "Not a .tgz, or npm failed; the message has its output"
+            "description": "Not an egg, or it could not be installed; the message says why"
           }
         },
-        "summary": "Install a plugin from a .tgz, as npm pack makes one, which the server keeps.",
+        "summary": "Install a plugin from an egg, as hatchery pack makes one, which the server keeps.",
+        "tags": [
+          "set-up"
+        ]
+      }
+    },
+    "/v1/plugins/registries": {
+      "get": {
+        "operationId": "plugin_registries",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginRegistries"
+                }
+              }
+            },
+            "description": "The plugin registries"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "hatchery.kdl does not read"
+          }
+        },
+        "summary": "The registries the server installs plugins from, in the order they are searched.",
+        "tags": [
+          "set-up"
+        ]
+      },
+      "post": {
+        "operationId": "add_plugin_registry",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginRegistry"
+              }
+            }
+          },
+          "description": "The registry",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginReport"
+                }
+              }
+            },
+            "description": "Added or changed"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not a registry the server can read; the message says why"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A registry in a folder of the server, which only a caller on its socket adds"
+          }
+        },
+        "summary": "Add a plugin registry after the others, or change the one at its location or with its name. Kind off with the location rookery turns off the registry that comes with rookery.",
+        "tags": [
+          "set-up"
+        ]
+      }
+    },
+    "/v1/plugins/registries/remove": {
+      "post": {
+        "operationId": "remove_plugin_registry",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistryLocation"
+              }
+            }
+          },
+          "description": "The registry's location or name",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginReport"
+                }
+              }
+            },
+            "description": "Removed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "No such registry"
+          }
+        },
+        "summary": "Remove a plugin registry. What was installed from it stays. Without a line named rookery, the registry that comes with rookery is used again.",
         "tags": [
           "set-up"
         ]
@@ -7086,7 +7323,7 @@
               }
             }
           },
-          "description": "The plugin, by id or npm name; all without one"
+          "description": "The plugin, by id or package; all without one"
         },
         "responses": {
           "200": {
@@ -7097,7 +7334,7 @@
                 }
               }
             },
-            "description": "Updated; what npm said, and the hosts that need applying"
+            "description": "Updated; what changed, and the hosts that need applying"
           },
           "400": {
             "content": {
@@ -7107,7 +7344,7 @@
                 }
               }
             },
-            "description": "It has no registry to ask, comes with rookery, or npm failed; the message says which"
+            "description": "It has no registry to ask, comes with rookery, or could not be updated; the message says which"
           },
           "404": {
             "content": {
@@ -7120,7 +7357,7 @@
             "description": "No such plugin"
           }
         },
-        "summary": "Update one of the server's own plugins, or all, to the latest version of their registry, and say which hosts are behind then.",
+        "summary": "Update one of the server's own plugins, or all, to the newest versions that can be installed, and say which hosts are behind then.",
         "tags": [
           "set-up"
         ]
@@ -7138,7 +7375,7 @@
                 }
               }
             },
-            "description": "Each of the server's own plugins, with the latest version where there is a newer one"
+            "description": "Each of the server's own plugins, with the newest version that can be installed where it is newer"
           },
           "400": {
             "content": {
@@ -7148,7 +7385,7 @@
                 }
               }
             },
-            "description": "npm could not be run"
+            "description": "The plugin registries could not be read"
           }
         },
         "summary": "Ask the registries the server's own plugins came from whether they have newer versions.",
@@ -7162,7 +7399,7 @@
         "operationId": "remove_plugin",
         "parameters": [
           {
-            "description": "The plugin's id",
+            "description": "The plugin's id or package",
             "in": "path",
             "name": "id",
             "required": true,
@@ -7180,7 +7417,7 @@
                 }
               }
             },
-            "description": "Removed; what npm said"
+            "description": "Removed"
           },
           "404": {
             "content": {
@@ -7200,7 +7437,7 @@
                 }
               }
             },
-            "description": "It comes with rookery and stays"
+            "description": "It comes with rookery and stays while that registry is on"
           }
         },
         "summary": "Remove one of the server's own plugins.",

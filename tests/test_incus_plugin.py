@@ -13,7 +13,7 @@ import urllib.parse
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / 'plugins/incus'
+PLUGIN = ROOT / 'plugins/rookery/incus/rookery'
 
 
 def certificate(directory, name, extensions):
@@ -568,8 +568,8 @@ class IncusPluginTests(unittest.TestCase):
         self.assertIn(('image-delete', 'abcdef1234567890'), self.server.events)
 
     def test_the_manifest_declares_the_collections_status_gives(self):
-        manifest = json.loads((PLUGIN / 'package.json').read_text())
-        for provisioner in manifest['rookery']['provisioners']:
+        manifest = json.loads((PLUGIN / 'rookery.json').read_text())
+        for provisioner in manifest['provisioners']:
             actions = {action['name']: action for action in provisioner['actions']}
             declared = {collection['id']: collection for collection in provisioner['collections']}
             self.assertEqual(sorted(declared), ['images', 'instances', 'pools', 'volumes'])

@@ -1,4 +1,4 @@
-"""A plugin from a local npm-format package: installed into rookery, its
+"""A plugin from a local package folder: installed into rookery, its
 feature applied to the host, used there, and removed again.
 
 Plugin uses the extended state of the host (harness.extended()), which adds
@@ -9,7 +9,7 @@ import unittest
 
 from harness import AGENT, HOST, extended, needs_e2e, plain, random_text, wait_for
 
-PACKAGE = 'rookery-plugin-e2e'
+PACKAGE = 'example/e2e'
 
 
 @needs_e2e

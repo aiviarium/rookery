@@ -16,9 +16,14 @@ hyper-util = { workspace = true, optional = true }
 http-body-util = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
+hatchery = { workspace = true, optional = true }
+# The plugin contract is a JSON Schema, checked the way `hatchery pack --check` checks it.
+jsonschema = { version = "0.61", default-features = false, optional = true }
 
 [features]
 default = ["client"]
 # The client over a byte stream; without it only the types and tables remain,
 # which is all the shared screens take.
+# The contract of a plugin: the schema of rookery.json and Rookery's checks.
+plugins = ["dep:hatchery", "dep:jsonschema"]
 client = ["dep:tokio", "dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:tokio-tungstenite", "dep:futures-util"]

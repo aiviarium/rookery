@@ -33,7 +33,7 @@ agents come from plugins too. A set-up has these pieces:
 | `docs/content/docs/(guide)/deploy/provisioners.mdx` | Creating a host's machine with a provisioner |
 | `recipes/README.md` | The list of recipes |
 | `recipes/*/README.md` | One recipe, with what it needs, its command and its settings |
-| `plugins/incus/guide.md`, `plugins/docker/guide.md` | The provisioners and their arguments, and the settings of the features `incus/server` and `docker/engine` |
+| `plugins/rookery/incus/rookery/guide.md`, `plugins/rookery/docker/rookery/guide.md` | The provisioners and their arguments, and the settings of the features `incus/server` and `docker/engine` |
 | `AGENTS.md` | Working in this repository |
 
 ## Choosing a set-up

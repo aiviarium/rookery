@@ -9,15 +9,16 @@ ARG INSTALL_DOTNET_TOOLS=true
 ARG INSTALL_SCRIPTING_TOOLS=true
 ARG INSTALL_SCIENTIFIC_TOOLS=true
 ARG INSTALL_CHROME_TOOLS=true
-# JSON list of plugin features from plugins/, such as GitHub's CLI; add for
-# example "unity/cli".
+# JSON list of features of the plugins that come with rookery, such as
+# GitHub's CLI; add for example "unity/cli".
 ARG PLUGIN_FEATURES='["github/cli"]'
 ARG SOFTWARE_RENDERING=true
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates sudo dbus && rm -rf /var/lib/apt/lists/*
 COPY provision/requirements.txt /tmp/rookery-requirements.txt
 RUN python3 -m venv /opt/ansible && /opt/ansible/bin/pip install -r /tmp/rookery-requirements.txt
-# Laid out as the checkout is: the role finds the plugins at ../../plugins.
+# Laid out as the checkout is: the role finds the plugins that come with
+# rookery at ../../plugins/rookery.
 COPY provision/ansible /opt/rookery/provision/ansible
 COPY provision/ansible.cfg /opt/rookery/provision/ansible.cfg
 COPY plugins /opt/rookery/plugins

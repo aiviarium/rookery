@@ -10,38 +10,34 @@ caller is the agent on the host, with `box call`, or you, from your machine, wit
 
 ## Declare it
 
-A feature in the plugin's `package.json` can list `services` in its `rookery`
-section. The name is written without the plugin's id, which Rookery adds:
+A feature in the plugin's `rookery.json` can list `services`. The name is written without the plugin's id, which Rookery adds. Here the plugin is `ask`:
 
-```json
+```json title="rookery/rookery.json"
 {
-  "name": "rookery-plugin-ask",
-  "rookery": {
-    "features": [
-      {
-        "id": "desk",
-        "label": "Ask a person",
-        "tasks": "tasks/desk.yml",
-        "services": [
-          {
-            "name": "desk",
-            "description": "The agent asks a question and waits for a person to answer.",
-            "user": "root",
-            "agent": true,
-            "run": "box serve ask/desk -- /opt/ask/handler",
-            "timeout": 600,
-            "methods": [
-              { "name": "ask", "description": "Ask a question; returns the answer." },
-              { "name": "answer", "description": "Answer an open question. Host level only." }
-            ]
-          }
-        ],
-        "channels": [
-          { "topic": "questions", "keep": "log", "max": 200, "days": 7 }
-        ]
-      }
-    ]
-  }
+  "features": [
+    {
+      "id": "desk",
+      "label": "Ask a person",
+      "tasks": "tasks/desk.yml",
+      "services": [
+        {
+          "name": "desk",
+          "description": "The agent asks a question and waits for a person to answer.",
+          "user": "root",
+          "agent": true,
+          "run": "box serve ask/desk -- /opt/ask/handler",
+          "timeout": 600,
+          "methods": [
+            { "name": "ask", "description": "Ask a question; returns the answer." },
+            { "name": "answer", "description": "Answer an open question. Host level only." }
+          ]
+        }
+      ],
+      "channels": [
+        { "topic": "questions", "keep": "log", "max": 200, "days": 7 }
+      ]
+    }
+  ]
 }
 ```
 

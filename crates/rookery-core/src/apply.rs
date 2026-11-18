@@ -21,20 +21,35 @@ pub struct Prepared {
     pub notes: Vec<String>,
 }
 
-/// Where each plugin is on this machine, by id.
+/// Where each plugin's package is on this machine, by id, for the builder
+/// of seeds and releases, which carries the packages.
 pub fn plugin_dirs(plugins: &[plugins::Plugin]) -> Value {
+    let dirs: serde_json::Map<String, Value> = plugins
+        .iter()
+        .map(|plugin| (plugin.id.clone(), json!(plugin.package_dir)))
+        .collect();
+    Value::Object(dirs)
+}
+
+/// What the role is told of each plugin, by id: the folder of its
+/// `rookery` target, and its label.
+pub fn plugin_vars(plugins: &[plugins::Plugin]) -> Value {
     let dirs: serde_json::Map<String, Value> = plugins
         .iter()
         .map(|plugin| (plugin.id.clone(), json!(plugin.dir)))
         .collect();
-    Value::Object(dirs)
+    let labels: serde_json::Map<String, Value> = plugins
+        .iter()
+        .map(|plugin| (plugin.id.clone(), json!(plugin.label)))
+        .collect();
+    json!({"rookery_plugin_dirs": dirs, "rookery_plugin_labels": labels})
 }
 
 /// Variables for a direct Ansible run, matching what the seed builder embeds.
 /// `own` are the public keys of the rookery that applies them, as
 /// [`crate::keys::operator_keys`] gives them. The role keeps those apart from
 /// the profile's, so that no later apply takes them away.
-pub fn ansible_vars(config: &Value, plugin_dirs: &Value, own: &[String]) -> Value {
+pub fn ansible_vars(config: &Value, plugin_vars: &Value, own: &[String]) -> Value {
     let mut config = config.clone();
     rookery_api::profile::retire_qemu(&mut config);
     let config = &config;
@@ -85,7 +100,12 @@ pub fn ansible_vars(config: &Value, plugin_dirs: &Value, own: &[String]) -> Valu
     vars["rookery_ssh_public_key"] = json!(own.join("\n"));
     // The role names the target by its older name.
     vars["rookery_profile"] = config["target"].clone();
-    vars["rookery_plugin_dirs"] = plugin_dirs.clone();
+    for name in ["rookery_plugin_dirs", "rookery_plugin_labels"] {
+        vars[name] = match &plugin_vars[name] {
+            Value::Null => json!({}),
+            value => value.clone(),
+        };
+    }
     // A node takes the role's path without the desktop, and only the features its profile names.
     if rookery_api::profile::host_type(config) == rookery_api::HostType::Node {
         vars["rookery_level"] = json!("node");
@@ -143,15 +163,14 @@ pub fn playbook(source: &std::path::Path) -> Command {
 /// or a workstation is applied: every way to apply comes through here.
 pub fn prepare(paths: &Paths, host: &Host, become_password: Option<&str>) -> Result<Prepared> {
     crate::host_type::guard(host, crate::host_type::Capability::Apply)?;
-    let source = paths.source()?;
-    let plugins = plugins::load(&[source.join("plugins"), paths.config_dir.join("plugins")]);
+    let plugins = plugins::installed(&paths.config_dir);
     crate::node::check_features(&plugins, &host.name, &host.config)?;
     crate::node::check_removal(paths, host)?;
     let dirs = plugin_dirs(&plugins);
     // Without its own key in the operator's authorized_keys, rookery could be
     // locked out of the host it sets up, so it does not go on without one.
     let own = crate::keys::operator_keys(paths, &host.config)?;
-    let mut vars = ansible_vars(&host.config, &dirs, &own);
+    let mut vars = ansible_vars(&host.config, &plugin_vars(&plugins), &own);
     add_tailnet(&mut vars, paths, &host.config, &host.place)?;
     // The role keeps this on the host, for the plugins the host has, so
     // rookery can tell later whether the host is behind.
@@ -550,7 +569,7 @@ mod tests {
         });
         let vars = ansible_vars(
             &config,
-            &json!({"demo": "/p/demo"}),
+            &json!({"rookery_plugin_dirs": {"demo": "/p/demo/rookery"}, "rookery_plugin_labels": {"demo": "Demo"}}),
             &["ssh-ed25519 OWN".to_owned(), "ssh-ed25519 NEXT".to_owned()],
         );
         assert_eq!(vars["rookery_operator_ssh_public_key"], "ssh-ed25519 ME");
@@ -568,7 +587,8 @@ mod tests {
         assert_eq!(vars["rookery_agent_privileges"], "limited");
         assert_eq!(vars["rookery_profile"], "cloud");
         assert_eq!(vars["rookery_geometry"], "1x1");
-        assert_eq!(vars["rookery_plugin_dirs"]["demo"], "/p/demo");
+        assert_eq!(vars["rookery_plugin_dirs"]["demo"], "/p/demo/rookery");
+        assert_eq!(vars["rookery_plugin_labels"]["demo"], "Demo");
         // A profile of the qemu target there once was is applied as cloud, reached from the QEMU host.
         let qemu = ansible_vars(&json!({"target": "qemu"}), &json!({}), &[]);
         assert_eq!(qemu["rookery_profile"], "cloud");
@@ -794,7 +814,10 @@ mod tests {
             let profile = read_back(&dir.join(format!("{name}.profile.json")));
             let vars = ansible_vars(
                 &profile,
-                &json!({"docker": "/usr/lib/rookery/plugins/docker", "incus": "/usr/lib/rookery/plugins/incus"}),
+                &json!({
+                    "rookery_plugin_dirs": {"docker": "/usr/lib/rookery/plugins/docker/rookery", "incus": "/usr/lib/rookery/plugins/incus/rookery"},
+                    "rookery_plugin_labels": {"docker": "Docker", "incus": "Incus"},
+                }),
                 &["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIROOKERY rookery@studio".to_owned()],
             );
             let written = serde_json::to_string_pretty(&vars).unwrap() + "\n";

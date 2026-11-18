@@ -318,7 +318,9 @@ def run_in(docker, name, request):
 
 
 def package_version():
-    return json.loads((PACKAGE / 'package.json').read_text())['version']
+    # The version line of the package's package.kdl, one folder up.
+    text = (PACKAGE.parent / 'package.kdl').read_text()
+    return re.search(r'^\s*version\s+"([^"]+)"', text, re.M).group(1)
 
 
 def ensure_image(cfg, again=False):

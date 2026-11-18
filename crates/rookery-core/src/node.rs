@@ -721,12 +721,12 @@ mod tests {
             fs::create_dir_all(source.join("provision/bin")).unwrap();
             fs::write(source.join(crate::paths::layout::BUILDER), "").unwrap();
             paths.set("source", source.to_str().unwrap()).unwrap();
-            let plugin = source.join("plugins/fake");
-            fs::create_dir_all(plugin.join("bin")).unwrap();
-            fs::write(plugin.join("bin/provision"), "#!/bin/sh\n").unwrap();
-            fs::write(
-                plugin.join("package.json"),
-                r#"{"name": "rookery-plugin-fake", "rookery": {
+            let plugin = crate::plugins::tests::write_package(
+                &crate::plugins::own_dir(&paths.config_dir).join("example/fake"),
+                "fake",
+                "1.0.0",
+                None,
+                r#"{
                     "features": [
                       {"id": "engine", "types": ["node"], "offers": ["vm"],
                        "trusts": {"certificate": "fake_client_cert", "key": "fake_client_key"}},
@@ -735,9 +735,10 @@ mod tests {
                       {"id": "vm", "label": "Fake VM", "command": "bin/provision", "protocol": 2,
                        "secrets": [{"name": "server_cert", "required": false}],
                        "arguments": [{"name": "server", "required": true}],
-                       "kinds": [{"id": "machine", "setup": "apply"}]}]}}"#,
-            )
-            .unwrap();
+                       "kinds": [{"id": "machine", "setup": "apply"}]}]}"#,
+            );
+            fs::create_dir_all(plugin.join("bin")).unwrap();
+            fs::write(plugin.join("bin/provision"), "#!/bin/sh\n").unwrap();
             let store = Store::own(crate::store::shared(&paths).unwrap());
             World {
                 _home: home,

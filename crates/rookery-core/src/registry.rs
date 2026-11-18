@@ -825,11 +825,10 @@ fn target(store: &Store, target: &str) -> Result<(String, Value, String)> {
 /// `rookery registry publish REGISTRY/REPOSITORY`: put the release archive in a Nexus raw
 /// repository. Returns the address it is served at.
 pub fn publish(paths: &Paths, destination: &str) -> Result<String> {
-    let dirs: Map<String, Value> =
-        crate::plugins::load(&["plugins".into(), paths.config_dir.join("plugins")])
-            .into_iter()
-            .map(|plugin| (plugin.id, json!(plugin.dir)))
-            .collect();
+    let dirs: Map<String, Value> = crate::plugins::installed(&paths.config_dir)
+        .into_iter()
+        .map(|plugin| (plugin.id, json!(plugin.dir)))
+        .collect();
     publish_from(
         &Store::new(paths)?,
         &paths.build_dir(),

@@ -71,6 +71,9 @@ pub struct Data {
     pub provisioners: Vec<rookery_api::ProvisionerInfo>,
     /// Where the server keeps its own plugins.
     pub plugin_dir: String,
+    /// The registries the server installs plugins from, each as its
+    /// location or name says it.
+    pub plugin_registries: Vec<String>,
     /// Something to say on the status line.
     pub said: Option<String>,
     /// What the last check of a registry, or change of the plugins, said.
@@ -229,9 +232,23 @@ impl Admin {
             data.plugins = listing.plugins;
             data.plugin_dir = listing.dir;
         });
+        self.call(
+            "plugins.registries",
+            json!({}),
+            Value::Null,
+            |admin, found| {
+                let listing: rookery_api::PluginRegistries =
+                    serde_json::from_value(found).unwrap_or_default();
+                admin.data.borrow_mut().plugin_registries = listing
+                    .registries
+                    .iter()
+                    .filter_map(shown_registry)
+                    .collect();
+            },
+        );
     }
 
-    /// Change the server's plugins. What npm said is shown, and what a host
+    /// Change the server's plugins. What it said is shown, and what a host
     /// can have installed is asked for again.
     fn change_plugins(&self, op: &str, args: Value, body: Value) {
         let admin = self.clone();
@@ -260,7 +277,7 @@ impl Admin {
         self.change_plugins("plugins.add", json!({}), json!({"spec": spec}));
     }
 
-    /// Send a .tgz for the server to install.
+    /// Send an egg for the server to install.
     pub fn upload_plugin(&self, name: &str, package: &[u8]) {
         if package.len() > rookery_api::ops::PORTAL_BYTES {
             return self.say(format!(
@@ -1129,5 +1146,20 @@ impl Admin {
                     }
                 }
             });
+    }
+}
+
+/// A plugin registry as the list of them says it; none for a line that
+/// turns one off.
+fn shown_registry(registry: &rookery_api::PluginRegistry) -> Option<String> {
+    match (
+        registry.kind.as_str(),
+        registry.builtin,
+        registry.name.as_str(),
+    ) {
+        ("off", _, _) => None,
+        (_, true, name) => Some(format!("{name} (comes with rookery)")),
+        (_, false, "") => Some(registry.location.clone()),
+        (_, false, name) => Some(format!("{name} ({})", registry.location)),
     }
 }

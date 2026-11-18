@@ -24,7 +24,7 @@ def tasks(node):
 @unittest.skipUnless(yaml, 'needs PyYAML: install provision/requirements.txt')
 class TaskNames(unittest.TestCase):
     def test_no_task_vars_take_the_name_of_a_registered_result(self):
-        files = list(ROOT.glob('plugins/*/tasks/*.yml')) + list(ROOT.glob('provision/ansible/roles/*/tasks/*.yml'))
+        files = list(ROOT.glob('plugins/rookery/*/rookery/tasks/*.yml')) + list(ROOT.glob('provision/ansible/roles/*/tasks/*.yml'))
         self.assertTrue(files)
         clashes = []
         for path in files:

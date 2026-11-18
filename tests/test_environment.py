@@ -131,12 +131,13 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual(self.feature({'id': 'bare'}), {'tasks': [], 'services': [], 'channels': []})
 
     def test_shipped_plugins_make_valid_tasks(self):
-        plugins = ROLE.parents[3] / 'plugins'
+        plugins = ROLE.parents[3] / 'plugins/rookery'
         names = []
-        for package in sorted(plugins.glob('*/package.json')):
-            data = json.loads(package.read_text())
-            for feature in data['rookery'].get('features', []):
-                adds = self.feature(feature, package.parent.name, data.get('displayName', package.parent.name))
+        for package in sorted(plugins.glob('*/package.kdl')):
+            data = json.loads((package.parent / 'rookery/rookery.json').read_text())
+            label = re.search(r'^\s*name "([^"]+)"', package.read_text(), re.M).group(1)
+            for feature in data.get('features', []):
+                adds = self.feature(feature, package.parent.name, label)
                 self.assertEqual(len(adds['tasks']), len(feature.get('actions', [])), package)
                 names += [task['name'] for task in adds['tasks']]
         self.assertEqual(len(names), len(set(names)))

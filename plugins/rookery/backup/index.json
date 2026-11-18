@@ -1,0 +1,29 @@
+{
+  "group": "rookery",
+  "id": "backup",
+  "about": {
+    "name": "Backup",
+    "summary": "Snapshots of the agent's data with restic, sent anywhere rclone reaches.",
+    "licenses": [
+      "MIT",
+      "Apache-2.0"
+    ],
+    "repository": "https://github.com/aiviarium/rookery",
+    "keywords": [
+      "rookery-plugin"
+    ]
+  },
+  "versions": {
+    "0.1.0": {
+      "sha256": "8838186966eeb8620ca5ec29ec05f215ebc143e27ab8434e442d21f76c05a162",
+      "published": "2026-11-18T03:10:34Z",
+      "targets": {
+        "rookery": {
+          "requires": {
+            "rookery": ">=0.6"
+          }
+        }
+      }
+    }
+  }
+}

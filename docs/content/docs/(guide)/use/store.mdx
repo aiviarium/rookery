@@ -46,15 +46,15 @@ Stop `rookery serve` before you run them, as it would go on sealing with the key
 | --- | --- | --- |
 | Host profiles, the passwords Rookery generated and the records of the machines it created | `config.json`, the settings of this machine, such as `store` | The provisioning source, from the program |
 | Registries, secrets and the other settings, with the SSH and sudo passwords of hosts | The key file, `store.key` | The key files in `keys/` and `serve.token`, written from the store |
-| The SSH keys of the key ring, with a key being replaced beside its successor | Logins to an OAuth 2.0 issuer, `oauth.json` | The plugin directory, from the store and npm |
+| The SSH keys of the key ring, with a key being replaced beside its successor | Logins to an OAuth 2.0 issuer, `oauth.json` | The plugin directory, from the store and the plugin registries |
 | Each host's SSH host keys and the keys it takes | | The known-hosts files in `known_hosts/`, written from the store |
 | The token of `rookery serve` and its setup key | The output of jobs, in `jobs/` of the data directory | What this Rookery knows of a Rookery server, from its next mirror |
-| Your own plugins, as npm's `package.json` and lock file, uploaded `.tgz` files and folders you copied in | Builds and installer ISOs | |
+| Your own plugins, as `hatchery.kdl`, `eggs.lock`, when each version was first seen, and the eggs that were sent | Builds and installer ISOs | |
 | The inbox, the jobs and the key-value store of `rookery serve` | | |
 
 Rookery still uses the SSH keys and the token as files, as ssh, Ansible and people read them there. When the store has them, Rookery writes the files from it, each key to `keys/NAME` of the data directory when ssh needs it. A file that differs is moved aside to `keys/NAME.replaced` or `serve.token.replaced`, and Rookery says so.
 
-On a machine whose plugin directory lacks plugins of the store, Rookery writes them back and runs `npm ci` or `npm install` there. That happens when `rookery serve` starts, and before the terminal UI or a command that uses plugins. A plugin installed from a folder or file of another machine is left out, and Rookery names it. Without npm, Rookery says so and goes on without the plugins npm installs.
+On a machine whose plugin directory lacks plugins of the store, Rookery writes the files back and installs what `eggs.lock` lists, from the same registries and the eggs that were sent. That happens when `rookery serve` starts, and before the terminal UI or a command that uses plugins. When installing fails, Rookery says so and goes on without those plugins. The plugins that come with Rookery are not among them: each machine installs those of its own Rookery ([Plugins that come with Rookery](/docs/extend/plugins#plugins-that-come-with-rookery)). Plugins an earlier Rookery installed with npm are not installed. Rookery says so once and then keeps the plugins it has in the store, so add those again from a plugin registry.
 
 ## Move to another database
 
@@ -103,7 +103,7 @@ For PostgreSQL, set `store` to the database's URL. For SQLite, copy the file and
 
 ### Start it
 
-Run `rookery ls` or start `rookery serve`. The hosts, secrets and settings are there. Rookery writes its SSH key and the token back. It logs in to the hosts with the same key, and clients of `rookery serve` stay connected. It reinstalls your own plugins with npm.
+Run `rookery ls` or start `rookery serve`. The hosts, secrets and settings are there. Rookery writes its SSH key and the token back. It logs in to the hosts with the same key, and clients of `rookery serve` stay connected. It reinstalls your own plugins from their registries.
 
 </Step>
 </Steps>

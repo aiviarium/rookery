@@ -271,10 +271,7 @@ pub fn skipped_note(skipped: &[String]) -> Option<String> {
 
 /// How this rookery compares a host with what it would apply now.
 pub fn comparer(paths: &Paths) -> impl Fn(&Applied) -> Option<Behind> + use<> {
-    let found = match paths.source() {
-        Ok(source) => plugins::found(&source, &plugins::own_dir(&paths.config_dir)),
-        Err(_) => plugins::load(&[plugins::own_dir(&paths.config_dir)]),
-    };
+    let found = plugins::installed(&paths.config_dir);
     let now = plugins::records(&found);
     move |applied: &Applied| Behind::compare(applied, api::VERSION, &now)
 }
@@ -600,7 +597,7 @@ mod tests {
             rookery: api::VERSION.into(),
             plugins: vec![AppliedPlugin {
                 id: "x".into(),
-                package: "rookery-plugin-x".into(),
+                package: "example/x".into(),
                 version: version.into(),
                 digest: version.into(),
             }],

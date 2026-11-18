@@ -4,6 +4,7 @@ and SSH as the role sets them, applying again, and a roll-out that reboots the
 host. Run by tests/e2e/boot.py after the first boot."""
 import json
 import os
+import re
 import socket
 import subprocess
 import unittest
@@ -132,9 +133,9 @@ class FirstBoot(unittest.TestCase):
     def test_the_status_task_ends_well(self):
         done = self.station.rookery('run', HOST, 'status', check=False, timeout=180)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        for line in (f'Host        {HOST}', 'Provision   configured', 'ssh         active',
-                     'rookeryd      active'):
-            self.assertIn(line, done.stdout)
+        # Each row is a label and its value, whatever the padding between them.
+        for label, value in (('Host', HOST), ('Provision', 'configured'), ('ssh', 'active'), ('rookeryd', 'active')):
+            self.assertRegex(done.stdout, rf'(?m)^{label} +{re.escape(value)}', done.stdout)
         self.assertNotRegex(done.stdout, r'(?m)^Failed', done.stdout)
 
 

@@ -98,12 +98,13 @@ rookery_tool_categories:
     tools: []
     packages: []
     commands: ["google-chrome-stable"]
-# Optional additions kept outside the role, one directory each (see docs/plugins.md).
-# Names of the ones to apply, and where to look for them; a later path wins.
 # Plugin features to install, as PLUGIN/FEATURE, applied in this order.
 rookery_plugin_features: [github/cli]
-# Where a plugin is when it is not in the source's plugins/ID directory.
+# The folder of each plugin's rookery target, by id, when it is not the
+# release's installed/ID/rookery or plugins/rookery/ID/rookery.
 rookery_plugin_dirs: {}
+# The name of each plugin, by id, for the groups of its actions.
+rookery_plugin_labels: {}
 rookery_base_commands: [git, rg, jq, curl, python3, pip, uv, node, npm, gcc, g++, cmake, ninja, ffmpeg, xdotool, wmctrl, Xvfb, glxinfo, vulkaninfo]
 
 rookery_install_playwright: true

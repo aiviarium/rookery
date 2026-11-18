@@ -1192,15 +1192,19 @@ rookery plugin show ID
 
 ### rookery plugin add
 
-Install a plugin with npm: a name, or the address of a tarball.
+Install a plugin: a package of the plugin registries, such as example/hello@^1, the address of an egg, an egg or package folder of this machine, or with --git one folder of a git repository.
 
 ```text
-rookery plugin add SPEC
+rookery plugin add [SPEC] [--git GIT] [--path PATH] [--ref REF] [--allow-young]
 ```
 
 | Argument | What it is |
 | --- | --- |
-| `SPEC` | A plugin's npm name, or the address of its .tgz. |
+| `SPEC` | A package, such as example/hello@^1, an egg's address, or an egg or package folder. |
+| `--git GIT` | A git repository to install one folder of. |
+| `--path PATH` | With --git: the package's folder in the repository. |
+| `--ref REF` | With --git: a tag, branch or commit. |
+| `--allow-young` | Install a version younger than the registry's minimum release age. |
 
 ### rookery plugin remove
 
@@ -1218,7 +1222,7 @@ rookery plugin remove ID
 
 ### rookery plugin update
 
-Update one plugin or all to their registry's latest version.
+Update one plugin or all to the newest version their registry allows.
 
 ```text
 rookery plugin update [ID] [--check]
@@ -1228,6 +1232,76 @@ rookery plugin update [ID] [--check]
 | --- | --- |
 | `ID` | Its id. |
 | `--check` | Only say which have a newer version. |
+
+### rookery plugin check
+
+Check a package folder, or each package of a registry folder, against Rookery's plugin contract, as the CI of a repository of plugins does.
+
+```text
+rookery plugin check DIR
+```
+
+| Argument | What it is |
+| --- | --- |
+| `DIR` | A folder. |
+
+### rookery plugin registry
+
+The registries the server installs plugins from.
+
+#### rookery plugin registry list
+
+The plugin registries, in the order they are searched.
+
+`rookery plugin registry ls` is the same.
+
+```text
+rookery plugin registry list
+```
+
+#### rookery plugin registry add
+
+Add a plugin registry after the others, or change the one at the same location or with the same name.
+
+```text
+rookery plugin registry add KIND LOCATION [--name NAME] [--only GROUP] [--key KEY] [--min-age MIN_AGE] [--unsigned-tags]
+```
+
+| Argument | What it is |
+| --- | --- |
+| `KIND` | One of `git`, `http`, `dir`. |
+| `LOCATION` | A repository address, a base URL or a folder. |
+| `--name NAME` | Its name. The name rookery takes the place of the registry that comes with rookery. |
+| `--only GROUP` | Serve only this group. Again for more. |
+| `--key KEY` | The registry's public key, ed25519:…; eggs from it must then be signed. |
+| `--min-age MIN_AGE` | How long a new version waits before it is installed, such as 3d or 0. |
+| `--unsigned-tags` | With --key: install versions of a git registry that have only a tag, unsigned. |
+
+#### rookery plugin registry remove
+
+Remove a plugin registry, by its location or name. What was installed from it stays.
+
+`rookery plugin registry rm` is the same.
+
+```text
+rookery plugin registry remove LOCATION
+```
+
+| Argument | What it is |
+| --- | --- |
+| `LOCATION` | The registry's address or folder. |
+
+#### rookery plugin registry disable
+
+Turn off the registry that comes with rookery. Its plugins stay, and can be removed.
+
+```text
+rookery plugin registry disable NAME
+```
+
+| Argument | What it is |
+| --- | --- |
+| `NAME` | The registry's name: rookery. |
 
 ## rookery config
 

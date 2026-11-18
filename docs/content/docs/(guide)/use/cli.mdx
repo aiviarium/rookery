@@ -164,7 +164,8 @@ See [Secrets](/docs/use/secrets) and [Registries](/docs/use/registries).
 | --- | --- |
 | See the plugins | `rookery plugin list` |
 | See what one brings | `rookery plugin show github` |
-| Install one | `rookery plugin add @acme/rookery-plugin-tools`, or a `.tgz` or folder of this machine, which is sent to the server |
+| Install one | `rookery plugin add example/tools` from the plugin registries, or an egg or package folder of this machine, which is sent to the server |
+| Add a plugin registry | `rookery plugin registry add git https://github.com/example/rookery-plugins.git` |
 | Check for newer versions | `rookery plugin update --check` |
 | Update them | `rookery plugin update`, then `rookery rollout` |
 

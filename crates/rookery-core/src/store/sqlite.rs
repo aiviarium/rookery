@@ -41,7 +41,14 @@ pub(super) const MIGRATIONS: &[&str] = &[
 
 impl std::convert::From<rusqlite::Error> for Error {
     fn from(error: rusqlite::Error) -> Self {
-        Error::Database(error.to_string())
+        // SQLite says no more when a write fails because the disk or the
+        // user's quota on it is full, as on a tmpfs with usrquota.
+        match error.sqlite_error_code() {
+            Some(rusqlite::ErrorCode::SystemIoFailure) => Error::Database(format!(
+                "{error}: the store's disk may be full, or its user over a quota there"
+            )),
+            _ => Error::Database(error.to_string()),
+        }
     }
 }
 

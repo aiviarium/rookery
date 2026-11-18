@@ -4,12 +4,16 @@
   "rookery_node_user": "admin",
   "rookery_operator_ssh_public_key": "",
   "rookery_plugin_dirs": {
-    "docker": "/usr/lib/rookery/plugins/docker",
-    "incus": "/usr/lib/rookery/plugins/incus"
+    "docker": "/usr/lib/rookery/plugins/docker/rookery",
+    "incus": "/usr/lib/rookery/plugins/incus/rookery"
   },
   "rookery_plugin_features": [
     "incus/host"
   ],
+  "rookery_plugin_labels": {
+    "docker": "Docker",
+    "incus": "Incus"
+  },
   "rookery_profile": "cloud",
   "rookery_ssh_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIROOKERY rookery@studio"
 }

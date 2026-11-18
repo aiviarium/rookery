@@ -16,6 +16,8 @@ A plugin adds things to a host. Each thing is a **feature**: packages, set-up st
 | `docker` | `docker/engine` | A Docker engine on a node, and provisioners for containers and Compose projects ([Provisioners](/docs/deploy/provisioners)) |
 | `incus` | `incus/server` | An Incus server on a node, and provisioners for VMs and containers ([Nodes](/docs/use/nodes)) |
 
+They are the packages of a Hatchery registry named `rookery`, in the `plugins/` folder of the provisioning source, such as `rookery/github`. Rookery installs them through Hatchery like any other plugin, so `eggs.lock` lists them with their versions. The registry is part of the release, the container image, the USB installer and the cloud seed, and Rookery reads it with no network. When Rookery starts, it installs what the registry has and the install folder lacks, and puts each of these plugins at the registry's version. A newer Rookery brings their newer versions.
+
 A host gets the features listed in `rookery_plugin_features`. Unless that is set, it lists `github/cli`.
 
 ## Switching features on
@@ -30,62 +32,121 @@ and reaches a running host with **Apply this configuration**.
 
 ## Installing a plugin
 
+A plugin is a [Hatchery](https://aiviarium.github.io/hatchery/) package with a `rookery` target. Rookery installs it with the Hatchery library, from the plugin registries you give it.
+
 | Location | For |
 | --- | --- |
-| `plugins/ID/` in the provisioning source | Plugins that come with Rookery |
-| `~/.config/rookery/plugins/` | Your own |
+| `plugins/` in the provisioning source | The registry of the plugins that come with Rookery |
+| `~/.config/rookery/plugins/GROUP/ID/` | Every installed plugin, with Hatchery's `eggs.lock` in `~/.config/rookery/plugins/` |
+| `~/.config/rookery/hatchery.kdl` | The plugin registries |
 
-The **Plugins** tab of the home screen (`6`) lists both with their features. Enter on **+ Add plugin** installs one from a package name, a `.tgz` or a folder, and `x` twice removes one of yours.
+Rookery changes that folder itself, and a package copied into it by hand is not read. Use `rookery plugin add` and `rookery plugin remove`.
+
+### Plugin registries
+
+A registry is a git repository, a static registry over HTTPS, or a folder. Rookery searches the [registry named `rookery`](#the-registry-named-rookery) first, then the others in the order they were added.
+
+```bash
+rookery plugin registry add git https://github.com/example/rookery-plugins.git
+rookery plugin registry add http https://eggs.example.org --key ed25519:… --min-age 7d
+rookery plugin registry add dir /srv/eggs --only example
+rookery plugin registry list
+rookery plugin registry remove https://eggs.example.org
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--only GROUP` | The registry serves only the packages of this group. Repeat it for more |
+| `--key ed25519:…` | Eggs from it must be signed with this key |
+| `--unsigned-tags` | With `--key`: a version of a git registry that has only a tag is installed from source anyway |
+| `--min-age 3d` | How long a new version waits before it is installed. `0` installs it at once |
+
+A new version from a registry read over the network waits 3 days by default before it is installed. A version from a git tag counts from when Rookery first saw it. Versions from a `dir` registry or a `git` registry at a folder don't wait. `--allow-young` on `rookery plugin add` installs a version that is still waiting. The file the registries are in is described in [Hatchery's documentation](https://github.com/aiviarium/hatchery/blob/main/docs/hatchery-kdl.md).
+
+### The registry named rookery
+
+The registry in the provisioning source is there without a line in `hatchery.kdl`. `rookery plugin registry list` shows it as `built in`. It serves only the group `rookery`, and a new version from it is installed at once. A line with `name=rookery` takes its place, and `off rookery` turns it off. Other registries go beside it:
+
+```kdl title="~/.config/rookery/hatchery.kdl"
+registries {
+  git "https://github.com/example/rookery-plugins.git" name=rookery
+  http "https://eggs.example.org"
+}
+```
+
+```bash
+rookery plugin registry add git https://github.com/example/rookery-plugins.git --name rookery
+rookery plugin registry disable rookery
+rookery plugin registry remove rookery        # its line goes, and the one in the source is back
+```
+
+| `hatchery.kdl` | The registry named `rookery` |
+| --- | --- |
+| No file, or no line named `rookery` | The one in the provisioning source, searched first |
+| `KIND "LOCATION" name=rookery` | That registry, where its line is. It serves only the group `rookery` unless the line has `only` |
+| `off rookery` | None |
+
+The plugins this registry installed come with Rookery, and stay while it's on. After a line takes its place, `rookery plugin update` installs them from that registry. With it off, they stay installed as plugins of a registry that is gone, and `rookery plugin remove` removes them. Removing the line brings back the registry in the source, and Rookery installs what it has.
+
+### Adding and removing
+
+The **Plugins** tab of the home screen (`6`) lists every plugin with its features. Enter on **+ Add plugin** installs a package from the registries or the `https://` address of an egg, `u` sends an `.egg` file chosen in the file dialog, and `x` twice removes one of yours.
 
 <Screen name="home-plugins" alt="The Plugins tab listing the bundled plugins with their features" />
 
 From the command line:
 
 ```bash
-rookery plugin add @acme/rookery-plugin-foo     # from a registry
-rookery plugin add ./foo-1.0.0.tgz            # a tarball from npm pack
-rookery plugin add ~/src/rookery-plugin-foo     # a folder
-rookery plugin list                                # what is found, and from where
-rookery plugin remove @acme/rookery-plugin-foo
+rookery plugin add example/hello              # the newest version the registries allow
+rookery plugin add example/hello@^1.2         # the newest within a range
+rookery plugin add hello                      # the first registry that has an id hello
+rookery plugin add https://eggs.example.org/hello-1.2.0.egg
+rookery plugin add --git https://github.com/example/hello.git --ref v1.2.0
+rookery plugin add ./hello                    # a package folder, packed into an egg
+rookery plugin add ./hello-1.2.0.egg          # an egg that hatchery pack made
+rookery plugin list                           # what is found, and from where
+rookery plugin remove hello                   # by its id, or as example/hello
 ```
 
-`add` runs `npm install --ignore-scripts --prefix ~/.config/rookery/plugins`, so registries and credentials come from your npm configuration. You can also copy a folder to `~/.config/rookery/plugins/NAME/` by hand. Npm is not needed for that.
+`--git` installs one folder of a git repository, which `--path` names. `--ref` is a tag, a branch or a commit. Without it, Rookery takes the default branch.
 
-After each change Rookery makes there, it writes the folder's `package.json`, npm's lock file, uploaded `.tgz` files and the folders you copied in to its [store](/docs/use/store). A machine restored from the store gets them back, and npm installs the rest. A folder you copy in by hand is in the store after Rookery's next change of the plugins. Remove a plugin with `rookery plugin remove`, as one deleted by hand comes back from the store.
+Hatchery checks each package before it installs it. A package is refused when its `package.kdl` doesn't say which Rookery versions it works with, or gives others, and so is one whose `rookery.json` breaks the [plugin contract](/docs/extend/writing-plugins#checking-a-plugin). Installing runs none of the plugin's code. Its Ansible tasks run when a host is applied.
+
+After each change, Rookery writes `hatchery.kdl`, `eggs.lock`, the record of when each version was first seen, and the eggs that were sent to its [store](/docs/use/store). A machine restored from the store gets them back and installs what `eggs.lock` lists, from the same registries.
 
 ### Updating a plugin
 
 ```bash
 rookery plugin update --check                 # which have a newer version
-rookery plugin update foo                     # one, by its id or npm name
+rookery plugin update hello                   # one, by its id or package
 rookery plugin update                         # all of them
 ```
 
-`--check` runs `npm outdated` with your npm configuration, so it asks the registry each plugin came from. `update` installs the registry's latest version and then lists the hosts that are behind. On the Plugins tab, `c` checks, `U` updates the selected plugin and `A` all of them. A plugin with a newer version says `update available: 1.0.0 → 1.1.0`.
+`--check` asks the registries. A newer version that waits for its minimum release age, was withdrawn or cannot be installed here is named with the reason. `update` installs the newest allowed version and then lists the hosts that are behind. On the Plugins tab, `c` checks, `U` updates the selected plugin and `A` all of them. A plugin with a newer version says `update available: 1.0.0 → 1.1.0`.
 
 | Came from | Updated by |
 | --- | --- |
 | A registry | `rookery plugin update` |
-| A `.tgz`, an `https://` address or a folder | Adding the new one again, which replaces it |
-| A folder copied by hand | Copying the new one over it |
-| Rookery itself | `rookery update`, or a newer server image |
+| A folder of a git repository | `rookery plugin update`, which takes the newest commit of its branch. One at a tag is added again with the new tag |
+| An egg, by its address or sent | Adding the new one, which replaces it |
+| The registry named `rookery` | A newer Rookery, by `rookery update` or a newer server image, which installs their new versions when it starts |
 
 A host keeps what it was applied with until it is applied again. After an update, `rookery rollout` or `r` on the Plugins tab applies the hosts that are behind ([Updates](/docs/use/updates#bringing-hosts-up-to-date)).
 
 ### On a Rookery server
 
-With a [Rookery server](/docs/use/server) set, the Plugins tab and `rookery plugin list` show the server's plugins and change those, which needs the role `admin` there. The server installs a package name or an `https://` address with its own npm and npm configuration. `rookery plugin add` packs a `.tgz` or a folder on your machine and sends it to the server, and `u` on the tab sends a `.tgz` chosen in the file dialog.
+With a [Rookery server](/docs/use/server) set, the Plugins tab, `rookery plugin` and `rookery plugin registry` show and change the server's plugins and registries, which needs the role `admin` there. The server installs packages from its own registries and fetches `https://` addresses itself. It never installs a path of its own machine. `rookery plugin add` packs a folder on your machine into an egg and sends it, or sends an egg file as it is. A `dir` registry, or a `git` registry at a folder, is read with the server's rights, so only a caller on the server's own socket adds one.
 
 The server's hosts can have a new plugin's features as soon as it is installed. Its Ansible tasks run on the server when a host is applied, so installing is part of set-up. A server with `serve_setup off` takes it only on its own socket ([Closing set-up](/docs/extend/serve#closing-set-up)).
 
-A plugin of yours with the same id as a built-in one replaces it. Rookery reads a plugin's `package.json` and hands its tasks to Ansible. It never runs the package's npm scripts.
+A plugin of yours with the same id as one that comes with Rookery replaces it.
 
 ## Other install methods
 
 | Method | Plugins |
 | --- | --- |
-| USB installer, cloud seed | The release archive contains the built-in plugins, and yours when built through Rookery |
-| Container | Set `PLUGIN_FEATURES='["unity/cli"]'` for the build. Only plugins in the source's `plugins/` directory are in the build context |
-| Plain Ansible | Pass `rookery_plugin_features`, and `rookery_plugin_dirs` (`{"ID": "/path"}`) for plugins outside the source's `plugins/` |
+| USB installer, cloud seed | The release archive contains the registry of the plugins that come with Rookery, and the installed plugins when built through Rookery |
+| Container | Set `PLUGIN_FEATURES='["unity/cli"]'` for the build. Only the plugins that come with Rookery are in the build context |
+| Plain Ansible | Pass `rookery_plugin_features`, and for plugins other than those in the source's `plugins/rookery/`, `rookery_plugin_dirs` with the folder of each one's `rookery` target (`{"ID": "/path/to/ID/rookery"}`). `rookery_plugin_labels` (`{"ID": "Name"}`) names the group of its actions, which is otherwise the id |
 
 To write your own, see [Writing a plugin](/docs/extend/writing-plugins).

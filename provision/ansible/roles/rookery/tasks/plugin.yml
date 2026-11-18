@@ -4,21 +4,27 @@
   ansible.builtin.assert:
     that: rookery_plugin_feature is match('^[a-z][a-z0-9_-]*/[a-z][a-z0-9_-]*$')
     fail_msg: "Plugin features are named PLUGIN/FEATURE in lowercase letters, digits, - and _: {{ rookery_plugin_feature }}"
+# rookery names the folder of each plugin's rookery target, and its label.
+# Without them, a plugin the release carries is in installed/ID/rookery, and
+# one that comes with rookery is in plugins/rookery/ID/rookery.
 - name: Find the plugin
+  vars:
+    rookery_plugin_carried: "{{ playbook_dir ~ '/../../installed/' ~ rookery_plugin_feature.split('/')[0] ~ '/rookery' }}"
+    rookery_plugin_shipped: "{{ playbook_dir ~ '/../../plugins/rookery/' ~ rookery_plugin_feature.split('/')[0] ~ '/rookery' }}"
   ansible.builtin.set_fact:
     rookery_plugin_id: "{{ rookery_plugin_feature.split('/')[0] }}"
-    rookery_plugin_dir: "{{ rookery_plugin_dirs[rookery_plugin_feature.split('/')[0]] | default(playbook_dir ~ '/../../plugins/' ~ rookery_plugin_feature.split('/')[0]) }}"
-- name: Read the plugin's package.json
+    rookery_plugin_dir: "{{ rookery_plugin_dirs[rookery_plugin_feature.split('/')[0]] | default(rookery_plugin_carried if rookery_plugin_carried is exists else rookery_plugin_shipped) }}"
+- name: Read the plugin's rookery.json
   ansible.builtin.set_fact:
-    rookery_plugin_package: "{{ lookup('ansible.builtin.file', rookery_plugin_dir ~ '/package.json') | from_json }}"
+    rookery_plugin_manifest: "{{ lookup('ansible.builtin.file', rookery_plugin_dir ~ '/rookery.json') | from_json }}"
 - name: Find the feature in it
   ansible.builtin.set_fact:
-    rookery_plugin_label: "{{ rookery_plugin_package.displayName | default(rookery_plugin_id) }}"
-    rookery_plugin_matches: "{{ rookery_plugin_package.rookery.features | default([]) | selectattr('id', 'equalto', rookery_plugin_feature.split('/')[1]) | list }}"
+    rookery_plugin_label: "{{ rookery_plugin_labels[rookery_plugin_id] | default(rookery_plugin_id) }}"
+    rookery_plugin_matches: "{{ rookery_plugin_manifest.features | default([]) | selectattr('id', 'equalto', rookery_plugin_feature.split('/')[1]) | list }}"
 - name: Require the feature to exist
   ansible.builtin.assert:
     that: rookery_plugin_matches | length == 1
-    fail_msg: "{{ rookery_plugin_dir }}/package.json has no feature {{ rookery_plugin_feature.split('/')[1] }}"
+    fail_msg: "{{ rookery_plugin_dir }}/rookery.json has no feature {{ rookery_plugin_feature.split('/')[1] }}"
 - name: Take the feature's description
   ansible.builtin.set_fact:
     rookery_feature: "{{ rookery_plugin_matches[0] }}"

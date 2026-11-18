@@ -9,8 +9,10 @@ test writes goes into scratch directories; the checkout is read-only.
 import base64
 import contextlib
 import fcntl
+import gzip
 import hashlib
 import http.client
+import io
 import json
 import os
 import pty
@@ -22,6 +24,7 @@ import signal
 import socket
 import struct
 import subprocess
+import tarfile
 import tempfile
 import threading
 import time
@@ -116,19 +119,54 @@ def source():
 
 
 def source_with_plugins(name, plugins):
-    """Another overlay of the checkout whose plugins/ has these besides the
-    shipped ones, by id: {id: folder}, copied so a test may change them."""
+    """Another overlay of the checkout whose registry of the plugins that
+    come with rookery, plugins/, has these besides its own, by id: {id:
+    package folder of the group rookery}."""
     overlay = SCRATCH / name
     overlay.mkdir()
     for entry in source().iterdir():
         if entry.name != 'plugins':
             (overlay / entry.name).symlink_to(entry.resolve() if entry.name != 'provision' else entry)
-    (overlay / 'plugins').mkdir()
-    for shipped in (SRC / 'plugins').iterdir():
-        (overlay / 'plugins' / shipped.name).symlink_to(shipped)
-    for plugin, folder in plugins.items():
-        shutil.copytree(folder, overlay / 'plugins' / plugin)
+    (overlay / 'plugins/rookery').mkdir(parents=True)
+    for shipped in (SRC / 'plugins/rookery').iterdir():
+        (overlay / 'plugins/rookery' / shipped.name).symlink_to(shipped)
+    shutil.copy(SRC / 'plugins/index.json', overlay / 'plugins/index.json')
+    for folder in plugins.values():
+        publish_builtin(overlay / 'plugins', folder)
     return overlay
+
+
+def publish_builtin(registry, folder):
+    """Publish a package folder of the group rookery in a static registry,
+    as an egg beside its index: what a new rookery brings. The registry
+    keeps only this version of it."""
+    kdl = (folder / 'package.kdl').read_text()
+    plugin = re.search(r'^\s*id (\S+)', kdl, re.M).group(1)
+    version = re.search(r'^\s*version "([^"]+)"', kdl, re.M).group(1)
+    data = io.BytesIO()
+    with gzip.GzipFile(fileobj=data, mode='wb', mtime=0) as gz, tarfile.open(fileobj=gz, mode='w') as egg:
+        for path in sorted([folder / 'package.kdl', *(p for p in (folder / 'rookery').rglob('*') if p.is_file())]):
+            info = tarfile.TarInfo(str(path.relative_to(folder)))
+            info.size = path.stat().st_size
+            info.mode = 0o755 if path.stat().st_mode & 0o111 else 0o644
+            with path.open('rb') as stream:
+                egg.addfile(info, stream)
+    package = registry / 'rookery' / plugin
+    if package.is_symlink():
+        package.unlink()
+    package.mkdir(parents=True, exist_ok=True)
+    for old in package.glob('*.egg'):
+        old.unlink()
+    (package / f'{plugin}-{version}.egg').write_bytes(data.getvalue())
+    (package / 'index.json').write_text(json.dumps({
+        'group': 'rookery', 'id': plugin,
+        'versions': {version: {
+            'sha256': hashlib.sha256(data.getvalue()).hexdigest(),
+            'published': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            'targets': {'rookery': {'requires': {'rookery': '>=0.6'}}}}}}, indent=2))
+    catalog = json.loads((registry / 'index.json').read_text())
+    catalog['packages'] = sorted(set(catalog['packages']) | {f'rookery/{plugin}'})
+    (registry / 'index.json').write_text(json.dumps(catalog, indent=2))
 
 
 # ---------------------------------------------------------------------------
@@ -165,9 +203,6 @@ class Workstation:
             'XDG_RUNTIME_DIR': str(self.run_dir),
             'PATH': os.environ['PATH'], 'LANG': 'C.UTF-8', 'TERM': 'xterm-256color',
             'ROOKERY_SOURCE': str(source_dir or source()),
-            # npm stays off the network: plugins come from folders here.
-            'npm_config_registry': 'http://127.0.0.1:9/', 'npm_config_offline': 'true',
-            'npm_config_cache': str(self.root / 'npm-cache'), 'npm_config_update_notifier': 'false',
             'ANSIBLE_LOCAL_TEMP': str(self.root / 'ansible-tmp'), 'ANSIBLE_FORCE_COLOR': '0',
             'ANSIBLE_CALLBACK_PLUGINS': str(Path(__file__).resolve().parent / 'fixtures/callbacks'),
             'ANSIBLE_CALLBACKS_ENABLED': 'e2e_applies', 'ROOKERY_E2E_APPLIES': str(APPLIES),
@@ -371,9 +406,11 @@ def served():
     key = server.own_key_file()
     wait_for('the operator taking the server\'s key', lambda: server.ssh(
         OPERATOR, 'true', key=key, check=False).returncode == 0)
+    # The registry is a folder of the server's machine, which a caller there
+    # adds, not one over TCP.
+    server.rookery('plugin', 'registry', 'add', 'git', plugin_registry().url)
     issuer = Issuer()
-    serve = Serve(server, env={'ROOKERY_OAUTH_ISSUER': issuer.url, 'ROOKERY_OAUTH_AUDIENCE': 'rookery',
-                               **package_registry().env()})
+    serve = Serve(server, env={'ROOKERY_OAUTH_ISSUER': issuer.url, 'ROOKERY_OAUTH_AUDIENCE': 'rookery'})
     serve.issuer = issuer
     # The host's profile as the workstation has it, so applying it from the
     # server keeps the workstation's keys; the server adds its own. What the
@@ -428,20 +465,53 @@ def state(name, enter):
     return value
 
 
-def plugin_version(version, name='rookery-plugin-up'):
-    """The fixture plugin as `name` at a version, its id the name without
-    rookery-plugin-. From 2.0.0 its greeting and service changed, its Ansible
-    task installs another file, the task `old` is gone and `added` is new."""
-    plugin = name.removeprefix('rookery-plugin-')
-    folder = SCRATCH / f'{name}-{version}'
+def package_kdl(plugin, version, name, group='example'):
+    """The package.kdl of a plugin package for Rookery."""
+    return f'''format 1
+package {{
+  group {group}
+  id {plugin}
+  version "{version}"
+}}
+about {{
+  name "{name}"
+}}
+targets {{
+  rookery {{
+    requires {{
+      rookery ">=0.6"
+    }}
+  }}
+}}
+'''
+
+
+def plugin_package(folder, plugin, manifest, files=None, name=None):
+    """A plugin package in `folder`: its package.kdl, rookery.json and other
+    files of its target, as {path: text}. Returns its target folder."""
+    target = folder / 'rookery'
+    target.mkdir(parents=True)
+    (folder / 'package.kdl').write_text(package_kdl(plugin, '1.0.0', name or plugin.title()))
+    (target / 'rookery.json').write_text(json.dumps(manifest, indent=2))
+    for path, text in (files or {}).items():
+        (target / path).parent.mkdir(parents=True, exist_ok=True)
+        (target / path).write_text(text)
+    return target
+
+
+def plugin_version(version, plugin='up', group='example'):
+    """The fixture plugin as GROUP/`plugin` at a version. From 2.0.0 its
+    greeting and service changed, its Ansible task installs another file,
+    the task `old` is gone and `added` is new."""
+    folder = SCRATCH / f'{plugin}-{version}'
     if folder.exists():
         shutil.rmtree(folder)
     shutil.copytree(FIXTURE, folder)
-    manifest = json.loads((folder / 'package.json').read_text())
-    manifest['name'], manifest['version'] = name, version
-    feature = manifest['rookery']['features'][0]
+    (folder / 'package.kdl').write_text(package_kdl(plugin, version, plugin.title(), group))
+    manifest = json.loads((folder / 'rookery/rookery.json').read_text())
+    feature = manifest['features'][0]
     feature['id'] = 'main'
-    feature['guide'] = ''
+    del feature['guide']
     newer = version != '1.0.0'
     feature['actions'] = [
         {'name': 'hello', 'label': 'Say hello', 'run': f'echo "hello from {version}"'},
@@ -450,8 +520,8 @@ def plugin_version(version, name='rookery-plugin-up'):
     ]
     feature['services'][0]['run'] = f'exec box serve {plugin}/echo -- /usr/local/bin/rookery-e2e-echo {version}'
     feature['channels'] = [{'topic': 'notes', 'keep': 'log', 'max': 50}]
-    (folder / 'package.json').write_text(json.dumps(manifest, indent=2))
-    (folder / 'tasks/install.yml').write_text(f'''---
+    (folder / 'rookery/rookery.json').write_text(json.dumps(manifest, indent=2))
+    (folder / 'rookery/tasks/install.yml').write_text(f'''---
 - name: Create the folder of what the plugin brings
   ansible.builtin.file:
     path: /usr/local/lib/rookery-{plugin}
@@ -505,14 +575,15 @@ def extended():
 def _enter_extended():
     station = provisioned()
     kept = station.read_profile()
-    registry = package_registry()
+    registry = plugin_registry()
     # rookery's source with a plugin that comes with it, for the rest of the run.
     station.env['ROOKERY_SOURCE'] = str(SCRATCH / 'source-shipped' if (SCRATCH / 'source-shipped').exists()
                                       else source_with_plugins('source-shipped', {
-                                          'shipit': plugin_version('1.0.0', 'rookery-plugin-shipit')}))
+                                          'shipit': plugin_version('1.0.0', 'shipit', 'rookery')}))
     station.rookery('plugin', 'add', str(FIXTURE))
     registry.publish(plugin_version('1.0.0'))
-    station.rookery('plugin', 'add', 'rookery-plugin-up', env=registry.env())
+    station.rookery('plugin', 'registry', 'add', 'git', registry.url)
+    station.rookery('plugin', 'add', 'example/up')
     leave_the_tailnet(station)
     station.rookery('config', 'set', 'tailnet_login_server', headscale().url)
     station.rookery('config', 'set', 'tailnet_user', headscale().user)
@@ -529,7 +600,7 @@ def _enter_extended():
         for key in ('tailnet_login_server', 'tailnet_user'):
             station.rookery('config', 'unset', key)
         station.rookery('secret', 'remove', 'tailnet_api_key', '-y', check=False)
-        for package in ('rookery-plugin-e2e', 'rookery-plugin-up'):
+        for package in ('example/e2e', 'example/up'):
             station.rookery('plugin', 'remove', package, '-y', check=False)
     return Applied(station=station, kept=kept, first=first, second=second, before=before,
                    after_first=after_first), leave
@@ -555,8 +626,8 @@ def join_by_hand(station):
 
 def _enter_plain():
     station = provisioned()
-    for package in ('rookery-plugin-e2e', 'rookery-plugin-up'):
-        if (station.rookery_dir / 'plugins/node_modules' / package).exists():
+    for package in ('example/e2e', 'example/up'):
+        if (station.rookery_dir / 'plugins' / package).exists():
             station.rookery('plugin', 'remove', package, '-y')
     kept = station.read_profile()
     leave_the_tailnet(station)
@@ -593,9 +664,9 @@ def _enter_served_extended():
     serve = served()
     station = provisioned()
     leave_the_tailnet(station)
-    registry = package_registry()
-    registry.publish(plugin_version('1.0.0', 'rookery-plugin-served'))
-    serve.call('POST', '/v1/plugins', {'spec': 'rookery-plugin-served'})
+    registry = plugin_registry()
+    registry.publish(plugin_version('1.0.0', 'served'))
+    serve.call('POST', '/v1/plugins', {'spec': 'example/served'})
     client = Workstation('served-client', ssh_key=False)
     client.rookery('login', serve.url, '--token-stdin', input=serve.token)
     client.rookery('config', 'set', 'tailnet_login_server', headscale().url)
@@ -1049,77 +1120,52 @@ class NpmRegistry:
 
 
 # ---------------------------------------------------------------------------
-# An npm registry that serves packages: what npm asks to install and to tell
-# whether a newer version is there
+# A plugin registry: a git repository with a folder for each package and a
+# tag for each version, in a folder of this machine, so no version waits
+# for a minimum age
 
 
-class PackageRegistry:
+class PluginRegistry:
     def __init__(self):
-        # package name: {version: (manifest, tarball bytes)}
-        self.packages = {}
         self.dir = Path(tempfile.mkdtemp(prefix='registry-', dir=SCRATCH))
-        registry = self
+        self.url = str(self.dir)
+        self.released = set()
+        (self.dir / 'packages.kdl').write_text(
+            'format 1\npackages {\n  find "*"\n}\nrelease {\n  tag "{id}-v{version}"\n}\n')
+        self.git('init', '-q', '-b', 'main')
+        self.git('add', '-A')
+        self.git('commit', '-q', '-m', 'A registry of plugins')
 
-        class Handler(BaseHTTPRequestHandler):
-            def log_message(self, *_args):
-                pass
-
-            def answer(self, status, data, kind='application/json'):
-                self.send_response(status)
-                self.send_header('Content-Type', kind)
-                self.send_header('Content-Length', str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def do_GET(self):  # noqa: N802
-                from urllib.parse import unquote  # noqa: PLC0415
-                path = unquote(self.path.split('?')[0]).lstrip('/')
-                if '/-/' in path:
-                    name, file = path.split('/-/', 1)
-                    for manifest, tarball in registry.packages.get(name, {}).values():
-                        if manifest['dist']['tarball'].endswith('/' + file):
-                            return self.answer(200, tarball, 'application/octet-stream')
-                    return self.answer(404, b'{}')
-                versions = registry.packages.get(path)
-                if not versions:
-                    return self.answer(404, b'{"error": "not found"}')
-                latest = max(versions, key=lambda version: [int(part) for part in version.split('.')])
-                body = {'name': path, 'dist-tags': {'latest': latest},
-                        'versions': {version: manifest for version, (manifest, _) in versions.items()}}
-                self.answer(200, json.dumps(body).encode())
-
-        self.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-        self.url = f'http://127.0.0.1:{self.server.server_address[1]}/'
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+    def git(self, *args):
+        env = {**os.environ, 'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': os.devnull,
+               'GIT_AUTHOR_NAME': 'e2e', 'GIT_AUTHOR_EMAIL': 'e2e@example.org',
+               'GIT_COMMITTER_NAME': 'e2e', 'GIT_COMMITTER_EMAIL': 'e2e@example.org'}
+        subprocess.run(['git', *args], cwd=self.dir, env=env, check=True, capture_output=True)
 
     def publish(self, folder):
-        """Pack a folder as npm does and serve it as its name and version."""
-        manifest = json.loads((Path(folder) / 'package.json').read_text())
-        subprocess.run(['npm', 'pack', '--silent', '--ignore-scripts', '--pack-destination', str(self.dir),
-                        str(folder)], check=True, capture_output=True, env={**os.environ, 'npm_config_offline': 'true'})
-        name, version = manifest['name'], manifest['version']
-        file = f'{name.split("/")[-1]}-{version}.tgz'
-        tarball = (self.dir / file).read_bytes()
-        integrity = 'sha512-' + base64.b64encode(hashlib.sha512(tarball).digest()).decode()
-        manifest['dist'] = {'tarball': f'{self.url}{name}/-/{file}', 'integrity': integrity,
-                            'shasum': hashlib.sha1(tarball).hexdigest()}  # noqa: S324 (what npm checks)
-        self.packages.setdefault(name, {})[version] = (manifest, tarball)
-
-    def env(self):
-        """What lets npm reach it, for rookery and rookery serve."""
-        return {'npm_config_registry': self.url, 'npm_config_offline': 'false'}
-
-    def stop(self):
-        self.server.shutdown()
+        """Release a package folder: its files in the folder of its id, and the tag of its version."""
+        manifest = (Path(folder) / 'package.kdl').read_text()
+        plugin = re.search(r'^\s*id (\S+)', manifest, re.M).group(1)
+        version = re.search(r'^\s*version "([^"]+)"', manifest, re.M).group(1)
+        tag = f'{plugin}-v{version}'
+        # A shared state entered again releases the same version again.
+        if tag in self.released:
+            return
+        self.released.add(tag)
+        shutil.rmtree(self.dir / plugin, ignore_errors=True)
+        shutil.copytree(folder, self.dir / plugin)
+        self.git('add', '-A')
+        self.git('commit', '-q', '-m', f'{plugin} {version}')
+        self.git('tag', tag)
 
 
 _registry = []
 
 
-def package_registry():
-    """The registry of packages for this run, started once."""
+def plugin_registry():
+    """The plugin registry of this run, made once."""
     if not _registry:
-        _registry.append(PackageRegistry())
+        _registry.append(PluginRegistry())
     return _registry[0]
 
 

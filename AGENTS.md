@@ -7,15 +7,16 @@ Rookery provisions and manages development machines. It sets up Ubuntu hosts and
 | Path | What it is |
 | --- | --- |
 | `crates/rookery/` | The `rookery` program, for Linux, macOS and Windows. `main.rs` opens the screens, and `src/cli/` is the command line, the same on every system. In `cli/`, `args.rs` is the grammar in clap and `docs.rs` writes the reference page from it. `client.rs` reaches the server. `ask.rs` asks, `follow.rs` shows progress, and `out.rs` prints. On Linux, `src/local/` adds the commands of the server's own machine and `rookery serve` (`src/local/serve/`), behind one `#[cfg(target_os = "linux")]`. `client_only.rs` takes its place on other systems. In `serve/`, `here.rs` is the server in Rookery's own process. The screens and commands use it when no other is set. Then `actions.rs` has the actions of hosts and of the installation, `keys.rs` the key ring's routes, `provisioners.rs` and `resources.rs` those of provisioners and resources |
-| `crates/rookery-api/` | Types and the operations table shared by every program (`ops.rs` names each operation, its HTTP route and its role) |
-| `crates/rookery-core/` | Hosts, profiles, links to hosts, registries and secrets, and plugins. The store is in `store/`. `kept.rs` and `plugin_state.rs` write files from it. `kept_profile.rs` is the profile a host keeps of itself and `rookery host adopt`. `runner.rs` runs every action as a job. `keys/` is the key ring and how Rookery logs in to hosts. `host_type.rs` says what each type of host can do. `provisioner.rs` and `resource.rs` are the provisioners of plugins and what they made. `simulate.rs` is the world of `rookery serve --simulate`: its hosts, its provisioner `sim/cloud` and its seed |
+| `crates/rookery-api/` | Types and the operations table shared by every program (`ops.rs` names each operation, its HTTP route and its role). `plugin_contract.rs` checks a plugin package against `schemas/rookery-plugin.schema.json`, for `rookery plugin check` and every install |
+| `crates/rookery-core/` | Hosts, profiles, links to hosts, registries and secrets, and plugins. The store is in `store/`. `kept.rs` and `plugin_state.rs` write files from it. `kept_profile.rs` is the profile a host keeps of itself and `rookery host adopt`. `runner.rs` runs every action as a job. `keys/` is the key ring and how Rookery logs in to hosts. `host_type.rs` says what each type of host can do. `provisioner.rs` and `resource.rs` are the provisioners of plugins and what they made. `simulate.rs` is the world of `rookery serve --simulate`: its hosts, its provisioner `sim/cloud` and its seed. `plugins.rs` reads the plugins, and `eggs.rs` installs, updates and removes them through the `hatchery` library |
 | `crates/rookery-tui/` | The parts of the screens with no terminal in them. `fields.rs`, `setup.rs` and `flow.rs` describe a host's set-up once, for the screens' tabs and the command line's prompts and flags alike, and `theme.rs` has the colours both draw with |
 | `crates/rookery-pty/` | Terminals for sessions |
 | `crates/rookeryd/`, `crates/box/` | The controller on each host and the agent's own tool there |
 | `crates/rookery-page/` | Rookery's screens in a terminal. They do everything through the API of a server. That is one elsewhere, a `rookery serve` on its socket, or the one in the process. `net.rs` reaches it, `portal.rs` is its portal, `settings.rs` keeps the server and its token, and `device.rs` is what the program starts them with |
 | `crates/vendor/` | The vendored `tui-input` crate |
 | `provision/` | The installer side of the provisioning source: the role in `ansible/`, first-boot provisioning in `bootstrap/`, the builder of seeds and releases in `bin/rookery.py` and the example profile in `config/`. Rookery names these paths in `layout` in `crates/rookery-core/src/paths.rs` |
-| `plugins/` | The plugins that come with Rookery (`backup`, `docker`, `github`, `incus` and `unity`), each an npm-format package with a `guide.md`. With `provision/` they make the provisioning source, which Rookery carries and unpacks with the same layout |
+| `plugins/` | The plugins that come with Rookery (`backup`, `docker`, `github`, `incus` and `unity`), a static Hatchery registry named `rookery`. Each package in `plugins/rookery/ID/` has a `package.kdl` and its files in `rookery/`, where `rookery.json` follows `schemas/rookery-plugin.schema.json` and `guide.md` is its guide, beside its egg and `index.json`. `builtin.rs` in rookery-core reads the registry. With `provision/` they make the provisioning source, which Rookery carries and unpacks with the same layout |
+| `schemas/` | The JSON Schema of a plugin's `rookery.json`, the contract a plugin keeps |
 | `recipes/` | Set-ups that go with Rookery but are not installed by it. Each is a folder with a guide and a script. `recipes/README.md` lists them |
 | `.agents/skills/` | Skills for coding agents that work with Rookery, such as installing it. `.claude/skills` links here |
 | `container/` | The desktop image and Rookery's own image |
@@ -45,11 +46,12 @@ A new skill gets its own folder and a row here and in `.agents/skills/README.md`
 Use cargo for everything Rust. These are what CI runs:
 
 ```bash
-cargo test --locked
+cargo test --locked --no-fail-fast
 cargo fmt --check -p rookery-api -p rookery-pty -p rookery-core -p rookery-tui -p rookery -p rookeryd -p box -p rookery-page
 cargo clippy --locked --all-targets -- -D warnings
+cargo run --locked -q -p rookery -- plugin check plugins
 python3 -m unittest discover -s tests -v
-vale --minAlertLevel=warning --glob='!docs/content/docs/api/{host,serve}/**' README.md AGENTS.md docs/AGENTS.md docs/content/docs plugins/*/guide.md
+vale --minAlertLevel=warning --glob='!docs/content/docs/api/{host,serve}/**' README.md AGENTS.md docs/AGENTS.md docs/content/docs plugins/rookery/*/rookery/guide.md
 ```
 
 The Docs workflow checks the docs site with `npm run typecheck`, `npm run lint` and `npm run links` in `docs/`, and builds it. It runs for every pull request, as `ci/plan.py` leaves the site out of CI's units.
@@ -63,7 +65,7 @@ Development and test builds embed quick builds of rookeryd and box (the `host-de
 With only Docker or Podman, `ci/run.sh` runs the same checks in an image that has the toolchain. CI uses it too.
 
 ```bash
-ci/run.sh check [CHECK…]   # fmt, shell-syntax, ansible-syntax, vale, python-tests, rust-tests, clippy
+ci/run.sh check [CHECK…]   # fmt, shell-syntax, ansible-syntax, vale, python-tests, rust-tests, plugin-check, clippy
 ci/run.sh e2e [TEST…]      # the end-to-end tests, such as e2e_serve.Roles
 ci/run.sh e2e --shard NAME # the tests of one shard on a fresh host, as a CI job runs them
 ci/run.sh shell            # a shell in the dev container
@@ -127,6 +129,7 @@ An action that changes something runs as a job through `runner.rs`. The screens 
 - Every program says `rookery_api::VERSION`. Do not read `CARGO_PKG_VERSION` anywhere else. A test checks.
 - A release is a pushed tag `vX.Y.Z`. The Build workflow builds with `ROOKERY_BUILD_VERSION` set from it, publishes the release and the image, then opens a pull request that sets the version on `main` (`Cargo.toml`, `Cargo.lock`, `docs/openapi/`). Merge it when its checks have passed. Do not change the version by hand.
 - A tag with a suffix, such as `v0.4.0-rc.1`, makes a pre-release and leaves `main` alone.
+- A plugin in `plugins/rookery/` is published in the registry there. A change to one gives it a new version in its `package.kdl`, because a published version keeps its contents. `ROOKERY_UPDATE_DOCS=1 cargo test -p rookery-core builtin` writes its egg and `index.json` again, and the test fails while they are stale.
 
 ## Conventions
 

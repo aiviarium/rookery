@@ -1,0 +1,29 @@
+{
+  "group": "rookery",
+  "id": "unity",
+  "about": {
+    "name": "Unity",
+    "summary": "Unity CLI and editor for rookery machines.",
+    "licenses": [
+      "MIT",
+      "Apache-2.0"
+    ],
+    "repository": "https://github.com/aiviarium/rookery",
+    "keywords": [
+      "rookery-plugin"
+    ]
+  },
+  "versions": {
+    "0.1.0": {
+      "sha256": "285446e22b903a8335097813888d0e261c396b9b77edb1f348efa0d0b0bc6602",
+      "published": "2026-11-18T03:10:34Z",
+      "targets": {
+        "rookery": {
+          "requires": {
+            "rookery": ">=0.6"
+          }
+        }
+      }
+    }
+  }
+}

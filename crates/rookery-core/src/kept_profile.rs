@@ -493,7 +493,7 @@ mod tests {
         let mut kept = document("studio", "", &original, None);
         kept["written"] = json!("2026-11-13T10:00:00Z");
         let back = adopted(&kept, &reached()).unwrap();
-        let dirs = json!({"demo": "/p/demo"});
+        let dirs = json!({"rookery_plugin_dirs": {"demo": "/p/demo/rookery"}});
         let own = ["ssh-ed25519 OWN rookery".to_owned()];
         let wanted = ansible_vars(&original, &dirs, &own);
         assert_eq!(ansible_vars(&back.profile, &dirs, &own), wanted);
