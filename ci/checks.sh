@@ -15,7 +15,7 @@ rust-tests() {
   if cargo nextest --version >/dev/null 2>&1; then
     cargo nextest run --locked --no-fail-fast
   else
-    cargo test --locked
+    cargo test --locked --no-fail-fast
   fi
 }
 # Each file in a process of its own, side by side, its output when it is done.

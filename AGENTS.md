@@ -46,7 +46,7 @@ A new skill gets its own folder and a row here and in `.agents/skills/README.md`
 Use cargo for everything Rust. These are what CI runs:
 
 ```bash
-cargo test --locked
+cargo test --locked --no-fail-fast
 cargo fmt --check -p rookery-api -p rookery-pty -p rookery-core -p rookery-tui -p rookery -p rookeryd -p box -p rookery-page
 cargo clippy --locked --all-targets -- -D warnings
 cargo run --locked -q -p rookery -- plugin check plugins
