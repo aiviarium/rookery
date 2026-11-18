@@ -5,8 +5,8 @@ import './global.css';
 
 export const metadata: Metadata = {
   title: { default: 'Rookery', template: '%s · Rookery' },
-  description: 'Set up and look after hosts for coding agents.',
-  icons: { icon: '/logo.svg' },
+  description: 'Provisioning and management for development machines.',
+  icons: { icon: '/favicon.svg' },
 };
 
 export default function Layout({ children }: { children: ReactNode }) {

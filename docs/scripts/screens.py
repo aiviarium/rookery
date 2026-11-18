@@ -60,21 +60,24 @@ IMAGE = "ubuntu:26.04"
 
 # The theme of the UI (crates/rookery-tui/src/theme.rs); used for the frame and for cells that
 # keep the terminal's default colours, such as plain command output.
-BASE = "#0e0e11"
-TEXT = "#e2e0e8"
-MUTED = "#8e8a9c"
-LINE = "#3c3946"
-ACCENT = "#ac9cff"
+BASE = "#0a0a0b"
+TEXT = "#ededef"
+MUTED = "#a1a1aa"
+LINE = "#2a2a30"
+ACCENT = "#f2b33d"
+WARN = "#e8e06a"
 
 FONTS = Path(__file__).resolve().parent / "fonts"
 SCALE = 2
 
+# The sixteen colours, for cells in them: yellow is the accent and bright yellow a warning,
+# as in the theme's colours for terminals with sixteen.
 ANSI = {
-    "black": "#1c1b21", "red": "#f28096", "green": "#9ed88c", "brown": "#f0c674",
-    "yellow": "#f0c674", "blue": "#ac9cff", "magenta": "#c7a0f5", "cyan": "#7fd4e0",
-    "white": "#e2e0e8", "brightblack": "#8e8a9c", "brightred": "#f28096",
-    "brightgreen": "#9ed88c", "brightyellow": "#f0c674", "brightblue": "#ac9cff",
-    "brightmagenta": "#c7a0f5", "brightcyan": "#7fd4e0", "brightwhite": "#f2f0f6",
+    "black": "#18181b", "red": "#f28096", "green": "#9ed88c", "brown": ACCENT,
+    "yellow": ACCENT, "blue": "#8fb4f0", "magenta": "#e59ad6", "cyan": "#8cc8e8",
+    "white": TEXT, "brightblack": MUTED, "brightred": "#f28096",
+    "brightgreen": "#9ed88c", "brightyellow": WARN, "brightblue": "#8fb4f0",
+    "brightmagenta": "#e59ad6", "brightcyan": "#8cc8e8", "brightwhite": "#f5f5f7",
 }
 
 # ---------------------------------------------------------------------------

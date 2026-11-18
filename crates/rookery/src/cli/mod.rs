@@ -100,7 +100,7 @@ fn help_styles() -> clap::builder::Styles {
         match colour(role, depth)? {
             Tui::Rgb(r, g, b) => Some(RgbColor(r, g, b).into()),
             Tui::Indexed(index) => Some(Ansi256Color(index).into()),
-            Tui::LightBlue => Some(AnsiColor::BrightBlue.into()),
+            Tui::LightYellow => Some(AnsiColor::BrightYellow.into()),
             Tui::Green => Some(AnsiColor::Green.into()),
             Tui::Yellow => Some(AnsiColor::Yellow.into()),
             Tui::LightRed => Some(AnsiColor::BrightRed.into()),

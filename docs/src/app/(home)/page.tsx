@@ -10,7 +10,7 @@ const features: { icon: ReactNode; title: string; text: string; href: string }[]
   {
     icon: <MonitorPlay />,
     title: 'A desktop you can watch',
-    text: 'XFCE on a persistent virtual display, in your browser through noVNC, ready for the agents you install.',
+    text: 'XFCE on a persistent virtual display, in your browser through noVNC, ready for the tools you install.',
     href: '/docs/use/access',
   },
   {
@@ -56,11 +56,11 @@ export default function Home() {
   return (
     <main className="flex flex-1 flex-col">
       <section className="mx-auto flex w-full max-w-5xl flex-col items-center gap-6 px-4 pt-16 pb-10 text-center md:pt-24">
-        <img src={asset('/logo.svg')} alt="" width={64} height={64} />
-        <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">Machines for coding agents</h1>
+        <img src={asset('/rookery.svg')} alt="" width={96} height={96} />
+        <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">Provisioning and management for development machines</h1>
         <p className="max-w-2xl text-lg text-fd-muted-foreground">
-          Rookery sets up Ubuntu hosts for coding agents on a spare laptop, a server or a container, creates machines
-          through provisioner plugins, and looks after them from your terminal: status, sign-ins, updates and secrets.
+          Rookery sets up Ubuntu hosts on a spare laptop, a server or a container, creates machines through
+          provisioner plugins, and manages them from a terminal: status, sign-ins, updates and secrets.
         </p>
         <div className="w-full max-w-2xl text-start">
           <CodeBlock title="Install on Linux x86_64" className="my-0">
@@ -72,7 +72,7 @@ export default function Home() {
         <div className="flex flex-wrap justify-center gap-3 text-sm font-medium">
           <Link
             href="/docs/start/quick-start"
-            className="rounded-lg bg-fd-primary px-5 py-2.5 text-fd-primary-foreground transition-opacity hover:opacity-90"
+            className="rounded-lg border border-fd-primary px-5 py-2.5 text-fd-primary transition-colors hover:bg-fd-accent"
           >
             Quick start
           </Link>

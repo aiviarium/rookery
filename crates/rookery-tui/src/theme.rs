@@ -1,7 +1,8 @@
 //! Colours and the logo.
 //!
-//! The mark is a rook's head in profile, with its pale bill;
-//! `docs/public/logo.svg` is the same drawing.
+//! The mark is a rook's head in profile, in the tones of Rookery's icon
+//! (`docs/public/logo.svg`): amber shade for the bird, the highlight for its bill.
+//! The greys are Aiviarium's neutrals and the accent is Rookery's amber.
 //! rookery paints its own background, so the colours below are chosen against
 //! `BASE` and not against whatever the terminal happens to use.
 
@@ -33,13 +34,15 @@ impl Role {
     /// The colour in a terminal that shows any colour.
     pub const fn rgb(self) -> (u8, u8, u8) {
         match self {
-            Role::Text => (226, 224, 232),
-            Role::Muted => (142, 138, 156),
-            Role::Accent => (172, 156, 255),
+            Role::Text => (237, 237, 239),
+            Role::Muted => (161, 161, 170),
+            // Amber, the base tone of Rookery's icon on a dark ground.
+            Role::Accent => (242, 179, 61),
             Role::Good => (158, 216, 140),
-            Role::Warn => (240, 198, 116),
+            // A lemon yellow, so that a warning doesn't read as the amber accent.
+            Role::Warn => (232, 224, 106),
             Role::Bad => (242, 128, 150),
-            Role::Selection => (28, 27, 33),
+            Role::Selection => (24, 24, 27),
         }
     }
 
@@ -53,9 +56,9 @@ impl Role {
     const fn basic(self) -> Option<Color> {
         match self {
             Role::Text | Role::Muted | Role::Selection => None,
-            Role::Accent => Some(Color::LightBlue),
+            Role::Accent => Some(Color::Yellow),
             Role::Good => Some(Color::Green),
-            Role::Warn => Some(Color::Yellow),
+            Role::Warn => Some(Color::LightYellow),
             Role::Bad => Some(Color::LightRed),
         }
     }
@@ -128,7 +131,7 @@ pub fn sgr(role: Role, depth: Depth) -> String {
         (_, Role::Muted, Depth::Basic) => "2".into(),
         (Some(Color::Rgb(r, g, b)), ..) => format!("{ground};2;{r};{g};{b}"),
         (Some(Color::Indexed(index)), ..) => format!("{ground};5;{index}"),
-        (Some(Color::LightBlue), ..) => format!("{}", ground + 56),
+        (Some(Color::LightYellow), ..) => format!("{}", ground + 55),
         (Some(Color::Green), ..) => format!("{}", ground - 6),
         (Some(Color::Yellow), ..) => format!("{}", ground - 5),
         (Some(Color::LightRed), ..) => format!("{}", ground + 53),
@@ -161,12 +164,13 @@ fn indexed(r: u8, g: u8, b: u8) -> u8 {
 }
 
 /// The screen.
-pub const BASE: Color = Color::Rgb(14, 14, 17);
-/// Pop-ups and the selected row.
+pub const BASE: Color = Color::Rgb(10, 10, 11);
+/// Pop-ups, the selected row and the current tab.
 pub const SURFACE: Color = Role::Selection.colour();
-pub const RAISED: Color = Color::Rgb(40, 38, 47);
+/// The selected row in a pop-up, and inline code.
+pub const RAISED: Color = Color::Rgb(42, 42, 48);
 /// Panel borders.
-pub const LINE: Color = Color::Rgb(60, 57, 70);
+pub const LINE: Color = Color::Rgb(42, 42, 48);
 /// Body text.
 pub const TEXT: Color = Role::Text.colour();
 /// Secondary text.
@@ -174,11 +178,9 @@ pub const MUTED: Color = Role::Muted.colour();
 /// Selection, values and keys.
 pub const ACCENT: Color = Role::Accent.colour();
 /// The plumage of the mark, and quiet marks beside it.
-pub const PLUMAGE: Color = Color::Rgb(92, 86, 116);
+pub const PLUMAGE: Color = Color::Rgb(173, 123, 40);
 /// The bill of the mark.
-pub const BILL: Color = Color::Rgb(216, 210, 196);
-/// Text on an accent background.
-pub const INK: Color = Color::Rgb(14, 14, 17);
+pub const BILL: Color = Color::Rgb(249, 218, 151);
 pub const GOOD: Color = Role::Good.colour();
 pub const WARN: Color = Role::Warn.colour();
 pub const BAD: Color = Role::Bad.colour();
@@ -186,9 +188,9 @@ pub const BAD: Color = Role::Bad.colour();
 /// The mark in front of the selected row, in the screens and in a prompt.
 pub const CURSOR: &str = "▌ ";
 
-/// The current tab.
+/// The current tab: the accent on a neutral plate, as the accent is never a fill.
 pub fn plate() -> Style {
-    Style::new().fg(INK).bg(ACCENT).bold()
+    Style::new().fg(ACCENT).bg(SURFACE).bold()
 }
 
 /// What everything else is drawn on.
@@ -254,7 +256,10 @@ pub fn logo() -> Vec<Line<'static>> {
         Span::styled("████", plumage),
         Span::styled("▀▀ ", bill),
         Span::raw("   "),
-        Span::styled("set up and look after hosts for coding agents", muted),
+        Span::styled(
+            "provisioning and management for development machines",
+            muted,
+        ),
     ];
     let version = vec![
         Span::styled(" ▀██▀  ", plumage),
@@ -283,21 +288,22 @@ mod tests {
     #[test]
     fn the_screens_and_the_command_line_share_the_accent() {
         assert_eq!(colour(Role::Accent, Depth::True), Some(ACCENT));
-        assert_eq!(sgr(Role::Accent, Depth::True), "38;2;172;156;255");
-        assert_eq!(sgr(Role::Accent, Depth::Basic), "94");
+        assert_eq!(sgr(Role::Accent, Depth::True), "38;2;242;179;61");
+        assert_eq!(sgr(Role::Accent, Depth::Basic), "33");
         assert_eq!(sgr(Role::Bad, Depth::Basic), "91");
         assert_eq!(sgr(Role::Good, Depth::Basic), "32");
-        assert_eq!(sgr(Role::Warn, Depth::Basic), "33");
+        assert_eq!(sgr(Role::Warn, Depth::Basic), "93");
         assert_eq!(sgr(Role::Muted, Depth::Basic), "2");
-        assert_eq!(sgr(Role::Selection, Depth::True), "48;2;28;27;33");
+        assert_eq!(sgr(Role::Selection, Depth::True), "48;2;24;24;27");
     }
 
     #[test]
     fn colours_come_near_in_256() {
         assert_eq!(indexed(0, 0, 0), 16);
         assert_eq!(indexed(255, 255, 255), 231);
-        // The accent is a light violet of the cube.
-        assert_eq!(indexed(172, 156, 255), 147);
+        // The accent is an amber of the cube, and a warning a paler yellow.
+        assert_eq!(indexed(242, 179, 61), 215);
+        assert_eq!(indexed(232, 224, 106), 185);
         assert_eq!(indexed(128, 128, 128), 244);
     }
 

@@ -3,26 +3,25 @@
 @import 'fumadocs-ui/css/preset.css';
 @import 'fumadocs-ui/css/generated/spacious.css';
 
-/* The colours of Rookery's terminal UI (crates/rookery-tui/src/theme.rs): near-black
-   greys and a violet accent. The site is dark only. The spacious layout draws the sidebar on the card
-   colour and sets each page into a panel of the background colour. */
+/* Aiviarium's neutrals with Rookery's amber as the accent. The site is dark only. The amber is for
+   text, links, borders and small markers, never the fill of a panel or button. */
 .dark {
-  --color-fd-background: #0e0e11;
-  --color-fd-foreground: #e2e0e8;
-  --color-fd-card: #141418;
-  --color-fd-card-foreground: #e2e0e8;
-  --color-fd-popover: #1c1b21;
-  --color-fd-popover-foreground: #e2e0e8;
-  --color-fd-secondary: #1c1b21;
-  --color-fd-secondary-foreground: #e2e0e8;
-  --color-fd-muted: #1c1b21;
-  --color-fd-muted-foreground: #8e8a9c;
-  --color-fd-accent: #28262f;
-  --color-fd-accent-foreground: #e2e0e8;
-  --color-fd-border: #3c3946;
-  --color-fd-primary: #ac9cff;
-  --color-fd-primary-foreground: #0e0e11;
-  --color-fd-ring: #ac9cff;
+  --color-fd-background: #0a0a0b;
+  --color-fd-foreground: #ededef;
+  --color-fd-card: #111113;
+  --color-fd-card-foreground: #ededef;
+  --color-fd-popover: #111113;
+  --color-fd-popover-foreground: #ededef;
+  --color-fd-secondary: #18181b;
+  --color-fd-secondary-foreground: #ededef;
+  --color-fd-muted: #18181b;
+  --color-fd-muted-foreground: #a1a1aa;
+  --color-fd-accent: #18181b;
+  --color-fd-accent-foreground: #ededef;
+  --color-fd-border: #2a2a30;
+  --color-fd-primary: #f2b33d;
+  --color-fd-primary-foreground: #0a0a0b;
+  --color-fd-ring: #f2b33d;
 }
 /* Long names in inline code, such as test names, wrap on narrow screens. */
 .prose :not(pre) > code {
@@ -30,7 +29,7 @@
 }
 /* The base theme greys the sidebar on its own. */
 .dark #nd-sidebar {
-  --color-fd-muted: #1c1b21;
-  --color-fd-secondary: #28262f;
-  --color-fd-muted-foreground: #9b97a8;
+  --color-fd-muted: #18181b;
+  --color-fd-secondary: #18181b;
+  --color-fd-muted-foreground: #a1a1aa;
 }

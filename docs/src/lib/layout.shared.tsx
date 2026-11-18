@@ -11,7 +11,7 @@ export function baseOptions(): BaseLayoutProps {
       title: (
         <>
           <img src={asset('/logo.svg')} alt="" width={22} height={22} />
-          <span className="font-semibold">rookery</span>
+          <span className="font-semibold">Rookery</span>
         </>
       ),
     },
