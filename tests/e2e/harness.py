@@ -406,10 +406,12 @@ def served():
     key = server.own_key_file()
     wait_for('the operator taking the server\'s key', lambda: server.ssh(
         OPERATOR, 'true', key=key, check=False).returncode == 0)
+    # The registry is a folder of the server's machine, which a caller there
+    # adds, not one over TCP.
+    server.rookery('plugin', 'registry', 'add', 'git', plugin_registry().url)
     issuer = Issuer()
     serve = Serve(server, env={'ROOKERY_OAUTH_ISSUER': issuer.url, 'ROOKERY_OAUTH_AUDIENCE': 'rookery'})
     serve.issuer = issuer
-    serve.call('POST', '/v1/plugins/registries', {'kind': 'git', 'location': plugin_registry().url})
     # The host's profile as the workstation has it, so applying it from the
     # server keeps the workstation's keys; the server adds its own. What the
     # workstation turned on for its own tests stays there.
