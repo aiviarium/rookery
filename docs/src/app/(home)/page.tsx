@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Fragment } from 'react';
 import { ThemedImg, Wordmark } from '@/components/brand';
 import { CopyButton } from '@/components/copy-button';
 import { config, endpointBadges, isExternal } from '@/lib/site';
@@ -51,7 +52,13 @@ export default function HomePage() {
               <span className="prompt" aria-hidden>
                 ${' '}
               </span>
-              {config.install.command}
+              {/* Words stay whole, so a line breaks only at a space, not after a hyphen. */}
+              {config.install.command.split(' ').map((word, i) => (
+                <Fragment key={i}>
+                  {i > 0 ? ' ' : null}
+                  <span className="install-word">{word}</span>
+                </Fragment>
+              ))}
             </code>
             <CopyButton text={config.install.command} />
           </div>

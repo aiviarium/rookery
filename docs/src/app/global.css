@@ -692,6 +692,11 @@ div:has(> [role='tablist']) > [role='tabpanel'] {
   line-height: 1.8;
   overflow-wrap: anywhere;
 }
+/* A word moves to the next line whole, and breaks inside only when it is longer than the line. */
+.install-word {
+  display: inline-block;
+  max-width: 100%;
+}
 .prompt {
   color: var(--brand);
   user-select: none;
