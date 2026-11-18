@@ -6,7 +6,8 @@ import { Step, Steps } from 'fumadocs-ui/components/steps';
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 import { TypeTable } from 'fumadocs-ui/components/type-table';
 import type { MDXComponents } from 'mdx/types';
-import { asset } from '@/lib/layout.shared';
+import { Badge } from '@/components/badge';
+import { asset } from '@/lib/site';
 
 /** A terminal screenshot from public/screens, made by scripts/screens.py. */
 export function Screen({ name, alt, caption }: { name: string; alt: string; caption?: string }) {
@@ -17,17 +18,20 @@ export function Screen({ name, alt, caption }: { name: string; alt: string; capt
         alt={alt}
         width={1000}
         height={600}
-        className="h-auto w-full rounded-xl border bg-[#0a0a0b] shadow-lg"
+        // The terminal screenshots are dark in both themes.
+        className="h-auto w-full rounded-xl border border-(--line-soft) bg-[#0a0a0b]"
       />
       {caption && <figcaption className="mt-2 text-center text-sm text-fd-muted-foreground">{caption}</figcaption>}
     </figure>
   );
 }
 
+// Callout, Card, Cards, code blocks and tables come with the defaults.
 export function getMDXComponents(components?: MDXComponents) {
   return {
     ...defaultMdxComponents,
     Accordion,
+    Badge,
     Accordions,
     File,
     Files,
@@ -41,3 +45,5 @@ export function getMDXComponents(components?: MDXComponents) {
     ...components,
   } satisfies MDXComponents;
 }
+
+export const useMDXComponents = getMDXComponents;

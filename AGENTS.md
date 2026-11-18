@@ -20,7 +20,7 @@ Rookery provisions and manages development machines. It sets up Ubuntu hosts and
 | `.agents/skills/` | Skills for coding agents that work with Rookery, such as installing it. `.claude/skills` links here |
 | `container/` | The desktop image and Rookery's own image |
 | `ci/` | The images and scripts that run the checks and the end-to-end tests in containers |
-| `docs/` | The documentation site (Fumadocs). `docs/AGENTS.md` has notes for its Next.js version |
+| `docs/` | The documentation site (Fumadocs). It follows aiviarium/docs-base at commit `dcffeac`, the docs base of the Aiviarium projects. `docs/AGENTS.md` says what Rookery adds to the base and how to take a later version of it |
 | `tests/` | Python tests of the provisioning source |
 
 ## Skills
@@ -49,8 +49,10 @@ cargo test --locked
 cargo fmt --check -p rookery-api -p rookery-pty -p rookery-core -p rookery-tui -p rookery -p rookeryd -p box -p rookery-page
 cargo clippy --locked --all-targets -- -D warnings
 python3 -m unittest discover -s tests -v
-vale --minAlertLevel=warning README.md AGENTS.md docs/content/docs plugins/*/guide.md
+vale --minAlertLevel=warning --glob='!docs/content/docs/api/{host,serve}/**' README.md AGENTS.md docs/AGENTS.md docs/content/docs plugins/*/guide.md
 ```
+
+The Docs workflow checks the docs site with `npm run typecheck`, `npm run lint` and `npm run links` in `docs/`, and builds it. It runs for every pull request, as `ci/plan.py` leaves the site out of CI's units.
 
 On macOS and Windows Rookery is the client alone. Check that it still builds there with `cargo check -p rookery --target x86_64-pc-windows-msvc` or `--target aarch64-apple-darwin`. The release builds it on those systems.
 

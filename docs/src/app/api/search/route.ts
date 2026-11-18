@@ -1,7 +1,8 @@
 import { createFromSource } from 'fumadocs-core/search/server';
 import { source } from '@/lib/source';
 
-export const revalidate = false;
+export const dynamic = 'force-static';
 
-// One static index of the guides; the search dialog downloads it.
+// The search index, written at build time. The search dialog downloads it and
+// searches in the browser with Orama, so the site needs no server.
 export const { staticGET: GET } = createFromSource(source, { language: 'english' });

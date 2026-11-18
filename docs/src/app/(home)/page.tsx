@@ -1,134 +1,94 @@
 import Link from 'next/link';
-import { CodeBlock, Pre } from 'fumadocs-ui/components/codeblock';
-import { Blocks, Cloud, Container, KeyRound, MonitorPlay, Plug, Server, SquareTerminal, Usb } from 'lucide-react';
-import type { ReactNode } from 'react';
-import { asset, github } from '@/lib/layout.shared';
+import { Fragment } from 'react';
+import { ThemedImg, Wordmark } from '@/components/brand';
+import { CopyButton } from '@/components/copy-button';
+import { config, endpointBadges, isExternal } from '@/lib/site';
 
-const install = 'curl -fsSL https://raw.githubusercontent.com/aiviarium/rookery/main/install.sh | sh';
+function Action({ text, url, primary }: { text: string; url: string; primary?: boolean }) {
+  const external = isExternal(url);
+  // Nocturne's large buttons: the one primary action filled with the text colour, the other a neutral fill.
+  const className = primary ? 'nc-btn nc-btn--lg nc-btn--primary' : 'nc-btn nc-btn--lg';
+  return external ? (
+    <a href={url} className={className} rel="noreferrer noopener" target="_blank">
+      {text} ↗
+    </a>
+  ) : (
+    <Link href={url} className={className}>
+      {text}
+    </Link>
+  );
+}
 
-const features: { icon: ReactNode; title: string; text: string; href: string }[] = [
-  {
-    icon: <MonitorPlay />,
-    title: 'A desktop you can watch',
-    text: 'XFCE on a persistent virtual display, in your browser through noVNC, ready for the tools you install.',
-    href: '/docs/use/access',
-  },
-  {
-    icon: <SquareTerminal />,
-    title: 'One terminal UI for every host',
-    text: 'Status, a shell, updates and reboots per host, and the same tasks as commands for scripts.',
-    href: '/docs/use/overview',
-  },
-  {
-    icon: <KeyRound />,
-    title: 'Sign-ins and secrets',
-    text: 'Sign the agents in from your own browser, and hand over tokens and registry logins.',
-    href: '/docs/use/sign-ins',
-  },
-  {
-    icon: <Blocks />,
-    title: 'Plugins',
-    text: 'Coding agents, provisioners and other software as npm packages: Docker, Incus, Unity, backups, or your own.',
-    href: '/docs/extend/plugins',
-  },
-  {
-    icon: <Plug />,
-    title: 'APIs on both sides',
-    text: 'rookeryd on each host and rookery serve on your machine, described as OpenAPI and AsyncAPI.',
-    href: '/docs/extend/serve',
-  },
-  {
-    icon: <Server />,
-    title: 'One role for every install',
-    text: 'The same Ansible role sets up a laptop, a server, a cloud machine or a container.',
-    href: '/docs/start/concepts',
-  },
-];
-
-const targets: { icon: ReactNode; title: string; href: string }[] = [
-  { icon: <Usb />, title: 'Laptop from USB', href: '/docs/deploy/usb' },
-  { icon: <Server />, title: 'Server over SSH', href: '/docs/deploy/ssh' },
-  { icon: <Cloud />, title: 'Cloud from a seed', href: '/docs/deploy/cloud' },
-  { icon: <Container />, title: 'Container', href: '/docs/deploy/container' },
-];
-
-export default function Home() {
+export default function HomePage() {
+  const [primary, secondary] = config.actions;
   return (
-    <main className="flex flex-1 flex-col">
-      <section className="mx-auto flex w-full max-w-5xl flex-col items-center gap-6 px-4 pt-16 pb-10 text-center md:pt-24">
-        <h1>
-          <img src={asset('/lockup.svg')} alt="Rookery" width={368} height={96} className="h-20 w-auto md:h-24" />
-        </h1>
-        <p className="text-xl font-medium md:text-2xl">Provisioning and management for development machines.</p>
-        <p className="max-w-2xl text-lg text-fd-muted-foreground">
-          Rookery sets up Ubuntu hosts on a spare laptop, a server or a container, creates machines through
-          provisioner plugins, and manages them from a terminal: status, sign-ins, updates and secrets.
-        </p>
-        <div className="w-full max-w-2xl text-start">
-          <CodeBlock title="Install on Linux x86_64" className="my-0">
-            <Pre>
-              <code className="block px-4">{install}</code>
-            </Pre>
-          </CodeBlock>
+    <div className="landing">
+      <section className="hero">
+        <div className="label">
+          Aiviarium{'  '}/{'  '}
+          {config.area}
         </div>
-        <div className="flex flex-wrap justify-center gap-3 text-sm font-medium">
-          <Link
-            href="/docs/start/quick-start"
-            className="rounded-lg border border-fd-primary px-5 py-2.5 text-fd-primary transition-colors hover:bg-fd-accent"
-          >
-            Quick start
-          </Link>
-          <Link href="/docs" className="rounded-lg border px-5 py-2.5 transition-colors hover:bg-fd-accent">
-            Read the docs
-          </Link>
-          <a href={github} className="rounded-lg border px-5 py-2.5 transition-colors hover:bg-fd-accent">
-            GitHub
-          </a>
+        <div className="hero-row">
+          <div>
+            <h1 className="hero-wordmark">
+              <Wordmark />
+            </h1>
+            <p className="hero-description">{config.description}</p>
+            <div className="hero-badges">
+              {endpointBadges().map((badge) => (
+                <a key={badge.src} href={badge.href} rel="noreferrer noopener" target="_blank">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- drawn by the badge endpoint */}
+                  <img src={badge.src} alt={badge.alt} height={22} />
+                </a>
+              ))}
+            </div>
+          </div>
+          <ThemedImg src={config.assets.icon} alt="" width={128} height={128} className="hero-icon" />
         </div>
-      </section>
-
-      <section className="mx-auto w-full max-w-5xl px-4">
-        <img
-          src={asset('/screens/overview.png')}
-          width={1036}
-          height={886}
-          alt="Rookery's terminal UI showing a host's overview with its tasks"
-          className="w-full rounded-xl border shadow-2xl"
-        />
-      </section>
-
-      <section className="mx-auto w-full max-w-5xl px-4 pt-16">
-        <h2 className="mb-2 text-center text-2xl font-semibold">Install it your way</h2>
-        <p className="mb-6 text-center text-fd-muted-foreground">
-          Every way runs the same role, so every host ends up the same.
-        </p>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          {targets.map((target) => (
-            <Link
-              key={target.href}
-              href={target.href}
-              className="flex items-center gap-3 rounded-xl border bg-fd-card p-4 text-sm font-medium transition-colors hover:bg-fd-accent [&_svg]:size-5 [&_svg]:shrink-0 [&_svg]:text-fd-primary"
-            >
-              {target.icon}
-              {target.title}
-            </Link>
-          ))}
+        <div className="install">
+          <small>{config.install.label}</small>
+          <div className="install-line">
+            <code>
+              <span className="prompt" aria-hidden>
+                ${' '}
+              </span>
+              {/* Words stay whole, so a line breaks only at a space, not after a hyphen. */}
+              {config.install.command.split(' ').map((word, i) => (
+                <Fragment key={i}>
+                  {i > 0 ? ' ' : null}
+                  <span className="install-word">{word}</span>
+                </Fragment>
+              ))}
+            </code>
+            <CopyButton text={config.install.command} />
+          </div>
         </div>
+        <div className="actions">
+          <Action {...primary} primary />
+          <Action {...secondary} />
+        </div>
+        {config.features.length > 0 && (
+          <div className="cards">
+            {config.features.map((feature) => {
+              const body = (
+                <>
+                  <h2>{feature.title}</h2>
+                  <p>{feature.description}</p>
+                </>
+              );
+              return feature.url ? (
+                <Link key={feature.title} href={feature.url} className="card card-link">
+                  {body}
+                </Link>
+              ) : (
+                <div key={feature.title} className="card">
+                  {body}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
-
-      <section className="mx-auto grid w-full max-w-5xl gap-4 px-4 py-16 sm:grid-cols-2 lg:grid-cols-3">
-        {features.map((feature) => (
-          <Link
-            key={feature.title}
-            href={feature.href}
-            className="flex flex-col gap-2 rounded-xl border bg-fd-card p-5 transition-colors hover:bg-fd-accent"
-          >
-            <span className="text-fd-primary [&_svg]:size-5">{feature.icon}</span>
-            <span className="font-medium">{feature.title}</span>
-            <span className="text-sm text-fd-muted-foreground">{feature.text}</span>
-          </Link>
-        ))}
-      </section>
-    </main>
+    </div>
   );
 }

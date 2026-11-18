@@ -2,22 +2,30 @@
   "name": "rookery-docs",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "build": "next build",
+    "predev": "node scripts/gather.mjs",
     "dev": "next dev",
-    "start": "sirv out --port 3000",
-    "types:check": "fumadocs-mdx && next typegen && tsc --noEmit",
-    "postinstall": "node scripts/gather.mjs && fumadocs-mdx",
-    "gather": "node scripts/gather.mjs",
     "prebuild": "node scripts/gather.mjs",
-    "predev": "node scripts/gather.mjs"
+    "build": "next build",
+    "start": "sirv out --port 3000",
+    "pretypecheck": "node scripts/gather.mjs",
+    "typecheck": "fumadocs-mdx && next typegen && tsc --noEmit",
+    "lint": "eslint . --max-warnings=0",
+    "links": "tsx scripts/check-links.ts",
+    "vale": "cd .. && vale --output=line --minAlertLevel=warning --glob='!docs/content/docs/api/{host,serve}/**' docs/AGENTS.md docs/content/docs",
+    "check": "npm run typecheck && npm run lint && npm run links && npm run vale && npm run build",
+    "postinstall": "node scripts/gather.mjs && fumadocs-mdx",
+    "gather": "node scripts/gather.mjs"
   },
   "dependencies": {
-    "fumadocs-core": "^16.19.0",
-    "fumadocs-mdx": "^15.6.0",
-    "fumadocs-ui": "npm:@fumadocs/base-ui@^16.19.0",
-    "lucide-react": "^1.72.0",
-    "next": "^16.4.4",
+    "@base-ui/react": "^1.9.0",
+    "fumadocs-core": "16.19.4",
+    "fumadocs-mdx": "15.6.3",
+    "fumadocs-ui": "npm:@fumadocs/base-ui@^16.19.4",
+    "lucide-react": "^1.74.0",
+    "next": "16.4.6",
+    "next-themes": "^0.4.6",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "shiki": "^4.6.0"
@@ -25,12 +33,21 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.4",
     "@types/mdx": "^2.0.14",
-    "@types/node": "^26.6.6",
+    "@types/node": "^24",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.4.6",
+    "github-slugger": "^2.0.0",
+    "mdx2vast": "^0.5.0",
+    "next-validate-link": "^1.6.7",
     "postcss": "^8.5.32",
     "sirv-cli": "^3.0.1",
     "tailwindcss": "^4.3.4",
-    "typescript": "^7.0.2"
+    "tsx": "^4.23.15",
+    "typescript": "^5.9"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

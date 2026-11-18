@@ -3,15 +3,5 @@ import type { ReactNode } from 'react';
 import { baseOptions } from '@/lib/layout.shared';
 
 export default function Layout({ children }: { children: ReactNode }) {
-  return (
-    <HomeLayout
-      {...baseOptions()}
-      links={[
-        { text: 'Docs', url: '/docs', active: 'nested-url' },
-        { text: 'API', url: '/docs/api', active: 'nested-url' },
-      ]}
-    >
-      {children}
-    </HomeLayout>
-  );
+  return <HomeLayout {...baseOptions()}>{children}</HomeLayout>;
 }

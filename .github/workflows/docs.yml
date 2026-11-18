@@ -17,6 +17,9 @@ jobs:
       pages: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The full history gives each page its "Last updated" date.
+          fetch-depth: 0
       # Where Pages serves the site: a folder named after the repository on
       # github.io, the root on a domain of its own.
       - id: pages
@@ -24,7 +27,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: npm install --no-audit --no-fund && npm run build
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      # The checks of the docs base. Vale runs on the docs in CI's lint job.
+      - name: Install and check
+        working-directory: docs
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm run lint
+          npm run links
+      - run: npm run build
         working-directory: docs
         env:
           DOCS_BASE_PATH: ${{ steps.pages.outputs.base_path }}
