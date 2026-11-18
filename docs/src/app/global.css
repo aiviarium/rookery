@@ -665,13 +665,17 @@ div:has(> [role='tablist']) > [role='tabpanel'] {
 .actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 10px;
-  margin-top: 18px;
-}
-.install {
-  border-top: 1px solid var(--line);
   margin-top: 20px;
-  padding-top: 14px;
+}
+/* The install command in a box like the cards. */
+.install {
+  background: var(--up);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  margin-top: 24px;
+  padding: 12px 12px 12px 20px;
   display: grid;
   gap: 6px;
 }
@@ -682,7 +686,7 @@ div:has(> [role='tablist']) > [role='tabpanel'] {
 }
 .install-line {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
