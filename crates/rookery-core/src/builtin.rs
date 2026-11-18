@@ -116,6 +116,20 @@ mod tests {
         found
     }
 
+    /// Packs a built-in package with a fixed origin. Packing reads the git
+    /// commit and its time into the origin otherwise, and every commit would
+    /// change the egg.
+    fn pack(package: &Path) -> hatchery::Egg {
+        let origin =
+            hatchery::manifest::Origin::new().repository("https://github.com/aiviarium/rookery");
+        let options = hatchery::PackOptions::new()
+            .base(true)
+            .no_build(true)
+            .check(&RookeryTarget)
+            .origin(origin);
+        hatchery::pack(package, &options).unwrap().pop().unwrap()
+    }
+
     /// The registry's eggs and indexes are made from its package folders.
     /// With `ROOKERY_UPDATE_DOCS=1` they are written again. A version that
     /// was published keeps its contents, so a change to a package comes
@@ -127,7 +141,7 @@ mod tests {
         let mut catalog = hatchery::index::Catalog::default();
         let mut stale = vec![];
         for package in packages() {
-            let egg = hatchery::Egg::pack(&package, &[&RookeryTarget]).unwrap();
+            let egg = pack(&package);
             let manifest = egg.manifest();
             let name = manifest.name();
             assert_eq!(name.group, NAME, "{}", package.display());

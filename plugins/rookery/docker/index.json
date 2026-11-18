@@ -15,8 +15,8 @@
   },
   "versions": {
     "0.2.0": {
-      "sha256": "1baba621083d8074e0423a90936e22fdba6850b26d96d86a810469315ca5df82",
-      "published": "2026-11-18T02:31:01Z",
+      "sha256": "35739c16d0e03fee030a8558480a4e0cd9196abb8443b08a5876525fcaf8e73c",
+      "published": "2026-11-18T03:10:34Z",
       "targets": {
         "rookery": {
           "requires": {
