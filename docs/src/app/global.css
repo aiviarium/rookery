@@ -636,6 +636,12 @@ div:has(> [role='tablist']) > [role='tabpanel'] {
   line-height: 1;
   margin: 20px 0 0;
 }
+/* The wordmark's box runs 25 units below the baseline, so centring the box puts the letters high. This centres
+   the letters on the icon. */
+.hero-lockup .wordmark {
+  position: relative;
+  top: 0.1em;
+}
 .wordmark {
   display: block;
 }
