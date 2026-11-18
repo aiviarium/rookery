@@ -10,8 +10,8 @@ export function baseOptions(): BaseLayoutProps {
     nav: {
       title: (
         <>
-          <img src={asset('/logo.svg')} alt="" width={22} height={22} />
-          <span className="font-semibold">Rookery</span>
+          <img src={asset('/logo.svg')} alt="" width={27} height={27} />
+          <img src={asset('/wordmark.svg')} alt="Rookery" width={72} height={19} />
         </>
       ),
     },

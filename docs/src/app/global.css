@@ -33,3 +33,7 @@
   --color-fd-secondary: #18181b;
   --color-fd-muted-foreground: #a1a1aa;
 }
+/* The current page in the sidebar is marked by its amber text, on a grey ground. */
+.dark #nd-sidebar [data-active='true'] {
+  background-color: var(--color-fd-accent);
+}

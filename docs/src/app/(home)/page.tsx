@@ -56,8 +56,10 @@ export default function Home() {
   return (
     <main className="flex flex-1 flex-col">
       <section className="mx-auto flex w-full max-w-5xl flex-col items-center gap-6 px-4 pt-16 pb-10 text-center md:pt-24">
-        <img src={asset('/rookery.svg')} alt="" width={96} height={96} />
-        <h1 className="text-4xl font-semibold tracking-tight md:text-5xl">Provisioning and management for development machines</h1>
+        <h1>
+          <img src={asset('/lockup.svg')} alt="Rookery" width={368} height={96} className="h-20 w-auto md:h-24" />
+        </h1>
+        <p className="text-xl font-medium md:text-2xl">Provisioning and management for development machines.</p>
         <p className="max-w-2xl text-lg text-fd-muted-foreground">
           Rookery sets up Ubuntu hosts on a spare laptop, a server or a container, creates machines through
           provisioner plugins, and manages them from a terminal: status, sign-ins, updates and secrets.
