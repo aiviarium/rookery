@@ -281,9 +281,6 @@ impl Tab {
             Code::Char('A') => return Asked::Update(None),
             Code::Char('U') => {
                 return match selected {
-                    Some(plugin) if plugin.origin == PluginOrigin::Shipped => Asked::Nothing(Some(
-                        format!("{} comes with rookery and is updated with it", plugin.label),
-                    )),
                     Some(plugin) => Asked::Update(Some(plugin.id)),
                     None => Asked::Update(None),
                 };
@@ -314,9 +311,10 @@ impl Tab {
             }
             Code::Char('x') | Code::Delete => {
                 return Asked::Nothing(match selected {
-                    Some(plugin) if plugin.origin == PluginOrigin::Shipped => {
-                        Some(format!("{} comes with rookery and stays", plugin.label))
-                    }
+                    Some(plugin) if plugin.origin == PluginOrigin::Shipped => Some(format!(
+                        "{} comes with rookery and stays while its registry is on",
+                        plugin.label
+                    )),
                     Some(plugin) if armed == Some(Armed::Remove) => {
                         return Asked::Remove(plugin.id);
                     }
@@ -445,7 +443,9 @@ mod tests {
         press(&mut tab, Code::Down);
         assert_eq!(
             press(&mut tab, Code::Char('x')),
-            Asked::Nothing(Some("ZZ comes with rookery and stays".into()))
+            Asked::Nothing(Some(
+                "ZZ comes with rookery and stays while its registry is on".into()
+            ))
         );
         assert_eq!(press(&mut tab, Code::Char('1')), Asked::Other);
         for _ in 0..3 {
@@ -463,9 +463,15 @@ mod tests {
         let said = help(None, &[], &adding("/srv/plugins", &[]));
         assert!(said.contains("plugins in /srv/plugins."), "{said}");
         assert!(said.contains("no plugin registry yet"), "{said}");
-        let said = adding("/srv/plugins", &["https://eggs.example.org".into()]);
+        let said = adding(
+            "/srv/plugins",
+            &[
+                "rookery (comes with rookery)".into(),
+                "https://eggs.example.org".into(),
+            ],
+        );
         assert!(
-            said.contains("in this order: https://eggs.example.org."),
+            said.contains("in this order: rookery (comes with rookery), https://eggs.example.org."),
             "{said}"
         );
     }

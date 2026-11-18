@@ -131,7 +131,7 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual(self.feature({'id': 'bare'}), {'tasks': [], 'services': [], 'channels': []})
 
     def test_shipped_plugins_make_valid_tasks(self):
-        plugins = ROLE.parents[3] / 'plugins'
+        plugins = ROLE.parents[3] / 'plugins/rookery'
         names = []
         for package in sorted(plugins.glob('*/package.kdl')):
             data = json.loads((package.parent / 'rookery/rookery.json').read_text())

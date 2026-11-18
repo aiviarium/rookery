@@ -853,7 +853,7 @@ pub enum Plugin {
         #[arg(long)]
         check: bool,
     },
-    /// Check a package folder against Rookery's plugin contract, as the CI of a repository of plugins does.
+    /// Check a package folder, or each package of a registry folder, against Rookery's plugin contract, as the CI of a repository of plugins does.
     Check { dir: std::path::PathBuf },
     /// The registries the server installs plugins from.
     #[command(subcommand)]
@@ -875,11 +875,14 @@ pub enum PluginRegistry {
     /// The plugin registries, in the order they are searched.
     #[command(visible_alias = "ls")]
     List,
-    /// Add a plugin registry after the others, or change the one at the same location.
+    /// Add a plugin registry after the others, or change the one at the same location or with the same name.
     Add {
         kind: RegistryKind,
         /// A repository address, a base URL or a folder.
         location: String,
+        /// Its name. The name rookery takes the place of the registry that comes with rookery.
+        #[arg(long)]
+        name: Option<String>,
         /// Serve only this group. Again for more.
         #[arg(long = "only", value_name = "GROUP")]
         only: Vec<String>,
@@ -893,9 +896,14 @@ pub enum PluginRegistry {
         #[arg(long, requires = "key")]
         unsigned_tags: bool,
     },
-    /// Remove a plugin registry. What was installed from it stays.
+    /// Remove a plugin registry, by its location or name. What was installed from it stays.
     #[command(visible_alias = "rm")]
     Remove { location: String },
+    /// Turn off the registry that comes with rookery. Its plugins stay, and can be removed.
+    Disable {
+        /// The registry's name: rookery.
+        name: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]

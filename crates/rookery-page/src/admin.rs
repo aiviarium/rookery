@@ -71,7 +71,8 @@ pub struct Data {
     pub provisioners: Vec<rookery_api::ProvisionerInfo>,
     /// Where the server keeps its own plugins.
     pub plugin_dir: String,
-    /// The locations of the registries the server installs plugins from.
+    /// The registries the server installs plugins from, each as its
+    /// location or name says it.
     pub plugin_registries: Vec<String>,
     /// Something to say on the status line.
     pub said: Option<String>,
@@ -240,8 +241,8 @@ impl Admin {
                     serde_json::from_value(found).unwrap_or_default();
                 admin.data.borrow_mut().plugin_registries = listing
                     .registries
-                    .into_iter()
-                    .map(|registry| registry.location)
+                    .iter()
+                    .filter_map(shown_registry)
                     .collect();
             },
         );
@@ -1145,5 +1146,20 @@ impl Admin {
                     }
                 }
             });
+    }
+}
+
+/// A plugin registry as the list of them says it; none for a line that
+/// turns one off.
+fn shown_registry(registry: &rookery_api::PluginRegistry) -> Option<String> {
+    match (
+        registry.kind.as_str(),
+        registry.builtin,
+        registry.name.as_str(),
+    ) {
+        ("off", _, _) => None,
+        (_, true, name) => Some(format!("{name} (comes with rookery)")),
+        (_, false, "") => Some(registry.location.clone()),
+        (_, false, name) => Some(format!("{name} ({})", registry.location)),
     }
 }

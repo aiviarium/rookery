@@ -264,11 +264,9 @@ pub fn load(dirs: &[PathBuf]) -> Vec<Plugin> {
         .collect()
 }
 
-/// Every plugin package found in the given directories, with the reason
-/// for each that Rookery does not use. A directory with an `eggs.lock` or a
-/// `.hatchery` folder is an install folder, whose packages are those it locks. Any other holds a
-/// package in each folder that has a `package.kdl`, as the provisioning
-/// source does. A package without a `rookery` target is no plugin.
+/// Every plugin package locked in the given install folders, with the
+/// reason for each that Rookery does not use. A package without a
+/// `rookery` target is no plugin.
 pub fn scan(dirs: &[PathBuf]) -> Vec<Plugin> {
     let mut plugins: Vec<Plugin> = vec![];
     for dir in dirs {
@@ -293,29 +291,23 @@ pub fn scan(dirs: &[PathBuf]) -> Vec<Plugin> {
     plugins
 }
 
-/// The package folders of a directory, with where each comes from.
+/// The package folders an install folder locks, with where each comes from.
 fn packages(dir: &Path) -> Vec<(PathBuf, PluginOrigin, String)> {
-    if dir.join(hatchery::lock::FILE).is_file() || dir.join(".hatchery").is_dir() {
-        let Ok(lock) = hatchery::Lock::load(dir) else {
-            return vec![];
-        };
-        return lock
-            .packages
-            .iter()
-            .map(|locked| {
-                let (origin, source) = crate::eggs::origin(locked);
-                (dir.join(locked.name.dir()), origin, source)
-            })
-            .collect();
+    if !dir.join(hatchery::lock::FILE).is_file() {
+        return vec![];
     }
-    let mut paths: Vec<PathBuf> = fs::read_dir(dir)
-        .map(|entries| entries.flatten().map(|entry| entry.path()).collect())
-        .unwrap_or_default();
-    paths.sort();
-    paths
-        .into_iter()
-        .filter(|path| path.join(hatchery::manifest::FILE).is_file())
-        .map(|path| (path, PluginOrigin::Shipped, String::new()))
+    let Ok(mut lock) = hatchery::Lock::load(dir) else {
+        return vec![];
+    };
+    // Another plugin of the same id replaces one that comes with rookery.
+    lock.packages
+        .sort_by_key(|locked| locked.registry.as_deref() != Some(crate::builtin::NAME));
+    lock.packages
+        .iter()
+        .map(|locked| {
+            let (origin, source) = crate::eggs::origin(locked);
+            (dir.join(locked.name.dir()), origin, source)
+        })
         .collect()
 }
 
@@ -363,7 +355,7 @@ pub fn read(package: &Path) -> Option<Plugin> {
         description: manifest.about.summary.clone().unwrap_or_default(),
         dir: real.clone(),
         package_dir: package.to_owned(),
-        origin: PluginOrigin::Shipped,
+        origin: PluginOrigin::File,
         source: String::new(),
         problem: None,
         features: vec![],
@@ -873,9 +865,10 @@ pub fn own_dir(config_dir: &Path) -> PathBuf {
     config_dir.join("plugins")
 }
 
-/// The plugins of a provisioning source and those in a plugin directory.
-pub fn found(source: &Path, own: &Path) -> Vec<Plugin> {
-    load(&[source.join("plugins"), own.to_owned()])
+/// The plugins installed under a configuration directory, those that come
+/// with rookery among them.
+pub fn installed(config_dir: &Path) -> Vec<Plugin> {
+    load(&[own_dir(config_dir)])
 }
 
 impl Plugin {
@@ -1007,8 +1000,26 @@ pub fn behind(applied: &rookery_api::Applied, plugins: &[Plugin]) -> Option<rook
 pub(crate) mod tests {
     use super::*;
 
-    /// A plugin package in `dir`: its `package.kdl`, with a label when
-    /// given, and its target's `rookery.json`. Gives the target's folder.
+    /// Lock the package folder `dir` in the install folder two levels up,
+    /// as `GROUP/ID` of the folders it is in.
+    pub(crate) fn lock_package(dir: &Path, version: &str) {
+        let install = dir.parent().and_then(Path::parent).unwrap();
+        let group = dir.parent().and_then(Path::file_name).unwrap();
+        let id = dir.file_name().unwrap();
+        let lock = install.join(hatchery::lock::FILE);
+        let mut text = fs::read_to_string(&lock).unwrap_or_else(|_| "format = 1\n".into());
+        text.push_str(&format!(
+            "\n[[package]]\nname = \"{}/{}\"\nversion = \"{version}\"\ntargets = [\"rookery\"]\nfolder = \"{}\"\nsha256 = \"00\"\n",
+            group.to_str().unwrap(),
+            id.to_str().unwrap(),
+            dir.display()
+        ));
+        fs::write(lock, text).unwrap();
+    }
+
+    /// A plugin package in `dir`, locked in the install folder two levels
+    /// up: its `package.kdl`, with a label when given, and its target's
+    /// `rookery.json`. Gives the target's folder.
     pub(crate) fn write_package(
         dir: &Path,
         id: &str,
@@ -1028,6 +1039,7 @@ pub(crate) mod tests {
         )
         .unwrap();
         fs::write(dir.join(TARGET).join(MANIFEST), rookery).unwrap();
+        lock_package(dir, version);
         dir.join(TARGET)
     }
 
@@ -1035,21 +1047,23 @@ pub(crate) mod tests {
     fn packages_are_found_named_and_replaced() {
         let base = tempfile::tempdir().unwrap();
         let at = |dir: &str| base.path().join(dir);
-        write_package(&at("a/one"), "one", "1.0.0", Some("First"), "{}");
-        fs::create_dir_all(at("a/not-a-package")).unwrap();
-        fs::create_dir_all(at("a/broken")).unwrap();
-        fs::write(at("a/broken/package.kdl"), "package {").unwrap();
-        write_package(&at("a/bad"), "Bad_Name", "1.0.0", None, "{}");
-        write_package(&at("a/noise"), "noise", "1.0.0", None, "[1]");
+        write_package(&at("a/example/one"), "one", "1.0.0", Some("First"), "{}");
+        fs::create_dir_all(at("a/example/not-a-package")).unwrap();
+        fs::create_dir_all(at("a/example/broken")).unwrap();
+        fs::write(at("a/example/broken/package.kdl"), "package {").unwrap();
+        lock_package(&at("a/example/broken"), "1.0.0");
+        write_package(&at("a/example/bad"), "Bad_Name", "1.0.0", None, "{}");
+        write_package(&at("a/example/noise"), "noise", "1.0.0", None, "[1]");
         // A package for another tool alone is no plugin.
-        fs::create_dir_all(at("a/other")).unwrap();
+        fs::create_dir_all(at("a/example/other")).unwrap();
         fs::write(
-            at("a/other/package.kdl"),
+            at("a/example/other/package.kdl"),
             "package {\n  group example\n  id other\n  version \"1.0.0\"\n}\ntargets {\n  crow\n}\n",
         )
         .unwrap();
+        lock_package(&at("a/example/other"), "1.0.0");
         write_package(
-            &at("b/one"),
+            &at("b/example/one"),
             "one",
             "2.0.0",
             Some("Second"),
@@ -1083,7 +1097,7 @@ pub(crate) mod tests {
             ),
             ("Second", "2.0.0", "example/one")
         );
-        assert!(one.dir.ends_with("b/one/rookery"));
+        assert!(one.dir.ends_with("b/example/one/rookery"));
         let features: Vec<_> = one
             .features
             .iter()
@@ -1110,7 +1124,8 @@ pub(crate) mod tests {
     fn a_plugin_says_which_rookery_it_works_with() {
         let base = tempfile::tempdir().unwrap();
         let write = |id: &str, requires: &str| {
-            let dir = base.path().join(id);
+            let dir = base.path().join("example").join(id);
+            lock_package(&dir, "1.0.0");
             fs::create_dir_all(dir.join("rookery")).unwrap();
             fs::write(dir.join("rookery/rookery.json"), "{}").unwrap();
             fs::write(
@@ -1148,7 +1163,7 @@ pub(crate) mod tests {
     /// beside a few actions and the kinds machine and instance.
     fn with_collections(collections: &str) -> Provisioner {
         let base = tempfile::tempdir().unwrap();
-        let package = base.path().join("plugins/cloud");
+        let package = base.path().join("plugins/example/cloud");
         let dir = package.join(TARGET);
         fs::create_dir_all(dir.join("bin")).unwrap();
         fs::write(dir.join("bin/provision"), "#!/bin/sh\n").unwrap();
@@ -1287,8 +1302,12 @@ pub(crate) mod tests {
 
     #[test]
     fn the_shipped_provisioners_declare_their_collections_right() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
-        let plugins = load(&[root]);
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/rookery");
+        let plugins: Vec<Plugin> = fs::read_dir(root)
+            .unwrap()
+            .flatten()
+            .filter_map(|entry| read(&entry.path()))
+            .collect();
         for (plugin, provisioner, collections) in [
             (
                 "incus",
@@ -1325,7 +1344,7 @@ pub(crate) mod tests {
     #[test]
     fn provisioners_are_read_and_their_commands_kept_inside_the_package() {
         let base = tempfile::tempdir().unwrap();
-        let package = base.path().join("plugins/cloud");
+        let package = base.path().join("plugins/example/cloud");
         let dir = package.join(TARGET);
         fs::create_dir_all(dir.join("bin")).unwrap();
         fs::write(dir.join("bin/provision"), "#!/bin/sh\n").unwrap();
@@ -1505,7 +1524,13 @@ pub(crate) mod tests {
     #[test]
     fn a_changed_file_changes_the_digest_and_shows_the_host_behind() {
         let base = tempfile::tempdir().unwrap();
-        let dir = write_package(&base.path().join("plugins/x"), "x", "1.0.0", None, "{}");
+        let dir = write_package(
+            &base.path().join("plugins/example/x"),
+            "x",
+            "1.0.0",
+            None,
+            "{}",
+        );
         fs::create_dir_all(dir.join("tasks")).unwrap();
         fs::write(dir.join("tasks/main.yml"), "- debug: {msg: one}\n").unwrap();
         fs::create_dir_all(dir.join("__pycache__")).unwrap();

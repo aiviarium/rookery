@@ -147,7 +147,7 @@ class RolePath(unittest.TestCase):
         # A role's task files that are included at run time are checked only when imported.
         with tempfile.TemporaryDirectory() as scratch:
             playbook = Path(scratch) / 'check.yml'
-            files = [ROLE / 'tasks/node.yml', SRC / 'plugins/incus/rookery/tasks/server.yml', SRC / 'plugins/docker/rookery/tasks/engine.yml']
+            files = [ROLE / 'tasks/node.yml', SRC / 'plugins/rookery/incus/rookery/tasks/server.yml', SRC / 'plugins/rookery/docker/rookery/tasks/engine.yml']
             playbook.write_text('- hosts: all\n  tasks:\n' + ''.join(
                 f'    - ansible.builtin.import_tasks: {path}\n' for path in files))
             env = dict(os.environ, ANSIBLE_ROLES_PATH=str(ROLE.parent), ANSIBLE_HOME=str(Path(scratch) / 'home'),
@@ -160,7 +160,7 @@ class RolePath(unittest.TestCase):
 @unittest.skipUnless(yaml, 'Run with the Ansible venv Python for YAML checks')
 class Features(unittest.TestCase):
     def feature(self, plugin, feature):
-        manifest = json.loads((SRC / 'plugins' / plugin / 'rookery/rookery.json').read_text())
+        manifest = json.loads((SRC / 'plugins/rookery' / plugin / 'rookery/rookery.json').read_text())
         found = next(item for item in manifest['features'] if item['id'] == feature)
         return manifest, found
 
@@ -172,7 +172,7 @@ class Features(unittest.TestCase):
                 self.assertEqual(found['offers'], offers)
                 provisioners = [item['id'] for item in manifest['provisioners']]
                 self.assertTrue(set(offers) <= set(provisioners))
-                steps = tasks(SRC / 'plugins' / plugin / 'rookery' / found['tasks'])
+                steps = tasks(SRC / 'plugins/rookery' / plugin / 'rookery' / found['tasks'])
                 offered = [step for step in steps if 'rookery_offer' in step.get('ansible.builtin.set_fact', {})]
                 self.assertEqual(len(offered), 1)
                 # The status of a node goes on with the feature's own.
@@ -187,13 +187,13 @@ class Features(unittest.TestCase):
             names = [secret if isinstance(secret, str) else secret['name'] for secret in provisioner['secrets']]
             self.assertTrue({'incus_client_cert', 'incus_client_key', 'incus_server_cert'} <= set(names))
         offer = named('Open the firewall to the guests and to the API, and offer the provisioners',
-                      SRC / 'plugins/incus/rookery/tasks/server.yml')['ansible.builtin.set_fact']['rookery_offer']
+                      SRC / 'plugins/rookery/incus/rookery/tasks/server.yml')['ansible.builtin.set_fact']['rookery_offer']
         self.assertEqual(offer['settings'], {'server': 'https://{address}:{{ rookery_incus_port }}'})
         self.assertIn('incus_server_cert', offer['secrets'])
         self.assertEqual(offer['aliases']['server'], ['https://incus-host:{{ rookery_incus_port }}'])
 
     def test_incus_never_makes_a_pool_on_a_disk(self):
-        steps = tasks(SRC / 'plugins/incus/rookery/tasks/server.yml')
+        steps = tasks(SRC / 'plugins/rookery/incus/rookery/tasks/server.yml')
         check = next(step for step in steps if step['name'] == 'Check the Incus settings')
         self.assertIn("not rookery_incus.pool_source.startswith('/dev/')", check['ansible.builtin.assert']['that'])
         init = next(step for step in steps if 'incus admin init' in str(step.get('ansible.builtin.command', '')))
@@ -203,7 +203,7 @@ class Features(unittest.TestCase):
         self.assertIn("default('dir')", defaults['ansible.builtin.set_fact']['rookery_incus']['pool_driver'])
 
     def test_docker_keeps_an_engine_that_is_installed(self):
-        steps = tasks(SRC / 'plugins/docker/rookery/tasks/engine.yml')
+        steps = tasks(SRC / 'plugins/rookery/docker/rookery/tasks/engine.yml')
         install = next(step for step in steps if step['name'] == "Install Docker from Ubuntu's packages")
         self.assertEqual(install['when'], 'rookery_docker_found.rc != 0')
         offer = next(step for step in steps if step['name'] == 'Offer the provisioner of this engine')

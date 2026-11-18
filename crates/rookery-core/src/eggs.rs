@@ -1,9 +1,11 @@
-//! The user's own plugins, installed as Hatchery eggs. They are installed in
-//! `plugins/` of the configuration directory, the install folder Hatchery
-//! keeps with its `eggs.lock`, from the registries `hatchery.kdl` beside it
-//! lists. Every change goes through Hatchery, and the store is told of it
-//! afterwards (see [`crate::plugin_state`]).
+//! Plugins, installed as Hatchery eggs. They are installed in `plugins/` of
+//! the configuration directory, the install folder Hatchery keeps with its
+//! `eggs.lock`, from the registries `hatchery.kdl` beside it lists, after
+//! the one that comes with Rookery (see [`crate::builtin`]). Every change
+//! goes through Hatchery, and the store is told of it afterwards (see
+//! [`crate::plugin_state`]).
 
+use crate::builtin;
 use crate::paths::Paths;
 use crate::plugins::{self, Plugin, TARGET};
 use crate::{Refused, Result};
@@ -92,16 +94,157 @@ pub fn config(paths: &Paths) -> Result<Config> {
     }
 }
 
-/// A Hatchery client that installs Rookery's target from the configured
-/// registries.
+/// The name of a registry line: its `name`, or for an `off` line the
+/// registry it turns off.
+pub fn line_name(line: &RegistryConfig) -> Option<&str> {
+    match line.kind == builtin::OFF {
+        true => Some(line.location.as_str()),
+        false => line.props.get("name").map(String::as_str),
+    }
+}
+
+/// The lines of `hatchery.kdl`, after the registry of the source when no
+/// line has its name. `off` lines are kept, for a list.
+fn lines(config: &Config, source: Option<&Path>) -> Vec<RegistryConfig> {
+    let mut lines: Vec<RegistryConfig> = config
+        .registries
+        .iter()
+        .filter(|line| line.kind != builtin::KIND)
+        .cloned()
+        .collect();
+    let named = lines
+        .iter()
+        .any(|line| line_name(line) == Some(builtin::NAME));
+    if let Some(source) = source.filter(|_| !named) {
+        lines.insert(0, builtin::line(source));
+    }
+    lines
+}
+
+/// The registries plugins are installed from, in search order: those of
+/// `hatchery.kdl`, after the one of the provisioning source unless a line
+/// has its name.
+pub fn registries_of(paths: &Paths, source: Option<&Path>) -> Result<Config> {
+    let mut config = config(paths)?;
+    config.registries = lines(&config, source)
+        .into_iter()
+        .filter(|line| line.kind != builtin::OFF)
+        .collect();
+    Ok(config)
+}
+
+/// How `eggs.lock` names the registry of a line.
+fn label(line: &RegistryConfig) -> String {
+    match line.kind == builtin::KIND {
+        true => builtin::NAME.into(),
+        false => line.location.trim_end_matches('/').to_owned(),
+    }
+}
+
+/// How `eggs.lock` names the registry the plugins that come with Rookery
+/// are installed from, the one named `rookery`. None when it is off.
+fn shipped_from(config: &Config) -> Option<String> {
+    config
+        .registries
+        .iter()
+        .find(|line| line_name(line) == Some(builtin::NAME))
+        .map(label)
+}
+
+/// A Hatchery client that installs Rookery's target from the registries.
 pub fn client(paths: &Paths) -> Result<Client> {
+    client_with(paths, paths.source().ok().as_deref())
+}
+
+/// A Hatchery client that installs Rookery's target from the registries,
+/// the one of the given provisioning source among them.
+fn client_with(paths: &Paths, source: Option<&Path>) -> Result<Client> {
     Ok(Client::builder()
-        .config(config(paths)?)
+        .config(registries_of(paths, source)?)
+        .kind(builtin::KIND, builtin::factory())
         .target(RookeryTarget)
         .fetch(hatchery::fetch::HttpFetch::new())
         .cache_dir(cache_dir(paths))
         .git(git())
         .build()?)
+}
+
+/// Install the packages of the registry of the provisioning source that the
+/// install folder lacks, and put those it has at the registry's versions,
+/// so that the plugins that come with Rookery are those of this Rookery.
+/// Nothing is done when a line of `hatchery.kdl` takes the place of the
+/// registry, or turns it off. Returns what to tell the user.
+pub fn builtins(paths: &Paths) -> Result<Vec<String>> {
+    builtins_from(paths, paths.source().ok().as_deref())
+}
+
+fn builtins_from(paths: &Paths, source: Option<&Path>) -> Result<Vec<String>> {
+    let config = registries_of(paths, source)?;
+    let Some(line) = config
+        .registries
+        .iter()
+        .find(|line| line.kind == builtin::KIND)
+    else {
+        return Ok(vec![]);
+    };
+    let Some(offered) = builtin::offered(Path::new(&line.location)) else {
+        return Ok(vec![]);
+    };
+    let own = own_dir(&paths.config_dir);
+    let lock = match own.join(hatchery::lock::FILE).is_file() {
+        true => hatchery::Lock::load(&own)?,
+        false => hatchery::Lock::default(),
+    };
+    let behind = |name: &Name, version: &hatchery::semver::Version| {
+        lock.get(name).is_none_or(|locked| {
+            locked.registry.as_deref() != Some(builtin::NAME)
+                || &locked.version != version
+                || !own
+                    .join(name.dir())
+                    .join(hatchery::manifest::FILE)
+                    .is_file()
+        })
+    };
+    let wanted: Vec<_> = offered
+        .into_iter()
+        .filter(|(name, version)| behind(name, version))
+        .collect();
+    if wanted.is_empty() {
+        return Ok(vec![]);
+    }
+    let Some(_one) = crate::store::hold_lock(&paths.data_dir.join("locks/plugins.lock"))? else {
+        return Ok(vec![]);
+    };
+    let client = client_with(paths, source)?;
+    fs::create_dir_all(&own)?;
+    let mut installed = vec![];
+    let mut lines = vec![];
+    for (name, version) in wanted {
+        let spec = Spec::parse(&format!("{name}@={version}"))?;
+        match block_on(client.add(&spec, &own)) {
+            Ok(report) => installed.extend(
+                report
+                    .packages
+                    .iter()
+                    .map(|change| format!("{} {}", change.name, change.version)),
+            ),
+            Err(error) => lines.push(format!(
+                "rookery: {name} {version}, which comes with rookery, could not be installed: {error}"
+            )),
+        }
+    }
+    if !installed.is_empty() {
+        lines.insert(
+            0,
+            format!(
+                "rookery: installed the plugins that come with rookery: {}",
+                installed.join(", ")
+            ),
+        );
+        forget_uploads(&own);
+        lines.extend(remembered(paths));
+    }
+    Ok(lines)
 }
 
 /// The git command Hatchery runs.
@@ -151,8 +294,12 @@ fn forget_uploads(own: &Path) {
 
 /// What a report of Hatchery says, as lines.
 fn said(report: &hatchery::Report) -> Vec<String> {
-    let mut lines: Vec<String> = report
-        .packages
+    said_of(&report.packages, &report.warnings)
+}
+
+/// What Hatchery changed and noted, as lines.
+fn said_of(packages: &[hatchery::client::Change], warnings: &[String]) -> Vec<String> {
+    let mut lines: Vec<String> = packages
         .iter()
         .map(|change| match &change.previous {
             Some(previous) if previous != &change.version => {
@@ -165,12 +312,7 @@ fn said(report: &hatchery::Report) -> Vec<String> {
             ),
         })
         .collect();
-    lines.extend(
-        report
-            .warnings
-            .iter()
-            .map(|warning| format!("  ! {warning}")),
-    );
+    lines.extend(warnings.iter().map(|warning| format!("  ! {warning}")));
     lines
 }
 
@@ -179,8 +321,14 @@ fn local_git(url: &str) -> bool {
     url.starts_with(['/', '.', '~']) || url.starts_with("file:") || !url.contains(':')
 }
 
-/// Where plugins are managed: this machine's own plugins, beside those of
-/// the provisioning source.
+/// Whether a registry is read from a folder of this machine: a `dir`
+/// registry, or a git repository given as a path.
+pub fn local_registry(kind: &str, location: &str) -> bool {
+    kind == "dir" || (kind == "git" && local_git(location.trim()))
+}
+
+/// Where plugins are managed: the install folder, and the provisioning
+/// source whose registry comes first.
 pub struct Manager {
     paths: Paths,
     source: Option<PathBuf>,
@@ -201,14 +349,30 @@ impl Manager {
         &self.own
     }
 
-    /// Every plugin found, those Rookery cannot use among them.
+    /// Every plugin installed, those Rookery cannot use among them. Those
+    /// from the registry named `rookery` come with rookery.
     pub fn scan(&self) -> Vec<Plugin> {
-        let mut dirs = vec![];
-        if let Some(source) = &self.source {
-            dirs.push(source.join("plugins"));
+        let shipped = registries_of(&self.paths, self.source.as_deref())
+            .ok()
+            .and_then(|config| shipped_from(&config));
+        let mut found = plugins::scan(std::slice::from_ref(&self.own));
+        for plugin in &mut found {
+            if plugin.origin == PluginOrigin::Registry
+                && Some(plugin.source.trim_end_matches('/')) == shipped.as_deref()
+            {
+                plugin.origin = PluginOrigin::Shipped;
+            }
         }
-        dirs.push(self.own.clone());
-        plugins::scan(&dirs)
+        found
+    }
+
+    /// See [`builtins`].
+    pub fn builtins(&self) -> Result<Vec<String>> {
+        builtins_from(&self.paths, self.source.as_deref())
+    }
+
+    fn client(&self) -> Result<Client> {
+        client_with(&self.paths, self.source.as_deref())
     }
 
     /// The plugins there are, and where the user's own are installed.
@@ -219,26 +383,21 @@ impl Manager {
         }
     }
 
-    /// One of the user's own plugins, by its id or package. One that comes
-    /// with rookery is refused with `shipped`.
-    fn own_plugin(&self, name: &str, shipped: &str) -> Result<Plugin> {
-        let plugin = self
+    /// An installed plugin, by its id or package.
+    fn plugin(&self, name: &str) -> Result<Plugin> {
+        Ok(self
             .scan()
             .into_iter()
             .find(|plugin| plugin.id == name || plugin.package == name)
-            .ok_or_else(|| format!("No plugin {name}. See: rookery plugin list"))?;
-        if plugin.origin == PluginOrigin::Shipped {
-            return Err(Refused(format!("{} {shipped}", plugin.label)).into());
-        }
-        Ok(plugin)
+            .ok_or_else(|| format!("No plugin {name}. See: rookery plugin list"))?)
     }
 
     /// After a change: the lines for what Rookery cannot use of what was
     /// installed, the eggs that were sent and are no longer needed gone,
     /// and the store told.
-    fn finish(&self, report: &hatchery::Report, lines: &mut Vec<String>) {
+    fn finish(&self, changes: &[hatchery::client::Change], lines: &mut Vec<String>) {
         let found = self.scan();
-        for change in &report.packages {
+        for change in changes {
             let name = change.name.to_string();
             if let Some(problem) = found
                 .iter()
@@ -279,7 +438,7 @@ impl Manager {
                 spec => spec,
             },
         };
-        let client = client(&self.paths)?;
+        let client = self.client()?;
         fs::create_dir_all(&self.own)?;
         let options = Options::new().allow_young(asked.allow_young);
         let report = block_on(client.add_with(&spec, &self.own, &options))?;
@@ -287,7 +446,7 @@ impl Manager {
         if report.packages.is_empty() {
             lines.insert(0, "✓ It is installed already".into());
         }
-        self.finish(&report, &mut lines);
+        self.finish(&report.packages, &mut lines);
         Ok(lines)
     }
 
@@ -324,7 +483,7 @@ impl Manager {
         fs::create_dir_all(&dir)?;
         let path = dir.join(&file);
         fs::write(&path, data)?;
-        let client = client(&self.paths)?;
+        let client = self.client()?;
         let lock = hatchery::Lock::load(&self.own)?;
         if let Some(locked) = lock.get(&name)
             && &locked.version == manifest.version()
@@ -350,15 +509,18 @@ impl Manager {
                 format!("✓ {name} {} is installed already", manifest.version()),
             ),
         }
-        self.finish(&report, &mut lines);
+        self.finish(&report.packages, &mut lines);
         Ok(lines)
     }
 
-    /// Remove one of the user's plugins by its id or package. One that
-    /// comes with rookery stays.
+    /// Remove a plugin by its id or package. One that comes with rookery
+    /// stays while its registry is on.
     pub fn remove(&self, name: &str) -> Result<Vec<String>> {
-        let plugin = self.own_plugin(name, "comes with rookery and stays")?;
-        let client = client(&self.paths)?;
+        let plugin = self.plugin(name)?;
+        if plugin.origin == PluginOrigin::Shipped {
+            return Err(Refused(shipped_stays(&plugin.label)).into());
+        }
+        let client = self.client()?;
         client.remove(&Name::parse(&plugin.package)?, &self.own)?;
         let mut lines = vec![format!("✓ Removed {}", plugin.label)];
         forget_uploads(&self.own);
@@ -366,22 +528,20 @@ impl Manager {
         Ok(lines)
     }
 
-    /// Which of the user's plugins have a newer version that can be
-    /// installed, as their registries say.
+    /// Which plugins have a newer version that can be installed, as their
+    /// registries say.
     pub fn check(&self) -> Result<PluginUpdates> {
-        let own: Vec<Plugin> = self
-            .scan()
-            .into_iter()
-            .filter(|plugin| plugin.origin != PluginOrigin::Shipped)
-            .collect();
-        let listing = match own
-            .iter()
-            .any(|plugin| plugin.origin == PluginOrigin::Registry)
-        {
-            true => Some(
-                block_on(client(&self.paths)?.offered(&self.own))
-                    .map_err(|error| error.to_string()),
-            ),
+        let own = self.scan();
+        let from_registry = |plugin: &Plugin| {
+            matches!(
+                plugin.origin,
+                PluginOrigin::Registry | PluginOrigin::Shipped
+            )
+        };
+        let listing = match own.iter().any(from_registry) {
+            true => {
+                Some(block_on(self.client()?.offered(&self.own)).map_err(|error| error.to_string()))
+            }
             false => None,
         };
         let mut updates = vec![];
@@ -394,7 +554,7 @@ impl Manager {
                 note: String::new(),
             };
             match plugin.origin {
-                PluginOrigin::Registry => match &listing {
+                PluginOrigin::Registry | PluginOrigin::Shipped => match &listing {
                     Some(Ok(listing)) => {
                         match listing
                             .packages
@@ -440,7 +600,7 @@ impl Manager {
                 PluginOrigin::Git => {
                     update.note = "From one folder of a git repository: an update takes the newest commit of its branch, and another tag is added again".into();
                 }
-                PluginOrigin::File | PluginOrigin::Shipped => {
+                PluginOrigin::File => {
                     update.note = "Installed from an egg file, which has no newer version to ask for: add the new one to replace it".into();
                 }
             }
@@ -454,10 +614,7 @@ impl Manager {
     pub fn update(&self, name: Option<&str>) -> Result<Vec<String>> {
         let one = match name {
             Some(name) => {
-                let plugin = self.own_plugin(
-                    name,
-                    "comes with rookery and is updated with it: rookery update",
-                )?;
+                let plugin = self.plugin(name)?;
                 if plugin.origin == PluginOrigin::File {
                     return Err(Refused(format!(
                         "✗ {}: installed from an egg file, which has no newer version to ask for: add the new one to replace it",
@@ -469,12 +626,38 @@ impl Manager {
             }
             None => None,
         };
-        let client = client(&self.paths)?;
+        let client = self.client()?;
         if !self.own.join(hatchery::lock::FILE).is_file() {
             return Ok(vec!["✓ No plugin has a newer version".into()]);
         }
-        let report = block_on(client.update(one.as_ref().map(|(name, _)| name), &self.own))?;
-        let mut lines: Vec<String> = said(&report)
+        let mut changes = vec![];
+        let mut warnings = vec![];
+        // What came from the registry of the source, when a line has taken
+        // its place, is installed from that line.
+        let config = registries_of(&self.paths, self.source.as_deref())?;
+        let moved = |locked: &&LockedPackage| {
+            locked.registry.as_deref() == Some(builtin::NAME)
+                && shipped_from(&config).is_some_and(|label| label != builtin::NAME)
+                && one.as_ref().is_none_or(|(name, _)| name == &locked.name)
+        };
+        let lock = hatchery::Lock::load(&self.own)?;
+        let moving: Vec<Name> = lock
+            .packages
+            .iter()
+            .filter(moved)
+            .map(|locked| locked.name.clone())
+            .collect();
+        for name in &moving {
+            let added = block_on(client.add(&Spec::parse(&name.to_string())?, &self.own))?;
+            changes.extend(added.packages);
+            warnings.extend(added.warnings);
+        }
+        if moving.is_empty() || one.is_none() {
+            let updated = block_on(client.update(one.as_ref().map(|(name, _)| name), &self.own))?;
+            changes.extend(updated.packages);
+            warnings.extend(updated.warnings);
+        }
+        let mut lines: Vec<String> = said_of(&changes, &warnings)
             .into_iter()
             .filter(|line| !line.ends_with(" again"))
             .collect();
@@ -489,34 +672,43 @@ impl Manager {
                 },
             );
         }
-        self.finish(&report, &mut lines);
+        self.finish(&changes, &mut lines);
         Ok(lines)
     }
 
-    /// The registries plugins are installed from, in search order.
+    /// The registries plugins are installed from, in search order, with
+    /// the lines that turn one off.
     pub fn registries(&self) -> Result<PluginRegistries> {
         Ok(PluginRegistries {
-            registries: config(&self.paths)?
-                .registries
+            registries: lines(&config(&self.paths)?, self.source.as_deref())
                 .iter()
-                .map(|registry| PluginRegistry {
-                    kind: registry.kind.clone(),
-                    location: registry.location.clone(),
-                    only: registry.only.clone(),
-                    key: registry.key.clone(),
-                    min_age: registry.min_age.map(hatchery::time::format_duration),
-                    unsigned_tags: registry.unsigned_tags,
+                .map(|line| PluginRegistry {
+                    name: line_name(line).unwrap_or_default().to_owned(),
+                    builtin: line.kind == builtin::KIND,
+                    kind: line.kind.clone(),
+                    location: line.location.clone(),
+                    only: line.only.clone(),
+                    key: line.key.clone(),
+                    min_age: line
+                        .min_age
+                        .filter(|_| line.kind != builtin::KIND)
+                        .map(hatchery::time::format_duration),
+                    unsigned_tags: line.unsigned_tags,
                 })
                 .collect(),
             file: config_file(&self.paths).display().to_string(),
         })
     }
 
-    /// Add a registry after the others, or change the one at the same location.
+    /// Add a registry after the others, or change the one at the same
+    /// location or with the same name. A registry named `rookery` takes the
+    /// place of the one that comes with Rookery, and serves only its group
+    /// unless it says otherwise. Kind `off` with the location `rookery`
+    /// turns that one off.
     pub fn add_registry(&self, asked: &PluginRegistry) -> Result<Vec<String>> {
-        if !["git", "http", "dir"].contains(&asked.kind.as_str()) {
+        if !["git", "http", "dir", builtin::OFF].contains(&asked.kind.as_str()) {
             return Err(Refused(format!(
-                "A plugin registry is git, http or dir, not {:?}",
+                "A plugin registry is git, http or dir, or off to turn rookery's off, not {:?}",
                 asked.kind
             ))
             .into());
@@ -525,11 +717,45 @@ impl Manager {
         if location.is_empty() || location.starts_with('-') || location.contains(char::is_control) {
             return Err(Refused(format!("{location:?} is no address of a registry")).into());
         }
+        let mut config = config(&self.paths)?;
+        if asked.kind == builtin::OFF {
+            if location != builtin::NAME {
+                return Err(Refused(format!(
+                    "Only the registry that comes with rookery, {}, is turned off; another is removed: rookery plugin registry remove {location}",
+                    builtin::NAME
+                ))
+                .into());
+            }
+            let off = config
+                .registries
+                .iter()
+                .any(|line| line.kind == builtin::OFF && line.location == location);
+            if off {
+                return Ok(vec![format!(
+                    "✓ The plugin registry {location} is off already"
+                )]);
+            }
+            forget_named(&mut config, location);
+            config.add_registry(RegistryConfig::new(builtin::OFF, location));
+            return self.save(
+                &config,
+                vec![format!(
+                    "✓ Turned off the plugin registry {location}. The plugins that came from it stay, and can be removed now"
+                )],
+            );
+        }
+        let name = asked.name.trim();
+        if !name.is_empty() {
+            hatchery::name::validate_segment("name", name)?;
+        }
         let mut registry = RegistryConfig::new(asked.kind.clone(), location);
         for group in &asked.only {
             hatchery::name::validate_segment("group", group)?;
         }
         registry.only = asked.only.clone();
+        if name == builtin::NAME && registry.only.is_empty() {
+            registry.only = vec![builtin::NAME.into()];
+        }
         if let Some(key) = asked.key.as_deref().filter(|key| !key.is_empty()) {
             hatchery::sign::parse_verifying_key(key)?;
             registry.key = Some(key.to_owned());
@@ -538,48 +764,104 @@ impl Manager {
             registry.min_age = Some(hatchery::time::parse_duration(age)?);
         }
         registry.unsigned_tags = asked.unsigned_tags;
-        let mut config = config(&self.paths)?;
+        if !name.is_empty() {
+            registry.props.insert("name".into(), name.to_owned());
+            forget_named(&mut config, name);
+        }
         let known = config
             .registries
             .iter()
             .any(|known| known.location == location);
         config.add_registry(registry);
+        let lines = vec![match (known, name == builtin::NAME) {
+            (_, true) => format!(
+                "✓ The plugins that come with rookery are installed from {location} now: rookery plugin update installs them from it"
+            ),
+            (true, false) => format!("✓ Changed the plugin registry {location}"),
+            (false, false) => format!("✓ Added the plugin registry {location}"),
+        }];
+        self.save(&config, lines)
+    }
+
+    /// Write `hatchery.kdl`, and tell the store.
+    fn save(&self, config: &Config, mut lines: Vec<String>) -> Result<Vec<String>> {
         fs::create_dir_all(&self.paths.config_dir)?;
         config.save(&config_file(&self.paths))?;
-        let mut lines = vec![match known {
-            true => format!("✓ Changed the plugin registry {location}"),
-            false => format!("✓ Added the plugin registry {location}"),
-        }];
         lines.extend(remembered(&self.paths));
         Ok(lines)
     }
 
-    /// Remove the registry at a location. What was installed from it stays,
-    /// and is not updated.
-    pub fn remove_registry(&self, location: &str) -> Result<Vec<String>> {
+    /// Remove the registry at a location or with a name. What was installed
+    /// from it stays, and is not updated. Without its line, the registry
+    /// named `rookery` is the one that comes with Rookery again, and what
+    /// that has is installed.
+    pub fn remove_registry(&self, asked: &str) -> Result<Vec<String>> {
         let mut config = config(&self.paths)?;
-        if !config.remove_registry(location) {
-            return Err(format!(
-                "No plugin registry {location}. See: rookery plugin registry list"
-            )
-            .into());
-        }
-        config.save(&config_file(&self.paths))?;
-        let mut lines = vec![format!("✓ Removed the plugin registry {location}")];
+        let found = config
+            .registries
+            .iter()
+            .find(|line| line.location == asked || line_name(line) == Some(asked))
+            .cloned();
+        let Some(line) = found else {
+            if asked == builtin::NAME {
+                return Err(Refused(format!(
+                    "{asked} comes with rookery and has no line in hatchery.kdl to remove: rookery plugin registry disable {asked} turns it off"
+                ))
+                .into());
+            }
+            return Err(
+                format!("No plugin registry {asked}. See: rookery plugin registry list").into(),
+            );
+        };
+        config.remove_registry(&line.location);
+        let mut lines = self.save(
+            &config,
+            vec![match line.kind == builtin::OFF {
+                true => format!("✓ Turned on the plugin registry {asked} again"),
+                false => format!("✓ Removed the plugin registry {asked}"),
+            }],
+        )?;
+        let gone = label(&line);
         let from: Vec<String> = self
             .scan()
             .into_iter()
-            .filter(|plugin| plugin.origin == PluginOrigin::Registry && plugin.source == location)
+            .filter(|plugin| {
+                plugin.origin == PluginOrigin::Registry
+                    && plugin.source.trim_end_matches('/') == gone
+            })
             .map(|plugin| plugin.id)
             .collect();
-        if !from.is_empty() {
+        if !from.is_empty() && line.kind != builtin::OFF {
             lines.push(format!(
                 "  ! {} came from it, and stay installed. They cannot be updated or installed again until it is added again",
                 from.join(", ")
             ));
         }
-        lines.extend(remembered(&self.paths));
+        if line_name(&line) == Some(builtin::NAME) {
+            lines.extend(self.builtins()?);
+        }
         Ok(lines)
+    }
+}
+
+/// Why a plugin that comes with rookery is not removed.
+fn shipped_stays(label: &str) -> String {
+    format!(
+        "{label} comes with rookery and stays while its registry is on: rookery plugin registry disable {} turns that off",
+        builtin::NAME
+    )
+}
+
+/// Remove the lines with a name, wherever they point.
+fn forget_named(config: &mut Config, name: &str) {
+    let named: Vec<String> = config
+        .registries
+        .iter()
+        .filter(|line| line_name(line) == Some(name))
+        .map(|line| line.location.clone())
+        .collect();
+    for location in named {
+        config.remove_registry(&location);
     }
 }
 
@@ -810,6 +1092,223 @@ mod tests {
         assert_eq!(restored.len(), 1);
         assert_eq!(restored[0].version, "1.0.0");
         assert!(config_file(&other).is_file());
+    }
+
+    /// The checkout, a provisioning source with the registry of the
+    /// plugins that come with Rookery.
+    fn checkout() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+    }
+
+    /// A manager of an empty configuration directory, beside the checkout.
+    fn builtin_fixture() -> (tempfile::TempDir, Manager) {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths {
+            config_dir: tmp.path().join("config"),
+            data_dir: tmp.path().join("data"),
+        };
+        let manager = Manager {
+            own: own_dir(&paths.config_dir),
+            paths,
+            source: Some(checkout()),
+        };
+        (tmp, manager)
+    }
+
+    fn names(manager: &Manager) -> Vec<(String, String, bool)> {
+        manager
+            .registries()
+            .unwrap()
+            .registries
+            .into_iter()
+            .map(|line| (line.name, line.kind, line.builtin))
+            .collect()
+    }
+
+    #[test]
+    fn the_registry_of_the_source_is_there_with_no_hatchery_kdl() {
+        let (_tmp, manager) = builtin_fixture();
+        assert!(!config_file(&manager.paths).exists());
+        let listed = manager.registries().unwrap().registries;
+        let [line] = listed.as_slice() else {
+            panic!("{listed:?}")
+        };
+        assert_eq!(
+            (line.name.as_str(), line.kind.as_str(), line.builtin),
+            ("rookery", "builtin", true)
+        );
+        assert_eq!(line.only, ["rookery"]);
+        assert_eq!(
+            Path::new(&line.location),
+            builtin::dir(&checkout()).as_path()
+        );
+        assert_eq!(line.min_age, None);
+
+        // A registry added beside it comes after it.
+        let other = PluginRegistry {
+            kind: "http".into(),
+            location: "https://eggs.example.org".into(),
+            ..PluginRegistry::default()
+        };
+        manager.add_registry(&other).unwrap();
+        assert_eq!(
+            names(&manager),
+            [
+                ("rookery".into(), "builtin".into(), true),
+                (String::new(), "http".into(), false)
+            ]
+        );
+        let written = fs::read_to_string(config_file(&manager.paths)).unwrap();
+        assert!(!written.contains("builtin"), "{written}");
+    }
+
+    #[test]
+    fn the_plugins_that_come_with_rookery_are_installed_from_its_registry_offline() {
+        let (_tmp, manager) = builtin_fixture();
+        let said = manager.builtins().unwrap();
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said[0].starts_with(
+                "rookery: installed the plugins that come with rookery: rookery/backup "
+            ),
+            "{said:?}"
+        );
+        let lock = hatchery::Lock::load(manager.own()).unwrap();
+        let offered = builtin::offered(&builtin::dir(&checkout())).unwrap();
+        assert_eq!(lock.packages.len(), offered.len());
+        for (name, version) in &offered {
+            let locked = lock.get(name).unwrap();
+            assert_eq!(&locked.version, version, "{name}");
+            assert_eq!(locked.registry.as_deref(), Some("rookery"));
+        }
+        let plugins = manager.scan();
+        assert_eq!(plugins.len(), offered.len());
+        for plugin in &plugins {
+            assert_eq!(plugin.origin, PluginOrigin::Shipped, "{}", plugin.id);
+            assert_eq!(plugin.problem, None, "{}", plugin.id);
+            assert!(plugin.dir.starts_with(manager.own()));
+        }
+        assert!(manager.builtins().unwrap().is_empty());
+        let error = manager.remove("github").unwrap_err().to_string();
+        assert!(
+            error.contains("rookery plugin registry disable rookery"),
+            "{error}"
+        );
+        let updates = manager.check().unwrap();
+        assert!(
+            updates.plugins.iter().all(|update| update.latest.is_none()),
+            "{updates:?}"
+        );
+    }
+
+    #[test]
+    fn a_line_named_rookery_takes_the_place_of_the_registry_of_the_source() {
+        let (_tmp, manager) = builtin_fixture();
+        let other = tempfile::tempdir().unwrap();
+        let said = manager
+            .add_registry(&PluginRegistry {
+                kind: "dir".into(),
+                location: other.path().display().to_string(),
+                name: "rookery".into(),
+                ..PluginRegistry::default()
+            })
+            .unwrap();
+        assert!(said[0].contains("are installed from"), "{said:?}");
+        let listed = manager.registries().unwrap().registries;
+        let [line] = listed.as_slice() else {
+            panic!("{listed:?}")
+        };
+        assert_eq!(
+            (line.name.as_str(), line.kind.as_str(), line.builtin),
+            ("rookery", "dir", false)
+        );
+        assert_eq!(line.only, ["rookery"]);
+        assert!(manager.builtins().unwrap().is_empty());
+        assert!(manager.scan().is_empty());
+
+        // Pointing the name elsewhere changes the same line.
+        let again = tempfile::tempdir().unwrap();
+        manager
+            .add_registry(&PluginRegistry {
+                kind: "dir".into(),
+                location: again.path().display().to_string(),
+                name: "rookery".into(),
+                ..PluginRegistry::default()
+            })
+            .unwrap();
+        let listed = manager.registries().unwrap().registries;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].location, again.path().display().to_string());
+
+        // Without its line, the registry of the source is back, and what it
+        // has is installed.
+        let said = manager.remove_registry("rookery").unwrap();
+        assert_eq!(said[0], "✓ Removed the plugin registry rookery");
+        assert!(
+            said[1].starts_with("rookery: installed the plugins"),
+            "{said:?}"
+        );
+        assert_eq!(
+            names(&manager),
+            [("rookery".into(), "builtin".into(), true)]
+        );
+    }
+
+    #[test]
+    fn the_registry_of_the_source_is_turned_off_and_on() {
+        let (_tmp, manager) = builtin_fixture();
+        manager.builtins().unwrap();
+        let off = PluginRegistry {
+            kind: "off".into(),
+            location: "rookery".into(),
+            ..PluginRegistry::default()
+        };
+        let said = manager.add_registry(&off).unwrap();
+        assert!(
+            said[0].starts_with("✓ Turned off the plugin registry rookery"),
+            "{said:?}"
+        );
+        assert_eq!(
+            manager.add_registry(&off).unwrap(),
+            ["✓ The plugin registry rookery is off already"]
+        );
+        assert_eq!(names(&manager), [("rookery".into(), "off".into(), false)]);
+        let written = fs::read_to_string(config_file(&manager.paths)).unwrap();
+        assert!(written.contains("off rookery"), "{written}");
+        assert!(manager.builtins().unwrap().is_empty());
+
+        // What came from it stays, as plugins of a registry that is gone,
+        // and can be removed.
+        let plugins = manager.scan();
+        assert_eq!(plugins.len(), 5);
+        assert!(
+            plugins
+                .iter()
+                .all(|plugin| (plugin.origin, plugin.source.as_str())
+                    == (PluginOrigin::Registry, "rookery"))
+        );
+        assert_eq!(manager.remove("unity").unwrap()[0], "✓ Removed Unity");
+        assert_eq!(manager.scan().len(), 4);
+
+        let error = manager
+            .add_registry(&PluginRegistry {
+                kind: "off".into(),
+                location: "elsewhere".into(),
+                ..PluginRegistry::default()
+            })
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("Only the registry that comes with rookery"),
+            "{error}"
+        );
+
+        let said = manager.remove_registry("rookery").unwrap();
+        assert_eq!(said[0], "✓ Turned on the plugin registry rookery again");
+        assert!(said[1].contains("rookery/unity"), "{said:?}");
+        assert_eq!(manager.scan().len(), 5);
+        let error = manager.remove_registry("rookery").unwrap_err().to_string();
+        assert!(error.contains("disable rookery"), "{error}");
     }
 
     #[test]

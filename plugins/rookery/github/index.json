@@ -1,0 +1,29 @@
+{
+  "group": "rookery",
+  "id": "github",
+  "about": {
+    "name": "GitHub",
+    "summary": "GitHub's CLI and sign-in for rookery machines.",
+    "licenses": [
+      "MIT",
+      "Apache-2.0"
+    ],
+    "repository": "https://github.com/aiviarium/rookery",
+    "keywords": [
+      "rookery-plugin"
+    ]
+  },
+  "versions": {
+    "0.1.0": {
+      "sha256": "3a1d761707c845e29b8c034a11bbc907a52761aae0234a25766bd1cad3ef8a76",
+      "published": "2026-11-18T02:31:01Z",
+      "targets": {
+        "rookery": {
+          "requires": {
+            "rookery": ">=0.6"
+          }
+        }
+      }
+    }
+  }
+}

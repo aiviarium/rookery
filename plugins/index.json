@@ -1,0 +1,9 @@
+{
+  "packages": [
+    "rookery/backup",
+    "rookery/docker",
+    "rookery/github",
+    "rookery/incus",
+    "rookery/unity"
+  ]
+}

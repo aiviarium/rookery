@@ -54,7 +54,9 @@ fn uploads_named(lock: &[u8]) -> Vec<String> {
 }
 
 /// A lock file whose eggs that were sent are found in `own`'s folder of
-/// them, wherever they were kept on the machine that installed them.
+/// them, wherever they were kept on the machine that installed them. It
+/// leaves out what came with the rookery that installed them: this
+/// machine's rookery installs its own (see [`eggs::builtins`]).
 fn lock_here(lock: &[u8], own: &Path) -> Vec<u8> {
     let Ok(mut parsed) = toml::from_slice::<toml::Table>(lock) else {
         return lock.to_vec();
@@ -63,6 +65,9 @@ fn lock_here(lock: &[u8], own: &Path) -> Vec<u8> {
         .get_mut("package")
         .and_then(toml::Value::as_array_mut)
     {
+        packages.retain(|package| {
+            package.get("registry").and_then(toml::Value::as_str) != Some(crate::builtin::NAME)
+        });
         for package in packages.iter_mut().filter_map(toml::Value::as_table_mut) {
             let Some(name) = package
                 .get("file")

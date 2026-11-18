@@ -226,8 +226,8 @@ def host_files() -> dict:
     features = ["github/cli", "unity/cli", "backup/restic"]
     for chosen in features:
         plugin_id, feature_id = chosen.split("/")
-        package = json.loads((REPO / "plugins" / plugin_id / "rookery/rookery.json").read_text())
-        about = re.search(r'^\s*name "([^"]+)"', (REPO / "plugins" / plugin_id / "package.kdl").read_text(), re.M)
+        package = json.loads((REPO / "plugins/rookery" / plugin_id / "rookery/rookery.json").read_text())
+        about = re.search(r'^\s*name "([^"]+)"', (REPO / "plugins/rookery" / plugin_id / "package.kdl").read_text(), re.M)
         label = about.group(1) if about else plugin_id
         feature = next(f for f in package["features"] if f["id"] == feature_id)
         # The same as templates/rookery-feature.json.j2.

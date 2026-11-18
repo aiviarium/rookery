@@ -2,6 +2,7 @@
 //! kept, hosts and how to reach them, plugins, registries and secrets, jobs.
 
 pub mod apply;
+pub mod builtin;
 pub mod credentials;
 pub mod discovery;
 pub mod eggs;

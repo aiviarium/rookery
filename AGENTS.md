@@ -15,7 +15,7 @@ Rookery provisions and manages development machines. It sets up Ubuntu hosts and
 | `crates/rookery-page/` | Rookery's screens in a terminal. They do everything through the API of a server. That is one elsewhere, a `rookery serve` on its socket, or the one in the process. `net.rs` reaches it, `portal.rs` is its portal, `settings.rs` keeps the server and its token, and `device.rs` is what the program starts them with |
 | `crates/vendor/` | The vendored `tui-input` crate |
 | `provision/` | The installer side of the provisioning source: the role in `ansible/`, first-boot provisioning in `bootstrap/`, the builder of seeds and releases in `bin/rookery.py` and the example profile in `config/`. Rookery names these paths in `layout` in `crates/rookery-core/src/paths.rs` |
-| `plugins/` | The plugins that come with Rookery (`backup`, `docker`, `github`, `incus` and `unity`), each a Hatchery package with a `package.kdl` and its files in `rookery/`, where `rookery.json` follows `schemas/rookery-plugin.schema.json` and `guide.md` is its guide. With `provision/` they make the provisioning source, which Rookery carries and unpacks with the same layout |
+| `plugins/` | The plugins that come with Rookery (`backup`, `docker`, `github`, `incus` and `unity`), a static Hatchery registry named `rookery`. Each package in `plugins/rookery/ID/` has a `package.kdl` and its files in `rookery/`, where `rookery.json` follows `schemas/rookery-plugin.schema.json` and `guide.md` is its guide, beside its egg and `index.json`. `builtin.rs` in rookery-core reads the registry. With `provision/` they make the provisioning source, which Rookery carries and unpacks with the same layout |
 | `schemas/` | The JSON Schema of a plugin's `rookery.json`, the contract a plugin keeps |
 | `recipes/` | Set-ups that go with Rookery but are not installed by it. Each is a folder with a guide and a script. `recipes/README.md` lists them |
 | `.agents/skills/` | Skills for coding agents that work with Rookery, such as installing it. `.claude/skills` links here |
@@ -49,8 +49,9 @@ Use cargo for everything Rust. These are what CI runs:
 cargo test --locked
 cargo fmt --check -p rookery-api -p rookery-pty -p rookery-core -p rookery-tui -p rookery -p rookeryd -p box -p rookery-page
 cargo clippy --locked --all-targets -- -D warnings
+cargo run --locked -q -p rookery -- plugin check plugins
 python3 -m unittest discover -s tests -v
-vale --minAlertLevel=warning --glob='!docs/content/docs/api/{host,serve}/**' README.md AGENTS.md docs/AGENTS.md docs/content/docs plugins/*/rookery/guide.md
+vale --minAlertLevel=warning --glob='!docs/content/docs/api/{host,serve}/**' README.md AGENTS.md docs/AGENTS.md docs/content/docs plugins/rookery/*/rookery/guide.md
 ```
 
 The Docs workflow checks the docs site with `npm run typecheck`, `npm run lint` and `npm run links` in `docs/`, and builds it. It runs for every pull request, as `ci/plan.py` leaves the site out of CI's units.
@@ -64,7 +65,7 @@ Development and test builds embed quick builds of rookeryd and box (the `host-de
 With only Docker or Podman, `ci/run.sh` runs the same checks in an image that has the toolchain. CI uses it too.
 
 ```bash
-ci/run.sh check [CHECK…]   # fmt, shell-syntax, ansible-syntax, vale, python-tests, rust-tests, clippy
+ci/run.sh check [CHECK…]   # fmt, shell-syntax, ansible-syntax, vale, python-tests, rust-tests, plugin-check, clippy
 ci/run.sh e2e [TEST…]      # the end-to-end tests, such as e2e_serve.Roles
 ci/run.sh e2e --shard NAME # the tests of one shard on a fresh host, as a CI job runs them
 ci/run.sh shell            # a shell in the dev container
@@ -128,6 +129,7 @@ An action that changes something runs as a job through `runner.rs`. The screens 
 - Every program says `rookery_api::VERSION`. Do not read `CARGO_PKG_VERSION` anywhere else. A test checks.
 - A release is a pushed tag `vX.Y.Z`. The Build workflow builds with `ROOKERY_BUILD_VERSION` set from it, publishes the release and the image, then opens a pull request that sets the version on `main` (`Cargo.toml`, `Cargo.lock`, `docs/openapi/`). Merge it when its checks have passed. Do not change the version by hand.
 - A tag with a suffix, such as `v0.4.0-rc.1`, makes a pre-release and leaves `main` alone.
+- A plugin in `plugins/rookery/` is published in the registry there. A change to one gives it a new version in its `package.kdl`, because a published version keeps its contents. `ROOKERY_UPDATE_DOCS=1 cargo test -p rookery-core builtin` writes its egg and `index.json` again, and the test fails while they are stale.
 
 ## Conventions
 

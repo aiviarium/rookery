@@ -120,11 +120,7 @@ pub fn list_plugins(paths: &Paths) -> Vec<Plugin> {
 }
 
 pub(crate) fn found(paths: &Paths) -> Vec<Plugin> {
-    let own = plugins::own_dir(&paths.config_dir);
-    match paths.source() {
-        Ok(source) => plugins::found(&source, &own),
-        Err(_) => plugins::load(&[own]),
-    }
+    plugins::installed(&paths.config_dir)
 }
 
 pub(crate) fn find<'a>(plugins: &'a [Plugin], name: &str) -> Result<(&'a Plugin, &'a Provisioner)> {
@@ -1337,7 +1333,7 @@ print(out)
             fs::write(source.join(crate::paths::layout::BUILDER), BUILDER).unwrap();
             paths.set("source", source.to_str().unwrap()).unwrap();
             let plugin = crate::plugins::tests::write_package(
-                &source.join("plugins/fake"),
+                &crate::plugins::own_dir(&paths.config_dir).join("example/fake"),
                 "fake",
                 "1.0.0",
                 None,

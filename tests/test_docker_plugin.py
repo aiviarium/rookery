@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-PLUGIN = Path(__file__).resolve().parents[1] / 'plugins/docker/rookery'
+PLUGIN = Path(__file__).resolve().parents[1] / 'plugins/rookery/docker/rookery'
 KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyForTestsOnly rookery'
 
 # Answers by the start of the argument list. Each rule has results, [code, stdout, stderr],

@@ -101,7 +101,7 @@ rookery_tool_categories:
 # Plugin features to install, as PLUGIN/FEATURE, applied in this order.
 rookery_plugin_features: [github/cli]
 # The folder of each plugin's rookery target, by id, when it is not the
-# source's plugins/ID/rookery.
+# release's installed/ID/rookery or plugins/rookery/ID/rookery.
 rookery_plugin_dirs: {}
 # The name of each plugin, by id, for the groups of its actions.
 rookery_plugin_labels: {}

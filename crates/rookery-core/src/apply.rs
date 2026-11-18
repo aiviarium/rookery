@@ -163,8 +163,7 @@ pub fn playbook(source: &std::path::Path) -> Command {
 /// or a workstation is applied: every way to apply comes through here.
 pub fn prepare(paths: &Paths, host: &Host, become_password: Option<&str>) -> Result<Prepared> {
     crate::host_type::guard(host, crate::host_type::Capability::Apply)?;
-    let source = paths.source()?;
-    let plugins = plugins::load(&[source.join("plugins"), paths.config_dir.join("plugins")]);
+    let plugins = plugins::installed(&paths.config_dir);
     crate::node::check_features(&plugins, &host.name, &host.config)?;
     crate::node::check_removal(paths, host)?;
     let dirs = plugin_dirs(&plugins);

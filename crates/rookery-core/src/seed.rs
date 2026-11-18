@@ -42,10 +42,7 @@ pub fn cloud(paths: &Paths, store: &Store, name: &str, delivered: bool) -> Resul
         return Err(crate::Refused(problem).into());
     }
     let source = paths.source()?;
-    let dirs = apply::plugin_dirs(&plugins::found(
-        &source,
-        &plugins::own_dir(&paths.config_dir),
-    ));
+    let dirs = apply::plugin_dirs(&plugins::installed(&paths.config_dir));
     let release = host.config["release_store"]
         .as_str()
         .unwrap_or("")
@@ -196,10 +193,7 @@ pub fn installer(paths: &Paths, name: &str, ubuntu: &std::path::Path) -> Result<
     let host = Host::load(paths, name)?;
     crate::host_type::guard(&host, crate::host_type::Capability::Apply)?;
     let source = paths.source()?;
-    let dirs = apply::plugin_dirs(&plugins::found(
-        &source,
-        &plugins::own_dir(&paths.config_dir),
-    ));
+    let dirs = apply::plugin_dirs(&plugins::installed(&paths.config_dir));
     let saved = host.config.clone();
     let key = tailnet::seed_key(paths, &saved, name)?;
     let mut config = named(saved.clone(), name);

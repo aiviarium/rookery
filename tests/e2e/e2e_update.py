@@ -12,7 +12,7 @@ import json
 import unittest
 
 from harness import (AGENT, HOST, SCRATCH, Workstation, extended, light_vars, needs_e2e, plugin_registry,
-                     plugin_version, random_text, served_extended, unb64, wait_for)
+                     plugin_version, publish_builtin, random_text, served_extended, unb64, wait_for)
 
 PACKAGE = 'example/up'
 
@@ -140,21 +140,23 @@ class Update(unittest.TestCase):
 
 @needs_e2e
 class ShippedChanged(unittest.TestCase):
-    """A plugin that comes with rookery changes with rookery, keeping its version.
-    The roll-out that applies the change is asked to reboot the host too,
-    which says it needs one while a session runs there."""
+    """A plugin that comes with rookery changes with rookery: its registry
+    has a new version, which rookery installs by itself. The roll-out that
+    applies the change is asked to reboot the host too, which says it needs
+    one while a session runs there."""
 
     @classmethod
     def setUpClass(cls):
         cls.station = station = extended().station
         cls.link = station.link()
         cls.current = station.rookery('rollout').stdout
-        cls.refused = station.rookery('plugin', 'update', 'shipit', check=False).stderr
-        # The same version, another task.
-        source = SCRATCH / 'source-shipped/plugins/shipit/rookery/rookery.json'
-        manifest = json.loads(source.read_text())
+        cls.latest = station.rookery('plugin', 'update', 'shipit').stdout
+        # The next version, with another task, in rookery's own registry.
+        package = plugin_version('1.0.1', 'shipit', 'rookery')
+        manifest = json.loads((package / 'rookery/rookery.json').read_text())
         manifest['features'][0]['actions'][0]['run'] = 'echo "hello from the new rookery"'
-        source.write_text(json.dumps(manifest))
+        (package / 'rookery/rookery.json').write_text(json.dumps(manifest))
+        publish_builtin(SCRATCH / 'source-shipped/plugins', package)
         station.root_on_host('touch /var/run/reboot-required')
         sleeper = cls.link.post('/v1/sessions', {'kind': 'process', 'title': 'busy', 'command': ['sleep', '600']})
         try:
@@ -165,8 +167,8 @@ class ShippedChanged(unittest.TestCase):
 
     def test_the_host_is_behind_until_applied(self):
         self.assertIn(f'✓ {HOST} is current', self.current)
-        self.assertIn('comes with rookery', self.refused)
-        self.assertIn(f'▸ {HOST}: applying (shipit 1.0.0 (changed))', self.rolled.stdout)
+        self.assertIn('shipit 1.0.0 is the latest', self.latest)
+        self.assertIn(f'▸ {HOST}: applying (shipit 1.0.0 → 1.0.1)', self.rolled.stdout)
         self.assertEqual(self.station.rookery('run', HOST, 'shipit:hello').stdout.strip(), 'hello from the new rookery')
 
     def test_a_reboot_waits_for_running_sessions(self):

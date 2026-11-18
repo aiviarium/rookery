@@ -42,6 +42,8 @@ async fn served_with(provision: fn() -> rookery_core::provision::Options) -> Ser
     let dir = tempfile::tempdir().unwrap();
     let mut state = state_in(dir.path(), None);
     Arc::get_mut(&mut state).unwrap().provision = provision;
+    // As rookery serve does when it starts.
+    crate::local::restore_plugins(&state.paths);
     let socket = dir.path().join("serve.sock");
     let listener = tokio::net::UnixListener::bind(&socket).unwrap();
     let router = api::router(state.clone(), false);
@@ -583,6 +585,53 @@ async fn hosts_jobs_and_the_inbox_over_the_api() {
             .status(),
         404
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_folder_is_a_plugin_registry_only_for_a_caller_on_the_socket() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = state_in(dir.path(), Some("s3cret-token"));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let router = api::router(state.clone(), true);
+    tokio::spawn(async move { axum::serve(listener, router).await });
+    let mut client = Client::over(tokio::net::TcpStream::connect(address).await.unwrap())
+        .await
+        .unwrap();
+    let admin = [
+        ("authorization", "Bearer s3cret-token"),
+        ("content-type", "application/json"),
+    ];
+    let folder = dir.path().join("eggs").display().to_string();
+    for (kind, location, wanted) in [
+        ("dir", folder.as_str(), 403),
+        ("git", folder.as_str(), 403),
+        ("git", "file:///srv/eggs.git", 403),
+        ("git", "../eggs", 403),
+        ("http", "https://eggs.example.org", 200),
+        ("git", "https://example.org/eggs.git", 200),
+    ] {
+        let asked = json!({"kind": kind, "location": location}).to_string();
+        let answer = client
+            .send("POST", "/v1/plugins/registries", &admin, asked.into())
+            .await
+            .unwrap();
+        assert_eq!(answer.status, wanted, "{kind} {location}");
+    }
+    let written = std::fs::read_to_string(dir.path().join("config/hatchery.kdl")).unwrap();
+    assert!(!written.contains(&folder), "{written}");
+
+    // On the socket, the server's own user adds a folder.
+    let socket = dir.path().join("serve.sock");
+    let unix = tokio::net::UnixListener::bind(&socket).unwrap();
+    let router = api::router(state, false);
+    tokio::spawn(async move { axum::serve(unix, router).await });
+    let mut local = Client::over(tokio::net::UnixStream::connect(&socket).await.unwrap())
+        .await
+        .unwrap();
+    let asked = json!({"kind": "dir", "location": folder});
+    let (status, said) = send(&mut local, "POST", "/v1/plugins/registries", asked).await;
+    assert_eq!(status, 200, "{said}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1730,7 +1779,14 @@ async fn plugins_are_managed_through_the_api() {
     let (status, said) = send(client, "POST", "/v1/plugins/registries", asked).await;
     assert_eq!(status, 200, "{said}");
     let (_, listed) = send(client, "GET", "/v1/plugins/registries", Value::Null).await;
-    assert_eq!(listed["registries"][0]["location"], json!(location));
+    assert_eq!(
+        (
+            &listed["registries"][0]["name"],
+            &listed["registries"][0]["builtin"]
+        ),
+        (&json!("rookery"), &json!(true))
+    );
+    assert_eq!(listed["registries"][1]["location"], json!(location));
     assert!(
         listed["file"]
             .as_str()
@@ -1779,11 +1835,16 @@ async fn plugins_are_managed_through_the_api() {
     // Its registry is asked for a newer version.
     let (status, checked) = send(client, "GET", "/v1/plugins/updates", Value::Null).await;
     assert_eq!(status, 200, "{checked}");
-    assert_eq!(checked["plugins"][0]["id"], "hello");
-    assert_eq!(checked["plugins"][0]["latest"], Value::Null);
+    let hello = checked["plugins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|plugin| plugin["id"] == "hello")
+        .unwrap();
+    assert_eq!(hello["latest"], Value::Null);
     for (id, status, says) in [
         ("hello", 200, "hello 1.0.0 is the latest"),
-        ("github", 400, "comes with rookery"),
+        ("github", 200, "is the latest"),
         ("nothing", 404, "No plugin"),
     ] {
         let (got, said) = send(client, "POST", "/v1/plugins/update", json!({"id": id})).await;

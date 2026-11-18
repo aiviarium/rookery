@@ -895,16 +895,35 @@ fn plugin_registry(client: &Client, command: args::PluginRegistry) -> Result<()>
             out::data(&found, || {
                 let listed: rookery_api::PluginRegistries =
                     serde_json::from_value(found.clone()).unwrap_or_default();
-                let mut table = Table::new(&["kind", "location", "groups", "min age", "key"]);
+                let mut table =
+                    Table::new(&["name", "kind", "location", "groups", "min age", "key"]);
                 for registry in &listed.registries {
+                    if registry.kind == "off" {
+                        table.row(vec![
+                            registry.location.clone(),
+                            "off".into(),
+                            "turned off".into(),
+                            String::new(),
+                            String::new(),
+                            String::new(),
+                        ]);
+                        continue;
+                    }
                     table.row(vec![
-                        registry.kind.clone(),
+                        registry.name.clone(),
+                        match registry.builtin {
+                            true => "built in".into(),
+                            false => registry.kind.clone(),
+                        },
                         registry.location.clone(),
                         match registry.only.is_empty() {
                             true => "any".to_owned(),
                             false => registry.only.join(", "),
                         },
-                        registry.min_age.clone().unwrap_or_else(|| "default".into()),
+                        match registry.builtin {
+                            true => "none".into(),
+                            false => registry.min_age.clone().unwrap_or_else(|| "default".into()),
+                        },
                         match (&registry.key, registry.unsigned_tags) {
                             (None, _) => "none".to_owned(),
                             (Some(_), false) => "signed eggs".to_owned(),
@@ -922,6 +941,7 @@ fn plugin_registry(client: &Client, command: args::PluginRegistry) -> Result<()>
         args::PluginRegistry::Add {
             kind,
             location,
+            name,
             only,
             key,
             min_age,
@@ -935,10 +955,12 @@ fn plugin_registry(client: &Client, command: args::PluginRegistry) -> Result<()>
                 }
                 .into(),
                 location,
+                name: name.unwrap_or_default(),
                 only,
                 key,
                 min_age,
                 unsigned_tags,
+                builtin: false,
             };
             report(&client.call(
                 "plugins.registries.add",
@@ -956,14 +978,43 @@ fn plugin_registry(client: &Client, command: args::PluginRegistry) -> Result<()>
             )?);
             Ok(())
         }
+        args::PluginRegistry::Disable { name } => {
+            let asked = rookery_api::PluginRegistry {
+                kind: "off".into(),
+                location: name,
+                ..rookery_api::PluginRegistry::default()
+            };
+            report(&client.call(
+                "plugins.registries.add",
+                json!({}),
+                Some(serde_json::to_value(asked)?),
+            )?);
+            Ok(())
+        }
     }
 }
 
-/// Check a package folder against the plugin contract, on this machine.
+/// Check a package folder against the plugin contract, on this machine,
+/// or each package of a registry folder.
 pub fn check_plugin(dir: &std::path::Path) -> Result<()> {
-    let problems = rookery_api::plugin_contract::check_dir(dir);
+    let catalog = dir.join("index.json");
+    let (problems, kept) = match !dir.join("package.kdl").is_file() && catalog.is_file() {
+        true => {
+            let (count, problems) = check_registry(dir, &catalog)?;
+            let kept = format!(
+                "The {count} package{} of {} keep Rookery's plugin contract",
+                if count == 1 { "" } else { "s" },
+                dir.display()
+            );
+            (problems, kept)
+        }
+        false => (
+            rookery_api::plugin_contract::check_dir(dir),
+            format!("{} keeps Rookery's plugin contract", dir.display()),
+        ),
+    };
     if problems.is_empty() {
-        out::done(format!("{} keeps Rookery's plugin contract", dir.display()));
+        out::done(kept);
         return Ok(());
     }
     for problem in &problems {
@@ -975,6 +1026,34 @@ pub fn check_plugin(dir: &std::path::Path) -> Result<()> {
         problems.len(),
         if problems.len() == 1 { "" } else { "s" }
     )))
+}
+
+/// How many packages a registry folder lists, and the problems of each,
+/// each line with the package's name.
+fn check_registry(
+    dir: &std::path::Path,
+    catalog: &std::path::Path,
+) -> Result<(usize, Vec<String>)> {
+    let data = std::fs::read(catalog)
+        .map_err(|error| Fail::failed(format!("{}: {error}", catalog.display())))?;
+    let catalog: hatchery::index::Catalog = hatchery::index::from_json("index.json", &data)
+        .map_err(|error| Fail::failed(format!("{}: {error}", dir.display())))?;
+    let mut problems = vec![];
+    for name in &catalog.packages {
+        let package = dir.join(name.dir());
+        match package.join("package.kdl").is_file() {
+            true => problems.extend(
+                rookery_api::plugin_contract::check_dir(&package)
+                    .into_iter()
+                    .map(|problem| format!("{name}: {problem}")),
+            ),
+            false => problems.push(format!(
+                "{name}: the registry lists it, and {} has no package.kdl",
+                package.display()
+            )),
+        }
+    }
+    Ok((catalog.packages.len(), problems))
 }
 
 /// A package folder as the base egg Hatchery makes of it, without a build

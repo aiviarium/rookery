@@ -1113,7 +1113,8 @@ impl Default for Config {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum PluginOrigin {
-    /// It is part of the provisioning source and stays.
+    /// Installed from the registry named `rookery`, which comes with
+    /// Rookery. It stays while that registry is on.
     #[default]
     Shipped,
     /// Installed as an egg from one of the plugin registries.
@@ -1272,9 +1273,20 @@ pub struct PluginSpec {
 /// A registry plugins are installed from, a line of `hatchery.kdl`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct PluginRegistry {
-    /// `git`, `http` or `dir`.
+    /// Its name, which a line of its own keeps. The one named `rookery`
+    /// holds the plugins that come with Rookery.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    /// It is the registry in Rookery's own source, searched first because
+    /// no line of `hatchery.kdl` has its name.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub builtin: bool,
+    /// `git`, `http` or `dir`. `builtin` for the registry in Rookery's own
+    /// source, and `off` for a line that turns the registry its location
+    /// names off.
     pub kind: String,
-    /// A repository address, a base URL or a folder.
+    /// A repository address, a base URL or a folder. The registry's name
+    /// for an `off` line.
     pub location: String,
     /// The groups it may serve; any when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -1636,6 +1636,10 @@
       "PluginRegistry": {
         "description": "A registry plugins are installed from, a line of `hatchery.kdl`.",
         "properties": {
+          "builtin": {
+            "description": "It is the registry in Rookery's own source, searched first because\nno line of `hatchery.kdl` has its name.",
+            "type": "boolean"
+          },
           "key": {
             "description": "Its public key, `ed25519:…`. Eggs from it must then be signed.",
             "type": [
@@ -1644,11 +1648,11 @@
             ]
           },
           "kind": {
-            "description": "`git`, `http` or `dir`.",
+            "description": "`git`, `http` or `dir`. `builtin` for the registry in Rookery's own\nsource, and `off` for a line that turns the registry its location\nnames off.",
             "type": "string"
           },
           "location": {
-            "description": "A repository address, a base URL or a folder.",
+            "description": "A repository address, a base URL or a folder. The registry's name\nfor an `off` line.",
             "type": "string"
           },
           "min_age": {
@@ -1657,6 +1661,10 @@
               "string",
               "null"
             ]
+          },
+          "name": {
+            "description": "Its name, which a line of its own keeps. The one named `rookery`\nholds the plugins that come with Rookery.",
+            "type": "string"
           },
           "only": {
             "description": "The groups it may serve; any when empty.",
@@ -2086,7 +2094,7 @@
         "type": "object"
       },
       "RegistryLocation": {
-        "description": "A plugin registry, by its location.",
+        "description": "A plugin registry, by its location or name.",
         "properties": {
           "location": {
             "type": "string"
@@ -3746,7 +3754,7 @@
           "status": "404"
         },
         {
-          "description": "It comes with rookery and stays",
+          "description": "It comes with rookery and stays while that registry is on",
           "status": "409"
         }
       ],
@@ -3867,6 +3875,10 @@
         {
           "description": "Not a registry the server can read; the message says why",
           "status": "400"
+        },
+        {
+          "description": "A registry in a folder of the server, which only a caller on its socket adds",
+          "status": "403"
         }
       ],
       "group": "plugins",
@@ -3883,12 +3895,12 @@
         }
       },
       "role": "admin",
-      "summary": "Add a plugin registry after the others, or change the one at its location."
+      "summary": "Add a plugin registry after the others, or change the one at its location or with its name. Kind off with the location rookery turns off the registry that comes with rookery."
     },
     {
       "args": [],
       "data": {
-        "description": "The registry's location",
+        "description": "The registry's location or name",
         "schema": {
           "$ref": "#/components/schemas/RegistryLocation"
         }
@@ -3913,7 +3925,7 @@
         }
       },
       "role": "admin",
-      "summary": "Remove a plugin registry. What was installed from it stays."
+      "summary": "Remove a plugin registry. What was installed from it stays. Without a line named rookery, the registry that comes with rookery is used again."
     },
     {
       "args": [],

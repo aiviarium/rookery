@@ -9,7 +9,7 @@ mod tests {
 
     #[test]
     fn the_shipped_plugins_keep_the_contract() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/rookery");
         let mut checked = 0;
         for entry in fs::read_dir(&root).unwrap().flatten() {
             let dir = entry.path();

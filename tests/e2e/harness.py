@@ -9,8 +9,10 @@ test writes goes into scratch directories; the checkout is read-only.
 import base64
 import contextlib
 import fcntl
+import gzip
 import hashlib
 import http.client
+import io
 import json
 import os
 import pty
@@ -22,6 +24,7 @@ import signal
 import socket
 import struct
 import subprocess
+import tarfile
 import tempfile
 import threading
 import time
@@ -116,19 +119,54 @@ def source():
 
 
 def source_with_plugins(name, plugins):
-    """Another overlay of the checkout whose plugins/ has these besides the
-    shipped ones, by id: {id: folder}, copied so a test may change them."""
+    """Another overlay of the checkout whose registry of the plugins that
+    come with rookery, plugins/, has these besides its own, by id: {id:
+    package folder of the group rookery}."""
     overlay = SCRATCH / name
     overlay.mkdir()
     for entry in source().iterdir():
         if entry.name != 'plugins':
             (overlay / entry.name).symlink_to(entry.resolve() if entry.name != 'provision' else entry)
-    (overlay / 'plugins').mkdir()
-    for shipped in (SRC / 'plugins').iterdir():
-        (overlay / 'plugins' / shipped.name).symlink_to(shipped)
-    for plugin, folder in plugins.items():
-        shutil.copytree(folder, overlay / 'plugins' / plugin)
+    (overlay / 'plugins/rookery').mkdir(parents=True)
+    for shipped in (SRC / 'plugins/rookery').iterdir():
+        (overlay / 'plugins/rookery' / shipped.name).symlink_to(shipped)
+    shutil.copy(SRC / 'plugins/index.json', overlay / 'plugins/index.json')
+    for folder in plugins.values():
+        publish_builtin(overlay / 'plugins', folder)
     return overlay
+
+
+def publish_builtin(registry, folder):
+    """Publish a package folder of the group rookery in a static registry,
+    as an egg beside its index: what a new rookery brings. The registry
+    keeps only this version of it."""
+    kdl = (folder / 'package.kdl').read_text()
+    plugin = re.search(r'^\s*id (\S+)', kdl, re.M).group(1)
+    version = re.search(r'^\s*version "([^"]+)"', kdl, re.M).group(1)
+    data = io.BytesIO()
+    with gzip.GzipFile(fileobj=data, mode='wb', mtime=0) as gz, tarfile.open(fileobj=gz, mode='w') as egg:
+        for path in sorted([folder / 'package.kdl', *(p for p in (folder / 'rookery').rglob('*') if p.is_file())]):
+            info = tarfile.TarInfo(str(path.relative_to(folder)))
+            info.size = path.stat().st_size
+            info.mode = 0o755 if path.stat().st_mode & 0o111 else 0o644
+            with path.open('rb') as stream:
+                egg.addfile(info, stream)
+    package = registry / 'rookery' / plugin
+    if package.is_symlink():
+        package.unlink()
+    package.mkdir(parents=True, exist_ok=True)
+    for old in package.glob('*.egg'):
+        old.unlink()
+    (package / f'{plugin}-{version}.egg').write_bytes(data.getvalue())
+    (package / 'index.json').write_text(json.dumps({
+        'group': 'rookery', 'id': plugin,
+        'versions': {version: {
+            'sha256': hashlib.sha256(data.getvalue()).hexdigest(),
+            'published': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            'targets': {'rookery': {'requires': {'rookery': '>=0.6'}}}}}}, indent=2))
+    catalog = json.loads((registry / 'index.json').read_text())
+    catalog['packages'] = sorted(set(catalog['packages']) | {f'rookery/{plugin}'})
+    (registry / 'index.json').write_text(json.dumps(catalog, indent=2))
 
 
 # ---------------------------------------------------------------------------
@@ -459,15 +497,15 @@ def plugin_package(folder, plugin, manifest, files=None, name=None):
     return target
 
 
-def plugin_version(version, plugin='up'):
-    """The fixture plugin as example/`plugin` at a version. From 2.0.0 its
+def plugin_version(version, plugin='up', group='example'):
+    """The fixture plugin as GROUP/`plugin` at a version. From 2.0.0 its
     greeting and service changed, its Ansible task installs another file,
     the task `old` is gone and `added` is new."""
     folder = SCRATCH / f'{plugin}-{version}'
     if folder.exists():
         shutil.rmtree(folder)
     shutil.copytree(FIXTURE, folder)
-    (folder / 'package.kdl').write_text(package_kdl(plugin, version, plugin.title()))
+    (folder / 'package.kdl').write_text(package_kdl(plugin, version, plugin.title(), group))
     manifest = json.loads((folder / 'rookery/rookery.json').read_text())
     feature = manifest['features'][0]
     feature['id'] = 'main'
@@ -539,7 +577,7 @@ def _enter_extended():
     # rookery's source with a plugin that comes with it, for the rest of the run.
     station.env['ROOKERY_SOURCE'] = str(SCRATCH / 'source-shipped' if (SCRATCH / 'source-shipped').exists()
                                       else source_with_plugins('source-shipped', {
-                                          'shipit': plugin_version('1.0.0', 'shipit')}))
+                                          'shipit': plugin_version('1.0.0', 'shipit', 'rookery')}))
     station.rookery('plugin', 'add', str(FIXTURE))
     registry.publish(plugin_version('1.0.0'))
     station.rookery('plugin', 'registry', 'add', 'git', registry.url)

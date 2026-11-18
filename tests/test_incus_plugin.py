@@ -13,7 +13,7 @@ import urllib.parse
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / 'plugins/incus/rookery'
+PLUGIN = ROOT / 'plugins/rookery/incus/rookery'
 
 
 def certificate(directory, name, extensions):

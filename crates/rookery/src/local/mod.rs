@@ -55,13 +55,19 @@ pub fn askpass(args: &[String]) -> Result<bool> {
 }
 
 /// Put back the plugins rookery's store has and this machine's plugin
-/// directory lacks, as on a machine restored from the store, and say so on
-/// standard error.
+/// directory lacks, as on a machine restored from the store, then install
+/// the plugins that come with this rookery, and say so on standard error.
 pub(crate) fn restore_plugins(paths: &Paths) {
     match rookery_core::plugin_state::restore(paths) {
         Ok(notices) => notices.iter().for_each(|notice| eprintln!("{notice}")),
         Err(error) => {
             eprintln!("rookery: the plugins in rookery's store were not checked: {error}")
+        }
+    }
+    match rookery_core::eggs::builtins(paths) {
+        Ok(notices) => notices.iter().for_each(|notice| eprintln!("{notice}")),
+        Err(error) => {
+            eprintln!("rookery: the plugins that come with rookery were not installed: {error}")
         }
     }
 }

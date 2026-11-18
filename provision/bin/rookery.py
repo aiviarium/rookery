@@ -257,18 +257,15 @@ def release():
         elif p.exists():
             paths.append(p)
     entries = {str(p.relative_to(ROOT)): p for p in paths}
-    # The user's own plugins travel with the release; theirs win over the source's.
-    # rookery names them as {id: package folder}; each lands in plugins/ID like a shipped one.
+    # The plugins rookery installed travel with the release, those that come with it among them.
+    # rookery names them as {id: package folder}; each lands in installed/ID, where the role finds it.
     for name, directory in sorted(json.loads(os.environ.get('ROOKERY_PLUGINS') or '{}').items()):
         directory = Path(directory).resolve()
-        if not re.fullmatch(r'[a-z][a-z0-9_-]*', name) or directory == ROOT / 'plugins' / name:
+        if not re.fullmatch(r'[a-z][a-z0-9_-]*', name):
             continue
-        stale = [entry for entry in entries if entry.startswith(f'plugins/{name}/')]
-        for entry in stale:
-            del entries[entry]
         for p in directory.rglob('*'):
             if p.is_file() and '__pycache__' not in p.relative_to(directory).parts:
-                entries[str(Path('plugins') / name / p.relative_to(directory))] = p
+                entries[str(Path('installed') / name / p.relative_to(directory))] = p
     with target.open('wb') as stream, \
             gzip.GzipFile(fileobj=stream, mode='wb', mtime=0, filename='') as gz, \
             tarfile.open(fileobj=gz, mode='w') as archive:
@@ -279,7 +276,7 @@ def release():
             info.uid = info.gid = info.mtime = 0
             info.uname = info.gname = ''
             # rookery runs a plugin's provisioner command directly, so plugins keep their executables.
-            executable = p.suffix == '.sh' or (name.startswith('plugins/') and p.stat().st_mode & 0o111)
+            executable = p.suffix == '.sh' or (name.startswith(('plugins/', 'installed/')) and p.stat().st_mode & 0o111)
             info.mode = 0o755 if executable else 0o644
             with p.open('rb') as src:
                 archive.addfile(info, src)

@@ -572,7 +572,7 @@ pub async fn upload_plugin(State(state): App, body: Bytes) -> Answer<Json<Plugin
     params(("id" = String, Path, description = "The plugin's id or package")),
     responses((status = 200, description = "Removed", body = PluginReport),
               (status = 404, description = "No such plugin", body = ErrorBody),
-              (status = 409, description = "It comes with rookery and stays", body = ErrorBody)))]
+              (status = 409, description = "It comes with rookery and stays while that registry is on", body = ErrorBody)))]
 pub async fn remove_plugin(
     State(state): App,
     Path(id): Path<String>,
@@ -586,7 +586,10 @@ pub async fn remove_plugin(
     if plugin.origin == PluginOrigin::Shipped {
         return Err(Fail::new(
             code::CONFLICT,
-            format!("{} comes with rookery and stays", plugin.label),
+            format!(
+                "{} comes with rookery and stays while its registry is on: rookery plugin registry disable rookery turns that off",
+                plugin.label
+            ),
         ));
     }
     change_plugins(move || manager.remove(&id)).await
@@ -629,26 +632,39 @@ pub async fn plugin_registries(State(state): App) -> Answer<Json<PluginRegistrie
     ))
 }
 
-#[utoipa::path(post, path = "/v1/plugins/registries", summary = "Add a plugin registry after the others, or change the one at its location.", tag = "set-up",
+#[utoipa::path(post, path = "/v1/plugins/registries", summary = "Add a plugin registry after the others, or change the one at its location or with its name. Kind off with the location rookery turns off the registry that comes with rookery.", tag = "set-up",
     request_body(content = PluginRegistry, description = "The registry"),
     responses((status = 200, description = "Added or changed", body = PluginReport),
-              (status = 400, description = "Not a registry the server can read; the message says why", body = ErrorBody)))]
+              (status = 400, description = "Not a registry the server can read; the message says why", body = ErrorBody),
+              (status = 403, description = "A registry in a folder of the server, which only a caller on its socket adds", body = ErrorBody)))]
 pub async fn add_plugin_registry(
     State(state): App,
+    access: Option<Extension<Access>>,
     Json(asked): Json<PluginRegistry>,
 ) -> Answer<Json<PluginReport>> {
+    // A folder of the server is read with its rights, so only a caller on
+    // this machine names one.
+    if access.is_some() && eggs::local_registry(&asked.kind, &asked.location) {
+        return Err(Fail::new(
+            code::FORBIDDEN,
+            format!(
+                "{} is a folder of the server's machine, and only a caller there adds it as a registry, over the server's socket: run rookery plugin registry add there",
+                asked.location.trim()
+            ),
+        ));
+    }
     let paths = state.paths.clone();
     change_plugins(move || eggs::Manager::new(&paths).add_registry(&asked)).await
 }
 
-/// A plugin registry, by its location.
+/// A plugin registry, by its location or name.
 #[derive(Deserialize, ToSchema)]
 pub struct RegistryLocation {
     pub location: String,
 }
 
-#[utoipa::path(post, path = "/v1/plugins/registries/remove", summary = "Remove a plugin registry. What was installed from it stays.", tag = "set-up",
-    request_body(content = RegistryLocation, description = "The registry's location"),
+#[utoipa::path(post, path = "/v1/plugins/registries/remove", summary = "Remove a plugin registry. What was installed from it stays. Without a line named rookery, the registry that comes with rookery is used again.", tag = "set-up",
+    request_body(content = RegistryLocation, description = "The registry's location or name"),
     responses((status = 200, description = "Removed", body = PluginReport),
               (status = 404, description = "No such registry", body = ErrorBody)))]
 pub async fn remove_plugin_registry(
@@ -704,10 +720,7 @@ pub struct Catalogue {
 pub async fn catalogue(State(state): App) -> Answer<Json<Catalogue>> {
     let source = state.paths.source().map_err(internal)?;
     let template = std::fs::read(source.join(layout::EXAMPLE)).map_err(internal)?;
-    let found = plugins::load(&[
-        source.join("plugins"),
-        state.paths.config_dir.join("plugins"),
-    ]);
+    let found = plugins::installed(&state.paths.config_dir);
     let features = found
         .iter()
         .flat_map(|plugin| {

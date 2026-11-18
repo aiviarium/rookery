@@ -471,9 +471,7 @@ impl Simulation {
         let name = &host.name;
         let etc = self.dir(name)?.join("etc");
         self.link(name)?;
-        let source = paths.source()?;
-        let plugins =
-            crate::plugins::load(&[source.join("plugins"), paths.config_dir.join("plugins")]);
+        let plugins = crate::plugins::installed(&paths.config_dir);
         let features: Vec<String> = crate::node::features(&host.config)
             .iter()
             .filter_map(|feature| feature.split('/').next().map(str::to_owned))

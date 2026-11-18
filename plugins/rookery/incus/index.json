@@ -1,0 +1,29 @@
+{
+  "group": "rookery",
+  "id": "incus",
+  "about": {
+    "name": "Incus",
+    "summary": "Virtual machines and containers on an Incus server for rookery hosts.",
+    "licenses": [
+      "MIT",
+      "Apache-2.0"
+    ],
+    "repository": "https://github.com/aiviarium/rookery",
+    "keywords": [
+      "rookery-plugin"
+    ]
+  },
+  "versions": {
+    "0.2.0": {
+      "sha256": "c29c2d8d63c3c7d91261910671357e946e1a70f16d4b71674a64701f2b913142",
+      "published": "2026-11-18T02:31:01Z",
+      "targets": {
+        "rookery": {
+          "requires": {
+            "rookery": ">=0.6"
+          }
+        }
+      }
+    }
+  }
+}

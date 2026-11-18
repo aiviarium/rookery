@@ -1,0 +1,29 @@
+{
+  "group": "rookery",
+  "id": "docker",
+  "about": {
+    "name": "Docker",
+    "summary": "Creates a long-running Ubuntu container with systemd and SSH, to be set up like any other machine, and runs Compose projects as deployments.",
+    "licenses": [
+      "MIT",
+      "Apache-2.0"
+    ],
+    "repository": "https://github.com/aiviarium/rookery",
+    "keywords": [
+      "rookery-plugin"
+    ]
+  },
+  "versions": {
+    "0.2.0": {
+      "sha256": "1baba621083d8074e0423a90936e22fdba6850b26d96d86a810469315ca5df82",
+      "published": "2026-11-18T02:31:01Z",
+      "targets": {
+        "rookery": {
+          "requires": {
+            "rookery": ">=0.6"
+          }
+        }
+      }
+    }
+  }
+}
