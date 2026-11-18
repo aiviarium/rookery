@@ -246,6 +246,11 @@ body {
 #nd-nav {
   border-color: var(--line);
 }
+/* The notebook layout places the header in the middle columns of its grid. On a wide window the bar and its
+   line carry on to both edges. A border image drawn outside the box makes the page no wider. */
+#nd-subnav {
+  border-image: linear-gradient(to top, var(--line) 1px, var(--up) 1px) fill 0 / 0 / 0 100vmax;
+}
 
 /*
  * Every control in the header is one Nocturne control height (28 px) with
