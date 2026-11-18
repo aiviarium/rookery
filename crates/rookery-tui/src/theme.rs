@@ -1,7 +1,7 @@
 //! Colours and the logo.
 //!
 //! The mark is a rook's head in profile, in the tones of Rookery's icon
-//! (`docs/public/logo.svg`): amber shade for the bird, the highlight for its bill.
+//! (`docs/public/brand/rookery-icon.svg`): amber shade for the bird, the highlight for its bill.
 //! The greys are Aiviarium's neutrals and the accent is Rookery's amber.
 //! rookery paints its own background, so the colours below are chosen against
 //! `BASE` and not against whatever the terminal happens to use.

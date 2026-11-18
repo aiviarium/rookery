@@ -1,6 +1,6 @@
 import { llm } from '@/lib/llms';
 
-export const revalidate = false;
+export const dynamic = 'force-static';
 
 // Every page as Markdown in one file.
 export async function GET() {

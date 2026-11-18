@@ -1,15 +1,15 @@
 'use client';
-import SearchDialog from '@/components/search';
 import { RootProvider } from 'fumadocs-ui/provider/next';
-import { type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 
-// The site is dark only, in the colours of rookery's terminal UI: no system
-// theme, no switch and no hotkey.
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+
 export function Provider({ children }: { children: ReactNode }) {
   return (
     <RootProvider
-      search={{ SearchDialog }}
-      theme={{ forcedTheme: 'dark', defaultTheme: 'dark', enableSystem: false, hotKey: false }}
+      // The index is a static file written by /api/search at build time.
+      search={{ options: { type: 'static', api: `${basePath}/api/search` } }}
+      theme={{ defaultTheme: 'system', enableSystem: true }}
     >
       {children}
     </RootProvider>
