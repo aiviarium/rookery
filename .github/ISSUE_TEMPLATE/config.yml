@@ -4,5 +4,5 @@ contact_links:
     url: https://github.com/aiviarium/rookery/security/advisories/new
     about: Report a vulnerability privately. Don't open an issue for it.
   - name: Documentation
-    url: https://berth.helight.dev/
+    url: https://aiviarium.github.io/rookery/
     about: How to install and use Rookery.

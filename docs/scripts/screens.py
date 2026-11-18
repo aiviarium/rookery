@@ -437,7 +437,11 @@ def svg(screen: pyte.Screen, title: str, trim=True) -> str:
     return "\n".join(out) + "\n"
 
 
-FORBIDDEN = [re.compile(p) for p in (r"helight", r"/home/", r"/phome", r"\bovh\b")]
+# Text that must never show in a screenshot: home folders, and anything listed
+# in ROOKERY_SCREENS_FORBIDDEN (regular expressions separated by commas), such
+# as your own user or host names.
+FORBIDDEN = [re.compile(p) for p in (r"/home/", r"/Users/",
+             *filter(None, os.environ.get("ROOKERY_SCREENS_FORBIDDEN", "").split(",")))]
 
 
 def chrome() -> str:
