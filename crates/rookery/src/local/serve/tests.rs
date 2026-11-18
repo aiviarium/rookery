@@ -28,6 +28,12 @@ fn state_in(dir: &std::path::Path, token: Option<&str>) -> Arc<Serve> {
         config_dir: dir.join("config"),
         data_dir: dir.join("data"),
     };
+    // The checkout is the provisioning source, so that a test does not
+    // unpack the one built into the program.
+    let checkout = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    paths
+        .set("source", checkout.canonicalize().unwrap().to_str().unwrap())
+        .unwrap();
     let store = Store::open(&store::default_file(&paths)).unwrap();
     Serve::new(paths, store, token.map(str::to_owned))
 }
