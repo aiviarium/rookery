@@ -57,7 +57,7 @@ An `ssh` or `managed` host becomes a node with `rookery host set big type=node`.
 | `incus/server` | Incus, the bridge `incusbr0` at `10.77.0.1/24`, a storage pool in a directory, and the API on port 8444 that trusts Rookery's client certificate | `big-incus-vm` and `big-incus-container` |
 | `docker/engine` | The Docker engine, and Sysbox when asked | `big-docker-container`, which reaches the engine over SSH |
 
-The guides of the [Incus](https://github.com/aiviarium/rookery/blob/main/plugins/incus/guide.md) and [Docker](https://github.com/aiviarium/rookery/blob/main/plugins/docker/guide.md) plugins list their settings. A feature says which host types it is for. Rookery refuses to apply a node that lists a feature for workstations, and the reverse.
+The guides of the [Incus](https://github.com/aiviarium/rookery/blob/main/plugins/incus/rookery/guide.md) and [Docker](https://github.com/aiviarium/rookery/blob/main/plugins/docker/rookery/guide.md) plugins list their settings. A feature says which host types it is for. Rookery refuses to apply a node that lists a feature for workstations, and the reverse.
 
 ### Provisioners the node offers
 
