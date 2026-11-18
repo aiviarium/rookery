@@ -627,24 +627,21 @@ div:has(> [role='tablist']) > [role='tabpanel'] {
   color: var(--muted);
   white-space: pre;
 }
-.hero-row {
+/* Proportions of the lockups in the brand folder: the icon 150 units high, the wordmark 105, 25 apart. */
+.hero-lockup {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 20px;
-  margin: 20px 0;
-}
-.hero-wordmark {
-  font-size: clamp(43px, 9vw, 72px);
+  gap: 0.25em;
+  font-size: clamp(40px, 8vw, 72px);
   line-height: 1;
-  margin: 0;
+  margin: 20px 0 0;
 }
 .wordmark {
   display: block;
 }
 .hero-description {
   font-size: 18px;
-  margin-top: 12px;
+  margin: 20px 0 0;
   color: var(--muted);
 }
 .hero-badges {
@@ -742,13 +739,5 @@ div:has(> [role='tablist']) > [role='tabpanel'] {
   .cards {
     grid-template-columns: 1fr;
   }
-  .hero-icon {
-    width: 84px !important;
-    height: 84px !important;
-  }
 }
-@media (max-width: 600px) {
-  .hero-row {
-    gap: 8px;
-  }
-}
+

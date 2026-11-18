@@ -28,23 +28,20 @@ export default function HomePage() {
           Aiviarium{'  '}/{'  '}
           {config.area}
         </div>
-        <div className="hero-row">
-          <div>
-            <h1 className="hero-wordmark">
-              <Wordmark />
-            </h1>
-            <p className="hero-description">{config.description}</p>
-            <div className="hero-badges">
-              {endpointBadges().map((badge) => (
-                <a key={badge.src} href={badge.href} rel="noreferrer noopener" target="_blank">
-                  {/* eslint-disable-next-line @next/next/no-img-element -- drawn by the badge endpoint */}
-                  <img src={badge.src} alt={badge.alt} height={22} />
-                </a>
-              ))}
-            </div>
-          </div>
-          <ThemedImg src={config.assets.icon} alt="" width={128} height={128} className="hero-icon" />
+        {/* The lockup and badges as in the README heading: icon and wordmark, the badges under them. */}
+        <h1 className="hero-lockup">
+          <ThemedImg src={config.assets.icon} alt="" width="1.5em" height="1.5em" className="hero-icon" />
+          <Wordmark />
+        </h1>
+        <div className="hero-badges">
+          {endpointBadges().map((badge) => (
+            <a key={badge.src} href={badge.href} rel="noreferrer noopener" target="_blank">
+              {/* eslint-disable-next-line @next/next/no-img-element -- drawn by the badge endpoint */}
+              <img src={badge.src} alt={badge.alt} height={22} />
+            </a>
+          ))}
         </div>
+        <p className="hero-description">{config.description}</p>
         <div className="install">
           <small>{config.install.label}</small>
           <div className="install-line">
