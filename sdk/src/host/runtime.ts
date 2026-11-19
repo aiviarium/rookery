@@ -3,11 +3,11 @@
 // proxy over the server's methods, called as the plugin.
 //
 // What this version of Rookery serves to host halves: rpc, commands, events, settings, storage,
-// secrets, jobs (get, list, cancel, progress and log), leases, topics.publish and notify. The rest of
-// the `Rookery` handle answers UNAVAILABLE.
+// secrets, jobs (handle, enqueue, get, cancel), leases, topics.publish, notify, services (provide and
+// call), extensions and app services. The rest of the `Rookery` handle answers UNAVAILABLE.
 import { z } from "zod"
 import { RookeryError } from "../errors"
-import type { Manifest, Principal, User } from "../generated"
+import type { AppServiceInfo, ExtensionContribution, Manifest, Principal, User } from "../generated"
 import { type Disposable, disposable } from "../types"
 import type {
   Ctx,
@@ -27,7 +27,7 @@ export type LogLevel = "debug" | "info" | "warn" | "error"
 
 /** Something a host half registered, as the server knows it. */
 export interface Registration {
-  kind: "rpc" | "command" | "job"
+  kind: "rpc" | "command" | "job" | "service"
   key: string
   /** For `rpc`: who may call it. */
   level?: "own" | "admin"
@@ -458,8 +458,30 @@ function createApi(rt: HostRuntime): Rookery {
         return { id: sent.notification.id }
       },
     },
-    services: unavailable("services"),
-    extensions: unavailable("extensions"),
+    services: {
+      // A service of `provides.services`, served by this host half; `services.call` reaches it.
+      provide: (service, methods) =>
+        rt.register({
+          kind: "service",
+          key: service,
+          run: async (ctx, p: { method: string; params?: unknown }) => {
+            const method = methods[p.method]
+            if (typeof method !== "function")
+              throw new RookeryError(
+                "NOT_FOUND",
+                `the service ${service} of ${plugin} has no method ${p.method}`,
+              )
+            return method(ctx, p.params ?? {})
+          },
+        }),
+      call: (provider, service, method, params = {}) =>
+        rt.call("services.call", { plugin: provider, service, method, params }) as Promise<any>,
+    },
+    extensions: {
+      list: async (point) =>
+        (await rt.call<{ contributions: ExtensionContribution[] }>("extensions.list", { point }))
+          .contributions,
+    },
     data: unavailable("data"),
     spaces: unavailable("spaces"),
     connections: unavailable("connections"),
@@ -469,7 +491,12 @@ function createApi(rt: HostRuntime): Rookery {
     streams: unavailable("streams"),
     env: unavailable("env"),
     terminals: unavailable("terminals"),
-    appServices: unavailable("appServices"),
+    appServices: {
+      list: async () => (await rt.call<{ services: AppServiceInfo[] }>("services.list", { plugin })).services,
+      // A service of `provides.services` one of this plugin's app services implements.
+      call: (service, method, params = {}) =>
+        rt.call("services.call", { plugin, service, method, params }) as Promise<any>,
+    },
     onDispose: (fn) => {
       rt.disposers.push(fn)
     },

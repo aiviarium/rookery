@@ -130,6 +130,24 @@ export default definePlugin((rookery) => {
     },
   })
   rookery.rpc.handle("heard", { level: "own", run: () => ({ heard }) })
+  // A service of provides.services, which other plugins and people call with services.call.
+  rookery.services.provide("greeter", {
+    hello: (ctx, params: { name?: string }) => ({
+      hello: params.name ?? "you",
+      from: rookery.id,
+      as: ctx.principal.id,
+    }),
+  })
+  rookery.rpc.handle("ask", {
+    level: "own",
+    params: z.object({ plugin: z.string(), service: z.string() }),
+    run: async (_, { plugin, service }) => rookery.services.call(plugin, service, "hello", { name: "echo" }),
+  })
+  rookery.rpc.handle("contributions", {
+    level: "own",
+    params: z.object({ point: z.string() }),
+    run: async (_, { point }) => rookery.extensions.list(point),
+  })
   rookery.onDispose(async () => {
     await rookery.storage.set("disposed", true)
   })

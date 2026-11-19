@@ -19,6 +19,7 @@ pub mod jobs;
 pub mod loaded;
 pub mod methods;
 pub mod record;
+pub mod services;
 pub mod wire;
 
 use std::collections::BTreeMap;
@@ -417,6 +418,12 @@ impl Plugins {
         method: &str,
         params: serde_json::Value,
     ) -> Result<serde_json::Value, RpcError> {
+        // A method `contributes.rpc` binds to an app service is that service's.
+        if let Some(loaded) = self.get(plugin)
+            && let Some((service, bound, stream)) = services::rpc_handler(&loaded, method)
+        {
+            return services::call_bound(call, plugin, &service, &bound, stream, params).await;
+        }
         self.activate_as(&call.kernel, plugin, call.is_admin())
             .await?;
         self.host

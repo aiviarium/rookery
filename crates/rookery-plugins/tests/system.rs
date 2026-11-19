@@ -1147,3 +1147,177 @@ async fn declared_jobs_run_in_the_host_half_for_whom_the_manifest_allows() {
     assert_eq!(after.error_code(), ErrorCode::Forbidden);
     k.close().await;
 }
+
+const SERVICES: &str = r#"{"apiVersion": "1", "name": "Echo", "host": "host.ts",
+  "provides": {"services": ["greeter", "remote"]},
+  "extensionPoints": [{"id": "echo.links", "schema": {"type": "object", "required": ["url"]}}],
+  "services": [{"id": "backend", "title": "Backend", "provides": "remote"}],
+  "contributes": {
+    "extensions": {"echo.links": [{"url": "https://example.test", "service": "greeter"}, {"nourl": true}]},
+    "rpc": [{"method": "fromBackend", "handler": {"service": "backend", "method": "hi"}}]}}"#;
+
+/// What an app service of a test was sent: the authorization header and the request.
+type Seen = Arc<std::sync::Mutex<Vec<(Option<String>, Value)>>>;
+
+/// An app service: JSON-RPC 2.0 on `POST /rpc`, answering with what it was sent.
+async fn backend() -> (String, Seen) {
+    use axum::routing::post;
+    let seen: Seen = Arc::default();
+    let kept = seen.clone();
+    let app = axum::Router::new().route(
+        "/rpc",
+        post(move |headers: axum::http::HeaderMap, body: String| {
+            let kept = kept.clone();
+            async move {
+                let request: Value = serde_json::from_str(&body).unwrap();
+                let auth = headers
+                    .get("authorization")
+                    .map(|v| v.to_str().unwrap().to_owned());
+                kept.lock().unwrap().push((auth, request.clone()));
+                axum::Json(json!({"jsonrpc": "2.0", "id": request["id"],
+                    "result": {"said": request["method"], "params": request["params"], "as": request["ctx"]["principal"]["id"]}}))
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (url, seen)
+}
+
+#[tokio::test]
+async fn extension_points_and_services_of_host_halves_and_app_services() {
+    if !bun_ready() {
+        eprintln!("skipped: the extension host needs bun and `bun install`");
+        return;
+    }
+    let k = test_kernel!(methods());
+    let scratch = tempfile::tempdir().unwrap();
+    let plugins = plugins(&k, scratch.path()).await;
+    let admin = k.person("Ada", true).await;
+    let member = k.person("Bob", false).await;
+    echo_with(&k, &plugins, scratch.path(), "echo", SERVICES).await;
+    use rookery_proto::ErrorCode;
+
+    // The contributions that match the point's schema, with the service each names.
+    let listed = k
+        .call(&member, "extensions.list", json!({"point": "echo.links"}))
+        .await
+        .unwrap();
+    assert_eq!(
+        listed["contributions"],
+        json!([{"plugin": "echo", "value": {"url": "https://example.test", "service": "greeter"}, "service": "greeter"}])
+    );
+    let none = k
+        .call(
+            &member,
+            "extensions.list",
+            json!({"point": "nobody.declares"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(none["contributions"], json!([]));
+
+    // A service the host half provides, called by a person and by a plugin.
+    let hello = k
+        .call(
+            &member,
+            "services.call",
+            json!({"plugin": "echo", "service": "greeter", "method": "hello", "params": {"name": "Bob"}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        hello,
+        json!({"hello": "Bob", "from": "echo", "as": member.user().unwrap().id})
+    );
+    let asked = k
+        .call(
+            &member,
+            "plugins.rpc",
+            json!({"plugin": "echo", "method": "ask", "params": {"plugin": "echo", "service": "greeter"}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(asked["as"], "echo", "{asked}");
+    let from_host = k
+        .call(
+            &member,
+            "plugins.rpc",
+            json!({"plugin": "echo", "method": "contributions", "params": {"point": "echo.links"}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(from_host[0]["service"], "greeter");
+    let undeclared = k
+        .call(
+            &member,
+            "services.call",
+            json!({"plugin": "echo", "service": "nothing", "method": "x"}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(undeclared.error_code(), ErrorCode::NotFound);
+
+    // An app service is nowhere until an admin places it.
+    let status = k
+        .call(
+            &member,
+            "services.status",
+            json!({"plugin": "echo", "service": "backend"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(status["state"], "absent");
+    let absent = k
+        .call(
+            &member,
+            "services.call",
+            json!({"plugin": "echo", "service": "remote", "method": "hi"}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(absent.error_code(), ErrorCode::Unavailable);
+    let (url, seen) = backend().await;
+    let place = json!({"plugin": "echo", "service": "backend", "url": url, "secret": "s3cret"});
+    let refused = k
+        .call(&member, "services.setExternal", place.clone())
+        .await
+        .unwrap_err();
+    assert_eq!(refused.error_code(), ErrorCode::Forbidden);
+    k.call(&admin, "services.setExternal", place).await.unwrap();
+    let listed = k
+        .call(&member, "services.list", json!({"plugin": "echo"}))
+        .await
+        .unwrap();
+    assert_eq!(listed["services"][0]["status"]["state"], "ready");
+    assert!(listed["services"][0].get("url").is_none(), "{listed}");
+
+    // services.call of the service it provides, and a method contributes.rpc binds to it.
+    let remote = k
+        .call(
+            &member,
+            "services.call",
+            json!({"plugin": "echo", "service": "remote", "method": "hi", "params": {"n": 1}}),
+        )
+        .await
+        .unwrap();
+    let bob = member.user().unwrap().id.clone();
+    assert_eq!(remote, json!({"said": "hi", "params": {"n": 1}, "as": bob}));
+    let bound = k
+        .call(
+            &member,
+            "plugins.rpc",
+            json!({"plugin": "echo", "method": "fromBackend", "params": {"n": 2}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bound, json!({"said": "hi", "params": {"n": 2}, "as": bob}));
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 2);
+    assert!(
+        seen.iter()
+            .all(|(auth, _)| auth.as_deref() == Some("Bearer s3cret"))
+    );
+    k.close().await;
+}
