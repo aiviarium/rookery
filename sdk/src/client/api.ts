@@ -16,6 +16,9 @@ import type {
   AppServiceList,
   AppServiceStatus,
   BlobInfo,
+  Checkout,
+  CheckoutCreate,
+  CheckoutRemove,
   CollectionContribution,
   CollectionDisplay,
   CommandInfo,
@@ -60,6 +63,7 @@ import type {
   TerminalInfo,
   TerminalOpen,
   TerminalQuery,
+  WorktreeCreate,
 } from "../generated"
 import {
   type Collections,
@@ -260,8 +264,28 @@ export interface ClientEnv {
   exec(
     env: string,
     command: string[],
-    opts?: { cwd?: string; env?: Record<string, string>; timeoutMs?: number },
+    opts?: {
+      cwd?: string
+      /** Variables for the command, which the host adds to the agent's own. */
+      env?: Record<string, string>
+      /** Text written to standard input, which is then closed. */
+      stdin?: string
+      timeoutMs?: number
+    },
   ): Promise<ExecResult>
+  /** The git checkouts and worktrees under the host's checkouts folder. */
+  checkouts(env: string): Promise<Checkout[]>
+  /** Clones a repository into the host's checkouts folder, and answers the checkout it made. */
+  clone(env: string, repository: string, opts?: Omit<CheckoutCreate, "env" | "repository">): Promise<Checkout>
+  /** Makes a worktree of a checkout, on a new branch, in the host's checkouts folder. */
+  worktree(
+    env: string,
+    checkout: string,
+    branch: string,
+    opts?: Omit<WorktreeCreate, "env" | "checkout" | "branch">,
+  ): Promise<Checkout>
+  /** Removes a checkout, or a worktree through `git worktree remove`. */
+  removeCheckout(env: string, path: string, opts?: Omit<CheckoutRemove, "env" | "path">): Promise<void>
   readFile(env: string, path: string): Promise<FileData>
   /** Writes bytes, or text as UTF-8. With `ifMatch`, only while the file is at that SHA-256. */
   writeFile(
@@ -671,7 +695,21 @@ export function createClientRookery(s: ClientScope): ClientRookery {
       get: (env) => call("env.get", { env }),
       presence: (env) => call("env.presence", { env }),
       exec: (env, command, opts = {}) =>
-        s.rt.call("env.exec", { env, command, ...opts }) as Promise<ExecResult>,
+        call("env.exec", {
+          env,
+          command,
+          ...(opts.cwd ? { cwd: opts.cwd } : {}),
+          ...(opts.env ? { vars: opts.env } : {}),
+          ...(opts.stdin !== undefined ? { stdin: opts.stdin } : {}),
+          ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
+        }),
+      checkouts: async (env) => (await call("env.checkouts", { env })).checkouts,
+      clone: (env, repository, opts = {}) => call("env.clone", { env, repository, ...opts }),
+      worktree: (env, checkout, branch, opts = {}) =>
+        call("env.worktree", { env, checkout, branch, ...opts }),
+      removeCheckout: async (env, path, opts = {}) => {
+        await call("env.removeCheckout", { env, path, ...opts })
+      },
       readFile: (env, path) => call("env.readFile", { env, path }),
       writeFile: (env, path, content, opts = {}) =>
         call("env.writeFile", { env, path, base64: toBase64(content), ...opts }),

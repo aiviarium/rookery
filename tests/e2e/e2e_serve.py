@@ -262,6 +262,57 @@ class Connect(unittest.TestCase):
         status, _, _ = get('/', {'Host': location.netloc})
         self.assertEqual(status, 401)
 
+    def test_commands_and_checkouts_need_use(self):
+        use, view = self.people['use'], self.people['view']
+        home = f'/home/{AGENT}'
+        ran = self.serve.call('env.exec', {'env': HOST, 'command': ['pwd'], 'cwd': home}, token=use)
+        self.assertEqual((ran['exitCode'], ran['stdout'].strip()), (0, home))
+        self.assertEqual(self.serve.refused('env.exec', {'env': HOST, 'command': ['id']},
+                                            token=view), 'FORBIDDEN')
+        self.assertEqual(self.serve.refused('env.exec', {'env': HOST, 'command': ['id'], 'cwd': '/etc'},
+                                            token=use), 'FORBIDDEN')
+        self.assertEqual(self.serve.refused('env.exec', {'env': HOST, 'command': ['sh', '-c', 'sleep 30'],
+                                                          'timeoutMs': 200}, token=use), 'TIMEOUT')
+
+        # A repository on the host, cloned into the folder the host keeps for checkouts.
+        name = random_text('ws')
+        source = f'{home}/{name}-src'
+        made = self.serve.call('env.exec', {'env': HOST, 'command': ['sh', '-c', (
+            f'rm -rf {source} && mkdir -p {source} && cd {source} && git init -q -b main && '
+            'git -c user.name=Test -c user.email=test@example.test commit -q --allow-empty -m one'
+        )]}, token=use)
+        self.assertEqual(made['exitCode'], 0, made['stderr'])
+        self.assertEqual(self.serve.refused('env.clone', {'env': HOST, 'repository': source},
+                                            token=view), 'FORBIDDEN')
+        self.assertEqual(self.serve.refused('env.clone', {'env': HOST, 'repository': source,
+                                                           'name': '../out'}, token=use), 'INVALID')
+        clone = self.serve.call('env.clone', {'env': HOST, 'repository': source,
+                                              'name': f'{name}-clone'}, token=use)
+        self.assertEqual((clone['name'], clone['branch'], clone['env']),
+                         (f'{name}-clone', 'main', f'env://{HOST}'))
+        self.assertTrue(clone['path'].startswith('/srv/agent/workspaces/'), clone['path'])
+        worktree = self.serve.call('env.worktree', {'env': HOST, 'checkout': clone['path'],
+                                                    'branch': f'{name}/one'}, token=use)
+        self.assertEqual((worktree['branch'], worktree['worktreeOf']),
+                         (f'{name}/one', clone['path']))
+
+        # Listing checkouts needs view; removing them needs use.
+        listed = [c['name'] for c in self.serve.call('env.checkouts', {'env': HOST},
+                                                     token=view)['checkouts']]
+        self.assertIn(f'{name}-clone', listed)
+        self.assertIn(worktree['name'], listed)
+        self.assertEqual(self.serve.refused('env.checkouts', {'env': HOST}, token=None), None)
+        self.assertEqual(self.serve.refused('env.removeCheckout', {'env': HOST, 'path': clone['path']},
+                                            token=view), 'FORBIDDEN')
+        self.serve.call('env.removeCheckout', {'env': HOST, 'path': worktree['path'], 'force': True},
+                        token=use)
+        self.serve.call('env.removeCheckout', {'env': HOST, 'path': clone['path'], 'force': True},
+                        token=use)
+        listed = [c['name'] for c in self.serve.call('env.checkouts', {'env': HOST},
+                                                     token=view)['checkouts']]
+        self.assertNotIn(f'{name}-clone', listed)
+        self.serve.call('env.exec', {'env': HOST, 'command': ['rm', '-rf', source]}, token=use)
+
     def test_the_desktop_is_for_use(self):
         use, view = self.people['use'], self.people['view']
         station = provisioned()

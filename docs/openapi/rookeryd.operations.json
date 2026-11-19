@@ -205,6 +205,11 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "workspaces": {
+            "default": "",
+            "description": "Where checkouts go, inside one of the roots. Empty: the first root with a\n`workspaces` folder, else the first root's `workspaces` folder.",
+            "type": "string"
           }
         },
         "type": "object"
@@ -1580,6 +1585,25 @@
       },
       "role": "view",
       "summary": "The version of rookeryd and of its API."
+    },
+    {
+      "args": [],
+      "group": "general",
+      "http": {
+        "method": "GET",
+        "path": "/v1/paths"
+      },
+      "kind": "call",
+      "level": "Host and agent level.",
+      "name": "paths",
+      "portal": true,
+      "result": {
+        "schema": {
+          "$ref": "#/components/schemas/Paths"
+        }
+      },
+      "role": "view",
+      "summary": "The folders the file calls may touch, and where checkouts go."
     },
     {
       "args": [],

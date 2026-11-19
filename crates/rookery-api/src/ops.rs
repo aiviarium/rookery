@@ -188,6 +188,7 @@ const fn server_only(mut op: Op, why: &'static str) -> Op {
 /// The operations of rookeryd.
 pub static HOST: &[Op] = &[
     call("version", "GET", "/v1/version"),
+    call("paths", "GET", "/v1/paths"),
     call("reload", "POST", "/v1/reload"),
     // It holds the accounts' password hashes.
     admin(call("applied.profile", "GET", "/v1/applied/profile")),

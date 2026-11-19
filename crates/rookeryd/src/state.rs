@@ -116,4 +116,35 @@ impl State {
             .systemd
             .unwrap_or(self.mode == Mode::System)
     }
+
+    /// The folders the file calls may touch: the configuration's, or the agent's
+    /// home on a system host with none.
+    pub fn roots(&self) -> Vec<String> {
+        let config = self.config();
+        let mut roots = config.rookeryd.roots.clone();
+        if roots.is_empty()
+            && self.mode == Mode::System
+            && let Some(agent) = crate::users::account(&config.rookeryd.agent)
+        {
+            roots.push(agent.home);
+        }
+        roots
+    }
+
+    /// Where checkouts go: the configured folder, else the first root with a
+    /// `workspaces` folder, else the first root's. `None` without a root.
+    pub fn workspaces(&self) -> Option<String> {
+        let config = self.config();
+        let configured = config.rookeryd.workspaces.trim_end_matches('/');
+        if !configured.is_empty() {
+            return Some(configured.to_owned());
+        }
+        let roots = self.roots();
+        let first = roots.first()?.trim_end_matches('/');
+        let existing = roots
+            .iter()
+            .map(|root| format!("{}/workspaces", root.trim_end_matches('/')))
+            .find(|path| std::path::Path::new(path).is_dir());
+        Some(existing.unwrap_or_else(|| format!("{first}/workspaces")))
+    }
 }

@@ -719,6 +719,32 @@ async fn files_stay_under_their_roots() {
 }
 
 #[tokio::test]
+async fn the_host_says_which_folders_it_keeps() {
+    let daemon = Daemon::start(&[]);
+    let mut host = daemon.host().await;
+    let paths: api::Paths = host.get("/v1/paths").await.unwrap();
+    assert_eq!(paths.roots, vec![daemon.path("files")]);
+    // Nothing is configured, so the first root's `workspaces` folder is where checkouts go.
+    assert_eq!(
+        paths.workspaces.as_deref(),
+        Some(format!("{}/workspaces", daemon.path("files")).as_str())
+    );
+
+    // A folder that exists is chosen, and a configured one wins over any there is.
+    std::fs::create_dir_all(daemon.path("files/workspaces")).unwrap();
+    let paths: api::Paths = host.get("/v1/paths").await.unwrap();
+    assert_eq!(
+        paths.workspaces.as_deref(),
+        Some(format!("{}/workspaces", daemon.path("files")).as_str())
+    );
+    let elsewhere = format!("{}/checkouts", daemon.path("files"));
+    let daemon = Daemon::start(&[("rookeryd.json", json!({"workspaces": elsewhere}))]);
+    let mut host = daemon.host().await;
+    let paths: api::Paths = host.get("/v1/paths").await.unwrap();
+    assert_eq!(paths.workspaces.as_deref(), Some(elsewhere.as_str()));
+}
+
+#[tokio::test]
 async fn system_calls_go_to_the_systems_own_tools() {
     let daemon = Daemon::start(&[]);
     let mut host = daemon.host().await;

@@ -78,7 +78,7 @@ Without a browser, `rookery login URL --no-browser` asks for a sign-in link. An 
 | Methods | For |
 | --- | --- |
 | [`hosts.*`](/docs/api/server/hosts) | The hosts with their profiles, whether each answers and is behind, and the [actions](#actions) of each. A host's services, units, logs, processes, messages, sessions and files are methods of the host too |
-| [`env.*`](/docs/api/server/env), [`terminals.*`](/docs/api/server/terminals) | Saved hosts as environments, their presence, files and TCP ports, and interactive terminals with viewers and screen |
+| [`env.*`](/docs/api/server/env), [`terminals.*`](/docs/api/server/terminals) | Saved hosts as environments, their presence, files, TCP ports, commands and checkouts, and interactive terminals with viewers and screen |
 | [`jobs.*`](/docs/api/server/jobs) | The jobs, one for each run of an action, with their log. `jobs.follow` streams it |
 | [`keys.*`](/docs/api/server/keys) | The key ring Rookery logs in to hosts with |
 | [`installation.*`](/docs/api/server/installation), [`registries.*`](/docs/api/server/registries), [`secrets.*`](/docs/api/server/secrets), [`settings.*`](/docs/api/server/settings) | The installation's actions, secrets, settings and registries |
@@ -92,6 +92,25 @@ Without a browser, `rookery login URL --no-browser` asks for a sign-in link. An 
 A host is a profile, a resource named `env://NAME` for grants, and a link to its rookeryd. The leader keeps the link. It logs in over SSH as the host's SSH user and runs the host's controller. The host's channel comes in over that link, and its sessions, files, units, logs, processes and actions are reached through it.
 
 A host of the type `ssh` has no controller, and works for a terminal and commands only ([Host types](/docs/use/types)). `hosts.list` says whether each host answers, and `hosts.get` whether its rookeryd is behind Rookery's version. A host that does not answer is still saved, and its profile can still be changed. `hosts.power` starts or stops a machine its provisioner made.
+
+## Commands and checkouts
+
+`env.exec` runs a command on a host to its end and answers its output: the words of a program, the
+folder in it, variables, text for its input, and a deadline of at most an hour (60 seconds by
+default). The output comes back when the command ends, at most 8 MiB of each stream. A command runs
+as the host's agent account; `operator` and `root` need `manage` on the host, and the host must be
+able to run one.
+
+A *checkout* is a clone of a repository, or a git worktree of one, in the host's checkouts folder.
+That is `/srv/agent/workspaces` on a host Rookery set up, because it is the first root with a
+`workspaces` folder there; `workspaces` in `/etc/rookery/rookeryd.json` fixes another. `env.checkouts`
+lists what the folder holds, each with its branch, HEAD and remote. `env.clone` clones an address
+into it, `env.worktree` makes a worktree on a new branch, and `env.removeCheckout` removes one, which
+is a `CONFLICT` while it has changes unless `force` says otherwise.
+
+A path a method takes, such as a command's folder or a checkout, is resolved by the host and stays
+inside its roots: `..` and a symlink that lead out are refused. The command and its session end when
+the call does, whether that is its own end, its deadline, or a revoked grant.
 
 A host is added by its address, with `rookery host add`, or described and installed with `rookery host create` ([The command line](/docs/use/cli#hosts)). Over the API, `hosts.save` takes the profile, and `hosts.remove` forgets it.
 
@@ -170,8 +189,8 @@ A host belongs to the account that added it. Its owner and the admins hold `mana
 
 | Level | May |
 | --- | --- |
-| `view` | See the host, its state, jobs, output and a thumbnail of its desktop |
-| `use` | Open terminals, sessions, files, ports and the desktop on it, and reach one's own `agent` terminals |
+| `view` | See the host, its state, jobs, its checkouts and output, and a thumbnail of its desktop |
+| `use` | Open terminals, sessions, files, ports and the desktop on it, run commands, clone and remove checkouts, and reach one's own `agent` terminals |
 | `manage` | Change its profile, apply it, rename it, run its actions and its controller's, and reach any terminal |
 
 Each action says the role it needs, which `hosts.act` checks: `operate` is `manage` on the host, and `admin` an admin of the server, as removing a host's machine, a roll-out or a new key for Rookery need. Revoking a grant or disabling an account closes its open streams on that host. Keys, secrets, registries, settings, provisioners and plugins need an admin.

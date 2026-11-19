@@ -205,6 +205,11 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "workspaces": {
+            "default": "",
+            "description": "Where checkouts go, inside one of the roots. Empty: the first root with a\n`workspaces` folder, else the first root's `workspaces` folder.",
+            "type": "string"
           }
         },
         "type": "object"
@@ -2139,6 +2144,39 @@
         "summary": "Journal entries.",
         "tags": [
           "logs"
+        ]
+      }
+    },
+    "/v1/paths": {
+      "get": {
+        "description": "Host and agent level.",
+        "operationId": "get_v1_paths",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Paths"
+                }
+              }
+            },
+            "description": "Done."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error."
+          }
+        },
+        "summary": "The folders the file calls may touch, and where checkouts go.",
+        "tags": [
+          "paths"
         ]
       }
     },

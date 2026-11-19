@@ -3,7 +3,7 @@
 //! paths beneath the root's descriptor, so neither `..` nor a symlink leads out.
 
 use crate::error::{E, R};
-use crate::state::{Mode, State};
+use crate::state::State;
 use axum::{
     Json,
     body::Body,
@@ -29,14 +29,7 @@ pub struct FileQuery {
 
 /// The root a path is under, and the path beneath it.
 fn locate(state: &State, path: &str) -> R<(String, String)> {
-    let config = state.config();
-    let mut roots = config.rookeryd.roots.clone();
-    if roots.is_empty()
-        && state.mode == Mode::System
-        && let Some(agent) = crate::users::account(&config.rookeryd.agent)
-    {
-        roots.push(agent.home);
-    }
+    let roots = state.roots();
     if !path.starts_with('/') || path.contains('\0') {
         return Err(E::bad("path is absolute"));
     }
@@ -52,6 +45,15 @@ fn locate(state: &State, path: &str) -> R<(String, String)> {
     Err(E::forbidden(format!(
         "{path} is not under a folder the file calls may touch"
     )))
+}
+
+/// What paths this host keeps: the folders the file calls may touch, and where
+/// checkouts go.
+pub async fn paths(AppState(state): AppState<Arc<State>>) -> R<Json<api::Paths>> {
+    Ok(Json(api::Paths {
+        roots: state.roots(),
+        workspaces: state.workspaces(),
+    }))
 }
 
 fn helper(state: &State, args: &[&str]) -> R<tokio::process::Command> {
