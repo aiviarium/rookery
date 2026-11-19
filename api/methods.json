@@ -3187,6 +3187,13 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "description": "`data.batch`: one transaction over one plugin's collections.",
       "properties": {
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "if": {
           "anyOf": [
             {
@@ -3412,6 +3419,13 @@
         },
         "id": {
           "type": "string"
+        },
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "limit": {
           "description": "`data.history`: at most this many entries.",
@@ -3645,6 +3659,13 @@
         "id": {
           "type": "string"
         },
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "limit": {
           "description": "`data.history`: at most this many entries.",
           "format": "int64",
@@ -3702,6 +3723,13 @@
         },
         "id": {
           "type": "string"
+        },
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "limit": {
           "description": "`data.history`: at most this many entries.",
@@ -3814,6 +3842,13 @@
         "collection": {
           "type": "string"
         },
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "mode": {
           "$ref": "#/$defs/ImportMode",
           "default": "insert",
@@ -3918,6 +3953,13 @@
       "properties": {
         "collection": {
           "type": "string"
+        },
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "plugin": {
           "type": [
@@ -4159,6 +4201,13 @@
         "id": {
           "type": "string"
         },
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "limit": {
           "description": "`data.history`: at most this many entries.",
           "format": "int64",
@@ -4387,6 +4436,13 @@
         },
         "id": {
           "type": "string"
+        },
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "limit": {
           "description": "`data.history`: at most this many entries.",
@@ -5130,6 +5186,13 @@
         "id": {
           "type": "string"
         },
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "ops": {
           "additionalProperties": {
             "$ref": "#/$defs/FieldOp"
@@ -5190,6 +5253,13 @@
       "properties": {
         "collection": {
           "type": "string"
+        },
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "on": {
           "items": {
@@ -31085,6 +31155,513 @@
     }
   },
   {
+    "name": "schedules.create",
+    "summary": "Makes or replaces a schedule: a plugin's of its own jobs, or an admin's of any kind a handler runs.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`schedules.create`, from a plugin inside a handler: a schedule on behalf of the call's user.\nCreating one with a name the user already has replaces it.",
+      "properties": {
+        "cron": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enabled": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "everySecs": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "job": {
+          "description": "The kind of job: `<plugin>/<job>`, or one of the server's, such as `apply`.",
+          "type": "string"
+        },
+        "missed": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "params": {
+          "default": null
+        },
+        "plugin": {
+          "description": "The plugin it is of: a plugin's own, or one an admin names; `rookery` for a kind of the server's.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subject": {
+          "description": "The resource the job is about, such as `env://studio`, whose access the job's follows.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timezone": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "job"
+      ],
+      "title": "ScheduleCreate",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "cron": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "declared": {
+          "description": "Declared in the manifest; otherwise created at runtime.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "everySecs": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "job": {
+          "description": "The job each firing enqueues.",
+          "type": "string"
+        },
+        "lastJobId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastRunAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "missed": {
+          "description": "`once`, `skip` or `all`.",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "nextRunAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "params": true,
+        "pausedReason": {
+          "description": "Why the server paused it: who its jobs run as lost the right to make it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "plugin": {
+          "type": "string"
+        },
+        "subject": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "user": {
+          "description": "The user it runs on behalf of.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "plugin",
+        "name",
+        "job",
+        "params",
+        "timezone",
+        "missed",
+        "enabled",
+        "declared"
+      ],
+      "title": "ScheduleInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "schedules.fire",
+    "summary": "Runs an enabled schedule's job now, with more params merged in.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`schedules.fire`: run a schedule's job now, as a firing would (on behalf of its user), with `params`\nmerged into the schedule's. A plugin fires its own schedules (a webhook that starts what a person set\nup), a person theirs (\"run now\").",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "params": true
+      },
+      "required": [
+        "id"
+      ],
+      "title": "ScheduleFire",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "AnyValue"
+    }
+  },
+  {
+    "name": "schedules.list",
+    "summary": "Schedules: a plugin's own, those made for the caller, or with all every one, for an admin.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "all": {
+          "description": "Admins: every schedule. Otherwise the caller's own (and, for a plugin, its declared ones).",
+          "type": "boolean"
+        },
+        "plugin": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "ScheduleListQuery",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "ScheduleInfo": {
+          "properties": {
+            "cron": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "declared": {
+              "description": "Declared in the manifest; otherwise created at runtime.",
+              "type": "boolean"
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "everySecs": {
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "job": {
+              "description": "The job each firing enqueues.",
+              "type": "string"
+            },
+            "lastJobId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "lastRunAt": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "missed": {
+              "description": "`once`, `skip` or `all`.",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "nextRunAt": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "params": true,
+            "pausedReason": {
+              "description": "Why the server paused it: who its jobs run as lost the right to make it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "plugin": {
+              "type": "string"
+            },
+            "subject": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "timezone": {
+              "type": "string"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "user": {
+              "description": "The user it runs on behalf of.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "plugin",
+            "name",
+            "job",
+            "params",
+            "timezone",
+            "missed",
+            "enabled",
+            "declared"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "schedules": {
+          "items": {
+            "$ref": "#/$defs/ScheduleInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schedules"
+      ],
+      "title": "ScheduleList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "schedules.remove",
+    "summary": "Removes a schedule that was made, not declared.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "ScheduleRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "schedules.setEnabled",
+    "summary": "Pauses or resumes a schedule. A resumed one runs next from now, so the runs of the pause are not missed.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`schedules.setEnabled`: pause (`false`) or resume (`true`).",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "enabled"
+      ],
+      "title": "ScheduleSetEnabled",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "cron": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "declared": {
+          "description": "Declared in the manifest; otherwise created at runtime.",
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "everySecs": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "job": {
+          "description": "The job each firing enqueues.",
+          "type": "string"
+        },
+        "lastJobId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lastRunAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "missed": {
+          "description": "`once`, `skip` or `all`.",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "nextRunAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "params": true,
+        "pausedReason": {
+          "description": "Why the server paused it: who its jobs run as lost the right to make it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "plugin": {
+          "type": "string"
+        },
+        "subject": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "user": {
+          "description": "The user it runs on behalf of.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "plugin",
+        "name",
+        "job",
+        "params",
+        "timezone",
+        "missed",
+        "enabled",
+        "declared"
+      ],
+      "title": "ScheduleInfo",
+      "type": "object"
+    }
+  },
+  {
     "name": "search.query",
     "summary": "Entities the caller may see that match words, best first, with counts per scheme; with no words, what they opened and what changed last.",
     "level": {
@@ -36481,6 +37058,177 @@
         "people"
       ],
       "title": "PersonList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "webhooks.list",
+    "summary": "The webhooks plugins declare, whether each is ready, and their last deliveries.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "DeliveryInfo": {
+          "properties": {
+            "bytes": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "count": {
+              "description": "How many requests of the minute were refused with this status.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "The delivery's id; for refusals, which are counted per minute, the minute's.",
+              "type": "string"
+            },
+            "jobId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "outcome": {
+              "description": "`accepted`, or `refused` and `duplicate` (a replay), which are counted per minute and status.",
+              "type": "string"
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "receivedAt": {
+              "type": "string"
+            },
+            "status": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "outcome",
+            "status",
+            "bytes",
+            "receivedAt"
+          ],
+          "type": "object"
+        },
+        "WebhookInfo": {
+          "properties": {
+            "deliveries": {
+              "items": {
+                "$ref": "#/$defs/DeliveryInfo"
+              },
+              "type": "array"
+            },
+            "id": {
+              "description": "`<plugin>.<name>`.",
+              "type": "string"
+            },
+            "job": {
+              "type": "string"
+            },
+            "path": {
+              "description": "`/hooks/<plugin>/<name>`.",
+              "type": "string"
+            },
+            "plugin": {
+              "type": "string"
+            },
+            "ready": {
+              "description": "Whether the secret is set.",
+              "type": "boolean"
+            },
+            "scheme": {
+              "description": "The verification scheme: `github`, `hmac`, `stripe`, `slack`, `standard`, `none`.",
+              "type": "string"
+            },
+            "secret": {
+              "description": "Where the secret comes from, for people: `secret webhook` or `connection github`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "plugin",
+            "id",
+            "path",
+            "job",
+            "scheme",
+            "ready",
+            "deliveries"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "webhooks": {
+          "items": {
+            "$ref": "#/$defs/WebhookInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "webhooks"
+      ],
+      "title": "WebhookList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "webhooks.setSecret",
+    "summary": "Sets the secret a webhook verifies its deliveries with.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`webhooks.setSecret` (admins): stores the secret a webhook declared as `{ \"secret\": \"<name>\" }`.",
+      "properties": {
+        "id": {
+          "description": "`<plugin>.<name>`.",
+          "type": "string"
+        },
+        "secret": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "secret"
+      ],
+      "title": "WebhookSecretSet",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
       "type": "object"
     }
   }

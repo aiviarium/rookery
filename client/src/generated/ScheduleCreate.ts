@@ -4,4 +4,16 @@
  * `schedules.create`, from a plugin inside a handler: a schedule on behalf of the call's user.
  * Creating one with a name the user already has replaces it.
  */
-export type ScheduleCreate = { name: string, job: string, cron?: string, everySecs?: number, timezone?: string, missed?: string, params?: Record<string, unknown>, title?: string, enabled?: boolean, };
+export type ScheduleCreate = { 
+/**
+ * The plugin it is of: a plugin's own, or one an admin names; `rookery` for a kind of the server's.
+ */
+plugin?: string, name: string, 
+/**
+ * The kind of job: `<plugin>/<job>`, or one of the server's, such as `apply`.
+ */
+job: string, 
+/**
+ * The resource the job is about, such as `env://studio`, whose access the job's follows.
+ */
+subject?: string, cron?: string, everySecs?: number, timezone?: string, missed?: string, params?: Record<string, unknown>, title?: string, enabled?: boolean, };

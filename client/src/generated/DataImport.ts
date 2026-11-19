@@ -12,4 +12,8 @@ mode: ImportMode,
 /**
  * `upsert`: the unique key.
  */
-on?: Array<string>, plugin?: string, collection: string, space?: string, };
+on?: Array<string>, 
+/**
+ * Makes a retried write answer as the first one did, instead of writing again, for a day.
+ */
+idempotencyKey?: string, plugin?: string, collection: string, space?: string, };

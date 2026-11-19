@@ -4,4 +4,8 @@ import type { FieldOp } from "./FieldOp";
 /**
  * `data.update`. With `rev`, fails with `CONFLICT` unless the row is still at that revision.
  */
-export type DataUpdate = { ops?: { [key in string]: FieldOp }, id: string, patch: Record<string, unknown>, rev?: number, plugin?: string, collection: string, space?: string, };
+export type DataUpdate = { ops?: { [key in string]: FieldOp }, id: string, patch: Record<string, unknown>, rev?: number, 
+/**
+ * Makes a retried write answer as the first one did, instead of writing again, for a day.
+ */
+idempotencyKey?: string, plugin?: string, collection: string, space?: string, };

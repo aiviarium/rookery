@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 use rookery_kernel::Methods;
 
 pub use jobs::{
-    EnqueuePolicy, JobHandler, JobRun, MayEnqueue, Options, add_handler, remove_handler,
+    EnqueuePolicy, JobHandler, JobRun, MayEnqueue, Options, add_handler, handles, remove_handler,
     set_enqueue_policy, wake,
 };
 

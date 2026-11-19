@@ -5,4 +5,8 @@ import type { BatchOp } from "./BatchOp";
 /**
  * `data.batch`: one transaction over one plugin's collections.
  */
-export type DataBatch = { if?: BatchCondition, plugin?: string, space?: string, ops: Array<BatchOp>, };
+export type DataBatch = { if?: BatchCondition, plugin?: string, space?: string, ops: Array<BatchOp>, 
+/**
+ * Makes a retried write answer as the first one did, instead of writing again, for a day.
+ */
+idempotencyKey?: string, };

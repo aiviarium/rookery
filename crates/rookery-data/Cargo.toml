@@ -11,6 +11,7 @@ doctest = false
 
 [dependencies]
 rookery-proto.workspace = true
+tower = { version = "0.5", features = ["util"] }
 rookery-store.workspace = true
 rookery-kernel.workspace = true
 rookery-jobs.workspace = true
@@ -22,9 +23,15 @@ chrono.workspace = true
 tracing.workspace = true
 async-trait = "0.1"
 futures-util.workspace = true
+axum.workspace = true
+hmac = "0.13"
+sha1 = "0.11"
+sha2 = "0.11"
+base64 = "0.22"
 
 [dev-dependencies]
 sqlx.workspace = true
 rookery-proto.workspace = true
+tower = { version = "0.5", features = ["util"] }
 rookery-kernel = { workspace = true, features = ["testing"] }
 rookery-store = { workspace = true, features = ["testing"] }

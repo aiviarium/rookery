@@ -3,4 +3,8 @@
 /**
  * `data.insert`.
  */
-export type DataInsert = { values: Record<string, unknown>, plugin?: string, collection: string, space?: string, };
+export type DataInsert = { values: Record<string, unknown>, 
+/**
+ * Makes a retried write answer as the first one did, instead of writing again, for a day.
+ */
+idempotencyKey?: string, plugin?: string, collection: string, space?: string, };

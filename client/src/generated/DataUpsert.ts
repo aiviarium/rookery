@@ -3,4 +3,8 @@
 /**
  * `data.upsert` on a declared unique key.
  */
-export type DataUpsert = { values: Record<string, unknown>, on: Array<string>, plugin?: string, collection: string, space?: string, };
+export type DataUpsert = { values: Record<string, unknown>, on: Array<string>, 
+/**
+ * Makes a retried write answer as the first one did, instead of writing again, for a day.
+ */
+idempotencyKey?: string, plugin?: string, collection: string, space?: string, };
