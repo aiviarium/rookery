@@ -106,8 +106,15 @@ pub fn register(methods: &mut Methods) {
             check_key(&p.key)?;
             let at = scope(&call, &p.plugin, p.scope, p.space.as_deref()).await?;
             call.store().settings().set(&p.plugin, &p.key, at, &p.value, &call.audit_name()).await?;
-            if at == Scope::Global {
-                call.audit("settings.set", Some(&format!("plugin://{}", p.plugin)), serde_json::json!({ "key": p.key })).await;
+            // What others read is audited: the global value, and a space's on the space.
+            match at {
+                Scope::Global => {
+                    call.audit("settings.set", Some(&format!("plugin://{}", p.plugin)), serde_json::json!({ "key": p.key })).await;
+                }
+                Scope::Space(space) => {
+                    call.audit("settings.set", Some(&format!("space://{space}")), serde_json::json!({ "plugin": p.plugin, "key": p.key })).await;
+                }
+                _ => {}
             }
             Ok(Empty {})
         })

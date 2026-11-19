@@ -393,11 +393,21 @@ wire! {
 }
 
 wire! {
-    /// `connections.resolve`: by id, or by type and name, the caller's own before the global one.
+    /// `connections.resolve`: by id, or by type and name: the person's own, then the space's, then the
+    /// global one. A person's connection is theirs only, and a space's needs the person to hold `use`
+    /// on the space: a plugin names the person it acts for in `user`, as with `access.levelOf`.
     pub struct ConnectionResolve {
         #[serde(default)]
         #[cfg_attr(feature = "ts", ts(optional))]
         pub plugin: Option<String>,
+        /// The person the plugin acts for, `<id>`; a person calling is themselves.
+        #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        pub user: Option<String>,
+        /// The space whose connection of a type and name to find.
+        #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        pub space: Option<String>,
         #[serde(default)]
         #[cfg_attr(feature = "ts", ts(optional))]
         pub id: Option<String>,

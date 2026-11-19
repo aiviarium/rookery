@@ -21,6 +21,10 @@ fn entry(e: rookery_store::kv::Entry) -> StorageEntry {
 
 /// Where a stored value is: the plugin's own, the caller's, or a space's (a plugin keeps what it keeps of
 /// a space; nobody else reaches it through `storage.*`).
+///
+/// The space scope checks no access: `storage.*` is for plugins (`Level::Plugin`), which act for
+/// themselves here. A host half that reads or writes a space's storage for a person checks first that
+/// the person may, with `access.levelOf` on `space://<id>`.
 fn scope(call: &Call, scope: Scope, space: Option<&str>) -> Result<KvScope, RpcError> {
     match scope {
         Scope::Global => Ok(KvScope::Global),

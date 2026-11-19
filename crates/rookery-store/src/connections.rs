@@ -173,6 +173,28 @@ impl Connections<'_> {
         .await?)
     }
 
+    /// The connection of a type and name for a person in a space: theirs first, then the space's, then the
+    /// global one.
+    pub async fn find_in(
+        &self,
+        kind: &str,
+        name: &str,
+        user: Option<Uuid>,
+        space: Option<Uuid>,
+    ) -> Result<Option<Connection>> {
+        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {COLS} FROM rookery.connections WHERE type = $1 AND name = $2
+                 AND (scope = 'global' OR user_id = $3 OR space_id = $4)
+             ORDER BY CASE WHEN user_id IS NOT NULL THEN 0 WHEN space_id IS NOT NULL THEN 1 ELSE 2 END LIMIT 1"
+        )))
+        .bind(kind)
+        .bind(name)
+        .bind(user)
+        .bind(space)
+        .fetch_optional(self.store.pool())
+        .await?)
+    }
+
     /// The global connections, and those of `user`.
     pub async fn list(&self, kind: Option<&str>, user: Option<Uuid>) -> Result<Vec<Connection>> {
         Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(

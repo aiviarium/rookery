@@ -586,27 +586,47 @@ pub fn register(methods: &mut Methods) {
             "connections.resolve",
             |call: Call, p: ConnectionResolve| async move {
                 let plugin = call.plugin(p.plugin.as_deref())?;
-                let user = match &call.caller {
-                    Caller::User { user, .. } => uuid::Uuid::parse_str(&user.id).ok(),
+                // The person the call acts for: the caller, or whom the plugin names.
+                let user = match (&call.caller, &p.user) {
+                    (Caller::User { user, .. }, _) => uuid::Uuid::parse_str(&user.id).ok(),
+                    (_, Some(u)) => Some(parse_id("user", u)?),
                     _ => None,
                 };
                 if let (Caller::Plugin(_), None, Some(id)) = (&call.caller, &p.id, &p.kind) {
                     require_kind(&call, &plugin, id)?;
                 }
+                let space = p
+                    .space
+                    .as_deref()
+                    .map(|s| parse_id("space", s))
+                    .transpose()?;
                 let connections = call.store().connections();
                 let found = match (&p.id, &p.kind, &p.name) {
                     (Some(id), _, _) => connections
                         .get(parse_id("connection", id)?)
                         .await?
-                        // A plugin acts for itself: it uses the global connections and those of spaces.
                         .filter(|c| c.user_id.is_none() || c.user_id == user),
-                    (None, Some(kind), Some(name)) => connections.find(kind, name, user).await?,
+                    (None, Some(kind), Some(name)) => {
+                        connections.find_in(kind, name, user, space).await?
+                    }
                     _ => {
                         return Err(RpcError::invalid(
                             "name the connection by id, or by type and name",
                         ));
                     }
                 };
+                // A space's connection is for the people who use the space.
+                if let Some(s) = found.as_ref().and_then(|c| c.space_id) {
+                    let Some(u) = user else {
+                        return Err(RpcError::forbidden(
+                            "a space's connection is used for a person: name them in user",
+                        ));
+                    };
+                    let held = crate::access::user_level(&call, u, &format!("space://{s}")).await?;
+                    if held.is_none_or(|l| l < rookery_kernel::Grant::Use) {
+                        return Err(RpcError::not_found("no such connection"));
+                    }
+                }
                 let found = found.ok_or_else(|| RpcError::not_found("no such connection"))?;
                 if matches!(call.caller, Caller::Plugin(_)) {
                     require_kind(&call, &plugin, &found.kind)?;

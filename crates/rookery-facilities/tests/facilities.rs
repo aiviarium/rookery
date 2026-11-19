@@ -1156,6 +1156,65 @@ async fn settings_storage_and_connections_have_a_space_scope_for_its_members() {
         ),
         "NOT_FOUND"
     );
+    // A plugin resolves a space's connection only for a person who uses the space.
+    let docs = Caller::Plugin("docs".into());
+    let id_of = |c: &Caller| c.user().unwrap().id.clone();
+    let by_id = |user: Option<String>| match user {
+        Some(u) => json!({ "id": made["id"], "user": u }),
+        None => json!({ "id": made["id"] }),
+    };
+    assert_eq!(
+        code(k.call(&docs, "connections.resolve", by_id(None)).await),
+        "FORBIDDEN"
+    );
+    for outsider in [&bob, &eve] {
+        assert_eq!(
+            code(
+                k.call(&docs, "connections.resolve", by_id(Some(id_of(outsider))))
+                    .await
+            ),
+            "NOT_FOUND",
+            "view is not use"
+        );
+    }
+    let resolved = k
+        .call(&docs, "connections.resolve", by_id(Some(id_of(&ada))))
+        .await
+        .unwrap();
+    assert_eq!(resolved["connection"]["name"], "wiki");
+    let by_name = json!({ "type": "http", "name": "wiki", "space": space, "user": id_of(&ada) });
+    assert_eq!(
+        k.call(&docs, "connections.resolve", by_name).await.unwrap()["connection"]["id"],
+        made["id"]
+    );
+    assert_eq!(
+        code(
+            k.call(
+                &docs,
+                "connections.resolve",
+                json!({ "type": "http", "name": "wiki", "user": id_of(&ada) })
+            )
+            .await
+        ),
+        "NOT_FOUND",
+        "without the space, only the person's own and global connections"
+    );
+    // A space's setting is audited on the space.
+    let audited =
+        k.db.store
+            .audit()
+            .list(&rookery_store::audit::Filter {
+                action: Some("settings.set".into()),
+                limit: 10,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+    assert!(
+        audited
+            .iter()
+            .any(|e| e.resource.as_deref() == Some(&format!("space://{space}")))
+    );
     k.call(&ada, "connections.delete", json!({ "id": made["id"] }))
         .await
         .unwrap();
