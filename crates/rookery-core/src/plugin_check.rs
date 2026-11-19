@@ -205,7 +205,10 @@ mod tests {
                 ]}}"#,
         );
         let problems = check_dir(&bad).join("\n");
-        assert!(problems.contains("/contributes/composer/0/type"), "{problems}");
+        assert!(
+            problems.contains("/contributes/composer/0/type"),
+            "{problems}"
+        );
         assert!(
             problems.contains("the composer entry bad.two is declared twice"),
             "{problems}"
