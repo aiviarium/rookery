@@ -75,10 +75,9 @@ For a managed host, `rookery host set forge type=managed` and `rookery run forge
 
 Over the API, `hosts.save` takes a profile with only the type and `access`:
 
-```bash
-curl --unix-socket "$XDG_RUNTIME_DIR/rookery/serve.sock" -X PUT \
-  -d '{"type": "ssh", "access": {"address": "192.0.2.4", "user": "ops"}}' \
-  http://rookery/v1/hosts/forge/profile
+```json
+{ "jsonrpc": "2.0", "id": 1, "method": "hosts.save",
+  "params": { "host": "forge", "profile": { "type": "ssh", "access": { "address": "192.0.2.4", "user": "ops" } } } }
 ```
 
 The host's `trust-key` action then installs the server's key, with a password used once in its arguments ([Actions](/docs/extend/serve#actions)).

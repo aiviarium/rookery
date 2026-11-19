@@ -10,5 +10,5 @@ next-env.d.ts
 
 # The API reference, generated from docs/openapi (npm run gather)
 /content/docs/api/host/
-/content/docs/api/serve/
+/content/docs/api/server/
 /public/openapi/

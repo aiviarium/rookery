@@ -131,9 +131,9 @@ A host keeps what it was applied with until it is applied again. After an update
 
 ### On a Rookery server
 
-With a [Rookery server](/docs/use/server) set, `rookery plugin` and `rookery plugin registry` show and change the server's plugins and registries, which needs the role `admin` there. The server installs packages from its own registries and fetches `https://` addresses itself. It never installs a path of its own machine. `rookery plugin add` packs a folder on your machine into an egg and sends it, or sends an egg file as it is. A `dir` registry, or a `git` registry at a folder, is read with the server's rights, so only a caller on the server's own socket adds one.
+With a [Rookery server](/docs/use/server) set, `rookery plugin` and `rookery plugin registry` show and change the server's plugins and registries, which needs an admin of the server. The server installs packages from its own registries and fetches `https://` addresses itself. It never installs a path of its own machine. `rookery plugin add` packs a folder on your machine into an egg and sends it, or sends an egg file as it is. A `dir` registry, or a `git` registry at a folder, is read with the server's rights, so only a caller on the server's own socket adds one.
 
-The server's hosts can have a new plugin's features as soon as it is installed. Its Ansible tasks run on the server when a host is applied, so installing is part of set-up. A server with `serve_setup off` takes it only on its own socket ([Closing set-up](/docs/extend/serve#closing-set-up)).
+The server's hosts can have a new plugin's features as soon as it is installed. Its Ansible tasks run on the server when a host is applied, so installing is part of set-up.
 
 A plugin of yours with the same id as one that comes with Rookery replaces it.
 

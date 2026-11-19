@@ -6,12 +6,13 @@ Rookery provisions and manages development machines. It sets up Ubuntu hosts and
 
 | Path | What it is |
 | --- | --- |
-| `crates/rookery/` | The `rookery` program, for Linux, macOS and Windows. `main.rs` hands it to `src/cli/`, the command line, which is the same on every system. In `cli/`, `args.rs` is the grammar in clap and `docs.rs` writes the reference page from it. `client.rs` reaches the server, and `net.rs` is the network under it: TCP, TLS, a socket and the process. `settings.rs` keeps the server and its token, `ask.rs` asks, `follow.rs` shows progress, `out.rs` prints, and `look.rs` has the colours. On Linux, `src/local/` adds the commands of the server's own machine and `rookery serve` (`src/local/serve/`), behind one `#[cfg(target_os = "linux")]`. `client_only.rs` takes its place on other systems. In `serve/`, `here.rs` is the server in Rookery's own process, used when no other is set. Then `actions.rs` has the actions of hosts and of the installation, `keys.rs` the key ring's routes, `provisioners.rs` and `resources.rs` those of provisioners and resources |
+| `crates/rookery/` | The `rookery` program, for Linux, macOS and Windows. `main.rs` hands it to `src/cli/`, the command line, which is the same on every system. In `cli/`, `args.rs` is the grammar in clap and `docs.rs` writes the reference page from it. `client.rs` reaches the server through rookery-client, on `/ws` or the server's socket, and `login.rs` signs in. `settings.rs` keeps the server and its token, `ask.rs` asks, `follow.rs` shows progress, `out.rs` prints, and `look.rs` has the colours. On Linux, `src/local/` adds the commands of the server's own machine, behind one `#[cfg(target_os = "linux")]`: `rookery serve`, which starts rookery-server, `rookery server setup-key`, `token` and `secrets rekey` over the socket, `import.rs` for `rookery server import`, and `deploy.rs` for the image. `client_only.rs` takes its place on other systems |
+| `crates/rookery-client/` | The client of `rookery serve` for the command line, with no server crates in it, so it builds on macOS and Windows: JSON-RPC on `/ws` over TCP, TLS or a Unix socket, its binary streams with credit, and `rpc()` for `POST /rpc`. `net.rs` is the network under it |
 | `crates/rookery-api/` | Types and the operations table shared by every program (`ops.rs` names each operation, its HTTP route and its role). `plugin_contract.rs` checks a plugin package against `schemas/rookery-plugin.schema.json`, for `rookery plugin check` and every install |
-| `crates/rookery-core/` | Hosts, profiles, links to hosts, registries and secrets, and plugins. The store is in `store/`. `kept.rs` and `plugin_state.rs` write files from it. `kept_profile.rs` is the profile a host keeps of itself and `rookery host adopt`. `runner.rs` runs every action as a job. `keys/` is the key ring and how Rookery logs in to hosts. `host_type.rs` says what each type of host can do. `provisioner.rs` and `resource.rs` are the provisioners of plugins and what they made. `simulate.rs` is the world of `rookery serve --simulate`: its hosts, its provisioner `sim/cloud` and its seed. `plugins.rs` reads the plugins, and `eggs.rs` installs, updates and removes them through the `hatchery` library |
+| `crates/rookery-core/` | Hosts, profiles, links to hosts, registries and secrets, and plugins. The `Store` in `store/` keeps their state on a `Backend`: the server's tables, which rookery-hosts gives it, or `memory.rs` in tests. `kept.rs` and `plugin_state.rs` write files from it. `kept_profile.rs` is the profile a host keeps of itself and `rookery host adopt`. `runner.rs` holds the locks of subjects, which the server makes leases. `keys/` is the key ring and how Rookery logs in to hosts. `host_type.rs` says what each type of host can do. `provisioner.rs` and `resource.rs` are the provisioners of plugins and what they made. `simulate.rs` is a simulated world of hosts, a provisioner `sim/cloud` and a seed, which no command starts since the server moved to Postgres. `plugins.rs` reads the plugins, and `eggs.rs` installs, updates and removes them through the `hatchery` library |
 | `crates/rookery-setup/` | A host's set-up, with nothing drawn. `fields.rs` is the fields of its profile, and `setup.rs` what changes them and what stops it. `flow.rs` has the questions the command line asks, `machine.rs` the machine a provisioner makes, and `event.rs` the keys a prompt takes |
 | `crates/rookery-pty/` | Terminals for sessions |
-| `crates/rookery-server/` | `rookery serve` on Postgres, when `ROOKERY_DATABASE_URL` is set. `config.rs` reads the `ROOKERY_*` variables. `leader.rs` is the advisory lock: one server per database leads, and the others wait as standbys that answer 503. `edge.rs` serves `/ws`, `/rpc` (`rpc.rs`), `/healthz` and the Unix socket, where the CLI of the same machine is an admin with no token. `shell.rs` serves the shell in `ROOKERY_SHELL_DIR`. `client.rs` calls the socket, for `rookery server setup-key`. `methods()` in `lib.rs` lists every facility's methods |
+| `crates/rookery-server/` | `rookery serve`, on the Postgres of `ROOKERY_DATABASE_URL`. `config.rs` reads the `ROOKERY_*` variables. `leader.rs` is the advisory lock: one server per database leads, and the others wait as standbys that answer 503. `edge.rs` serves `/ws`, `/rpc` (`rpc.rs`), `/healthz` and the Unix socket, where the CLI of the same machine is an admin with no token. `shell.rs` serves the shell in `ROOKERY_SHELL_DIR`. `client.rs` calls the socket, for `rookery server setup-key`. `methods()` in `lib.rs` lists every facility's methods |
 | `crates/rookery-kernel/` | The core of `rookery serve`. In `methods.rs` each method is registered with a level and the schema of its params. `conn.rs` is a connection on `/ws`, `streams.rs` the binary stream channels with credit, `auth.rs` reads a session or a token |
 | `crates/rookery-auth/` | How people sign in, and the `auth.*` methods. `links.rs` has the one-time links of local accounts and `session.rs` the device sessions and their cookie. `oidc.rs` signs in through an identity provider with PKCE |
 | `crates/rookery-facilities/` | What plugins and the shell build on, a module for each namespace from `settings.*` to `layout.*`. `storage.*` is key-value with revisions. `access.*` holds the grants on resources and gives the kernel the check of a level on one; `admin.rs` has `admin.*` and `audit.list` |
@@ -124,20 +125,20 @@ With only Docker or Podman, `ci/run.sh` runs the same checks in an image that ha
 
 ```bash
 ci/run.sh check [CHECK…]   # fmt, shell-syntax, ansible-syntax, vale, python-tests, rust-tests, plugin-check, clippy
-ci/run.sh e2e [TEST…]      # the end-to-end tests, such as e2e_serve.Roles
+ci/run.sh e2e [TEST…]      # the end-to-end tests, such as e2e_serve.Grants
 ci/run.sh e2e --shard NAME # the tests of one shard on a fresh host, as a CI job runs them
 ci/run.sh shell            # a shell in the dev container
 ci/run.sh boot cloud|iso   # real installs in QEMU, with KVM; slow
 ```
 
-The end-to-end tests in `tests/e2e/` use throw-away containers over SSH, with Rookery, rookeryd and `rookery serve`. They run on a network with nothing else on it, in scratch directories. There are two test hosts, `studio` and `forge`, and the two run in parallel. The modules need different amounts of that setup:
+The end-to-end tests in `tests/e2e/` use throw-away containers over SSH, with Rookery, rookeryd and `rookery serve`. They run on a network with nothing else on it, in scratch directories. Each scratch workstation runs a `rookery serve` of its own, on a database of its own in the Postgres of `ci/compose.yml`, and its commands reach it on its socket. There are two test hosts, `studio` and `forge`, and the two run in parallel. The modules need different amounts of that setup:
 
 | Tests | Need |
 | --- | --- |
 | `e2e_access` | A bare host with only SSH, which they leave as they found it |
 | `e2e_controller.Controller` | The same host and Rookery's controller alone, with one playbook run |
 | `e2e_provisioners` | A provisioner of a made-up plugin, and no test host. With Docker, `ci/run.sh` starts an engine on the test network for the Docker plugin's cases |
-| `e2e_restore` | The host `studio` as it is, and a server of its own with an encrypted store. It leaves the host as it is |
+| `e2e_restore` | The host `studio` as it is, and a server of its own, restored from a dump of its database. It leaves the host as it is |
 | `e2e_node` | The bare host `forge` applied as a node, with a made-up plugin's feature that offers a provisioner. It runs last there and leaves the node |
 | The rest | A full apply of the profile |
 
@@ -165,13 +166,13 @@ The Rust jobs restore the target directory from main's cache. `ci/mtimes.py` set
 
 ## API changes
 
-- Add the operation to `crates/rookery-api/src/ops.rs` with the role it needs. A test fails when a route has no operation or the other way round.
+- An operation of rookeryd is added to `crates/rookery-api/src/ops.rs` with the level it needs. A test fails when a route has no operation or the other way round.
 - A method of `rookery serve` is added in the `register` of its facility with `methods.add(…).summary(…).level(…)`, and its params and result types in `rookery-proto`. A method without a level is refused to every caller, and a test fails for it. `ROOKERY_UPDATE_DOCS=1 cargo test -p rookery-server` writes `api/methods.json` again.
 - `ROOKERY_UPDATE_DOCS=1 cargo test -p rookery-proto --features ts --test bindings` writes the TypeScript types in `client/src/generated/`. A wire type is added to the list in `crates/rookery-proto/tests/bindings.rs`.
 - Work that runs inside the server, such as an apply, is a `JobHandler` given to `rookery_jobs::register` in `methods_with` of `rookery-server`. One that is not safe to repeat says so with `repeatable`: its job gets one attempt, and one the server stopped in fails for a person to run again.
 - A migration of the store is a new numbered file in `crates/rookery-store/migrations/` and an entry in `MIGRATIONS` of `migrate.rs`. A migration that ran is never edited: the server refuses to start on one that changed.
-- The API documents in `docs/openapi/` are committed. Regenerate them with `ROOKERY_UPDATE_DOCS=1 cargo test -p rookery -p rookeryd`. The same writes the command line's reference page, `docs/content/docs/(guide)/reference/cli.mdx`, from the grammar in `crates/rookery/src/cli/args.rs`. A test fails while either is stale.
-- The pages under `docs/content/docs/api/host` and `api/serve` are generated from those documents when the docs are built (`docs/scripts/reference.mjs`), and are not committed. Do not edit them by hand.
+- rookeryd's API documents in `docs/openapi/` are committed. Regenerate them with `ROOKERY_UPDATE_DOCS=1 cargo test -p rookery -p rookeryd`. The same writes the command line's reference page, `docs/content/docs/(guide)/reference/cli.mdx`, from the grammar in `crates/rookery/src/cli/args.rs`. A test fails while either is stale.
+- The pages under `docs/content/docs/api/host` and `api/server` are generated from those documents and `api/methods.json` when the docs are built (`docs/scripts/reference.mjs`), and are not committed. Do not edit them by hand.
 
 ### Actions
 
@@ -179,12 +180,12 @@ Give a new thing a host, the installation, a provisioner or a resource can do an
 
 | Subject | Where its actions are |
 | --- | --- |
-| A host | `HOST` in `crates/rookery/src/local/serve/actions.rs`, besides the actions its controller lists |
+| A host | `HOST` in `crates/rookery-hosts/src/serve/actions.rs`, besides the actions its controller lists |
 | The installation | `INSTALLATION` in the same file |
 | A provisioner | `provisioner::actions` in `crates/rookery-core/src/provisioner.rs`: its plugin's actions and Rookery's own |
 | A resource | `resource::actions` in `crates/rookery-core/src/resource.rs`: those of its kind and its plugin's |
 
-An action that changes something runs as a job through `runner.rs`. The command line does everything through the API. What works only with the server's own machine, such as writing a USB drive, is an action for a caller there alone (`Seen::local` is the socket or the process). To one over the network it says why not.
+An action that changes something runs as a job of rookery-jobs through `runner.rs` of rookery-hosts. The command line does everything through the API. What works only with the server's own machine, such as writing a USB drive, is an action for a caller there alone (`Caller::Local`, the socket). To one over the network it says why not.
 
 ## Versions and releases
 

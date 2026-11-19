@@ -134,7 +134,7 @@ Compose puts the values into the containers as the file says. A variable in a co
 
 ## With a Rookery server
 
-With a server set, `rookery resource create` sends the Compose file to the server. The server keeps it and makes the deployment as a job of the subject `resource:ID`. The secrets it gets are the server's. Making, changing and removing one need the role `admin`, and reading its log `operate` ([Resources](/docs/deploy/resources#with-a-rookery-server)).
+With a server set, `rookery resource create` sends the Compose file to the server. The server keeps it and makes the deployment as a job of the subject `resource://ID`. The secrets it gets are the server's. Each of them needs an admin of the server ([Resources](/docs/deploy/resources#with-a-rookery-server)).
 
 ## The Docker plugin's part
 

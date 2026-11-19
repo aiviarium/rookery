@@ -24,9 +24,9 @@ Change the theme in the base, not here.
 | `docs.config.ts` | Rookery's name, colour, links, badges, install command and landing cards |
 | `public/brand/` | Rookery's icons and wordmarks, from the brand folder of aiviarium/.github |
 | `content/docs/(guide)/` | The guide, in MDX, with `meta.json` for the order |
-| `content/docs/api/` | The API overview, portal and testing pages. `api/host/` and `api/serve/` are generated and not committed |
-| `openapi/` | The committed API documents, written by the Rust tests |
-| `scripts/gather.mjs`, `scripts/reference.mjs` | Write the API pages from `openapi/` and copy the documents to `public/openapi/` |
+| `content/docs/api/` | The API overview and the portal page. `api/host/` and `api/server/` are generated and not committed |
+| `openapi/` | rookeryd's committed API documents, written by the Rust tests. The server's methods are in `../api/methods.json` |
+| `scripts/gather.mjs`, `scripts/reference.mjs` | Write the API pages from `openapi/` and `../api/methods.json`, and copy the documents to `public/openapi/` |
 | `scripts/site-screens.py` | Screenshots of the built site for review, into `screens/`, which git ignores |
 | `scripts/check-links.ts` | The link check |
 | `src/` | The base's routes, components, theme and helpers |
