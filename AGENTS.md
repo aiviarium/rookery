@@ -17,6 +17,8 @@ Rookery provisions and manages development machines. It sets up Ubuntu hosts and
 | `crates/rookery-auth/` | How people sign in, and the `auth.*` methods. `links.rs` has the one-time links of local accounts and `session.rs` the device sessions and their cookie. `oidc.rs` signs in through an identity provider with PKCE |
 | `crates/rookery-facilities/` | What plugins and the shell build on, a module for each namespace from `settings.*` to `layout.*`. `storage.*` is key-value with revisions. `access.*` holds the grants on resources and gives the kernel the check of a level on one; `admin.rs` has `admin.*` and `audit.list` |
 | `crates/rookery-plugins/` | The plugin system of `rookery serve`. `loaded.rs` reads each installed plugin's manifest, `record.rs` keeps the table `rookery.plugins`, `client.rs` serves client halves at `/plugins/ID/HASH/PATH`, `exthost.rs` runs host halves in the extension host and starts it again when it ends, and `methods.rs` has `plugins.*`. Installs go through rookery-core's `eggs.rs` |
+| `crates/rookery-data/` | The data layer's methods: `data.*` over collections (`data.rs`), live queries and the change feed (`live.rs`), `spaces.*` and each connection's current space (`spaces.rs`), `entities.*` (`entities.rs`), search, recents, pins and activity (`home.rs`), and the runtime of what plugins declare of their data, their collections and migrations, which the plugin system calls (`plugins.rs`) |
+| `crates/rookery-documents/` | `documents.*`: documents people edit together, as Yjs documents synced on a stream (`live.rs`), with ProseMirror JSON (`schema.rs`), Markdown (`markdown.rs`) and edits on the server (`edit.rs`) |
 | `crates/rookery-jobs/` | Jobs and the `JobHandler` trait of the handlers that run them inside the server (`jobs.rs`), with `leases.*`, durable `topics.*`, at-most-once `events.*` and `notify.*` |
 | `crates/rookery-hosts/` | Hosts inside `rookery serve`. `backend.rs` keeps rookery-core's state in the server's tables (`rookery.hosts`, `host_access`, `host_keys`, `provisioners`, `resources`, `host_messages`, `host_cursors`, and secrets, settings, registries and key-value entries in the facilities' tables), from a thread of its own (`db.rs`). `locks.rs` makes the locks of subjects leases. `runner.rs` runs Rookery's actions as jobs of rookery-jobs: apply, host actions, provisioning and roll-outs, with their output as log items. `serve/` is the leader's state of the hosts, their links and the handlers of each action, and `methods.rs` registers `hosts.*`, `keys.*`, `provisioners.*`, `resources.*`, `installation.*`, `setup.*` and `plugins.*`. `events.rs` tells `hosts.changed` and takes each host's channel in on a durable topic |
 | `crates/rookery-filter/` | The structured filter (`where`) of collections: parsing, validation and matching rows in memory, specified in its `FILTER.md` |
@@ -65,6 +67,7 @@ cargo test --locked --no-fail-fast
 cargo fmt --check -p rookery-api -p rookery-pty -p rookery-core -p rookery-setup -p rookery -p rookeryd -p box \
   -p rookery-proto -p rookery-store -p rookery-kernel -p rookery-auth -p rookery-server \
   -p rookery-facilities -p rookery-jobs -p rookery-hosts -p rookery-plugins -p rookery-filter
+  -p rookery-data -p rookery-documents
 cargo test --locked -q -p rookery-proto --features ts --test bindings
 cargo clippy --locked --all-targets -- -D warnings
 cargo run --locked -q -p rookery -- plugin check plugins
@@ -87,6 +90,7 @@ docker run -d --name rookery-test-pg -e POSTGRES_USER=rookery -e POSTGRES_PASSWO
 export ROOKERY_TEST_POSTGRES=postgres://rookery:rookery-test@127.0.0.1:55432/rookery
 cargo nextest run -p rookery-proto -p rookery-store -p rookery-kernel -p rookery-auth -p rookery-server \
   -p rookery-facilities -p rookery-jobs -p rookery-hosts -p rookery-plugins -p rookery-filter
+  -p rookery-data -p rookery-documents
 ```
 
 The tests of `rookery-hosts` also start `target/debug/rookeryd --single`, which a build of the workspace makes, and are skipped without it.

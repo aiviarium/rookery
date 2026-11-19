@@ -6,7 +6,7 @@ use crate::time;
 use rookery_kernel::{Call, Caller, Empty, Grant, Level, Methods, RpcError};
 use rookery_proto::access::{
     AccessFilter, AccessGrant, AccessRequire, AccessRevoke, GrantInfo, GrantList, LevelHeld,
-    LevelOf, ResourceRef, Resources,
+    LevelOf, Person, PersonList, ResourceRef, Resources, UserSearch,
 };
 use rookery_store::access::Who;
 use uuid::Uuid;
@@ -29,6 +29,36 @@ pub async fn level(call: &Call, resource: &str) -> Result<Option<Grant>, RpcErro
             &Who {
                 principal: &principal,
                 user,
+            },
+        )
+        .await?;
+    Ok(Grant::from_number(held))
+}
+
+/// The level held by an active account.
+pub async fn user_level(
+    call: &Call,
+    user: Uuid,
+    resource: &str,
+) -> Result<Option<Grant>, RpcError> {
+    let Some(account) = call.store().users().get(user).await? else {
+        return Ok(None);
+    };
+    if account.is_disabled() {
+        return Ok(None);
+    }
+    if account.is_admin() {
+        return Ok(Some(Grant::Manage));
+    }
+    let principal = format!("user:{user}");
+    let held = call
+        .store()
+        .access()
+        .level(
+            resource,
+            &Who {
+                principal: &principal,
+                user: Some(user),
             },
         )
         .await?;
@@ -135,38 +165,56 @@ pub fn register(methods: &mut Methods) {
     methods
         .add("access.levelOf", |call: Call, p: LevelOf| async move {
             let principal = rookery_store::access::principal_name(&p.principal)?;
-            let user = principal
+            let Some(user) = principal
                 .strip_prefix("user:")
-                .and_then(|id| Uuid::parse_str(id).ok());
-            if let Some(user) = user
-                && call
-                    .store()
-                    .users()
-                    .get(user)
-                    .await?
-                    .is_some_and(|u| u.is_admin())
-            {
-                return Ok(LevelHeld {
-                    level: Some(Grant::Manage),
-                });
-            }
-            let held = call
-                .store()
-                .access()
-                .level(
-                    &p.resource,
-                    &Who {
-                        principal: &principal,
-                        user,
-                    },
-                )
-                .await?;
+                .and_then(|id| Uuid::parse_str(id).ok())
+            else {
+                return Err(RpcError::invalid("principal is one person: user:<id>"));
+            };
             Ok(LevelHeld {
-                level: Grant::from_number(held),
+                level: user_level(&call, user, &p.resource).await?,
             })
         })
-        .summary("The level another principal holds on a resource.")
-        .level(Level::Admin);
+        .summary("The level a person holds on a resource, for a plugin about to tell them of it.")
+        .level(Level::Plugin);
+    methods
+        .add("users.search", |call: Call, p: UserSearch| async move {
+            let text = p.text.trim();
+            if text.is_empty() || text.len() > 200 {
+                return Err(RpcError::invalid("search for 1 to 200 bytes of a name or email"));
+            }
+            let resource = call.store().entities().alias_of(&p.resource).await?;
+            let resource = resource.as_deref().unwrap_or(&p.resource);
+            // Everyone manages their own user://, which shares nothing with anyone.
+            if resource.starts_with("user://") {
+                return Err(RpcError::forbidden(
+                    "people are searched for a resource to share, and a person is none",
+                ));
+            }
+            // Personal spaces cannot be shared. They allow name lookup only.
+            let match_email = match resource.strip_prefix("space://").and_then(|s| Uuid::parse_str(s).ok()) {
+                Some(space) => !call.store().spaces().get(space).await?.is_some_and(|s| s.personal),
+                None => true,
+            };
+            let emails = call.is_admin() && match_email;
+            let people = call
+                .store()
+                .users()
+                .search(text, p.limit.unwrap_or(20).clamp(1, 50), match_email)
+                .await?;
+            Ok(PersonList {
+                people: people
+                    .into_iter()
+                    .map(|u| Person {
+                        id: u.id.to_string(),
+                        name: u.name,
+                        email: u.email.filter(|_| emails),
+                    })
+                    .collect(),
+            })
+        })
+        .summary("People whose name starts with some words, or whose email is the text, for someone who holds manage on the resource they share. Only admins see emails.")
+        .level(manage());
     methods
         .add(
             "access.require",

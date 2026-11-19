@@ -10,11 +10,15 @@ license.workspace = true
 doctest = false
 
 [dependencies]
+async-trait = "0.1"
+futures-util.workspace = true
 rookery-proto.workspace = true
 rookery-store.workspace = true
 rookery-kernel.workspace = true
 rookery-auth.workspace = true
 rookery-facilities.workspace = true
+rookery-data.workspace = true
+rookery-documents.workspace = true
 rookery-jobs.workspace = true
 rookery-hosts.workspace = true
 rookery-plugins.workspace = true
@@ -38,7 +42,6 @@ rookery-store = { workspace = true, features = ["testing"] }
 rookery-api = { workspace = true, features = ["plugins"] }
 hatchery.workspace = true
 tokio-tungstenite.workspace = true
-futures-util.workspace = true
 ureq = "3"
 ring = "0.17"
 jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }

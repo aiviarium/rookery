@@ -528,6 +528,9 @@ function createApi(rt: HostRuntime): Rookery {
     },
     data: unavailable("data"),
     spaces: unavailable("spaces"),
+    entities: unavailable("entities"),
+    documents: unavailable("documents"),
+    users: unavailable("users"),
     connections: {
       list: async (opts = {}) => {
         if (opts.space !== undefined) {

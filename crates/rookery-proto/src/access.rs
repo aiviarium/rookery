@@ -56,10 +56,42 @@ wire! {
 }
 
 wire! {
-    /// `access.levelOf`: the level of another principal.
+    /// `access.levelOf`: the level of a person, `user:<id>`, such as one a plugin is about to tell of a
+    /// resource. An admin names the plugin it asks for.
     pub struct LevelOf {
         pub resource: String,
         pub principal: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        pub plugin: Option<String>,
+    }
+}
+
+wire! {
+    /// `users.search`: people whose name starts with words, or whose email is the text, to share a
+    /// resource with. Only admins see emails.
+    pub struct UserSearch {
+        /// The resource the caller shares, which they hold manage on; not a person (`user://`).
+        pub resource: String,
+        pub text: String,
+        #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(optional, type = "number"))]
+        pub limit: Option<i64>,
+    }
+}
+
+wire! {
+    /// A person as someone sharing a resource sees them.
+    pub struct Person {
+        pub id: String,
+        pub name: String,
+        pub email: Option<String>,
+    }
+}
+
+wire! {
+    pub struct PersonList {
+        pub people: Vec<Person>,
     }
 }
 

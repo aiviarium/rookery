@@ -147,15 +147,70 @@ pub struct Documents<'a> {
     pub(crate) store: &'a Store,
 }
 
+fn owns_plugin(caller: &Caller, plugin: Option<&str>) -> bool {
+    caller.user.is_none()
+        && plugin.is_some_and(|p| caller.principal.strip_prefix("plugin:") == Some(p))
+}
+
+/// Whether the caller satisfies the attached collection's read and write rules on its row.
+async fn attachment_access(
+    conn: &mut PgConnection,
+    caller: &Caller,
+    parent: &str,
+) -> Result<(bool, bool)> {
+    if caller.admin {
+        return Ok((true, true));
+    }
+    let rules: Option<(String, String, i16, i16)> = sqlx::query_as(
+        "SELECT c.uri, c.plugin, rookery.collection_need(c.plugin, c.collection),
+                 rookery.collection_need(c.plugin, c.collection, true)
+         FROM rookery.entity_collection(coalesce(
+             (SELECT target FROM rookery.entity_aliases WHERE uri = $1), $1), 15) c",
+    )
+    .bind(parent)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some((row, plugin, read, write)) = rules else {
+        return Ok((true, true));
+    };
+    if caller.admin_on(&plugin) || owns_plugin(caller, Some(&plugin)) {
+        return Ok((true, true));
+    }
+    let held = crate::access::level(conn, caller, &row)
+        .await?
+        .map_or(0, Level::as_i16);
+    Ok((held >= read, held >= write))
+}
+
 impl<'a> Documents<'a> {
     /// Creates a document and its entity. The caller needs `use` on the parent; a document without a
     /// parent needs a user, who owns it.
     pub async fn create(&self, caller: &Caller, new: &NewDocument) -> Result<Document> {
         let mut tx = self.store.pool().begin().await?;
         let mut space_id = new.space_id;
-        if let Some(parent) = &new.parent {
+        let parent: Option<String> = match &new.parent {
+            Some(parent) => Some(sqlx::query_scalar(
+                "SELECT coalesce((SELECT target FROM rookery.entity_aliases WHERE uri = $1), $1)",
+            ).bind(parent).fetch_one(&mut *tx).await?),
+            None => None,
+        };
+        if let Some(parent) = &parent {
             Uri::parse(parent)?;
-            crate::access::require(&mut tx, caller, parent, Level::Use).await?;
+            let (read, write) = attachment_access(&mut tx, caller, parent).await?;
+            if !(read && write) {
+                return Err(Error::forbidden(
+                    "the attached collection's write access is required",
+                ));
+            }
+            let parent_plugin: Option<String> =
+                sqlx::query_scalar("SELECT plugin FROM rookery.entities WHERE uri = $1")
+                    .bind(parent)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .flatten();
+            if !owns_plugin(caller, parent_plugin.as_deref()) {
+                crate::access::require(&mut tx, caller, parent, Level::Use).await?;
+            }
             if space_id.is_none() {
                 space_id = if let Some(s) = parent.strip_prefix("space://") {
                     Uuid::parse_str(s).ok()
@@ -179,7 +234,7 @@ impl<'a> Documents<'a> {
         )
         .bind(new.id)
         .bind(&new.plugin)
-        .bind(&new.parent)
+        .bind(&parent)
         .bind(space_id)
         .bind(caller.user)
         .bind(caller.actor())
@@ -190,7 +245,7 @@ impl<'a> Documents<'a> {
         let rec = EntityRecord {
             uri: uri(new.id),
             space_id,
-            parent: new.parent.clone(),
+            parent,
             title: if title.is_empty() {
                 "Untitled".into()
             } else {
@@ -211,6 +266,22 @@ impl<'a> Documents<'a> {
     pub async fn get(&self, id: Uuid) -> Result<Option<Document>> {
         let mut conn = self.store.pool().acquire().await?;
         fetch(&mut conn, id).await
+    }
+
+    /// The document's usable level after applying its attachment's collection rules.
+    pub async fn level(&self, caller: &Caller, doc: &Document) -> Result<Option<Level>> {
+        let mut conn = self.store.pool().acquire().await?;
+        let held = if owns_plugin(caller, doc.plugin.as_deref()) {
+            Some(Level::Manage)
+        } else {
+            crate::access::level(&mut conn, caller, &doc.uri()).await?
+        };
+        let Some(held) = held else { return Ok(None) };
+        let Some(parent) = &doc.parent else {
+            return Ok(Some(held));
+        };
+        let (read, write) = attachment_access(&mut conn, caller, parent).await?;
+        Ok(read.then_some(if write { held } else { Level::View }))
     }
 
     /// The documents attached to `parent` that the caller may view, oldest first.

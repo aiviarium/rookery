@@ -71,7 +71,8 @@ TS_PATHS = [
 # reach it yet; the Rust tests and clippy do.
 SERVER = ['crates/rookery-proto/', 'crates/rookery-store/', 'crates/rookery-kernel/', 'crates/rookery-auth/',
           'crates/rookery-server/', 'crates/rookery-facilities/', 'crates/rookery-jobs/', 'crates/rookery-hosts/',
-          'crates/rookery-plugins/', 'crates/rookery-filter/', 'api/']
+          'crates/rookery-plugins/', 'crates/rookery-filter/', 'crates/rookery-data/', 'crates/rookery-documents/',
+          'api/']
 
 # What each kind of unit leaves out, beyond NOWHERE, and what it keeps of that.
 UNITS = {

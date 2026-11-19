@@ -25,5 +25,6 @@ ureq = "3"
 jsonschema = { version = "0.61", default-features = false }
 
 [dev-dependencies]
+rookery-data.workspace = true
 rookery-kernel = { workspace = true, features = ["testing"] }
 axum.workspace = true
