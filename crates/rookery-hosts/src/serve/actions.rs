@@ -2463,17 +2463,13 @@ mod tests {
         let mut old = seen(HostType::Managed, None, &profile);
         old.older = Some(&said);
         let actions = host_list(&old);
-        let secrets = actions
+        let handing = actions
             .iter()
             .find(|action| action.name == "secrets")
             .unwrap();
-        assert!(!secrets.available);
-        assert_eq!(secrets.why, said);
-        assert!(
-            secrets.why.ends_with("rookery run big install-controller"),
-            "{}",
-            secrets.why
-        );
+        assert!(!handing.available);
+        assert_eq!(handing.why, said);
+        assert!(handing.why.ends_with("rookery run big install-controller"));
         let install = actions
             .iter()
             .find(|action| action.name == "install-controller")
