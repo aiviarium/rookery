@@ -634,7 +634,7 @@ pub struct Change {
 }
 
 /// Notification `data.changed`, to clients for `data.live` and to host halves for `data.subscribe`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct DataChanged {
     pub subscription: String,
@@ -643,6 +643,14 @@ pub struct DataChanged {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional, type = "number"))]
     pub reset: Option<i64>,
+    /// The subscription ended, for the reason in `error` (such as `FORBIDDEN` once the subscriber lost
+    /// view on the space it follows). Nothing follows it, and it carries no changes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub ended: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub error: Option<crate::error::ErrorBody>,
 }
 
 /// Notification `data.changed` to the extension host.

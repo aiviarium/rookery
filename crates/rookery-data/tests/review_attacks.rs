@@ -240,9 +240,29 @@ async fn attack_live_keeps_streaming_after_revocation() {
     let mut ins = at.clone();
     ins["values"] = json!({ "title": "after the revoke" });
     k.call(&ada, "data.insert", ins).await.unwrap();
-    let got = next_change(&mut inbox, 3).await;
-    println!("bob got after revoke: {got:?}");
-    assert!(got.is_none(), "LEAK: a revoked member keeps following");
+    // One notice that the subscription ended, with no change data; nothing after it.
+    let ended = next_change(&mut inbox, 3)
+        .await
+        .expect("the subscription says it ended");
+    println!("bob got after revoke: {ended}");
+    assert_eq!(ended["ended"], true);
+    assert_eq!(ended["error"]["code"], "FORBIDDEN");
+    assert!(
+        ended["changes"].as_array().is_none_or(|c| c.is_empty()) && ended.get("reset").is_none(),
+        "LEAK: the notice carries change data: {ended}"
+    );
+    assert!(
+        !ended.to_string().contains("after the revoke"),
+        "LEAK: the notice carries the row: {ended}"
+    );
+    let mut more = at.clone();
+    more["values"] = json!({ "title": "later still" });
+    k.call(&ada, "data.insert", more).await.unwrap();
+    let got = next_change(&mut inbox, 2).await;
+    assert!(
+        got.is_none(),
+        "LEAK: a revoked member keeps following: {got:?}"
+    );
     k.close().await;
 }
 

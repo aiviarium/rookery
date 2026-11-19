@@ -7,7 +7,8 @@
 //! gone, in the trash, or out of its reach); the client applies them to its result with its own copy of
 //! the filter. A change of a row the subscriber may not read is not sent: where reads check each row,
 //! only rows it was shown, or whose entity it sees, are. Each change checks that the subscriber still
-//! views the space it follows; one who lost it gets nothing more. A
+//! views the space it follows; one who lost it gets one last `data.changed` with `ended` and a
+//! `FORBIDDEN` error and no change, and nothing after it. A
 //! plugin's `data.subscribe` sends every change of its collections. A subscriber whose cursor is older
 //! than the log gets `reset` and reads again. Subscriptions end with their connection.
 
@@ -221,6 +222,7 @@ async fn live(call: &Call, p: LiveQuery) -> Result<LiveStarted, RpcError> {
                     subscription: sid.clone(),
                     changes,
                     reset,
+                    ..Default::default()
                 },
             );
         };
@@ -257,8 +259,8 @@ async fn live(call: &Call, p: LiveQuery) -> Result<LiveStarted, RpcError> {
                 space: c.space_id.or(caller.space),
                 ..caller.clone()
             };
-            // Following a space needs view on it still: the subscription of one who lost it ends, and
-            // sends nothing more.
+            // Following a space needs view on it still: the subscription of one who lost it ends with
+            // one notice that says so and carries no change, and sends nothing after it.
             if let Some(space) = c.space_id.filter(|_| coll.def.scope == Scope::Space)
                 && !holds(
                     &store,
@@ -269,6 +271,11 @@ async fn live(call: &Call, p: LiveQuery) -> Result<LiveStarted, RpcError> {
                 )
                 .await
             {
+                notify_ended(
+                    &conn,
+                    &sid,
+                    format!("view on space://{space} is no longer held: the live query ended"),
+                );
                 return;
             }
             // The row as this subscriber may read it now: the store checks.
@@ -325,6 +332,23 @@ async fn live(call: &Call, p: LiveQuery) -> Result<LiveStarted, RpcError> {
     })
 }
 
+/// The last notice of a live query that ended because its subscriber lost access.
+fn notify_ended(conn: &rookery_kernel::conn::ConnHandle, subscription: &str, message: String) {
+    conn.notify(
+        "data.changed",
+        DataChanged {
+            subscription: subscription.to_owned(),
+            ended: Some(true),
+            error: Some(rookery_proto::ErrorBody {
+                code: rookery_proto::ErrorCode::Forbidden,
+                message,
+                details: None,
+            }),
+            ..Default::default()
+        },
+    );
+}
+
 /// Whether the caller holds `level` on `resource`, as the admin of the plugin's collections it may.
 async fn holds(
     store: &rookery_store::Store,
@@ -370,6 +394,7 @@ async fn subscribe(call: &Call, p: FeedSubscribe) -> Result<FeedSubscription, Rp
                     subscription: sid.clone(),
                     changes: Vec::new(),
                     reset: Some(head),
+                    ..Default::default()
                 },
                 Ok(Some(FeedEvent::Change(c))) => {
                     if c.plugin != plugin
@@ -382,7 +407,7 @@ async fn subscribe(call: &Call, p: FeedSubscribe) -> Result<FeedSubscription, Rp
                     DataChanged {
                         subscription: sid.clone(),
                         changes: vec![wire_change(&c, c.row.clone())],
-                        reset: None,
+                        ..Default::default()
                     }
                 }
                 Ok(None) => return,
