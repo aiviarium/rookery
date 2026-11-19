@@ -17,19 +17,53 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use rookery_jobs::JobHandler;
 use rookery_kernel::{Kernel, Methods};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 pub use config::ServerConfig;
 pub use leader::Role;
+pub use rookery_store;
 
 /// Every method of the server.
 pub fn methods() -> Methods {
+    methods_with(Vec::new(), rookery_jobs::Options::default())
+}
+
+/// Every method of the server, with these handlers of jobs.
+pub fn methods_with(handlers: Vec<Arc<dyn JobHandler>>, jobs: rookery_jobs::Options) -> Methods {
     let mut methods = Methods::default();
     rookery_kernel::streams::register(&mut methods);
     rookery_auth::register(&mut methods);
+    rookery_facilities::register(&mut methods);
+    rookery_jobs::register(&mut methods, handlers, jobs);
     methods
+}
+
+/// Seals every secret and credential again under `new`, on the database of `config`, whose key is the
+/// old one. It refuses while a server leads, which would keep using the old key.
+pub async fn rekey(
+    config: &ServerConfig,
+    new: &rookery_store::seal::Key,
+) -> Result<rookery_store::secrets::Rekeyed, String> {
+    let old = config.secret_key.clone().ok_or(
+        "the old key is ROOKERY_SECRET_KEY or ROOKERY_SECRET_KEY_FILE, and neither is set",
+    )?;
+    let lock = leader::Lock::try_acquire(&config.lock_url).await?.ok_or(
+        "a rookery serve runs on this database: stop it first, and start it again with the new key",
+    )?;
+    let store = rookery_store::Store::open(rookery_store::StoreOptions::new(&config.database_url))
+        .await
+        .map_err(|e| format!("opening the database: {e}"))?;
+    let done = store
+        .secrets()
+        .rekey(&old, new)
+        .await
+        .map_err(|e| e.to_string());
+    store.close().await;
+    drop(lock);
+    done
 }
 
 /// A server that is running.
@@ -60,21 +94,34 @@ impl Running {
 }
 
 /// Builds the kernel once the server leads: migrates the database and starts the facilities.
-async fn lead(config: &ServerConfig) -> Result<Kernel, String> {
-    let store = rookery_store::Store::open(rookery_store::StoreOptions::new(&config.database_url))
+async fn lead(config: &ServerConfig, methods: Methods) -> Result<Kernel, String> {
+    let mut options = rookery_store::StoreOptions::new(&config.database_url);
+    options.secret_key = config.secret_key.clone();
+    options.blobs = config.blobs.clone();
+    if config.secret_key.is_none() {
+        tracing::warn!(
+            "no secret key is set: secrets and the credentials of connections are refused until ROOKERY_SECRET_KEY or ROOKERY_SECRET_KEY_FILE is"
+        );
+    }
+    let store = rookery_store::Store::open(options)
         .await
         .map_err(|e| format!("opening the database: {e}"))?;
     let mut kernel_config = rookery_kernel::Config::new(&config.public_url);
     kernel_config.auth = config.auth;
     kernel_config.oidc = config.oidc.clone();
     kernel_config.admins = config.admins.clone();
-    let kernel = Kernel::new(kernel_config, store, methods());
+    let kernel = Kernel::new(kernel_config, store, methods);
     kernel.methods.started(&kernel);
     Ok(kernel)
 }
 
 /// Starts a server: it listens at once, and leads when it gets the lock.
-pub async fn start(mut config: ServerConfig) -> Result<Running, String> {
+pub async fn start(config: ServerConfig) -> Result<Running, String> {
+    start_with(config, methods()).await
+}
+
+/// [`start`] with methods of its own, such as with handlers of jobs.
+pub async fn start_with(mut config: ServerConfig, methods: Methods) -> Result<Running, String> {
     let listener = tokio::net::TcpListener::bind(config.listen)
         .await
         .map_err(|e| format!("listening on {}: {e}", config.listen))?;
@@ -91,7 +138,15 @@ pub async fn start(mut config: ServerConfig) -> Result<Running, String> {
     let edge = Arc::new(edge::Edge::new(config.shell_dir.clone()));
     let (role_tx, role) = watch::channel(Role::Standby);
     let stop = CancellationToken::new();
-    let done = tokio::spawn(run(config, listener, socket, edge, role_tx, stop.clone()));
+    let done = tokio::spawn(run(
+        config,
+        methods,
+        listener,
+        socket,
+        edge,
+        role_tx,
+        stop.clone(),
+    ));
     Ok(Running {
         addr,
         socket: socket_path,
@@ -103,6 +158,7 @@ pub async fn start(mut config: ServerConfig) -> Result<Running, String> {
 
 async fn run(
     config: ServerConfig,
+    methods: Methods,
     listener: tokio::net::TcpListener,
     socket: Option<(PathBuf, tokio::net::UnixListener)>,
     edge: Arc<edge::Edge>,
@@ -125,9 +181,10 @@ async fn run(
         let kernel = tokio::select! {
             biased;
             lost = lock.lost() => return Err(lost),
-            kernel = lead(&config) => kernel?,
+            kernel = lead(&config, methods) => kernel?,
         };
         tracing::info!("this server holds the lock and leads");
+
         edge.set_kernel(kernel.clone());
         let _ = role.send(Role::Leader);
         Err::<(), String>(lock.lost().await)

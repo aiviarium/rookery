@@ -1591,6 +1591,23 @@ rookery server store copy [TARGET] [--target-file FILE] [--into-existing]
 | `--target-file FILE` | Read the target from FILE. |
 | `--into-existing` | Copy into a database that holds a store already. |
 
+### rookery server secrets
+
+The secrets of rookery serve on Postgres.
+
+#### rookery server secrets rekey
+
+Seal every secret and credential again under a new key, on the database of ROOKERY_DATABASE_URL; the old key is ROOKERY_SECRET_KEY or ROOKERY_SECRET_KEY_FILE, and rookery serve is stopped.
+
+```text
+rookery server secrets rekey [--new-key-file FILE] [--write-new-key FILE]
+```
+
+| Argument | What it is |
+| --- | --- |
+| `--new-key-file FILE` | The new key, 64 hex digits, from FILE. |
+| `--write-new-key FILE` | Make a new key and write it to FILE, readable by this user alone. FILE must not exist. |
+
 ### rookery server api
 
 The server's API documents.
