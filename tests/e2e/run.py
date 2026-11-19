@@ -3,15 +3,15 @@
 profile, and the others use the host it set up.
 
     ci/run.sh e2e                          all of them
-    ci/run.sh e2e --shard plain            the tests of one shard, on a host of their own, as CI runs them
+    ci/run.sh e2e --shard plain            the tests of one shard, on fresh hosts, as CI runs them
     ci/run.sh e2e e2e_serve                one module
     ci/run.sh e2e e2e_serve.Grants          one test case
 
 The tests of each test host run in a process of their own, at the same
 time: the output of the first host comes as it happens, that of the others
-when they are done. A shard is a run of the tests of one host that share
-its states (SHARDS): CI runs each in a job of its own, on a fresh host,
-where the first test case makes the state it needs. At the end each
+when they are done. A shard is a run of the tests of one or two hosts that
+share their states (SHARDS): CI runs each in a job of its own, on fresh
+hosts, where the first test case makes the state it needs. At the end each
 prints how long each test and each test case took, slowest first, how many
 playbook runs there were and which tests made them.
 
@@ -83,36 +83,44 @@ HOSTS = {
 
 
 # The tests of each host cut into shards, in the order HOSTS has them. Each
-# shard starts from a fresh host, so it pays for the first apply and the
-# states it uses; one state is never cut in two. The shards `studio` and
-# `forge` are the tests that make no apply but the first: ci/plan.py runs them
-# for any change to rookery, and the others only for changes to what the role
-# is given (its SEAM) on a pull request.
+# shard starts from fresh hosts, so it pays for the first apply and the states
+# it uses; one state is never cut in two. A shard may hold the tests of both
+# hosts, which then run side by side, so that a run asks the runners for fewer
+# jobs. The shards `studio` and `forge` are the tests that make no apply but
+# the first: ci/plan.py runs them for any change to rookery, and the others
+# only for changes to what the role is given (its SEAM) on a pull request. A
+# shard of the tests that run only for SEAM may not hold one of those, which a
+# pull request would then skip.
 SHARDS = {
     'studio': ['e2e_apply.Apply', 'e2e_host', 'e2e_secrets', 'e2e_local', 'e2e_controller.OnAWorkstation',
                'e2e_serve.Methods', 'e2e_serve.Streams', 'e2e_serve.Grants', 'e2e_serve.SetUp',
-               'e2e_client.Client', 'e2e_client.AccessToken'],
-    # A server of its own, restored from a dump of its database: two minutes on its own host.
-    'restore': ['e2e_restore'],
-    'adopt': ['e2e_adopt.Adopt'],
+               'e2e_client.Client', 'e2e_client.AccessToken',
+               # A server of its own, restored from a dump of its database, after the other tests of it.
+               'e2e_restore'],
+    # The bare host first: the ways rookery logs in, rookery's controller
+    # alone, which leave it as they found it, then the provisioners, which need
+    # no host, and last a node, which stays one.
+    'forge': ['e2e_access', 'e2e_controller.Controller', 'e2e_provisioners', 'e2e_node'],
+    # A host another rookery adopts, and one that only ever takes rookery's own
+    # key, side by side on the two hosts.
+    'adopt': ['e2e_adopt.Adopt', 'e2e_own_key'],
     'extended': ['e2e_apply.Again', 'e2e_plugins.Plugin', 'e2e_tailnet.AutomaticKey', 'e2e_update.Update',
                  'e2e_update.ShippedChanged'],
     'plain': ['e2e_plugins.PluginRemoved', 'e2e_tailnet.JoinedByHand'],
     'served-extended': ['e2e_tailnet.ThroughTheServer', 'e2e_serve.ApplyJob', 'e2e_client.ClientApply',
                         'e2e_update.UpdateServed'],
-    'forge': ['e2e_access', 'e2e_provisioners'],
-    # The controller alone leaves the host as it found it; the node, which stays one, comes last.
-    'controller': ['e2e_controller.Controller', 'e2e_node'],
-    'own-key': ['e2e_own_key'],
 }
 
 
-def host_of_shard(shard):
-    return next(host for host, names in HOSTS.items() if SHARDS[shard][0] in names)
+def hosts_of_shard(shard):
+    """The hosts a shard runs on, in the order HOSTS has them."""
+    return [host for host in HOSTS if any(host_of(name) == host for name in SHARDS[shard])]
 
 
 def unsharded():
-    """What is wrong with SHARDS: a test of HOSTS in none or in two, or a shard of two hosts."""
+    """What is wrong with SHARDS: a test of HOSTS in none or in two, a shard of
+    a test HOSTS does not have, or the tests of one host out of the order HOSTS
+    gives them, which makes a state twice."""
     problems = []
     for host, names in HOSTS.items():
         for name in names:
@@ -120,10 +128,15 @@ def unsharded():
             if len(holding) != 1:
                 problems.append(f'{name} is in {len(holding)} shards')
     for shard, listed in SHARDS.items():
-        if len({host_of(name) for name in listed}) != 1 or any(
-                name not in HOSTS[host_of(name)] for name in listed):
-            problems.append(f'shard {shard} is not the tests of one host in HOSTS')
+        for name in listed:
+            if name not in HOSTS[host_of(name)]:
+                problems.append(f'shard {shard} names {name}, which HOSTS does not have')
+        for host in hosts_of_shard(shard):
+            kept = [name for name in listed if host_of(name) == host]
+            if kept != [name for name in HOSTS[host] if name in kept]:
+                problems.append(f'shard {shard} runs the tests of {host} out of the order of HOSTS')
     return problems
+
 
 def host_of_name_in(shard, name):
     """Whether a module or test case named on the command line is of the shard."""
@@ -269,7 +282,7 @@ def main():
     parser.add_argument('--shard', choices=SHARDS, help='run the tests of this shard only')
     parser.add_argument('--shards', action='store_true', help='print the names of the shards as JSON')
     parser.add_argument('--tests-of', choices=SHARDS, help='print the tests of this shard, one to a line')
-    parser.add_argument('--host-of', choices=SHARDS, help='print the test host of this shard')
+    parser.add_argument('--hosts-of', choices=SHARDS, help='print the test hosts of this shard')
     parser.add_argument('names', nargs='*', help='modules or test cases, as unittest names them')
     args = parser.parse_args()
     if problems := unsharded():
@@ -280,8 +293,8 @@ def main():
     if args.tests_of:
         print('\n'.join(SHARDS[args.tests_of]))
         return
-    if args.host_of:
-        print(host_of_shard(args.host_of))
+    if args.hosts_of:
+        print(' '.join(hosts_of_shard(args.hosts_of)))
         return
     if os.environ.get('ROOKERY_E2E') != '1':
         sys.exit('The end-to-end tests run in their containers: ci/run.sh e2e')
@@ -292,10 +305,9 @@ def main():
     if not names:
         groups = {host: list(listed) for host, listed in HOSTS.items()}
     if args.shard:
-        host = host_of_shard(args.shard)
-        listed = [name for name in groups.get(host, []) if host_of_name_in(args.shard, name)] if names \
-            else list(SHARDS[args.shard])
-        groups = {host: listed}
+        groups = {host: [name for name in listed if host_of_name_in(args.shard, name)]
+                  for host, listed in groups.items()}
+        groups = {host: listed for host, listed in groups.items() if listed}
     started = time.monotonic()
     running = []
     for host, listed in groups.items():
