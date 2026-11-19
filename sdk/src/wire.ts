@@ -9,6 +9,7 @@ import type {
   AppServiceStatus,
   BlobInfo,
   BlobRef,
+  Connect,
   ConnectionCreate,
   ConnectionInfo,
   ConnectionList,
@@ -19,7 +20,16 @@ import type {
   Count,
   Deleted,
   Delivered,
+  DirListing,
   Empty,
+  EnvChanged,
+  EnvFileWrite,
+  EnvInfo,
+  EnvList,
+  EnvPresence,
+  EnvRef,
+  EnvSessionList,
+  EnvSessionQuery,
   EventNotice,
   EventPublish,
   EventSubscribe,
@@ -27,6 +37,11 @@ import type {
   EventsDropped,
   EventUnsubscribe,
   ExtensionList,
+  FileData,
+  FileDelete,
+  FilePath,
+  FileStat,
+  FileWritten,
   HostInfo,
   IdRef,
   JobChanged,
@@ -50,7 +65,11 @@ import type {
   NotifySent,
   PluginInfo,
   PluginList,
+  PortRef,
+  PortUrl,
   Revision,
+  ScreenInfo,
+  ScreenQuery,
   SettingList,
   SettingRef,
   SettingReset,
@@ -66,6 +85,19 @@ import type {
   StreamCredit,
   StreamEof,
   StreamOpened,
+  TerminalAdopt,
+  TerminalAttach,
+  TerminalAttached,
+  TerminalChanged,
+  TerminalInfo,
+  TerminalList,
+  TerminalOpen,
+  TerminalQuery,
+  TerminalRef,
+  TerminalRename,
+  TerminalResize,
+  TerminalSignal,
+  TerminalWrite,
 } from "./generated"
 
 /** The params and the result of one method. */
@@ -88,6 +120,16 @@ export const WIRE = {
   "connections.test": {} as WireCall<IdRef, ConnectionTested>,
   "connections.types": {} as WireCall<Empty, ConnectionTypes>,
   "connections.update": {} as WireCall<ConnectionUpdate, ConnectionInfo>,
+  "env.connect": {} as WireCall<Connect, StreamOpened>,
+  "env.deleteFile": {} as WireCall<FileDelete, Empty>,
+  "env.get": {} as WireCall<EnvRef, EnvInfo>,
+  "env.list": {} as WireCall<Empty, EnvList>,
+  "env.listDir": {} as WireCall<FilePath, DirListing>,
+  "env.portUrl": {} as WireCall<PortRef, PortUrl>,
+  "env.presence": {} as WireCall<EnvRef, EnvPresence>,
+  "env.readFile": {} as WireCall<FilePath, FileData>,
+  "env.stat": {} as WireCall<FilePath, FileStat>,
+  "env.writeFile": {} as WireCall<EnvFileWrite, FileWritten>,
   "events.publish": {} as WireCall<EventPublish, Delivered>,
   "events.subscribe": {} as WireCall<EventSubscribe, EventSubscribed>,
   "events.unsubscribe": {} as WireCall<EventUnsubscribe, Empty>,
@@ -127,7 +169,20 @@ export const WIRE = {
   "streams.close": {} as WireCall<StreamClose, Empty>,
   "streams.credit": {} as WireCall<StreamCredit, Empty>,
   "streams.eof": {} as WireCall<StreamEof, Empty>,
+  "terminals.adopt": {} as WireCall<TerminalAdopt, TerminalInfo>,
+  "terminals.attach": {} as WireCall<TerminalAttach, TerminalAttached>,
+  "terminals.close": {} as WireCall<TerminalRef, Empty>,
+  "terminals.get": {} as WireCall<TerminalRef, TerminalInfo>,
+  "terminals.list": {} as WireCall<TerminalQuery, TerminalList>,
+  "terminals.open": {} as WireCall<TerminalOpen, TerminalInfo>,
+  "terminals.rename": {} as WireCall<TerminalRename, Empty>,
+  "terminals.resize": {} as WireCall<TerminalResize, Empty>,
+  "terminals.screen": {} as WireCall<ScreenQuery, ScreenInfo>,
+  "terminals.sessions": {} as WireCall<EnvSessionQuery, EnvSessionList>,
+  "terminals.signal": {} as WireCall<TerminalSignal, Empty>,
+  "terminals.write": {} as WireCall<TerminalWrite, Empty>,
 }
+
 
 /** The name of a method `rookery serve` has and the client calls. */
 export type WireMethod = keyof typeof WIRE
@@ -182,6 +237,10 @@ export interface ServerEvents {
   "rookery/resources.changed": { resource: string; provisioner: string; kind: string; change: string }
   /** A job was enqueued, ran, or ended. */
   "rookery/jobs.changed": JobChanged
+  /** An environment (saved host) changed. */
+  "rookery/env.changed": EnvChanged
+  /** A terminal changed. */
+  "rookery/terminals.changed": TerminalChanged
 }
 
 /** The name of an event `rookery serve` publishes. */
@@ -235,25 +294,8 @@ export const NOT_ON_SERVER = [
   "data.unlive",
   "data.update",
   "data.upsert",
-  // Environments and terminals, which the agent milestone brings.
-  "env.connect",
-  "env.deleteFile",
+  // Processes on a host, which the agent milestone brings.
   "env.exec",
-  "env.get",
-  "env.list",
-  "env.listDir",
-  "env.presence",
-  "env.readFile",
-  "env.writeFile",
-  "terminals.attach",
-  "terminals.close",
-  "terminals.get",
-  "terminals.list",
-  "terminals.open",
-  "terminals.resize",
-  "terminals.screen",
-  "terminals.signal",
-  "terminals.write",
   // Spaces, and stream channels a client opens for itself.
   "spaces.create",
   "spaces.enter",
