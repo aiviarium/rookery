@@ -119,9 +119,9 @@ class Harness(unittest.TestCase):
 
 class Provision(Harness):
     def test_manifest_has_provisioner_and_the_engine_of_a_node(self):
-        package = json.loads((PLUGIN / 'rookery.json').read_text())
+        package = json.loads((PLUGIN / 'plugin.json').read_text())['contributes']
         # Its one feature is for a node; a workstation has Docker from the role.
-        self.assertEqual([(feature['id'], feature['types']) for feature in package['features']],
+        self.assertEqual([(feature['id'], feature['types']) for feature in package['hostFeatures']],
                          [('engine', ['node'])])
         [entry] = package['provisioners']
         self.assertEqual((entry['id'], entry['protocol'], entry['command']), ('container', 2, 'bin/provision'))
@@ -168,7 +168,7 @@ class Provision(Harness):
             self.assertIn(flag, [run[i:i + 2] for i in range(len(run) - 1)], flag)
         self.assertIn('--privileged', run)
         self.assertNotIn('--publish', run)
-        self.assertEqual(run[-2:], ['rookery-docker-host:0.2.0', '/sbin/init'])
+        self.assertEqual(run[-2:], ['rookery-docker-host:0.3.0', '/sbin/init'])
         self.assertEqual(self.argv('info'), [])
         self.assertEqual(self.argv('volume', 'create')[0][-2:], ['rookery-host=studio', 'rookery-studio-data'])
 
@@ -206,7 +206,7 @@ class Provision(Harness):
         done = self.run_verb('create', self.create_request(), rules=rules)
         self.assertEqual(done.returncode, 0, done.stderr)
         [build] = self.argv('build')
-        self.assertEqual(build[:3], ['build', '--tag', 'rookery-docker-host:0.2.0'])
+        self.assertEqual(build[:3], ['build', '--tag', 'rookery-docker-host:0.3.0'])
 
     def test_create_is_idempotent(self):
         rules = [{'prefix': ['container', 'inspect'], 'results': [inspect(OURS, running=False), inspect(OURS)]}]
@@ -345,7 +345,7 @@ class Provision(Harness):
         self.assertIn(['--runtime', 'sysbox-runc'], [run[i:i + 2] for i in range(len(run) - 1)])
         for flag in ('--privileged', '--cgroupns', '--tmpfs'):
             self.assertNotIn(flag, run)
-        self.assertEqual(run[-2:], ['rookery-docker-host:0.2.0', '/sbin/init'])
+        self.assertEqual(run[-2:], ['rookery-docker-host:0.3.0', '/sbin/init'])
 
     def test_sysbox_is_refused_before_anything_is_made_where_the_engine_lacks_it(self):
         rules = self.fresh_rules() + [{'prefix': ['info'], 'results': [[0, json.dumps({'runc': {}}), '']]}]
@@ -419,7 +419,7 @@ class Provision(Harness):
         self.assertEqual(volumes['wiki-data']['unavailable'], {})
 
     def test_the_manifest_puts_the_list_and_change_actions_in_collections(self):
-        [entry] = json.loads((PLUGIN / 'rookery.json').read_text())['provisioners']
+        [entry] = json.loads((PLUGIN / 'plugin.json').read_text())['contributes']['provisioners']
         collections = {collection['id']: collection for collection in entry['collections']}
         self.assertEqual(sorted(collections), ['images', 'volumes'])
         images, volumes = collections['images'], collections['volumes']
@@ -455,7 +455,7 @@ class Provision(Harness):
                                              ['logs', '--tail', '20', '--follow', 'rookery-studio']])
 
     def test_actions_answer_with_a_message_and_rows(self):
-        images = [{'Repository': 'rookery-docker-host', 'Tag': '0.2.0', 'Size': '900MB', 'ID': 'a1'},
+        images = [{'Repository': 'rookery-docker-host', 'Tag': '0.3.0', 'Size': '900MB', 'ID': 'a1'},
                   {'Repository': 'ubuntu', 'Tag': '26.04', 'Size': '80MB', 'ID': 'b2'}]
         rules = [{'prefix': ['image', 'ls'], 'results': [[0, ''.join(json.dumps(i) + '\n' for i in images), '']]}]
         done = self.run_verb('act', {'action': {'name': 'images', 'arguments': {}}}, rules=rules)
@@ -468,7 +468,7 @@ class Provision(Harness):
         self.assertIn('no action', done.stderr)
 
     def test_prune_removes_only_what_rookery_left_and_nothing_in_use(self):
-        images = [{'Repository': 'rookery-docker-host', 'Tag': '0.2.0', 'ID': 'now'},
+        images = [{'Repository': 'rookery-docker-host', 'Tag': '0.3.0', 'ID': 'now'},
                   {'Repository': 'rookery-docker-host', 'Tag': '0.1.0', 'ID': 'old'},
                   {'Repository': 'rookery-docker-host', 'Tag': '0.0.9', 'ID': 'used'}]
         volumes = [{'Name': 'rookery-studio-data', 'Labels': 'rookery-host=studio'},

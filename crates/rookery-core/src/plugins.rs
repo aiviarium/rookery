@@ -1,6 +1,8 @@
 //! Plugins: Hatchery packages with a `rookery` target. The package's
 //! `package.kdl` names it and the Rookery versions it works with, and the
-//! target's `rookery.json` says what it brings. Each contributes features to
+//! target's `plugin.json` says what it brings: here, its host features and
+//! provisioners. A target that still has a `rookery.json` is read as a
+//! `plugin.json` with those alone. Each contributes features to
 //! the groups of the Features page, and actions to the overview of a host.
 //! The role does the installing from the same manifest. A plugin can also
 //! bring provisioners, programs that create the machine a profile describes;
@@ -15,7 +17,15 @@ use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub use rookery_api::plugin_contract::{MANIFEST, TARGET, valid_name};
+pub use rookery_api::plugin_contract::{LEGACY_MANIFEST, MANIFEST, TARGET, valid_name};
+
+/// The host features and provisioners of a target's folder, in the shape of
+/// `rookery.json`, from whichever manifest it has.
+pub fn host_parts(dir: &Path) -> Option<Value> {
+    rookery_api::plugin_contract::read_dir(dir)
+        .ok()
+        .map(|read| read.host_parts())
+}
 
 pub struct PluginAction {
     pub name: String,
@@ -74,10 +84,7 @@ pub struct Hosting {
 /// What each feature of a plugin says of the hosts it is for, read from its
 /// manifest.
 pub fn hosting(plugin: &Plugin) -> Vec<Hosting> {
-    let Some(data) = fs::read(plugin.dir.join(MANIFEST))
-        .ok()
-        .and_then(|data| serde_json::from_slice::<Value>(&data).ok())
-    else {
+    let Some(data) = host_parts(&plugin.dir) else {
         return vec![];
     };
     data["features"]
@@ -369,7 +376,7 @@ pub fn read(package: &Path) -> Option<Plugin> {
     } else if target
         .manifest
         .as_deref()
-        .is_some_and(|name| name != MANIFEST)
+        .is_some_and(|name| name != MANIFEST && name != LEGACY_MANIFEST)
     {
         Some(format!(
             "its rookery target names {} as its manifest, and Rookery reads {MANIFEST}",
@@ -378,18 +385,15 @@ pub fn read(package: &Path) -> Option<Plugin> {
     } else {
         unmet(target)
     };
-    let data = match fs::read(real.join(MANIFEST)) {
-        Ok(data) => serde_json::from_slice::<Value>(&data).ok(),
-        Err(_) => None,
-    };
-    let Some(rookery) = data.filter(Value::is_object) else {
-        plugin.problem.get_or_insert_with(|| {
-            format!(
-                "{}/{MANIFEST} is missing or not a JSON object",
-                target.dir()
-            )
-        });
-        return Some(plugin);
+    let rookery = match rookery_api::plugin_contract::read_dir(&real) {
+        Ok(read) => read.host_parts(),
+        Err(problem) => {
+            plugin.problem.get_or_insert_with(|| match &problem.path {
+                Some(path) => format!("{}/{path}: {}", target.dir(), problem.message),
+                None => problem.message.clone(),
+            });
+            return Some(plugin);
+        }
     };
     if plugin.problem.is_some() {
         return Some(plugin);
@@ -1038,7 +1042,7 @@ pub(crate) mod tests {
             ),
         )
         .unwrap();
-        fs::write(dir.join(TARGET).join(MANIFEST), rookery).unwrap();
+        fs::write(dir.join(TARGET).join(LEGACY_MANIFEST), rookery).unwrap();
         lock_package(dir, version);
         dir.join(TARGET)
     }

@@ -568,7 +568,7 @@ class IncusPluginTests(unittest.TestCase):
         self.assertIn(('image-delete', 'abcdef1234567890'), self.server.events)
 
     def test_the_manifest_declares_the_collections_status_gives(self):
-        manifest = json.loads((PLUGIN / 'rookery.json').read_text())
+        manifest = json.loads((PLUGIN / 'plugin.json').read_text())['contributes']
         for provisioner in manifest['provisioners']:
             actions = {action['name']: action for action in provisioner['actions']}
             declared = {collection['id']: collection for collection in provisioner['collections']}

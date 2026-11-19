@@ -134,9 +134,9 @@ class EnvironmentTests(unittest.TestCase):
         plugins = ROLE.parents[3] / 'plugins/rookery'
         names = []
         for package in sorted(plugins.glob('*/package.kdl')):
-            data = json.loads((package.parent / 'rookery/rookery.json').read_text())
+            data = json.loads((package.parent / 'rookery/plugin.json').read_text())
             label = re.search(r'^\s*name "([^"]+)"', package.read_text(), re.M).group(1)
-            for feature in data.get('features', []):
+            for feature in data['contributes'].get('hostFeatures', []):
                 adds = self.feature(feature, package.parent.name, label)
                 self.assertEqual(len(adds['tasks']), len(feature.get('actions', [])), package)
                 names += [task['name'] for task in adds['tasks']]

@@ -3,7 +3,7 @@ format 1
 package {
   group rookery
   id github
-  version "0.1.0"
+  version "0.2.0"
 }
 
 about {

@@ -160,8 +160,8 @@ class RolePath(unittest.TestCase):
 @unittest.skipUnless(yaml, 'Run with the Ansible venv Python for YAML checks')
 class Features(unittest.TestCase):
     def feature(self, plugin, feature):
-        manifest = json.loads((SRC / 'plugins/rookery' / plugin / 'rookery/rookery.json').read_text())
-        found = next(item for item in manifest['features'] if item['id'] == feature)
+        manifest = json.loads((SRC / 'plugins/rookery' / plugin / 'rookery/plugin.json').read_text())['contributes']
+        found = next(item for item in manifest['hostFeatures'] if item['id'] == feature)
         return manifest, found
 
     def test_the_engines_are_features_of_a_node_that_offer_their_provisioners(self):
