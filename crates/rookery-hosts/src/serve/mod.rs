@@ -233,13 +233,8 @@ impl Remote {
         let Some(link) = &self.link else {
             return Err(self.problem.clone().unwrap_or_else(|| "no link".into()));
         };
-        // A simulated host changes within a step, which tests wait for.
-        let fresh = match rookery_core::simulate::active() {
-            Some(_) => rookery_core::simulate::delay().min(SEEN_FOR),
-            None => SEEN_FOR,
-        };
         if let Some((when, answer)) = &*self.seen.lock().unwrap()
-            && when.elapsed() < fresh
+            && when.elapsed() < SEEN_FOR
         {
             return answer.clone();
         }

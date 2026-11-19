@@ -337,16 +337,6 @@ pub async fn connect(
             ),
         ));
     }
-    if rookery_core::simulate::active().is_some() {
-        return Err(Fail::new(
-            code::NOT_AVAILABLE,
-            format!(
-                "rookery serve --simulate dials no endpoint: {} of {} leads nowhere",
-                endpoint.name,
-                kept.title(&state.paths)
-            ),
-        ));
-    }
     let connection = Dialler::of(&state.paths, &kept)
         .dial(&state, &endpoint)
         .await?;
