@@ -106,7 +106,7 @@ rookery plugin remove hello                   # by its id, or as example/hello
 
 `--git` installs one folder of a git repository, which `--path` names. `--ref` is a tag, a branch or a commit. Without it, Rookery takes the default branch.
 
-Hatchery checks each package before it installs it. A package is refused when its `package.kdl` doesn't say which Rookery versions it works with, or gives others, and so is one whose `rookery.json` breaks the [plugin contract](/docs/extend/writing-plugins#checking-a-plugin). Installing runs none of the plugin's code. Its Ansible tasks run when a host is applied.
+Hatchery checks each package before it installs it. A package is refused when its `package.kdl` doesn't say which Rookery versions it works with, or gives others, and so is one whose `plugin.json` breaks the [plugin contract](/docs/extend/writing-plugins#checking-a-plugin). Installing runs none of the plugin's code. Its Ansible tasks run when a host is applied.
 
 After each change, Rookery writes `hatchery.kdl`, `eggs.lock`, the record of when each version was first seen, and the eggs that were sent to its [store](/docs/use/store). A machine restored from the store gets them back and installs what `eggs.lock` lists, from the same registries.
 
