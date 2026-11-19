@@ -40,6 +40,7 @@ The server takes its settings from the environment:
 | `ROOKERY_BLOBS` | The folder that holds blobs. Without it `blobs.*` answers `UNAVAILABLE` |
 | `ROOKERY_RETENTION_DAYS` | Days Rookery keeps jobs with their logs, and the hosts' messages. It comes before the setting `retention_days`, and both are 90 unless set |
 | `ROOKERY_SHELL_DIR` | A built shell served at `/`. Unless it's set, the installed plugin that contributes a shell is served there |
+| `ROOKERY_PARROT_BIN` | Absolute path on the server to a Linux x86-64 Parrot binary with `serve --broker-socket`, which an apply sends to a host that has Parrot features |
 | `ROOKERY_BUN` | The Bun program that runs plugins' host halves, `bun` unless set. Rookery's image has it |
 | `ROOKERY_EXTHOST` | The extension host's entry. Unless it's set, `host/dist/main.js` of Rookery's provisioning source. Without one no plugin's host half starts |
 | `ROOKERY_EXTHOST_MEMORY_MB` | The memory a plugin's host process may hold before it's ended, 512 MiB unless set |
@@ -192,3 +193,17 @@ docker exec rookery rookery server setup-key
 A container that ran an older Rookery, with its store in `/data/rookery/rookery.db` or in `ROOKERY_STORE`, brings that store into the database the first time the new image starts, owned by a local admin named `admin` ([The database](/docs/use/store#from-an-older-store)). A data folder of another major version of PostgreSQL is refused: dump it with the image that made it and restore the dump.
 
 The image contains ansible-core, the OpenSSH client and Python, so it can also apply configurations, and git for installing plugins. See [A Rookery server](/docs/use/server) for a compose file with a database of its own, and for using it from Rookery on another machine.
+
+## Host agent sessions
+
+Install an agent package that has both a Rookery target and a Parrot target. Select its CLI feature
+in the host profile and apply the host. The server sends the Parrot executable and the driver eggs
+at the installed packages' versions. The host checks the runtime's and the eggs' checksums against
+what the server staged, and the release and egg names, before it installs them and enables the
+Parrot socket.
+
+The socket starts Parrot under the host's configured agent account. Systemd owns the socket with
+mode `0600`, and Parrot checks that its peer has UID 0. On the server, `agents.connect` needs
+`use` on `env://NAME`. Anyone with that level can see and operate the Parrot sessions of the host's
+shared agent account. Losing that level ends the streams it opened, and the controller reaches the
+socket only through a folder that only its owner can write.

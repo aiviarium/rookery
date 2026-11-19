@@ -186,6 +186,22 @@ pub const HOST: &[Stream] = &[
         ],
     },
     Stream {
+        id: "agents",
+        path: "/v1/agents/connect",
+        summary: "A byte stream to the host's Parrot broker.",
+        level: "host",
+        parameters: &[],
+        resumable: false,
+        server: &[
+            binary("bytes", "UTF-8 JSON lines from Parrot."),
+            text("eof", "Parrot will send no more bytes.", EOF),
+        ],
+        client: &[
+            binary("bytes", "UTF-8 JSON lines for Parrot."),
+            text("eof", "The caller will send no more bytes.", EOF),
+        ],
+    },
+    Stream {
         id: "endpoint",
         path: "/v1/endpoints/{address}/{port}",
         summary: "For rookery serve alone: a TCP connection to an address on a network of the host's own interfaces, such as a container on a bridge. The address is resolved once, every address it has is checked, and the one checked is dialled first, so one that nothing answers on is an error and not a stream.",

@@ -9,12 +9,16 @@ use crate::builtin;
 use crate::paths::Paths;
 use crate::plugins::{self, Plugin, TARGET};
 use crate::{Refused, Result};
-use hatchery::{Client, Config, LockedPackage, Name, Options, RegistryConfig, Spec, block_on};
+use hatchery::{
+    Client, Config, LockedPackage, Manifest, Name, Options, Platform, RegistryConfig, Spec,
+    block_on,
+};
 use rookery_api::{
     PluginList, PluginOrigin, PluginRegistries, PluginRegistry, PluginSpec, PluginUpdate,
     PluginUpdates,
 };
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// The registries of the user's plugins, in the configuration directory.
@@ -159,14 +163,239 @@ pub fn client(paths: &Paths) -> Result<Client> {
 /// A Hatchery client that installs Rookery's target from the registries,
 /// the one of the given provisioning source among them.
 fn client_with(paths: &Paths, source: Option<&Path>) -> Result<Client> {
+    client_for(paths, registries_of(paths, source)?)
+}
+
+fn client_for(paths: &Paths, config: Config) -> Result<Client> {
     Ok(Client::builder()
-        .config(registries_of(paths, source)?)
+        .config(config)
         .kind(builtin::KIND, builtin::factory())
         .target(RookeryTarget)
         .fetch(hatchery::fetch::HttpFetch::new())
         .cache_dir(cache_dir(paths))
         .git(git())
         .build()?)
+}
+
+/// Reads the parrot variant from the same source as the installed rookery target.
+pub(crate) fn parrot_egg(
+    paths: &Paths,
+    pin: &LockedPackage,
+    variant: Option<String>,
+) -> Result<hatchery::Egg> {
+    let variants: Vec<String> = variant.iter().map(|v| format!("parrot.{v}")).collect();
+    // A variant is only ever the one the install pinned: a registry that
+    // serves another under the same version must not reach the host.
+    for key in &variants {
+        if !pin.variants.contains_key(key) {
+            return Err(format!(
+                "{}: {key} has no installed pin; install the plugin again",
+                pin.name
+            )
+            .into());
+        }
+    }
+    // Hold the first verified variant along with the base pin. Later applies can use
+    // it when a registry no longer serves that version.
+    let key = crate::server_image::sha256(&serde_json::to_vec(&(pin, &variant))?);
+    let cache = paths.data_dir.join("parrot-eggs");
+    fs::create_dir_all(&cache)?;
+    let saved = cache.join(format!("{key}.egg"));
+    if saved.is_file() {
+        let cached = hatchery::Egg::read(&saved)?;
+        verify_pinned(pin, &cached, &variants)?;
+        return Ok(cached);
+    }
+    let (config, spec) = variant_source(paths, pin)?;
+    let client = client_for(paths, config)?;
+    let fetched =
+        block_on(client.fetch(&spec, Some(&variants), &Options::new().allow_young(true)))?;
+    verify_base(pin, &fetched.base)?;
+    if fetched.variants.len() != variants.len() {
+        return Err(format!(
+            "{}: the source served {} of the {} pinned variants",
+            pin.name,
+            fetched.variants.len(),
+            variants.len()
+        )
+        .into());
+    }
+    for (key, egg) in variants.iter().zip(&fetched.variants) {
+        if pin.variants.get(key).map(String::as_str) != Some(egg.sha256()) {
+            return Err(format!("{}: {key} does not match its installed pin", pin.name).into());
+        }
+    }
+    let fat = fetched.base.fatten(&fetched.variants)?;
+    let mut file = tempfile::NamedTempFile::new_in(&cache)?;
+    file.write_all(fat.bytes())?;
+    match file.persist_noclobber(&saved) {
+        Ok(_) => Ok(fat),
+        Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+            let cached = hatchery::Egg::read(&saved)?;
+            verify_pinned(pin, &cached, &variants)?;
+            Ok(cached)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// The registry or file an installed pin names, and the exact version to ask
+/// it for: `=`, so a version range cannot answer with another release.
+fn variant_source(paths: &Paths, pin: &LockedPackage) -> Result<(Config, Spec)> {
+    let mut config = registries_of(paths, paths.source().ok().as_deref())?;
+    let spec = if let Some(registry) = &pin.registry {
+        config.registries.retain(|line| &label(line) == registry);
+        if config.registries.is_empty() {
+            return Err(format!("{}: the pinned registry is unavailable", pin.name).into());
+        }
+        Spec::parse(&format!("{}@={}", pin.name, pin.version))?
+    } else if let Some(file) = &pin.file {
+        config.registries.clear();
+        Spec::File(file.clone())
+    } else {
+        return Err(format!(
+            "{}: install the agent egg from a registry or upload it as a fat egg",
+            pin.name
+        )
+        .into());
+    };
+    Ok((config, spec))
+}
+
+/// Whether a fetched base egg is the installed pin's.
+fn verify_base(pin: &LockedPackage, base: &hatchery::Egg) -> Result<()> {
+    let manifest = base.manifest();
+    if manifest.name() != pin.name
+        || manifest.version() != &pin.version
+        || base.sha256() != pin.sha256
+    {
+        return Err(format!(
+            "{}: the fetched egg does not match its installed pin",
+            pin.name
+        )
+        .into());
+    }
+    Ok(())
+}
+
+/// Whether a fat egg still holds what the pin says: the base's checksum and
+/// each variant's, so a file that changed on disk is not staged.
+fn verify_pinned(pin: &LockedPackage, egg: &hatchery::Egg, variants: &[String]) -> Result<()> {
+    let base = egg.base()?;
+    verify_base(pin, &base)?;
+    for key in variants {
+        let Some(sha) = pin.variants.get(key) else {
+            return Err(format!(
+                "{}: {key} has no installed pin; install the plugin again",
+                pin.name
+            )
+            .into());
+        };
+        let (target, variant) = key
+            .split_once('.')
+            .ok_or_else(|| format!("{}: {key} is no variant", pin.name))?;
+        let found = egg.embedded_variant(target, variant)?.ok_or_else(|| {
+            format!(
+                "{}: the cached egg does not hold {key}; install the plugin again",
+                pin.name
+            )
+        })?;
+        if found.sha256() != sha {
+            return Err(format!(
+                "{}: the cached {key} does not match its installed pin; install the plugin again",
+                pin.name
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
+/// The `parrot` target a package folder offers for this server's platform.
+pub(crate) enum ParrotTarget {
+    /// There is no `parrot` target: the package has no driver.
+    None,
+    /// The target has no variants, so its egg is the driver itself.
+    Base,
+    /// The driver is this variant, by its key such as `linux-x86_64`.
+    Variant(String),
+}
+
+/// What a package folder has of the `parrot` target for Linux x86-64. A
+/// target with variants, none of them this server's, is refused: no host
+/// could run it.
+pub(crate) fn parrot_target(package_dir: &Path) -> Result<ParrotTarget> {
+    let manifest = Manifest::load(package_dir)?;
+    let Some(target) = manifest.target("parrot") else {
+        return Ok(ParrotTarget::None);
+    };
+    if target.variants.is_empty() {
+        return Ok(ParrotTarget::Base);
+    }
+    let variant = target
+        .select_variant(&Platform::new("linux", "x86_64"))
+        .ok_or_else(|| format!("{} has no Parrot driver for Linux x86_64", manifest.name()))?;
+    Ok(ParrotTarget::Variant(variant.key()))
+}
+
+/// Pin the `parrot` variant of each installed package in `eggs.lock`, so that
+/// an apply installs the driver that was published with the plugin. Lines for
+/// what could not be pinned go to the caller; an apply refuses a variant
+/// without a pin, so the plugin is installed again to try.
+fn pin_parrot_variants(paths: &Paths, own: &Path) -> Vec<String> {
+    if !own.join(hatchery::lock::FILE).is_file() {
+        return vec![];
+    }
+    let mut lock = match hatchery::Lock::load(own) {
+        Ok(lock) => lock,
+        Err(error) => return vec![format!("! the plugins' lock could not be read: {error}")],
+    };
+    let mut lines = vec![];
+    let mut changed = false;
+    for package in lock.packages.clone() {
+        let key = match parrot_target(&own.join(package.name.dir())) {
+            Ok(ParrotTarget::Variant(variant)) => format!("parrot.{variant}"),
+            Ok(ParrotTarget::None | ParrotTarget::Base) => continue,
+            Err(error) => {
+                lines.push(format!("! {}: {error}", package.name));
+                continue;
+            }
+        };
+        if package.variants.contains_key(&key) {
+            continue;
+        }
+        let sha = match variant_sha256(paths, &package, &key) {
+            Ok(sha) => sha,
+            Err(error) => {
+                lines.push(format!(
+                    "! {}: {key} could not be pinned, and an apply will not use it: {error}",
+                    package.name
+                ));
+                continue;
+            }
+        };
+        if let Some(locked) = lock.get_mut(&package.name) {
+            locked.variants.insert(key, sha);
+        }
+        changed = true;
+    }
+    if changed && let Err(error) = lock.save(own) {
+        lines.push(format!("! the plugins' lock could not be written: {error}"));
+    }
+    lines
+}
+
+/// The checksum of a variant egg of an installed package, from its source.
+fn variant_sha256(paths: &Paths, pin: &LockedPackage, key: &str) -> Result<String> {
+    let (config, spec) = variant_source(paths, pin)?;
+    let client = client_for(paths, config)?;
+    let keys = [key.to_owned()];
+    let fetched = block_on(client.fetch(&spec, Some(&keys), &Options::new().allow_young(true)))?;
+    verify_base(pin, &fetched.base)?;
+    let [egg] = fetched.variants.as_slice() else {
+        return Err(format!("{}: the source served no {key}", pin.name).into());
+    };
+    Ok(egg.sha256().to_owned())
 }
 
 /// Install the packages of the registry of the provisioning source that the
@@ -409,6 +638,7 @@ impl Manager {
                 ));
             }
         }
+        lines.extend(pin_parrot_variants(&self.paths, &self.own));
         forget_uploads(&self.own);
         lines.extend(remembered(&self.paths));
     }
@@ -1112,6 +1342,114 @@ mod tests {
         assert_eq!(restored.len(), 1);
         assert_eq!(restored[0].version, "1.0.0");
         assert!(config_file(&other).is_file());
+    }
+
+    #[test]
+    fn apply_caches_the_parrot_variant_of_the_installed_egg() {
+        let fx = fixture();
+        let fat = parrot_fat(&fx, "made-up driver");
+
+        fx.manager.upload(fat.bytes()).unwrap();
+        let lock = hatchery::Lock::load(fx.manager.own()).unwrap();
+        let pin = lock.get(&Name::parse("example/hello").unwrap()).unwrap();
+        let staged = parrot_egg(&fx.manager.paths, pin, Some("linux-x86_64".into())).unwrap();
+        assert_eq!(staged.base().unwrap().sha256(), pin.sha256);
+        assert!(
+            staged
+                .embedded_variant("parrot", "linux-x86_64")
+                .unwrap()
+                .is_some()
+        );
+        fs::remove_file(pin.file.as_ref().unwrap()).unwrap();
+        let cached = parrot_egg(&fx.manager.paths, pin, Some("linux-x86_64".into())).unwrap();
+        assert_eq!(cached.sha256(), staged.sha256());
+    }
+
+    #[test]
+    fn a_parrot_variant_is_pinned_at_install_and_checked_before_it_is_used() {
+        let fx = fixture();
+        let fat = parrot_fat(&fx, "made-up driver");
+        fx.manager.upload(fat.bytes()).unwrap();
+        let lock = hatchery::Lock::load(fx.manager.own()).unwrap();
+        let pin = lock
+            .get(&Name::parse("example/hello").unwrap())
+            .unwrap()
+            .clone();
+        // Installing the plugin pinned the driver that came with it.
+        assert_eq!(
+            pin.variants.get("parrot.linux-x86_64"),
+            Some(
+                &fat.embedded_variant("parrot", "linux-x86_64")
+                    .unwrap()
+                    .unwrap()
+                    .sha256()
+                    .to_owned()
+            )
+        );
+        let staged = parrot_egg(&fx.manager.paths, &pin, Some("linux-x86_64".into())).unwrap();
+
+        // A cached egg that changed on disk is refused before it is staged.
+        let cache = fx.manager.paths.data_dir.join("parrot-eggs");
+        let saved = fs::read_dir(&cache)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let other = parrot_fat(&fx, "another driver");
+        fs::write(&saved, other.bytes()).unwrap();
+        let error = parrot_egg(&fx.manager.paths, &pin, Some("linux-x86_64".into()))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("does not match its installed pin"),
+            "{error}"
+        );
+        fs::write(&saved, staged.bytes()).unwrap();
+        assert_eq!(
+            parrot_egg(&fx.manager.paths, &pin, Some("linux-x86_64".into()))
+                .unwrap()
+                .sha256(),
+            staged.sha256()
+        );
+
+        // A variant without an installed pin is refused, not fetched.
+        let mut unpinned = pin.clone();
+        unpinned.variants.clear();
+        let error = parrot_egg(&fx.manager.paths, &unpinned, Some("linux-x86_64".into()))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("has no installed pin"), "{error}");
+    }
+
+    /// The hello package with a Parrot driver for Linux x86-64, packed as one
+    /// fat egg whose driver holds `driver`.
+    fn parrot_fat(fx: &Fixture, driver: &str) -> hatchery::Egg {
+        use hatchery::pack::{PackOptions, VariantPick};
+
+        let dir = fx.repo.join("hello");
+        let manifest = dir.join("package.kdl");
+        let source = fs::read_to_string(&manifest).unwrap();
+        if !source.contains("parrot {") {
+            let with_parrot = format!(
+                "{}  parrot {{\n    variants {{\n      variant os=linux arch=x86_64\n    }}\n  }}\n}}\n",
+                source.strip_suffix("}\n").unwrap()
+            );
+            fs::write(&manifest, with_parrot).unwrap();
+        }
+        let variant = dir.join("parrot/variants/linux-x86_64");
+        fs::create_dir_all(&variant).unwrap();
+        fs::write(variant.join("driver"), driver).unwrap();
+        let eggs = hatchery::pack::pack(
+            &dir,
+            &PackOptions::new()
+                .no_build(true)
+                .fat(true)
+                .variant(VariantPick::new("parrot").os("linux").arch("x86_64"))
+                .check(&RookeryTarget),
+        )
+        .unwrap();
+        eggs.into_iter().find(hatchery::Egg::is_fat).unwrap()
     }
 
     /// The checkout, a provisioning source with the registry of the

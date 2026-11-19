@@ -254,6 +254,10 @@ export interface ClientEnv {
   connect(env: string, port: number, opts?: StreamOptions): Promise<ClientStream>
 }
 
+export interface ClientAgents {
+  connect(env: string, opts?: StreamOptions): Promise<ClientStream>
+}
+
 export interface ClientTerminals {
   open(
     env: string,
@@ -341,6 +345,7 @@ export interface ClientRookery {
   readonly settings: Settings
   readonly storage: Storage
   readonly jobs: Jobs
+  readonly agents: ClientAgents
   readonly env: ClientEnv
   readonly terminals: ClientTerminals
   readonly connections: Connections
@@ -614,6 +619,9 @@ export function createClientRookery(s: ClientScope): ClientRookery {
         }
         return s.track(disposable(() => stream.close()))
       },
+    },
+    agents: {
+      connect: (env, opts) => s.rt.stream("agents.connect", { env }, opts),
     },
     env: {
       list: async () => ((await s.rt.call("env.list", {})) as EnvList).environments,

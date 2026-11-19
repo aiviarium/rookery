@@ -593,6 +593,29 @@ pub enum Carry {
 /// The largest frame of a caller's stream, with room for a tag.
 const CARRIED: usize = rookery_proto::stream::MAX_FRAME_PAYLOAD - 1;
 
+/// A stream that stays open for a caller whose access is checked again while
+/// it runs: cancelling `hold` ends it, and `done` is cancelled when it ends
+/// for any reason, so a check of its own stops with it.
+#[derive(Clone, Default)]
+pub struct Hold {
+    pub hold: tokio_util::sync::CancellationToken,
+    pub done: tokio_util::sync::CancellationToken,
+}
+
+/// [`pipe`], ended as soon as the caller's access is gone.
+pub async fn pipe_held(
+    upstream: rookery_core::link::LinkStream,
+    stream: rookery_kernel::streams::Stream,
+    carry: Carry,
+    held: Hold,
+) {
+    tokio::select! {
+        () = pipe(upstream, stream, carry) => {}
+        () = held.hold.cancelled() => {}
+    }
+    held.done.cancel();
+}
+
 /// Frames both ways between a host's stream and a caller's, until either side closes.
 pub async fn pipe(
     upstream: rookery_core::link::LinkStream,
@@ -626,6 +649,7 @@ pub async fn pipe(
             }
         }
     };
+    let mut eof_sent = false;
     let towards_caller = async {
         while let Some(Ok(frame)) = from_host.next().await {
             let sent = match (frame, carry) {
@@ -640,7 +664,8 @@ pub async fn pipe(
                     writer.write(&tagged).await
                 }
                 (client::Frame::Text(text), Carry::Bytes) => {
-                    if text.as_str().contains("\"eof\"") {
+                    if text.as_str().contains("\"eof\"") && !eof_sent {
+                        eof_sent = true;
                         writer.eof();
                     }
                     Ok(())
@@ -671,7 +696,9 @@ pub async fn pipe(
         () = towards_caller => {}
     }
     let _ = to_host.send(client::Frame::Close(None)).await;
-    writer.eof();
+    if !eof_sent {
+        writer.eof();
+    }
     writer.close(None);
 }
 

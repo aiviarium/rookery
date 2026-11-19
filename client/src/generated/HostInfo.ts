@@ -14,6 +14,10 @@ id?: string, name: string,
  */
 address: string, reachable: boolean, 
 /**
+ * Whether the host advertises a Parrot broker.
+ */
+agents: boolean, 
+/**
  * The version of its rookeryd.
  */
 version: string | null, api: number | null, 

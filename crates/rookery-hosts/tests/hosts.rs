@@ -33,6 +33,12 @@ impl Rookeryd {
             return None;
         }
         let dir = tempfile::tempdir().unwrap();
+        // The folder stands in for /run/rookery, which only its owner may write to.
+        std::fs::set_permissions(
+            dir.path(),
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )
+        .unwrap();
         std::fs::create_dir_all(dir.path().join("etc")).unwrap();
         std::fs::write(dir.path().join("etc/actions.json"), actions.to_string()).unwrap();
         let child = std::process::Command::new(&program)
@@ -228,6 +234,27 @@ async fn hosts_are_saved_shared_acted_on_and_renamed() {
         .unwrap();
     assert_eq!(profile["profile"]["type"], "managed");
 
+    let broker_path = host.dir.path().join(rookery_api::PARROT_SOCKET);
+    let broker = tokio::net::UnixListener::bind(&broker_path).unwrap();
+    std::fs::set_permissions(
+        &broker_path,
+        std::os::unix::fs::PermissionsExt::from_mode(0o600),
+    )
+    .unwrap();
+    let broker_task = tokio::spawn(async move {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        let (stream, _) = broker.accept().await.unwrap();
+        let (read, mut write) = stream.into_split();
+        let mut lines = tokio::io::BufReader::new(read).lines();
+        let request: Value =
+            serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+        assert_eq!(request["method"], "initialize");
+        write
+            .write_all(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n")
+            .await
+            .unwrap();
+    });
+
     // A managed host cannot be applied: the refusal names what would let it.
     let checked = server
         .call(
@@ -256,6 +283,18 @@ async fn hosts_are_saved_shared_acted_on_and_renamed() {
     assert!(
         refused.details().unwrap()["refusal"]["raise"].is_string(),
         "{refused:?}"
+    );
+
+    let denied = Call::new(server.kernel.clone(), member.clone(), None);
+    assert_eq!(
+        code(
+            server
+                .kernel
+                .methods
+                .dispatch(denied, "agents.connect", json!({"env": "env://studio"}))
+                .await
+        ),
+        Some(ErrorCode::Forbidden)
     );
 
     // Someone without a grant sees nothing of it; with view they see it and its state.
@@ -289,6 +328,89 @@ async fn hosts_are_saved_shared_acted_on_and_renamed() {
         server.call(&member, "hosts.list", json!({})).await.unwrap()["hosts"][0]["name"],
         "studio"
     );
+    let mut agents_inbox = server.connect(&member);
+    let params = json!({"env": "env://studio"});
+    let call_agents = |inbox: &Inbox| {
+        let call = Call::new(
+            server.kernel.clone(),
+            member.clone(),
+            Some(inbox.conn.clone()),
+        );
+        server
+            .kernel
+            .methods
+            .dispatch(call, "agents.connect", params.clone())
+    };
+    assert_eq!(
+        code(call_agents(&agents_inbox).await),
+        Some(ErrorCode::Forbidden)
+    );
+    server
+        .call(
+            &admin,
+            "access.grant",
+            json!({"resource": "env://studio", "principal": ben, "level": "use"}),
+        )
+        .await
+        .unwrap();
+    let opened = call_agents(&agents_inbox).await.unwrap();
+    let stream = opened["stream"].as_u64().unwrap() as u32;
+    let connect = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}\n";
+    agents_inbox
+        .conn
+        .streams()
+        .deliver(&rookery_proto::stream::encode_frame(stream, connect));
+    let frames = tokio::time::timeout(Duration::from_secs(5), agents_inbox.lines(stream))
+        .await
+        .unwrap();
+    assert_eq!(
+        frames,
+        vec![json!({"jsonrpc": "2.0", "id": 1, "result": {}})]
+    );
+    broker_task.await.unwrap();
+    // Revoking the `use` grant ends the streams it opened, even an idle one that waits for the
+    // broker, so a chat does not outlive the access that let it open.
+    std::fs::remove_file(&broker_path).unwrap();
+    let idle_broker = tokio::net::UnixListener::bind(&broker_path).unwrap();
+    std::fs::set_permissions(
+        &broker_path,
+        std::os::unix::fs::PermissionsExt::from_mode(0o600),
+    )
+    .unwrap();
+    let idle_task = tokio::spawn(async move {
+        // Accepts, and answers nothing: the stream stays open until its caller loses `use`.
+        if let Ok((stream, _)) = idle_broker.accept().await {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            drop(stream);
+        }
+    });
+    let mut idle = server.connect(&member);
+    let idle_call = Call::new(
+        server.kernel.clone(),
+        member.clone(),
+        Some(idle.conn.clone()),
+    );
+    let opened = server
+        .kernel
+        .methods
+        .dispatch(idle_call, "agents.connect", params.clone())
+        .await
+        .unwrap();
+    let idle_stream = opened["stream"].as_u64().unwrap() as u32;
+    server
+        .call(
+            &admin,
+            "access.grant",
+            json!({"resource": "env://studio", "principal": ben, "level": "view"}),
+        )
+        .await
+        .unwrap();
+    let left = tokio::time::timeout(Duration::from_secs(5), idle.lines(idle_stream))
+        .await
+        .unwrap();
+    assert!(left.is_empty(), "{left:?}");
+    idle_task.abort();
+
     assert!(
         server
             .call(&member, "hosts.stats", json!({"host": "studio"}))

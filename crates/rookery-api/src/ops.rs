@@ -233,6 +233,10 @@ pub static HOST: &[Op] = &[
     stream("services.serve", "/v1/services/{plugin}/{name}/serve"),
     stream("ports.connect", "/v1/ports/{port}"),
     server_only(
+        stream("agents.connect", "/v1/agents/connect"),
+        "rookery serve opens it after checking access to the host",
+    ),
+    server_only(
         stream("endpoints.connect", "/v1/endpoints/{address}/{port}"),
         "rookery serve dials it itself, only for an endpoint a provisioner reported: open the endpoint with resources.connect",
     ),

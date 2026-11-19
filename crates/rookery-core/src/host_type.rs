@@ -501,6 +501,7 @@ mod tests {
     #[test]
     fn what_a_host_is_seen_to_be_comes_from_its_controller() {
         let version = |host_type| Version {
+            agents: false,
             version: "1".into(),
             api: 2,
             mode: "system".into(),
