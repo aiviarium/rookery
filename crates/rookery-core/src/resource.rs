@@ -729,6 +729,17 @@ enum Making {
 /// and secrets, a specification a kind does not take or lacks, a name that
 /// is taken, and one something else is being done to.
 pub fn prepare(paths: &Paths, store: &Store, asked: &rookery_api::NewResource) -> Result<Asked> {
+    prepare_held(paths, store, asked, None)
+}
+
+/// [`prepare`] with the host's lock taken already, as a caller that took it
+/// before it saved the profile the machine is for.
+pub fn prepare_held(
+    paths: &Paths,
+    store: &Store,
+    asked: &rookery_api::NewResource,
+    held: Option<Lock>,
+) -> Result<Asked> {
     let kind = match asked.kind.trim() {
         "" => plugins::MACHINE.to_owned(),
         kind => kind.to_owned(),
@@ -749,7 +760,7 @@ pub fn prepare(paths: &Paths, store: &Store, asked: &rookery_api::NewResource) -
             .as_deref()
             .filter(|host| !host.is_empty())
             .ok_or("A machine is made for a saved host: give its host")?;
-        let mut prepared = provision::prepare(paths, store, host, asked)?;
+        let mut prepared = provision::prepare_held(paths, store, host, asked, held)?;
         let lock = prepared.take_lock();
         let hidden = prepared.secrets();
         let kept = prepared.kept().clone();

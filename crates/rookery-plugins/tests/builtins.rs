@@ -38,15 +38,22 @@ fn copy(from: &Path, to: &Path) {
     }
 }
 
-/// Kinds' catalogues of sizes, images and regions are newer than the legacy manifests, which never
-/// declare one: the two are compared without them.
-fn without_catalogue(value: &mut Value) {
+/// What a kind declares that the legacy manifests never did: its catalogue of sizes, images and
+/// regions, and its own description. The two are compared without them.
+fn without_new_kind_fields(value: &mut Value) {
     match value {
         Value::Object(fields) => {
             fields.remove("catalogue");
-            fields.values_mut().for_each(without_catalogue);
+            if let Some(Value::Array(kinds)) = fields.get_mut("kinds") {
+                for kind in kinds {
+                    if let Value::Object(kind) = kind {
+                        kind.remove("description");
+                    }
+                }
+            }
+            fields.values_mut().for_each(without_new_kind_fields);
         }
-        Value::Array(items) => items.iter_mut().for_each(without_catalogue),
+        Value::Array(items) => items.iter_mut().for_each(without_new_kind_fields),
         _ => {}
     }
 }
@@ -86,14 +93,14 @@ fn each_shipped_plugin_contributes_what_its_rookery_json_did() {
             parts.as_object_mut().unwrap().remove("provisioners");
         }
         let (mut parts, mut wanted) = (parts, legacy.clone());
-        without_catalogue(&mut parts);
-        without_catalogue(&mut wanted);
+        without_new_kind_fields(&mut parts);
+        without_new_kind_fields(&mut wanted);
         assert_eq!(parts, wanted, "{id}");
         // rookery-core reads the same features, actions and provisioners from both.
         let old = legacy_copy(id, scratch.path());
         let read = |package: &Path| {
             let mut found = contributions(package);
-            without_catalogue(&mut found);
+            without_new_kind_fields(&mut found);
             found
         };
         assert_eq!(read(&shipped), read(&old), "{id}");

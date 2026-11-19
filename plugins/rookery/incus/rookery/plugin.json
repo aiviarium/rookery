@@ -73,6 +73,7 @@
           {
             "id": "machine",
             "label": "Machine",
+            "description": "A KVM guest on an Incus server, set up from rookery's cloud seed.",
             "setup": "seed",
             "archive": true,
             "verbs": [
@@ -185,6 +186,7 @@
           {
             "id": "instance",
             "label": "Virtual machine from an image",
+            "description": "A virtual machine from an image on images.linuxcontainers.org, which puts nothing of rookery in it.",
             "verbs": [
               "start",
               "stop",

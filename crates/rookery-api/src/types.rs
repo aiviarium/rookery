@@ -1565,6 +1565,10 @@ pub struct ProvisionerKind {
     pub id: String,
     #[serde(default)]
     pub label: String,
+    /// What it makes, as its plugin says it, when that differs from the
+    /// provisioner's own description.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
     /// For a machine: `seed` or `apply`, as for the provisioner.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub setup: String,

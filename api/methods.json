@@ -7103,7 +7103,7 @@
         "Setting": {
           "properties": {
             "command": {
-              "description": "For one that is not open, what an admin runs on the server's own\nmachine to change it.",
+              "description": "For one that is not open, what an admin runs on the server's own\nmachine to change it. Empty for one with no command of its own.",
               "type": "string"
             },
             "key": {
@@ -7125,8 +7125,7 @@
             "key",
             "value",
             "meaning",
-            "open",
-            "command"
+            "open"
           ],
           "type": "object"
         }
@@ -10791,6 +10790,10 @@
               "$ref": "#/$defs/Catalogue",
               "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
             },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
+            },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
               "type": "string"
@@ -11866,6 +11869,10 @@
               "$ref": "#/$defs/Catalogue",
               "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
             },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
+            },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
               "type": "string"
@@ -12849,6 +12856,10 @@
             "catalogue": {
               "$ref": "#/$defs/Catalogue",
               "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
             },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
@@ -13853,6 +13864,10 @@
             "catalogue": {
               "$ref": "#/$defs/Catalogue",
               "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
             },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
@@ -14915,6 +14930,10 @@
               "$ref": "#/$defs/Catalogue",
               "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
             },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
+            },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
               "type": "string"
@@ -15836,6 +15855,10 @@
             "catalogue": {
               "$ref": "#/$defs/Catalogue",
               "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
             },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
@@ -16801,6 +16824,10 @@
             "catalogue": {
               "$ref": "#/$defs/Catalogue",
               "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
             },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
@@ -17806,6 +17833,10 @@
               "$ref": "#/$defs/Catalogue",
               "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
             },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
+            },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
               "type": "string"
@@ -18777,6 +18808,10 @@
             "catalogue": {
               "$ref": "#/$defs/Catalogue",
               "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
             },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
@@ -20110,6 +20145,10 @@
               "$ref": "#/$defs/Catalogue",
               "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
             },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
+            },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
               "type": "string"
@@ -20722,6 +20761,10 @@
               "$ref": "#/$defs/Catalogue",
               "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
             },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
+            },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
               "type": "string"
@@ -21209,6 +21252,10 @@
             "catalogue": {
               "$ref": "#/$defs/Catalogue",
               "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
             },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
@@ -21886,6 +21933,10 @@
             "catalogue": {
               "$ref": "#/$defs/Catalogue",
               "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
             },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
@@ -23245,7 +23296,7 @@
   },
   {
     "name": "resources.create",
-    "summary": "Asks a provisioner for a resource, as a job.",
+    "summary": "Asks a provisioner for a resource, as a job; a machine's host may be saved in the same call, as a new host.",
     "level": {
       "kind": "admin"
     },
@@ -25116,7 +25167,7 @@
   },
   {
     "name": "setup.catalogue",
-    "summary": "The set-up flow the CLI's prompts and a shell's views read: the fields of a profile and the features the plugins offer.",
+    "summary": "The set-up flow the CLI's prompts and a shell's views read: the fields of a profile, the features the plugins offer and the machines their provisioners make, with the sizes and images each offers.",
     "level": {
       "kind": "admin"
     },

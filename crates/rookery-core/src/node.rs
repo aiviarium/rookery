@@ -509,9 +509,14 @@ fn register_by(
             continue;
         }
         match provisioner::remove_entry(paths, store, &name) {
-            Ok(()) => said.push(format!(
+            Ok(held) if held.is_empty() => said.push(format!(
                 "✓ Forgot the provisioner {name}: no feature of {} offers it any more",
                 host.name
+            )),
+            Ok(held) => said.push(format!(
+                "! {} no longer offers {name}, which is kept: {}",
+                host.name,
+                provisioner::held_message(&name, &held)
             )),
             Err(error) => said.push(format!(
                 "! {} no longer offers {name}, which is kept: {error}",

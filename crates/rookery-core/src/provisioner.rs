@@ -345,45 +345,41 @@ pub fn adopted(paths: &Paths, name: &str, kind: &str) -> Result<String> {
     )
 }
 
-/// What holds the registered provisioner `given` back from being removed:
-/// the resources rookery made with it, which would have no provisioner.
-pub fn held_by(paths: &Paths, given: &str) -> Result<Vec<crate::resource::Kept>> {
-    let Some(entry) = entry(paths, given)? else {
-        return Ok(vec![]);
-    };
-    Ok(crate::resource::list(paths)?
-        .into_iter()
-        .filter(|kept| kept.record.provisioner == entry.id)
-        .collect())
+/// Why a provisioner that still holds resources cannot be removed, as the
+/// sentence a person acts on.
+pub fn held_message(name: &str, held: &[crate::resource::Kept]) -> String {
+    let ids: Vec<&str> = held.iter().map(|kept| kept.record.id.as_str()).collect();
+    format!(
+        "{name} still holds {}. Remove {} first: rookery resource remove ID",
+        ids.join(", "),
+        if ids.len() == 1 { "it" } else { "them" }
+    )
 }
 
 /// Forget a registered provisioner and everything that belongs to it, such
 /// as the secrets it keeps, in one change. One that still holds resources is
-/// kept: they would have no provisioner.
-pub fn remove_entry(paths: &Paths, _store: &Store, given: &str) -> Result<()> {
+/// kept, and what it holds is returned: they would have no provisioner.
+pub fn remove_entry(
+    paths: &Paths,
+    _store: &Store,
+    given: &str,
+) -> Result<Vec<crate::resource::Kept>> {
     let Some(entry) = entry(paths, given)? else {
         return Err(format!("No provisioner {given}. See: rookery provisioner list").into());
     };
-    let held: Vec<String> = crate::resource::list(paths)?
+    let held: Vec<crate::resource::Kept> = crate::resource::list(paths)?
         .into_iter()
         .filter(|kept| kept.record.provisioner == entry.id)
-        .map(|kept| kept.record.id)
         .collect();
     if !held.is_empty() {
-        return Err(format!(
-            "{} still holds {}. Remove {} first: rookery resource remove ID",
-            entry.name,
-            held.join(", "),
-            if held.len() == 1 { "it" } else { "them" }
-        )
-        .into());
+        return Ok(held);
     }
     let mut batch = store::Batch::default();
     batch
         .remove(kind::PROVISIONER_ENTRY, OWN, &entry.id)
         .forget_owned(OWN, &entry.id);
     store::shared(paths)?.apply(&batch)?;
-    Ok(())
+    Ok(vec![])
 }
 
 /// Why the registered provisioner `old` cannot be called `new`, if it cannot.
@@ -1330,7 +1326,10 @@ impl Acting {
                 })
             }
             Doing::Remove(store) => {
-                remove_entry(paths, &store, &self.name)?;
+                let held = remove_entry(paths, &store, &self.name)?;
+                if !held.is_empty() {
+                    return Err(held_message(&self.name, &held).into());
+                }
                 Ok(Answered {
                     message: format!("{} is removed", self.name),
                     details: vec![],

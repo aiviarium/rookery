@@ -336,17 +336,7 @@ fn register_hosts(methods: &mut Methods) {
             }
             let caller = access(&call, Some(&name)).await?;
             answer(&call, setup::save_profile(state.clone(), name.clone(), caller, p.profile)).await?;
-            // The one who made it owns it, which gives them manage on it.
-            if !exists && let Ok(user) = call.user_id() {
-                call.store().access().set_owner(&uri, user).await?;
-                sqlx::query("UPDATE rookery.hosts SET owner = $2 WHERE name = $1")
-                    .bind(&name)
-                    .bind(user)
-                    .execute(call.store().pool())
-                    .await
-                    .map_err(|e| RpcError::internal(format!("keeping the owner of {name}: {e}")))?;
-            }
-            call.audit(if exists { "host.change" } else { "host.add" }, Some(&uri), json!({})).await;
+            host_saved(&call, &name, !exists).await?;
             Ok(HostSaved {
                 host: api::host_info(&state, &name).await?,
             })
@@ -1276,10 +1266,33 @@ fn register_provisioning(methods: &mut Methods) {
         .add(
             "resources.create",
             |call: Call, p: rookery_api::NewResource| async move {
-                answer(&call, resources::create(serve(&call)?, body(&p)?)).await
+                let state = serve(&call)?;
+                let caller = access(&call, None).await?;
+                // A call that saves the host's profile makes a host, so it is
+                // checked as the caller, not as the server's own user, and the
+                // host's record follows the save.
+                let host = p.host.clone().filter(|host| !host.is_empty());
+                let saves = host.is_some() && p.profile.is_some();
+                let exists = match (&host, saves) {
+                    (Some(host), true) => {
+                        let (state, host) = (state.clone(), host.clone());
+                        tokio::task::spawn_blocking(move || {
+                            setup::saved_profile(&state, &host).is_ok()
+                        })
+                        .await
+                        .map_err(|e| RpcError::internal(e.to_string()))?
+                    }
+                    _ => false,
+                };
+                let created =
+                    answer(&call, resources::create(state, caller, body(&p)?)).await?;
+                if let (Some(host), true) = (&host, saves) {
+                    host_saved(&call, host, !exists).await?;
+                }
+                Ok(created)
             },
         )
-        .summary("Asks a provisioner for a resource, as a job.")
+        .summary("Asks a provisioner for a resource, as a job; a machine's host may be saved in the same call, as a new host.")
         .level(Level::Admin);
     methods
         .add(
@@ -1357,6 +1370,29 @@ fn register_provisioning(methods: &mut Methods) {
         .summary("A resource's log as it comes, then a line with how it ended.")
         .stream()
         .level(Level::Admin);
+}
+
+/// A host's record beyond its profile: the one who made it owns it, which
+/// gives them manage on it, and the audit log says what happened. A host
+/// saved again keeps its owner, and the log says it changed.
+async fn host_saved(call: &Call, name: &str, made: bool) -> Result<(), RpcError> {
+    let uri = crate::uri(name);
+    if made && let Ok(user) = call.user_id() {
+        call.store().access().set_owner(&uri, user).await?;
+        sqlx::query("UPDATE rookery.hosts SET owner = $2 WHERE name = $1")
+            .bind(name)
+            .bind(user)
+            .execute(call.store().pool())
+            .await
+            .map_err(|e| RpcError::internal(format!("keeping the owner of {name}: {e}")))?;
+    }
+    call.audit(
+        if made { "host.add" } else { "host.change" },
+        Some(&uri),
+        json!({}),
+    )
+    .await;
+    Ok(())
 }
 
 fn text(value: &Value) -> String {
@@ -1478,7 +1514,7 @@ fn register_setup(methods: &mut Methods) {
         .add("setup.catalogue", |call: Call, _: Empty| async move {
             answer(&call, setup::catalogue(serve(&call)?)).await
         })
-        .summary("The set-up flow the CLI's prompts and a shell's views read: the fields of a profile and the features the plugins offer.")
+        .summary("The set-up flow the CLI's prompts and a shell's views read: the fields of a profile, the features the plugins offer and the machines their provisioners make, with the sizes and images each offers.")
         .level(Level::Admin);
     methods
         .add(

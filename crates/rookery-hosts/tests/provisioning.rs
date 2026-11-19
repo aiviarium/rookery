@@ -44,6 +44,7 @@ const MANIFEST: &str = r#"{
           {
             "id": "machine",
             "label": "Machine",
+            "description": "A machine for a host in the lab.",
             "setup": "apply",
             "verbs": ["start", "stop", "logs"],
             "arguments": [
@@ -271,6 +272,8 @@ async fn the_catalogue_offers_what_plugins_declare_and_nothing_else(
     assert_eq!(machine["provisioner"], "lab/vm");
     assert_eq!(machine["kind"], "machine");
     assert_eq!(machine["label"], "Machine");
+    // A kind says what it makes itself, which is not the provisioner's own words.
+    assert_eq!(machine["description"], "A machine for a host in the lab.");
     let sizes = machine["catalogue"]["sizes"].as_array().unwrap();
     assert_eq!(sizes.len(), 2, "{machine}");
     assert_eq!(sizes[1]["id"], "large");
@@ -341,6 +344,25 @@ async fn a_machine_is_made_in_the_call_that_saves_its_host(server: &Server, admi
     // Making a machine sets the host's target to the cloud, as a machine is.
     wanted["target"] = json!("cloud");
     assert_eq!(saved["profile"], wanted, "{saved}");
+    // The host is the caller's, and the audit log says who added it.
+    let owner = admin.user().map(|user| user.id.clone()).unwrap_or_default();
+    let grants = server
+        .ok(admin, "access.grants", json!({"resource": "env://studio"}))
+        .await;
+    assert_eq!(grants["owner"], owner, "{grants}");
+    let audit = server
+        .ok(
+            admin,
+            "audit.list",
+            json!({"resource": "env://studio", "action": "host.add"}),
+        )
+        .await;
+    assert!(
+        audit["entries"]
+            .as_array()
+            .is_some_and(|entries| !entries.is_empty()),
+        "{audit}"
+    );
     // Its machine was asked of the provisioner, with what the call gave it.
     let (job, log) = server
         .ended(admin, made["job"]["id"].as_str().unwrap())
@@ -389,6 +411,105 @@ async fn a_call_that_is_refused_leaves_no_host_behind(server: &Server, admin: &C
                 .await
         ),
         Some(ErrorCode::NotFound)
+    );
+    // A profile belongs to a host's machine, so one with no host is refused.
+    assert_eq!(
+        code(
+            server
+                .call(
+                    admin,
+                    "resources.create",
+                    json!({"provisioner": "lab", "kind": "machine", "profile": profile()}),
+                )
+                .await
+        ),
+        Some(ErrorCode::Invalid)
+    );
+}
+
+async fn a_refused_call_puts_the_profile_it_replaced_back(server: &Server, admin: &Caller) {
+    // The host the call before made, as it is now.
+    let before = server
+        .ok(admin, "hosts.profile", json!({"host": "studio"}))
+        .await;
+    let mut changed = before["profile"].clone();
+    changed["hostname"] = json!("another-name");
+    assert_eq!(
+        code(
+            server
+                .call(
+                    admin,
+                    "resources.create",
+                    json!({
+                        "provisioner": "lab",
+                        "kind": "machine",
+                        "host": "studio",
+                        "profile": changed,
+                        "arguments": {"no_such_argument": "x"},
+                    })
+                )
+                .await
+        ),
+        Some(ErrorCode::Invalid)
+    );
+    let after = server
+        .ok(admin, "hosts.profile", json!({"host": "studio"}))
+        .await;
+    assert_eq!(after, before, "{after}");
+}
+
+async fn a_remote_admin_cannot_set_the_servers_own_parts_of_a_profile(
+    server: &Server,
+    admin: &Caller,
+) {
+    // A link is a command the server runs, and SSH is its own account's:
+    // a caller over the network cannot set either, as an admin or not.
+    let mut link = profile();
+    link["access"]["link"] = json!(["echo", "hello"]);
+    assert_eq!(
+        code(
+            server
+                .call(
+                    admin,
+                    "resources.create",
+                    json!({
+                        "provisioner": "lab",
+                        "kind": "machine",
+                        "host": "relay",
+                        "profile": link,
+                    })
+                )
+                .await
+        ),
+        Some(ErrorCode::Invalid)
+    );
+    assert_eq!(
+        code(
+            server
+                .call(admin, "hosts.profile", json!({"host": "relay"}))
+                .await
+        ),
+        Some(ErrorCode::NotFound)
+    );
+
+    let mut ssh = profile();
+    ssh["access"]["auth"] = json!("ssh");
+    assert_eq!(
+        code(
+            server
+                .call(
+                    admin,
+                    "resources.create",
+                    json!({
+                        "provisioner": "lab",
+                        "kind": "machine",
+                        "host": "relay",
+                        "profile": ssh,
+                    })
+                )
+                .await
+        ),
+        Some(ErrorCode::Invalid)
     );
 }
 
@@ -439,12 +560,21 @@ async fn removing_a_provisioner_says_what_holds_it(server: &Server, admin: &Call
             json!({"name": "lab", "type": "lab/vm"}),
         )
         .await;
-    // A deployment is no host's machine, so it needs only a name.
+    // A deployment is no host's machine, so it needs only a name, and the
+    // secret it is given stays in the store.
+    server
+        .ok(
+            admin,
+            "installation.secrets.set",
+            json!({"name": "lab_token", "value": "made-up-token-value"}),
+        )
+        .await;
     let made = server
         .ok(
             admin,
             "resources.create",
-            json!({"provisioner": "lab", "kind": "deployment", "name": "web"}),
+            json!({"provisioner": "lab", "kind": "deployment", "name": "web",
+                   "secrets": [{"name": "lab_token"}]}),
         )
         .await;
     let id = made["resource"]["id"].as_str().unwrap().to_owned();
@@ -462,6 +592,13 @@ async fn removing_a_provisioner_says_what_holds_it(server: &Server, admin: &Call
         .find(|known| known["id"] == id.as_str())
         .unwrap_or_else(|| panic!("{refused:?}"));
     assert_eq!(deployment["kind"], "deployment");
+    // What it holds carries the names of its secrets, never their values.
+    let shown = refused
+        .details()
+        .map(ToString::to_string)
+        .unwrap_or_default();
+    assert!(shown.contains("lab_token"), "{shown}");
+    assert!(!shown.contains("made-up-token-value"), "{shown}");
 }
 
 async fn a_setting_a_browser_cannot_change_says_what_to_run(server: &Server, admin: &Caller) {
@@ -469,23 +606,28 @@ async fn a_setting_a_browser_cannot_change_says_what_to_run(server: &Server, adm
         .ok(admin, "installation.settings.list", json!({}))
         .await;
     let settings = listed.as_array().unwrap();
-    let read_only: Vec<&Value> = settings
-        .iter()
-        .filter(|setting| setting["open"] == false)
-        .collect();
-    assert!(!read_only.is_empty(), "{listed}");
-    for setting in read_only {
-        let key = setting["key"].as_str().unwrap();
-        assert_eq!(
-            setting["command"],
-            format!("rookery config set {key} VALUE"),
-            "{setting}"
-        );
-    }
-    let open = settings
-        .iter()
-        .find(|setting| setting["open"] == true)
-        .unwrap();
+    let find = |key: &str| {
+        settings
+            .iter()
+            .find(|setting| setting["key"] == key)
+            .unwrap_or_else(|| panic!("no setting {key}: {listed}"))
+    };
+    // A setting only the server's own user sets says what to run there.
+    let source = find("source");
+    assert_eq!(source["open"], false, "{source}");
+    assert_eq!(source["command"], "rookery config set source VALUE");
+    let token = find("server_token");
+    assert_eq!(token["open"], false, "{token}");
+    assert_eq!(token["command"], "rookery login URL --token-stdin");
+    // The server is the client's own: no command of the server says how.
+    assert!(
+        find("server").get("command").is_none(),
+        "{}",
+        find("server")
+    );
+    // One a browser may change needs no command.
+    let open = find("default_host");
+    assert_eq!(open["open"], true, "{open}");
     assert!(open.get("command").is_none(), "{open}");
 }
 
@@ -500,6 +642,8 @@ async fn provisioning_catalogue_list_removal_and_settings() {
     the_catalogue_offers_what_plugins_declare_and_nothing_else(&server, &admin).await;
     a_machine_is_made_in_the_call_that_saves_its_host(&server, &admin).await;
     a_call_that_is_refused_leaves_no_host_behind(&server, &admin).await;
+    a_refused_call_puts_the_profile_it_replaced_back(&server, &admin).await;
+    a_remote_admin_cannot_set_the_servers_own_parts_of_a_profile(&server, &admin).await;
     removing_a_provisioner_says_what_holds_it(&server, &admin).await;
     a_setting_a_browser_cannot_change_says_what_to_run(&server, &admin).await;
     // Last, as it takes the plugin away.

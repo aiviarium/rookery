@@ -13,6 +13,11 @@ export type ProvisionerKind = {
  */
 id: string, label: string, 
 /**
+ * What it makes, as its plugin says it, when that differs from the
+ * provisioner's own description.
+ */
+description?: string, 
+/**
  * For a machine: `seed` or `apply`, as for the provisioner.
  */
 setup?: string, 

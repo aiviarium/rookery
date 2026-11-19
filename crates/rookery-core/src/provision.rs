@@ -339,6 +339,15 @@ fn words(time: Duration) -> String {
     }
 }
 
+/// Why something that ran out of time is shown as it is: the words a call
+/// that ran out of time gives, which a listing uses for a straggler too.
+pub fn unanswered(what: &str, verb: &str, limit: Duration) -> String {
+    format!(
+        "{what} {verb} did not end within {} and was stopped",
+        words(limit)
+    )
+}
+
 fn kill_group(group: i32) {
     // SAFETY: a signal to a process group, by number.
     unsafe {
@@ -422,12 +431,7 @@ pub(crate) fn call(
         if Instant::now() >= deadline {
             kill_group(group);
             let _ = child.wait();
-            return Err(format!(
-                "{} {verb} did not end within {} and was stopped",
-                provisioner.id,
-                words(limit)
-            )
-            .into());
+            return Err(unanswered(&provisioner.id, verb, limit).into());
         }
     };
     // Nothing it started outlives it, which also closes its output.
@@ -482,8 +486,23 @@ pub struct Prepared {
 /// provisioner, an unknown provisioner, unknown or missing arguments and
 /// missing secrets, and a host something else is being done to.
 pub fn prepare(paths: &Paths, store: &Store, host: &str, asked: &NewResource) -> Result<Prepared> {
+    prepare_held(paths, store, host, asked, None)
+}
+
+/// [`prepare`] with the host's lock taken already, as a caller that took it
+/// before it saved the profile the machine is for.
+pub fn prepare_held(
+    paths: &Paths,
+    store: &Store,
+    host: &str,
+    asked: &NewResource,
+    held: Option<Lock>,
+) -> Result<Prepared> {
     let profile = Host::load(paths, host).map_err(|_| format!("No host {host}"))?;
-    let lock = lock(paths, host)?;
+    let lock = match held {
+        Some(lock) => lock,
+        None => lock(paths, host)?,
+    };
     let kept = resource::of_place(paths, &profile.place)?;
     let reference = crate::provisioner::for_use(paths, &asked.provisioner)?;
     if let Some(kept) = kept

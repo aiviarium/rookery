@@ -541,6 +541,7 @@ fn provisioner_kinds(entries: &Value) -> Vec<rookery_api::ProvisionerKind> {
                 label if label.is_empty() => id.clone(),
                 label => label,
             },
+            description: text("description"),
             setup: match id == MACHINE {
                 true => setup,
                 false => String::new(),

@@ -55,44 +55,55 @@ pub mod layout {
     pub const EXAMPLE: &str = "provision/config/example.json";
 }
 
-/// Settings that `rookery config set KEY VALUE` can change. Those [`is_local`]
-/// names are in `config.json`, the others in the store.
-pub const SETTINGS: &[(&str, &str)] = &[
+/// Settings that `rookery config set KEY VALUE` can change, each with what it
+/// means and what a person runs to change it. `{key}` in the last is the
+/// setting's name. An empty one is changed by no command of its own: `server`
+/// is the client's, which `rookery login URL` sets.
+pub const SETTINGS: &[(&str, &str, &str)] = &[
     (
         "source",
         "directory with a provisioning source to use instead of the built-in one, such as a checkout you are changing",
+        "rookery config set {key} VALUE",
     ),
     (
         "default_host",
         "host that a command uses when it names none",
+        "rookery config set {key} VALUE",
     ),
     (
         "iso_dir",
         "directory for downloaded Ubuntu installer ISOs (default: next to the builds)",
+        "rookery config set {key} VALUE",
     ),
     (
         "server",
         "address of the rookery serve to use: http://HOST:PORT, https://HOST or unix:/path/to/server.sock",
+        "",
     ),
     (
         "server_token",
         "the device session or access token for that rookery serve, kept by rookery login",
+        "rookery login URL --token-stdin",
     ),
     (
         "retention_days",
         "days rookery serve keeps messages and jobs (default: 90)",
+        "rookery config set {key} VALUE",
     ),
     (
         "tailnet_login_server",
         "address of the Headscale server hosts join, such as https://hs.example.org (empty: Tailscale's own service)",
+        "rookery config set {key} VALUE",
     ),
     (
         "tailnet_user",
         "the Headscale user that new hosts belong to, by name or number",
+        "rookery config set {key} VALUE",
     ),
     (
         "tailnet_tags",
         "tags new hosts get, comma separated, such as tag:rookery; an OAuth client of Tailscale needs them",
+        "rookery config set {key} VALUE",
     ),
 ];
 
@@ -302,7 +313,7 @@ impl Paths {
     }
 
     pub fn set(&self, key: &str, value: &str) -> Result<()> {
-        if !SETTINGS.iter().any(|(name, _)| *name == key) {
+        if !SETTINGS.iter().any(|(name, _, _)| *name == key) {
             return Err(format!("Unknown setting: {key}").into());
         }
         if !value.is_empty()

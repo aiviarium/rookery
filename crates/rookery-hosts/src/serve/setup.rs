@@ -433,8 +433,8 @@ pub struct Setting {
     /// Whether `installation.settings.set` takes it.
     pub open: bool,
     /// For one that is not open, what an admin runs on the server's own
-    /// machine to change it.
-    #[serde(skip_serializing_if = "String::is_empty")]
+    /// machine to change it. Empty for one with no command of its own.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub command: String,
 }
 
@@ -450,7 +450,7 @@ pub async fn settings(state: Arc<Serve>, access: Option<Access>) -> Answer<Json<
     let saved = state.paths.settings().map_err(internal)?;
     let settings = SETTINGS
         .iter()
-        .map(|(key, meaning)| Setting {
+        .map(|(key, meaning, command)| Setting {
             key: (*key).into(),
             value: match saved.get(*key) {
                 Some(_) if rookery_core::paths::is_secret(key) => String::new(),
@@ -460,9 +460,14 @@ pub async fn settings(state: Arc<Serve>, access: Option<Access>) -> Answer<Json<
             },
             meaning: (*meaning).into(),
             open: local || OPEN_SETTINGS.contains(key),
+            // What is set here needs no command, and a setting of the
+            // client's, such as `server`, has none that the server can give.
             command: match local || OPEN_SETTINGS.contains(key) {
                 true => String::new(),
-                false => format!("rookery config set {key} VALUE"),
+                false => match *command {
+                    "" => String::new(),
+                    words => words.replace("{key}", key),
+                },
             },
         })
         .collect();
@@ -562,7 +567,12 @@ pub async fn catalogue(state: Arc<Serve>) -> Answer<Json<Catalogue>> {
                     provisioner: provisioner.clone(),
                     label: kind.label.clone(),
                     kind: kind.id.clone(),
-                    description: description.clone(),
+                    // A kind says what it makes itself when it differs from
+                    // the provisioner, as a VM from an image does.
+                    description: match kind.description.is_empty() {
+                        true => description.clone(),
+                        false => kind.description.clone(),
+                    },
                     catalogue: kind.catalogue.clone(),
                 })
         })
