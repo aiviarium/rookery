@@ -183,7 +183,6 @@ export const WIRE = {
   "terminals.write": {} as WireCall<TerminalWrite, Empty>,
 }
 
-
 /** The name of a method `rookery serve` has and the client calls. */
 export type WireMethod = keyof typeof WIRE
 export type WireParams<M extends WireMethod> = (typeof WIRE)[M]["params"]
