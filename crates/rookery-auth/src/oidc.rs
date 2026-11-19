@@ -106,6 +106,8 @@ async fn post_form(url: String, form: Vec<(&'static str, String)>) -> Result<Val
     tokio::task::spawn_blocking(move || {
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
+            .timeout_global(Some(Duration::from_secs(10)))
+            .max_redirects(0)
             .build()
             .into();
         let mut response = agent
@@ -117,15 +119,10 @@ async fn post_form(url: String, form: Vec<(&'static str, String)>) -> Result<Val
             .body_mut()
             .read_to_string()
             .map_err(|e| format!("{url}: {e}"))?;
-        let body: Value =
-            serde_json::from_str(&text).map_err(|_| format!("{url} answered {status}: {text}"))?;
+        let body: Value = serde_json::from_str(&text)
+            .map_err(|_| format!("the token endpoint answered {status} with invalid JSON"))?;
         if !status.is_success() {
-            let said = body
-                .get("error_description")
-                .or(body.get("error"))
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            return Err(format!("{url} answered {status}: {said}"));
+            return Err(format!("the token endpoint answered {status}"));
         }
         Ok(body)
     })
@@ -221,7 +218,14 @@ fn redirect_uri(kernel: &Kernel) -> String {
 /// Only a path on this server, so that a sign-in cannot be made to end on another site.
 fn safe_path(path: Option<&str>) -> String {
     match path {
-        Some(p) if p.starts_with('/') && !p.starts_with("//") && !p.contains('\\') => p.to_owned(),
+        Some(p)
+            if p.starts_with('/')
+                && !p.starts_with("//")
+                && !p.contains('\\')
+                && !p.chars().any(char::is_control) =>
+        {
+            p.to_owned()
+        }
         _ => "/".into(),
     }
 }
@@ -352,7 +356,7 @@ pub async fn verify(
         None if keys.keys.len() == 1 => keys.keys.first().cloned(),
         None => None,
     };
-    let (_, keys) = state.known(config, false).await?;
+    let (metadata, keys) = state.known(config, false).await?;
     let key = match find(&keys) {
         Some(key) => key,
         None => find(&state.known(config, true).await?.1)
@@ -360,15 +364,28 @@ pub async fn verify(
     };
     let key = DecodingKey::from_jwk(&key).map_err(|e| format!("the provider's key: {e}"))?;
     let mut validation = Validation::new(header.alg);
-    validation.set_issuer(&[config.issuer.as_str(), config.issuer.trim_end_matches('/')]);
-    let mut audiences = vec![config.client_id.clone()];
-    audiences.extend(config.audiences.iter().cloned());
-    validation.set_audience(&audiences);
+    validation.set_issuer(&[metadata.issuer.as_str()]);
+    validation.set_audience(&[&config.client_id]);
     validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
     validation.leeway = 60;
     let claims = jsonwebtoken::decode::<Value>(token, &key, &validation)
         .map_err(|e| format!("the ID token: {e}"))?
         .claims;
+    if let Some(Value::Array(audiences)) = claims.get("aud")
+        && audiences.iter().any(|audience| {
+            !audience.as_str().is_some_and(|audience| {
+                audience == config.client_id || config.audiences.iter().any(|a| a == audience)
+            })
+        })
+    {
+        return Err("the ID token names an untrusted audience".into());
+    }
+    if claims
+        .get("azp")
+        .is_some_and(|azp| azp.as_str() != Some(&config.client_id))
+    {
+        return Err("the ID token is authorized for a different client".into());
+    }
     if claims.get("nonce").and_then(Value::as_str) != Some(nonce) {
         return Err("the ID token is not for this sign-in".into());
     }
@@ -444,6 +461,9 @@ pub async fn callback(
     let subject = text("sub").unwrap_or_default();
     let email = text("email")
         .filter(|_| claims.get("email_verified").and_then(Value::as_bool) != Some(false));
+    let verified_email = email
+        .as_deref()
+        .filter(|_| claims.get("email_verified").and_then(Value::as_bool) == Some(true));
     let groups = groups(&claims, &config.groups_claim);
     let name = text("name")
         .or_else(|| text("preferred_username"))
@@ -453,7 +473,7 @@ pub async fn callback(
         issuer: config.issuer.clone(),
         subject,
         name,
-        admin: kernel.config.names_admin(email.as_deref(), &groups),
+        admin: kernel.config.names_admin(verified_email, &groups),
         email,
     };
     match sign_in(&kernel, login, &Device::from_headers(&headers)).await {
@@ -477,6 +497,22 @@ pub async fn callback(
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn token_endpoint_errors_do_not_expose_response_content() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/token", listener.local_addr().unwrap());
+        let app = axum::Router::new().route(
+            "/token",
+            axum::routing::post(|| async {
+                (StatusCode::BAD_GATEWAY, "private provider response")
+            }),
+        );
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let error = post_form(endpoint, vec![]).await.unwrap_err();
+        server.abort();
+        assert!(!error.contains("private provider response"));
+    }
+
     #[test]
     fn pkce_and_paths() {
         // RFC 7636, appendix B.
@@ -488,6 +524,8 @@ mod tests {
         assert_eq!(safe_path(Some("//evil.example.test")), "/");
         assert_eq!(safe_path(Some("https://evil.example.test")), "/");
         assert_eq!(safe_path(None), "/");
+        assert_eq!(safe_path(Some("/a\nb")), "/");
+        assert_eq!(safe_path(Some("/a\tb")), "/");
     }
 
     #[test]

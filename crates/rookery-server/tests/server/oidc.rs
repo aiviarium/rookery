@@ -216,14 +216,15 @@ async fn a_person_signs_in_through_the_provider() {
 
 #[tokio::test]
 async fn a_token_for_another_audience_is_refused() {
-    let issuer = provider(json!({"aud": "someone-else", "email": "eve@example.test"})).await;
+    // An extra trusted audience is allowed alongside the client ID.
+    let issuer = provider(json!({"aud": "other-service", "email": "maria@example.test"})).await;
     let served = served!(move |config: &mut rookery_server::ServerConfig| {
         config.auth = rookery_proto::auth::AuthMode::Oidc;
         config.oidc = Some(rookery_kernel::config::Oidc {
             issuer,
             client_id: "rookery".into(),
             client_secret: None,
-            audiences: vec![],
+            audiences: vec!["other-service".into()],
             groups_claim: "groups".into(),
         });
     });
@@ -235,4 +236,44 @@ async fn a_token_for_another_audience_is_refused() {
     assert_eq!(status, 403, "{page}");
     assert!(set_cookie(&headers, "rookery_session").is_none());
     served.stop().await;
+}
+
+#[tokio::test]
+async fn email_must_be_verified_for_an_admin_role() {
+    for verified in [None, Some(false), Some(true)] {
+        let mut claims = json!({"email": "maria@example.test"});
+        if let Some(verified) = verified {
+            claims["email_verified"] = json!(verified);
+        }
+        let issuer = provider(claims).await;
+        let served = served!(move |config: &mut rookery_server::ServerConfig| {
+            config.auth = rookery_proto::auth::AuthMode::Oidc;
+            config.admins = vec!["maria@example.test".into()];
+            config.oidc = Some(rookery_kernel::config::Oidc {
+                issuer,
+                client_id: "rookery".into(),
+                client_secret: None,
+                audiences: vec![],
+                groups_claim: "groups".into(),
+            });
+        });
+        let (_, _, headers) = http("GET", &format!("{}/auth/login", served.url), &[], None).await;
+        let state = set_cookie(&headers, "rookery_oidc").unwrap();
+        let (_, _, headers) = http("GET", &location(&headers), &[], None).await;
+        let (status, _, headers) =
+            http("GET", &location(&headers), &[("cookie", &state)], None).await;
+        assert_eq!(status, 303);
+        let cookie = set_cookie(&headers, "rookery_session").unwrap();
+        let (_, body, _) = http(
+            "GET",
+            &format!("{}/auth/session", served.url),
+            &[("cookie", &cookie)],
+            None,
+        )
+        .await;
+        let user = &serde_json::from_str::<Value>(&body).unwrap()["user"];
+        let is_admin = user["admin"].as_bool();
+        served.stop().await;
+        assert_eq!(is_admin, Some(verified == Some(true)));
+    }
 }
