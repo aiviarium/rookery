@@ -9,7 +9,7 @@ use axum::extract::ws::{CloseFrame, Message as WsMessage, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use rookery_proto::{Message, Notification, Response};
 use serde::Serialize;
-use tokio::sync::mpsc;
+use tokio::sync::{Semaphore, mpsc};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -25,22 +25,29 @@ pub enum Outbound {
     Binary(Vec<u8>),
 }
 
+/// Replies and notifications that may wait for a slow socket.
 const MAX_OUTBOUND_FRAMES: usize = 32;
+/// Stream data that may wait beside them. Data waits for room instead of ending the connection, and its
+/// own share keeps it from taking the room of replies and notifications.
+const MAX_OUTBOUND_BINARY: usize = 32;
 const MAX_OUTBOUND_MESSAGE: usize = 2 * 1024 * 1024;
 const MAX_PENDING_CALLS: usize = 16;
 
 #[derive(Clone)]
 pub struct OutTx {
     tx: mpsc::Sender<Outbound>,
+    /// Binary frames that may be queued: taken by a sender, given back by the socket's writer.
+    binary: Arc<Semaphore>,
     overflow: CancellationToken,
 }
 
 impl OutTx {
     pub(crate) fn channel() -> (Self, mpsc::Receiver<Outbound>) {
-        let (tx, rx) = mpsc::channel(MAX_OUTBOUND_FRAMES);
+        let (tx, rx) = mpsc::channel(MAX_OUTBOUND_FRAMES + MAX_OUTBOUND_BINARY);
         (
             Self {
                 tx,
+                binary: Arc::new(Semaphore::new(MAX_OUTBOUND_BINARY)),
                 overflow: CancellationToken::new(),
             },
             rx,
@@ -55,10 +62,19 @@ impl OutTx {
     }
 
     pub(crate) async fn send_binary(&self, bytes: Vec<u8>) -> Result<(), crate::RpcError> {
+        let closed = || crate::RpcError::unavailable("the connection is closed");
+        self.binary.acquire().await.map_err(|_| closed())?.forget();
         self.tx
             .send(Outbound::Binary(bytes))
             .await
-            .map_err(|_| crate::RpcError::unavailable("the connection is closed"))
+            .map_err(|_| closed())
+    }
+
+    /// The receiver took a binary frame off the queue, which makes room for another, as the socket's
+    /// writer does.
+    #[cfg(test)]
+    fn took_binary(&self) {
+        self.binary.add_permits(1);
     }
 }
 
@@ -223,6 +239,7 @@ pub async fn serve(
 
     let (mut sink, mut source) = socket.split();
     let (close_tx, mut close_rx) = mpsc::channel::<()>(1);
+    let binary_room = out.binary.clone();
     let mut writer = tokio::spawn(async move {
         let mut ping = tokio::time::interval(Duration::from_secs(20));
         ping.tick().await;
@@ -235,7 +252,10 @@ pub async fn serve(
                 }
                 next = rx.recv() => match next {
                     Some(Outbound::Text(text)) => WsMessage::Text(text.into()),
-                    Some(Outbound::Binary(bytes)) => WsMessage::Binary(bytes.into()),
+                    Some(Outbound::Binary(bytes)) => {
+                        binary_room.add_permits(1);
+                        WsMessage::Binary(bytes.into())
+                    }
                     None => break,
                 },
                 _ = ping.tick() => WsMessage::Ping(Vec::new().into()),
@@ -356,12 +376,45 @@ mod tests {
     #[test]
     fn a_slow_socket_bounds_its_outbound_queue() {
         let (out, rx) = OutTx::channel();
-        for _ in 0..MAX_OUTBOUND_FRAMES {
+        for _ in 0..MAX_OUTBOUND_FRAMES + MAX_OUTBOUND_BINARY {
             out.send_text("message".into());
         }
         assert!(!out.overflow.is_cancelled());
         out.send_text("message".into());
         assert!(out.overflow.is_cancelled());
-        assert_eq!(rx.len(), MAX_OUTBOUND_FRAMES);
+        assert_eq!(rx.len(), MAX_OUTBOUND_FRAMES + MAX_OUTBOUND_BINARY);
+    }
+
+    #[tokio::test]
+    async fn stream_data_waiting_for_a_socket_leaves_room_for_replies() {
+        let (out, mut rx) = OutTx::channel();
+        // A writer within its credit queues more data than the socket takes for now.
+        let writer = {
+            let out = out.clone();
+            tokio::spawn(async move {
+                for _ in 0..MAX_OUTBOUND_BINARY * 2 {
+                    out.send_binary(vec![0; 16]).await.unwrap();
+                }
+            })
+        };
+        while rx.len() < MAX_OUTBOUND_BINARY {
+            tokio::task::yield_now().await;
+        }
+        tokio::task::yield_now().await;
+        assert_eq!(rx.len(), MAX_OUTBOUND_BINARY, "data waits for its share");
+        // A reply and notifications still fit, and the connection stays.
+        for _ in 0..MAX_OUTBOUND_FRAMES {
+            out.send_text("reply".into());
+        }
+        assert!(!out.overflow.is_cancelled());
+        // As the socket takes frames, the data that waited goes out.
+        let mut binary = 0;
+        while binary < MAX_OUTBOUND_BINARY * 2 {
+            if let Some(Outbound::Binary(_)) = rx.recv().await {
+                out.took_binary();
+                binary += 1;
+            }
+        }
+        writer.await.unwrap();
     }
 }
