@@ -1,6 +1,6 @@
 ---
 title: The command line
-description: Rookery's commands by what they do. Each one is a call of the server's API, so a script does what the screens do.
+description: Rookery's commands by what they do. Each one is a call of the server's API, so a script does what you do by hand.
 icon: Terminal
 ---
 
@@ -13,10 +13,9 @@ A command is written `rookery THING ACTION [NAME] [FLAGS]`, such as `rookery hos
 | `rookery exec HOST -- COMMAND…` | Run a command on the host |
 | `rookery ssh HOST` | A shell over plain SSH |
 | `rookery run HOST ACTION` | Run one of the host's actions |
-| `rookery ui [HOST]` | Open [the screens](/docs/use/terminal-ui) |
 | `rookery serve` | `rookery server run` |
 
-`rookery` alone prints a short help. A word Rookery doesn't know stops with status 2 and the command it was likely meant to be.
+`rookery` alone lists the hosts of the server it uses, as `rookery ls` does. With no server set, it prints a short help and says what is missing. A word Rookery doesn't know stops with status 2 and the command it was likely meant to be.
 
 ## Which server
 
@@ -37,8 +36,6 @@ The token comes from a [setup key](/docs/use/server#with-a-setup-key), from `--t
 
 ## Hosts
 
-<Screen name="list" alt="Output of rookery ls with three hosts" />
-
 | What | Command |
 | --- | --- |
 | See the hosts | `rookery ls` |
@@ -58,7 +55,7 @@ The token comes from a [setup key](/docs/use/server#with-a-setup-key), from `--t
 | Forget a host | `rookery host remove studio` |
 | Forget it and destroy the machine its provisioner made | `rookery host remove studio --destroy` |
 
-`rookery host create` asks what it needs to know when you're at a terminal. These are the questions of the set-up tabs of the screens, and the same rules check the answers. Each question has a flag. A script gives the answers with them:
+`rookery host create` asks what it needs to know when you're at a terminal, and the same rules check the answers as when a profile is set field by field. Each question has a flag. A script gives the answers with them:
 
 ```bash
 rookery host create studio --method cloud-seed --set operator_username=ops \
@@ -98,8 +95,6 @@ What changes a host runs as a job of the server, such as an apply or a roll-out.
 
 ## Actions
 
-<Screen name="actions" alt="Output of rookery action list studio, with the actions of studio and whether each can run now" />
-
 ```bash
 rookery action list studio                     # what the host can do
 rookery run studio status                      # run an action; its exit status is rookery's
@@ -120,11 +115,7 @@ rookery session logs studio ID --tail 50 -f
 rookery ssh studio                             # plain SSH as the SSH user
 ```
 
-<Screen name="exec" alt="Output of Rookery exec studio -- id, showing the agent account" />
-
 `rookery exec` ends with the command's own exit status. Its session is removed afterwards, unless `--keep` is given. `Ctrl+Q` leaves an attached terminal running.
-
-<Screen name="sessions" alt="Output of Rookery session list studio with one running terminal session" />
 
 ## Secrets, registries and keys
 
@@ -138,8 +129,6 @@ rookery ssh studio                             # plain SSH as the SSH user
 | Give its login to a host | `rookery host set studio registry.nexus=on` |
 | See the keys of the key ring | `rookery key list` ([Keys](/docs/use/accounts#keys)) |
 | Replace a key on the hosts that take it | `rookery key rotate rookery` ([Rekeying](/docs/use/accounts#rekeying)) |
-
-<Screen name="host" alt="Output of rookery host show studio, with its secrets and registries" />
 
 See [Secrets](/docs/use/secrets) and [Registries](/docs/use/registries).
 

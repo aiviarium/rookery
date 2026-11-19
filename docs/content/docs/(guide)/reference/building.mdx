@@ -8,9 +8,8 @@ icon: Hammer
 
 | Folder | Holds |
 | --- | --- |
-| `crates/rookery/` | `rookery`. On Linux the commands and `rookery serve`, in `src/local/`; on every system the screens |
-| `crates/rookery-page/` | The screens in a terminal, which do everything through the API of a server |
-| `crates/rookery-core/`, `rookery-api/`, `rookery-pty/`, `rookery-tui/` | Shared libraries. `rookery-tui` has the parts of the screens with no terminal in them |
+| `crates/rookery/` | `rookery`. On Linux the commands and `rookery serve`, in `src/local/`; on every system the command line and its prompts |
+| `crates/rookery-core/`, `rookery-api/`, `rookery-pty/`, `rookery-setup/` | Shared libraries. `rookery-setup` is a host's set-up: the fields of its profile and the flow that writes them |
 | `crates/vendor/` | The vendored `tui-input` crate |
 | `crates/rookeryd/`, `crates/box/` | `rookeryd` and `box`, built static for hosts |
 | `provision/ansible/` | The Rookery role |
@@ -114,7 +113,7 @@ npm run dev         # http://localhost:3000
 npm run build       # static site in docs/out
 ```
 
-The guide pages are MDX files in `docs/content/docs/(guide)`. The API reference is generated before every build from `docs/openapi/` by `docs/scripts/gather.mjs`. The terminal screenshots in `docs/public/screens/` are PNG files rendered with headless Chrome. They come from `docs/scripts/screens.py`, which runs the built binary against an invented set-up and a throw-away container. See the comment at its top, which also says how to render the PNG files again. Set `DOCS_BASE_PATH` when the site is served from a folder, such as `/rookery` on GitHub Pages.
+The guide pages are MDX files in `docs/content/docs/(guide)`. The API reference is generated before every build from `docs/openapi/` by `docs/scripts/gather.mjs`. Set `DOCS_BASE_PATH` when the site is served from a folder, such as `/rookery` on GitHub Pages.
 
 ## Releases
 
@@ -140,7 +139,7 @@ A tag with a suffix, such as `v0.4.0-rc.1`, makes a pre-release. Its programs sa
 
 ## On every system
 
-`rookery` builds on Linux, macOS and Windows. Its installation, `rookery serve` and the commands are compiled for Linux alone, in `crates/rookery/src/local/`. On macOS and Windows it is the screens, `rookery login` and `rookery update`, a client of a server elsewhere. The program builds on the system it is for:
+`rookery` builds on Linux, macOS and Windows. Its installation, `rookery serve` and the commands are compiled for Linux alone, in `crates/rookery/src/local/`. On macOS and Windows it is the commands, `rookery login` and `rookery update`, a client of a server elsewhere. The program builds on the system it is for:
 
 ```bash
 cargo build --release --locked -p rookery

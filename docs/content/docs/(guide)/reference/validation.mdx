@@ -10,7 +10,7 @@ CI runs these on every push, without network access to hosts:
 
 | Check | Covers |
 | --- | --- |
-| `cargo test --locked` | The terminal UI's fields, profile edits, checks before Run, SSH discovery and rendered screens. The APIs of rookeryd and `rookery serve` against the committed documents. Links to a local rookeryd |
+| `cargo test --locked` | The profile's fields, the set-up flow and its checks, SSH discovery. The APIs of rookeryd and `rookery serve` against the committed documents. Links to a local rookeryd |
 | `python3 -m unittest discover -s tests` | Disk selection and its refusals, profile validation, release packaging, seed generation and GRUB patching. With Ansible installed, also the rendered templates for every profile |
 | `bash -n` | The install script, bootstrap, container, role and plugin scripts |
 | `ansible-playbook --syntax-check` | The role |

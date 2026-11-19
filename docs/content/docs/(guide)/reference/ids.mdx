@@ -33,7 +33,7 @@ A resource's id is Rookery's own, and is not the id its provisioner gives it, wh
 
 ## Finding a thing by name or id
 
-An argument that refers to a host, provisioner, resource, registry, secret or key takes the name or the id. This is so in the paths of the API, in query parameters and in the fields of a request body. The command line and the screens take both too. Rookery reads a value in this order:
+An argument that refers to a host, provisioner, resource, registry, secret or key takes the name or the id. This is so in the paths of the API, in query parameters and in the fields of a request body. The command line takes both too. Rookery reads a value in this order:
 
 1. A value with a prefix is an id of that kind. If there is no such thing, the reply is "not found", and Rookery does not try it as a name.
 2. A value in the form of an id is that id, if there is a thing with it.

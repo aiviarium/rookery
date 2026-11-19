@@ -4,7 +4,7 @@ description: One API over all your hosts, with an inbox of their messages and a 
 icon: Plug
 ---
 
-`rookery serve` offers one API over every saved host. It reaches each host the way the terminal UI does and passes the host's own operations through, so a program can use all hosts without SSH of its own. Every operation is in the [API reference](/docs/api/serve).
+`rookery serve` offers one API over every saved host. It reaches each host the way the command line does and passes the host's own operations through, so a program can use all hosts without SSH of its own. Every operation is in the [API reference](/docs/api/serve).
 
 ```bash
 rookery serve
@@ -168,7 +168,7 @@ curl -H "Authorization: Bearer $ACCESS_TOKEN" https://rookery.example.ts.net/v1/
 # {"role":"operate","setup":true,"subject":"ada"}
 ```
 
-An access token is used like the server's token. It works as a bearer and as the WebSocket protocol. Rookery takes it with `--token-file` or `--token-stdin`, as `ROOKERY_TOKEN`, or kept by `rookery login`, and the screens when they ask for it.
+An access token is used like the server's token. It works as a bearer and as the WebSocket protocol. Rookery takes it with `--token-file` or `--token-stdin`, as `ROOKERY_TOKEN`, or kept by `rookery login`.
 
 The server says which issuer it trusts at `/.well-known/oauth-protected-resource`, without a token.
 

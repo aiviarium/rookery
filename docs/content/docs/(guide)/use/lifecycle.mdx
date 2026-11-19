@@ -4,7 +4,7 @@ description: Starting and stopping a host, copying it under another name, and wh
 icon: Power
 ---
 
-A host has four actions for its life as a machine, which are **Start**, **Stop**, **Duplicate** and **Remove**. They are listed on its [overview](/docs/use/overview#actions) with the other actions, and `rookery action list HOST` lists them too. Each says whether it can run now, and why not when it can't. Each that changes something runs as a job of the server.
+A host has four actions for its life as a machine, which are **Start**, **Stop**, **Duplicate** and **Remove**. `rookery action list HOST` lists them with the host's other actions. Each says whether it can run now, and why not when it can't. Each that changes something runs as a job of the server.
 
 | Action | Command | Role |
 | --- | --- | --- |
@@ -37,9 +37,7 @@ A host that declares nothing can be neither started nor stopped, and the action'
 rookery host set forge power_stop=controller
 ```
 
-For a host installed over SSH, the **Stopped by** row on the Install tab of its set-up sets the same field. Stopping by the controller ends the sessions on the host. The controller refuses while sessions run, unless you stop it with `rookery run forge stop force=yes`. Rookery can't start such a host again, as nothing of Rookery runs on it while it's off: it's started by hand, or by whatever powers it. The [profile reference](/docs/reference/profile#power-power) lists the field.
-
-The home screen shows a host that is off as `◌ stopped` rather than as a host that doesn't answer. `s` starts the selected host when Rookery can start it.
+For a host installed over SSH, `rookery host set HOST power_stop=controller` sets the same field. Stopping by the controller ends the sessions on the host. The controller refuses while sessions run, unless you stop it with `rookery run forge stop force=yes`. Rookery can't start such a host again, as nothing of Rookery runs on it while it's off: it's started by hand, or by whatever powers it. The [profile reference](/docs/reference/profile#power-power) lists the field.
 
 ## Duplicating a host
 
@@ -62,7 +60,7 @@ This saves a copy of studio's profile as the host `attic`. The copy leaves out w
 
 The disk isn't cloned. The new host is installed from its profile, as any other.
 
-When a provisioner made studio's machine, the copy's machine is planned with the same provisioner and the same settings. It's shown as `planned` and is not made yet. The copy's Run tab offers **Create** with those settings, and `rookery host create attic` makes it. With `--create`, or `create=yes`, the same job makes it at once.
+When a provisioner made studio's machine, the copy's machine is planned with the same provisioner and the same settings. It's shown as `planned` and is not made yet. `rookery host create attic` makes it with those settings. With `--create`, or `create=yes`, the same job makes it at once.
 
 Rookery refuses the copy when a host has the new name already.
 
@@ -84,4 +82,3 @@ With `--destroy`, or `destroy=yes`, the provisioner destroys the machine with it
 
 Once the machine is destroyed, Rookery also removes its [device on the tailnet](/docs/use/access#the-hosts-device). When it can't, such as without the API key or with a key that may not remove devices, the job says why and Rookery forgets the host all the same. Remove the device in the tailnet's admin console then. Without `--destroy`, the device stays.
 
-On the home screen, `x` asks the same. For a host a provisioner made, `f` forgets it and leaves the machine, and `d` destroys the machine too, after asking once more.

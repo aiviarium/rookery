@@ -4,7 +4,7 @@ description: Coding agents, provisioners, software and actions for hosts, instal
 icon: Blocks
 ---
 
-A plugin adds things to a host. Each thing is a **feature**: packages, set-up steps, a guide for the agents working there, and actions on the host's overview. A plugin can have several features, each switched on by itself. Coding agents come as plugins too, [installed](#installing-a-plugin) like any other. A plugin can also bring a [provisioner](/docs/deploy/provisioners) that creates machines.
+A plugin adds things to a host. Each thing is a **feature**: packages, set-up steps, a guide for the agents working there, and actions on the host. A plugin can have several features, each switched on by itself. Coding agents come as plugins too, [installed](#installing-a-plugin) like any other. A plugin can also bring a [provisioner](/docs/deploy/provisioners) that creates machines.
 
 ## Plugins that come with Rookery
 
@@ -22,7 +22,7 @@ A host gets the features listed in `rookery_plugin_features`. Unless that is set
 
 ## Switching features on
 
-Features are off until chosen. On a host's **Features** tab they are listed in their groups next to the built-in entries. Space on a group's heading switches everything in it. The choice is stored in the profile:
+Features are off until chosen. The set-up lists them in their groups next to the built-in entries, and `rookery host set HOST feature.PLUGIN/FEATURE=on` switches one after the fact. The choice is stored in the profile:
 
 ```json title="In studio's profile"
 { "ansible_vars": { "rookery_plugin_features": ["unity/cli", "unity/editor"] } }
@@ -90,11 +90,7 @@ The plugins this registry installed come with Rookery, and stay while it's on. A
 
 ### Adding and removing
 
-The **Plugins** tab of the home screen (`6`) lists every plugin with its features. Enter on **+ Add plugin** installs a package from the registries or the `https://` address of an egg, `u` sends an `.egg` file chosen in the file dialog, and `x` twice removes one of yours.
-
-<Screen name="home-plugins" alt="The Plugins tab listing the bundled plugins with their features" />
-
-From the command line:
+`rookery plugin list` lists every plugin with its features. `rookery plugin show NAME` says what one brings.
 
 ```bash
 rookery plugin add example/hello              # the newest version the registries allow
@@ -122,7 +118,7 @@ rookery plugin update hello                   # one, by its id or package
 rookery plugin update                         # all of them
 ```
 
-`--check` asks the registries. A newer version that waits for its minimum release age, was withdrawn or cannot be installed here is named with the reason. `update` installs the newest allowed version and then lists the hosts that are behind. On the Plugins tab, `c` checks, `U` updates the selected plugin and `A` all of them. A plugin with a newer version says `update available: 1.0.0 → 1.1.0`.
+`--check` asks the registries. A newer version that waits for its minimum release age, was withdrawn or cannot be installed here is named with the reason. `update` installs the newest allowed version and then lists the hosts that are behind. `rookery plugin update --check` says which have a newer version, as `update available: 1.0.0 → 1.1.0`.
 
 | Came from | Updated by |
 | --- | --- |
@@ -131,11 +127,11 @@ rookery plugin update                         # all of them
 | An egg, by its address or sent | Adding the new one, which replaces it |
 | The registry named `rookery` | A newer Rookery, by `rookery update` or a newer server image, which installs their new versions when it starts |
 
-A host keeps what it was applied with until it is applied again. After an update, `rookery rollout` or `r` on the Plugins tab applies the hosts that are behind ([Updates](/docs/use/updates#bringing-hosts-up-to-date)).
+A host keeps what it was applied with until it is applied again. After an update, `rookery rollout` applies the hosts that are behind ([Updates](/docs/use/updates#bringing-hosts-up-to-date)).
 
 ### On a Rookery server
 
-With a [Rookery server](/docs/use/server) set, the Plugins tab, `rookery plugin` and `rookery plugin registry` show and change the server's plugins and registries, which needs the role `admin` there. The server installs packages from its own registries and fetches `https://` addresses itself. It never installs a path of its own machine. `rookery plugin add` packs a folder on your machine into an egg and sends it, or sends an egg file as it is. A `dir` registry, or a `git` registry at a folder, is read with the server's rights, so only a caller on the server's own socket adds one.
+With a [Rookery server](/docs/use/server) set, `rookery plugin` and `rookery plugin registry` show and change the server's plugins and registries, which needs the role `admin` there. The server installs packages from its own registries and fetches `https://` addresses itself. It never installs a path of its own machine. `rookery plugin add` packs a folder on your machine into an egg and sends it, or sends an egg file as it is. A `dir` registry, or a `git` registry at a folder, is read with the server's rights, so only a caller on the server's own socket adds one.
 
 The server's hosts can have a new plugin's features as soon as it is installed. Its Ansible tasks run on the server when a host is applied, so installing is part of set-up. A server with `serve_setup off` takes it only on its own socket ([Closing set-up](/docs/extend/serve#closing-set-up)).
 

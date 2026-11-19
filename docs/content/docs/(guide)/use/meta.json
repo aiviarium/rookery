@@ -2,8 +2,6 @@
   "title": "Using Rookery",
   "icon": "SquareTerminal",
   "pages": [
-    "terminal-ui",
-    "overview",
     "cli",
     "types",
     "lifecycle",

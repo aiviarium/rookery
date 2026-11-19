@@ -57,16 +57,8 @@ On your own machine, give Rookery the key when it asks:
 rookery login https://THIS-MACHINE.YOUR-TAILNET.ts.net
 ```
 
-Or open Rookery's screens with the key in `ROOKERY_SETUP_KEY`, on Linux, macOS
-or Windows:
-
-```bash
-read -rs ROOKERY_SETUP_KEY && export ROOKERY_SETUP_KEY
-rookery --server https://THIS-MACHINE.YOUR-TAILNET.ts.net
-```
-
-The screens sign in and show the token. `tailscale serve status` on
-the machine says the address. Make a new key on the machine at any time:
+`tailscale serve status` on the machine says the address. Make a new key on
+the machine at any time:
 
 ```bash
 sudo docker exec rookery rookery server setup-key

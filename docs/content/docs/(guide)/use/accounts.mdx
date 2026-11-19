@@ -4,7 +4,7 @@ description: The operator and agent accounts, their passwords, how much the agen
 icon: Users
 ---
 
-Every host has two accounts, set under **Operator Account** and **Agent Account** on the host's **Settings** tab:
+Every host has two accounts, `operator_username` and `agent_username` in its profile:
 
 | Account | Default name | For |
 | --- | --- | --- |
@@ -33,20 +33,20 @@ The operator's password is optional and only for local logins: the console, the 
 
 ## Passwords
 
-On a password hash field, F4 generates a password and stores its hash, and F5 hashes a password you type. Rookery keeps a generated password in its store, beside the profile, and `rookery host credentials NAME` shows it. For a Rookery server's host the server generates it and keeps it. The profile itself only stores hashes.
+`rookery host create --generate-passwords` makes a password for each account and stores its hash. Rookery keeps a generated password in its store, beside the profile, and `rookery host credentials NAME` shows it. `rookery host set NAME agent_password_hash…` takes a hash you made yourself. For a Rookery server's host the server generates it and keeps it. The profile itself only stores hashes.
 
 - An empty agent password locks password login for the agent.
 - Turning off the agent's passwordless sudo requires an agent password.
 
 ## The first apply as another account
 
-An existing machine may not have the operator yet. Rookery then applies as an account of the machine's own, the profile's SSH user. When sudo prompts that account for a password, switch on **Ask for sudo password** on the Run tab, or set `access.sudo` to `password`. Rookery asks for the password when it applies and when it connects, or takes the secret `sudo/HOST` when you keep it there. `--sudo-password-stdin` gives it where nobody can type it.
+An existing machine may not have the operator yet. Rookery then applies as an account of the machine's own, the profile's SSH user. When sudo prompts that account for a password, set `ask_become_pass` with `rookery host set HOST ask_become_pass=on`, which is `access.sudo` as `password`. Rookery asks for the password when it applies and when it connects, or takes the secret `sudo/HOST` when you keep it there. `--sudo-password-stdin` gives it where nobody can type it.
 
 When the SSH user is the operator, Rookery writes what the apply made true once it has worked: `access.sudo` becomes `none`, a login with `password` becomes one with Rookery's key, and a kept `sudo/HOST` or `ssh/HOST` is deleted. The operator's sudo doesn't prompt from then on, and its SSH takes keys only. Any other SSH user keeps its setting.
 
 ## Agent privileges
 
-`agent_privileges` in the profile, **Agent privileges** on the Settings tab:
+`agent_privileges` in the profile, which the set-up asks as Agent privileges:
 
 | Level | The agent's sudo |
 | --- | --- |
@@ -70,11 +70,11 @@ On the host, switch from the operator to the agent:
 sudo -iu agent
 ```
 
-From your machine, `rookery ssh HOST --agent` opens a shell as the agent, and the overview's **Terminal** switches between the two accounts with Space.
+From your machine, `rookery ssh HOST --agent` opens a shell as the agent, and `rookery session attach HOST --user ops` one as the SSH user.
 
 ## Logging in to hosts
 
-Rookery reaches a host over SSH, as the SSH user of the host's **Install** tab, `access.user` in the [profile](/docs/reference/profile#access-access). **Log in with** under the address says how, in `access.auth`:
+Rookery reaches a host over SSH, as the SSH user of the host's set-up, `access.user` in the [profile](/docs/reference/profile#access-access). `access.auth` says how:
 
 | Method | `auth` | What Rookery gives ssh | Where |
 | --- | --- | --- | --- |
@@ -104,7 +104,7 @@ rookery key show deploy                # the public half, for an authorized_keys
 rookery key remove deploy              # refused while a host logs in with it
 ```
 
-Rookery takes any private key `ssh-keygen` reads, and refuses one with a passphrase, as nobody would be there to type it. With a Rookery server set, these commands act on the server's keys. The Settings tab of the home screen lists the keys, and Enter copies a public half.
+Rookery takes any private key `ssh-keygen` reads, and refuses one with a passphrase, as nobody would be there to type it. With a Rookery server set, these commands act on the server's keys. `rookery key show NAME` prints a public half.
 
 ### First contact
 
@@ -121,7 +121,7 @@ Rookery tries the host's key first. If the host refuses it, Rookery logs in once
 
 sshd counts failed logins from each address. OpenSSH 10 then turns that address away for a while (`PerSourcePenalties`, on by default), and the wait grows with each failure, up to 10 minutes. A Rookery that kept trying a key a host refuses would shut itself out of that host, and of every other host behind the same address.
 
-So Rookery remembers a refused login beside the host. For 30 minutes nothing Rookery does by itself logs in that way again, such as the Rookery server's channel to the host or the overview opening. The host shows why instead. Whatever you ask for still tries once, such as **Try again** or `rookery key trust`. A changed address, user, port or key is another login and is tried at once, and a login that works forgets the refusal. `rookery key trust` asks for the credential straight away while the key's refusal holds. The host then sees one failed login at most.
+So Rookery remembers a refused login beside the host. For 30 minutes nothing Rookery does by itself logs in that way again, such as the Rookery server's channel to the host. The host says why instead. A command you run still tries once, `rookery host show` or `rookery key trust` among them. A changed address, user, port or key is another login and is tried at once, and a login that works forgets the refusal. `rookery key trust` asks for the credential straight away while the key's refusal holds. The host then sees one failed login at most.
 
 When sshd closes the connection before the login, Rookery says the host is turning the address away for a while. Wait a minute and try again. Rookery itself waits 2 minutes before it tries such a host by itself.
 
@@ -148,7 +148,7 @@ Where the first key comes from depends on where the server runs:
 
 1. Rookery makes a new key and stores it beside the current one as pending.
 2. On each host that takes the key, it logs in and adds the new key. Once a login with the new key works, it removes the old one.
-3. A host that does not answer stays pending. Rookery offers it both keys until then, and an apply gives the operator both. The Hosts tab marks it.
+3. A host that does not answer stays pending. Rookery offers it both keys until then, and an apply gives the operator both. `rookery ls` marks it.
 4. When no host is pending, the new key replaces the old one, which is deleted.
 
 Running it again goes on where it stopped. With a Rookery server set, the rotation runs as a job on the server, and its output is shown as it comes.

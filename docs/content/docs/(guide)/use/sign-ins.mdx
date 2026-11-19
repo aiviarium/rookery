@@ -6,23 +6,23 @@ icon: KeyRound
 
 A new host has its tools and agents installed but nobody signed in. Each sign-in runs on the host as the agent, and you complete it in your own browser.
 
-## From the overview
-
-Under **Sign-In**:
+## The actions that sign in
 
 | Action | Signs in |
 | --- | --- |
-| Sign in to GitHub | `gh`, from the `github` plugin |
-| Sign in to Unity | The Unity CLI, from the `unity` plugin |
-| Show who is signed in | The accounts every plugin of the host knows about |
+| `github:login` | `gh`, from the `github` plugin |
+| `unity:login` | The Unity CLI, from the `unity` plugin |
+| `show-users` | The accounts every plugin of the host knows about |
+
+`rookery action list studio` names them in their groups, and `rookery run studio github:login` runs one.
 
 A plugin that installs a coding agent adds its sign-in to the same group.
 
-A sign-in opens in a panel. It prints a link: click it to open it on your machine, or right-click to copy it. Right-click a one-time code to copy it. The command line does the same in your terminal:
+A sign-in runs in your terminal and prints a link. Open it in your browser to finish:
 
 ```bash
 rookery run studio github:login
-rookery run studio sign-in:status
+rookery action list studio                 # every sign-in the host has
 ```
 
 ## GitHub without signing in

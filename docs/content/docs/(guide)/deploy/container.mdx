@@ -34,7 +34,7 @@ docker compose -f container/compose.yml exec -T desktop /usr/local/bin/rookery-s
 docker compose -f container/compose.yml down
 ```
 
-**Container image** on a host's Install tab builds the same image from the host's profile. Its Settings tab has only the agent's username, and the registries and secrets.
+`rookery host create HOST --method docker` builds the same image from the host's profile. The set-up asks only for the agent's username, the registries and the secrets.
 
 ## What it keeps
 

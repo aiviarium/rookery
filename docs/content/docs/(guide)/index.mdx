@@ -6,11 +6,9 @@ icon: House
 
 import { Cloud, Container, Server, Usb } from 'lucide-react';
 
-Rookery sets up Ubuntu 26.04 amd64 machines for coding agents and manages them from your own computer. Each machine, a *host*, gets a desktop you can watch from the browser and the tools around the agents. The agents themselves come from [plugins](/docs/extend/plugins). Rookery's terminal UI has a page per host for status, sign-ins, updates and secrets.
+Rookery sets up Ubuntu 26.04 amd64 machines for coding agents and manages them from your own computer. Each machine, a *host*, gets a desktop you can watch from the browser and the tools around the agents. The agents themselves come from [plugins](/docs/extend/plugins). Rookery's command line shows a host's status, sign-ins, updates and secrets, and does every one of them.
 
 Rookery can also make the machines. A provisioner plugin, such as the Docker or Incus plugin, creates a container or a VM, and Rookery sets it up like any other host ([Provisioners](/docs/deploy/provisioners)).
-
-<Screen name="overview" alt="The overview of a host in Rookery: its connection, and actions grouped under Host, Power, Access, Sync, Sign-In, Backup and Set-Up" />
 
 ## On each host
 
@@ -55,5 +53,5 @@ They all run the same Ansible role, so the result is the same.
   <Card title="Install Rookery" href="/docs/start/install">One command, or build it with cargo.</Card>
   <Card title="Quick start" href="/docs/start/quick-start">From an empty profile to a running host.</Card>
   <Card title="How it fits together" href="/docs/start/concepts">Profiles, the role, `rookeryd` and `box`.</Card>
-  <Card title="Using Rookery" href="/docs/use">The terminal UI, the commands, access and sign-ins.</Card>
+  <Card title="Using Rookery" href="/docs/use">The commands, access and sign-ins.</Card>
 </Cards>

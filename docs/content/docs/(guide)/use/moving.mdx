@@ -75,7 +75,7 @@ Print the new installation's public key:
 rookery key show
 ```
 
-For a Rookery server, run `rookery key show` as the user that runs `rookery serve`, or copy **This Rookery's SSH key** from the Settings tab of its page.
+For a Rookery server, run `rookery key show rookery` as the user that runs `rookery serve`.
 
 Add that line to `~/.ssh/authorized_keys` of the operator on the host. Do it from the machine's console or from any login you still have:
 
@@ -124,4 +124,4 @@ Rookery moves everything it keeps under the old name to the new one, in one chan
 
 With `--hostname`, the new name becomes the profile's hostname as well. The machine takes it at its next apply, which also writes the profile the host keeps with the new name. On a tailnet, that apply renames the host's [device](/docs/use/access#the-hosts-device) too, when Rookery has the API key. The name has to suit a hostname then: lower-case letters, digits and `-`.
 
-Rookery refuses when a host has the new name already. A job that is creating the host's machine blocks the rename until that job ends. To keep the host and make another like it, [duplicate](/docs/use/lifecycle#duplicating-a-host) it instead. When a [Rookery server](/docs/use/server) keeps the host, the server renames it as a job. On its overview and over the server's API it's the host's action **Rename**, `rename`.
+Rookery refuses when a host has the new name already. A job that is creating the host's machine blocks the rename until that job ends. To keep the host and make another like it, [duplicate](/docs/use/lifecycle#duplicating-a-host) it instead. When a [Rookery server](/docs/use/server) keeps the host, the server renames it as a job. Over the server's API it's the host's action `rename`.

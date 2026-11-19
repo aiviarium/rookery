@@ -12,7 +12,7 @@ Rookery's install methods are wrappers around one Ansible role, `provision/ansib
 
 ## From Rookery
 
-**This machine or an inventory** on the Install tab runs the role with the host's profile. **Ansible inventory** and **Ask for sudo password** are on the Run tab. With the inventory blank it provisions the machine Rookery runs on, and the Run tab warns of that. With a path, it runs against the hosts in that inventory.
+`rookery host create HOST --method apply` runs the role with the host's profile, against the machine Rookery runs on or against an inventory. `--set inventory=PATH` names the inventory, and `ask_become_pass` says whether Rookery asks for a sudo password. Rookery warns when it would provision the machine Rookery runs on.
 
 ## Without Rookery
 
