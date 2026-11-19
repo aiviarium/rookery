@@ -9,6 +9,7 @@ pub mod config;
 pub mod conn;
 pub mod kernel;
 pub mod methods;
+pub mod outbound;
 pub mod streams;
 #[cfg(feature = "testing")]
 pub mod testing;

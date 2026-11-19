@@ -202,6 +202,7 @@ pub type AccessCheck =
     Arc<dyn Fn(Call, String, Grant) -> BoxFuture<'static, Result<bool, RpcError>> + Send + Sync>;
 
 /// One method in the registry.
+#[derive(Clone)]
 pub struct MethodDef {
     name: &'static str,
     summary: &'static str,
@@ -247,7 +248,8 @@ fn schema<T: JsonSchema>() -> Value {
     serde_json::to_value(schemars::schema_for!(T)).expect("a schema serializes")
 }
 
-#[derive(Default)]
+/// The registry. A clone is cheap: its handlers and hooks are shared.
+#[derive(Default, Clone)]
 pub struct Methods {
     map: BTreeMap<&'static str, MethodDef>,
     on_started: Vec<StartHook>,

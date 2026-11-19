@@ -26,6 +26,7 @@ pub fn config(db: &TestDb, dir: &std::path::Path) -> ServerConfig {
         auth: AuthMode::Local,
         oidc: None,
         admins: Vec::new(),
+        outbound_allow: Vec::new(),
         shell_dir: None,
         socket: Some(dir.join("server.sock")),
     }

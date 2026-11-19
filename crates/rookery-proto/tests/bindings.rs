@@ -168,6 +168,7 @@ fn typescript_bindings() {
         jobs::EventSubscribed,
         jobs::EventUnsubscribe,
         jobs::EventNotice,
+        jobs::EventsDropped,
         jobs::Delivered,
         jobs::NotifySend,
         jobs::NotificationInfo,

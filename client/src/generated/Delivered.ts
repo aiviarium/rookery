@@ -4,4 +4,8 @@ export type Delivered = {
 /**
  * How many connections it reached.
  */
-delivered: number, };
+delivered: number, 
+/**
+ * How many subscribed connections it did not reach, as they were too slow.
+ */
+dropped: number, };

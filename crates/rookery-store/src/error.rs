@@ -29,11 +29,21 @@ impl std::error::Error for Error {}
 
 impl From<sqlx::Error> for Error {
     fn from(e: sqlx::Error) -> Self {
-        Error::Database(e)
+        match &e {
+            sqlx::Error::Database(d) if d.code().as_deref() == Some(crate::leader::DEPOSED) => {
+                Error::Unavailable(d.message().to_owned())
+            }
+            _ => Error::Database(e),
+        }
     }
 }
 
 impl Error {
+    /// Whether the write was refused because another server leads now.
+    pub fn is_deposed(&self) -> bool {
+        matches!(self, Error::Unavailable(m) if m.starts_with(crate::leader::DEPOSED_MESSAGE))
+    }
+
     /// Whether Postgres refused a row as a duplicate.
     pub fn is_unique_violation(&self) -> bool {
         matches!(self, Error::Database(sqlx::Error::Database(e)) if e.code().as_deref() == Some("23505"))

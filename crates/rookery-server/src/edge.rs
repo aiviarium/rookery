@@ -1,11 +1,11 @@
 //! The edge: what the server answers over TCP and on the Unix socket.
 //!
 //! `/healthz` is answered always: 200 when this server leads, 503 while it is a standby. Everything else
-//! goes to the kernel's routes once it leads, and is 503 before.
+//! goes to the kernel's routes while it leads, and is 503 before and after.
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, RwLock};
 
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, Extension, Request, State, WebSocketUpgrade};
@@ -25,23 +25,33 @@ pub enum Via {
     Socket,
 }
 
+/// The kernel of a server that leads, and its routes.
+struct Leading {
+    kernel: Kernel,
+    tcp: Router,
+    socket: Router,
+}
+
 pub struct Edge {
-    kernel: OnceLock<Kernel>,
-    routes: OnceLock<(Router, Router)>,
+    leading: RwLock<Option<Arc<Leading>>>,
     shell: Option<PathBuf>,
 }
 
 impl Edge {
     pub fn new(shell: Option<PathBuf>) -> Edge {
         Edge {
-            kernel: OnceLock::new(),
-            routes: OnceLock::new(),
+            leading: RwLock::new(None),
             shell,
         }
     }
 
-    pub fn kernel(&self) -> Option<&Kernel> {
-        self.kernel.get()
+    /// The kernel while the server leads.
+    pub fn kernel(&self) -> Option<Kernel> {
+        self.leading().map(|l| l.kernel.clone())
+    }
+
+    fn leading(&self) -> Option<Arc<Leading>> {
+        self.leading.read().unwrap().clone()
     }
 
     /// The server leads: from now on requests reach the kernel.
@@ -54,8 +64,21 @@ impl Edge {
         let socket = routes
             .layer(Extension(Via::Socket))
             .with_state(kernel.clone());
-        let _ = self.routes.set((tcp, socket));
-        let _ = self.kernel.set(kernel);
+        *self.leading.write().unwrap() = Some(Arc::new(Leading {
+            kernel,
+            tcp,
+            socket,
+        }));
+    }
+
+    /// The server stopped leading: from now on every request is answered 503, and the kernel it
+    /// returns is no longer reached.
+    pub fn clear_kernel(&self) -> Option<Kernel> {
+        self.leading
+            .write()
+            .unwrap()
+            .take()
+            .map(|l| l.kernel.clone())
     }
 }
 
@@ -75,7 +98,7 @@ fn kernel_routes(shell: Option<PathBuf>) -> Router<Kernel> {
 }
 
 async fn healthz(State(edge): State<Arc<Edge>>, method: Method) -> Response {
-    match edge.kernel() {
+    match edge.leading() {
         Some(_) if method == Method::GET || method == Method::HEAD => {
             (StatusCode::OK, "leader\n").into_response()
         }
@@ -99,10 +122,14 @@ fn standby() -> Response {
 }
 
 async fn forward(edge: Arc<Edge>, via: Via, request: Request) -> Response {
-    let Some((tcp, socket)) = edge.routes.get() else {
+    let Some(leading) = edge.leading() else {
         return standby();
     };
-    let router = if via == Via::Socket { socket } else { tcp };
+    let router = if via == Via::Socket {
+        &leading.socket
+    } else {
+        &leading.tcp
+    };
     match router.clone().oneshot(request).await {
         Ok(response) => response,
         Err(never) => match never {},

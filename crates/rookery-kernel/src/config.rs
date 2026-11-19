@@ -14,6 +14,9 @@ pub struct Config {
     pub oidc: Option<Oidc>,
     /// How long a call may take before it ends with `TIMEOUT`.
     pub call_timeout: std::time::Duration,
+    /// `ROOKERY_OUTBOUND_ALLOW`: internal addresses the server may reach for a member, such as for
+    /// `connections.test`. See [`crate::outbound`].
+    pub outbound_allow: Vec<crate::outbound::AddrRange>,
 }
 
 /// `ROOKERY_OIDC_*`.
@@ -37,6 +40,7 @@ impl Config {
             admins: Vec::new(),
             oidc: None,
             call_timeout: std::time::Duration::from_secs(120),
+            outbound_allow: Vec::new(),
         }
     }
 

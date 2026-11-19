@@ -599,3 +599,93 @@ async fn blobs_fit_through_both_rpc_transports() {
     assert_eq!(http.unwrap()["size"], bytes.len());
     assert_eq!(ws["result"]["size"], bytes.len());
 }
+
+#[tokio::test]
+async fn a_leader_whose_lock_connection_ends_is_fenced_and_stands_by() {
+    use std::time::Duration;
+    let mut first = served!();
+    let old = first.running.epoch().expect("a leader has an epoch");
+    let dir = tempfile::tempdir().unwrap();
+    let mut second = rookery_server::start(crate::common::config(&first.db, dir.path()))
+        .await
+        .unwrap();
+    let second_url = format!("http://{}", second.addr);
+    let health =
+        |url: String| async move { http("GET", &format!("{url}/healthz"), &[], None).await.0 };
+    assert_eq!(
+        (
+            health(first.url.clone()).await,
+            health(second_url.clone()).await
+        ),
+        (200, 503)
+    );
+
+    // Postgres ends the connection that holds the lock: the standby gets it at once.
+    let pool = first.db.store.pool();
+    let killed: Vec<bool> = sqlx::query_scalar(
+        "SELECT pg_terminate_backend(l.pid) FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+         WHERE l.locktype = 'advisory' AND l.granted AND a.datname = current_database()
+           AND a.application_name = 'rookery leader lock'",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    assert_eq!(killed, [true]);
+    tokio::time::timeout(Duration::from_secs(10), second.leading())
+        .await
+        .expect("the standby leads");
+    let new = second.epoch().unwrap();
+    assert!(new > old, "{new} > {old}");
+
+    // Whatever the old leader still writes under its epoch is refused.
+    let deposed = first.db.store.fenced(old);
+    let refused = deposed
+        .leases()
+        .acquire("fleet/sync", "plugin:fleet/w1", Duration::from_secs(30))
+        .await
+        .unwrap_err();
+    assert!(refused.is_deposed(), "{refused}");
+    let params = json!({});
+    let refused = deposed
+        .jobs()
+        .enqueue(rookery_store::jobs::NewJob {
+            kind: "test.echo",
+            params: &params,
+            max_attempts: 1,
+            run_after: None,
+            subject: None,
+            enqueued_by: "user:x",
+        })
+        .await
+        .unwrap_err();
+    assert!(refused.is_deposed(), "{refused}");
+
+    // The old leader notices, stops leading and answers 503: one server answers 200.
+    tokio::time::timeout(Duration::from_secs(10), first.running.standing_by())
+        .await
+        .expect("the old leader stands by");
+    assert_eq!(
+        (
+            health(first.url.clone()).await,
+            health(second_url.clone()).await
+        ),
+        (503, 200)
+    );
+    let (status, _, _) = http(
+        "POST",
+        &format!("{}/rpc", first.url),
+        &[],
+        Some("{}".into()),
+    )
+    .await;
+    assert_eq!(status, 503);
+
+    // It waits as a standby, and leads again when the other stops.
+    second.stop().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), first.running.leading())
+        .await
+        .expect("the old leader leads again");
+    assert!(first.running.epoch().unwrap() > new);
+    assert_eq!(health(first.url.clone()).await, 200);
+    first.stop().await;
+}

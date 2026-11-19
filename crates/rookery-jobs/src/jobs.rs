@@ -4,8 +4,12 @@
 //! handler, renews the claim while it runs and records the outcome. The handler writes log items and
 //! progress, and stops when `cancel_requested` is set. A failed attempt runs again, after a wait that
 //! doubles, while attempts are left, unless the handler is not safe to repeat: its job has one attempt,
-//! and one the server stopped in the middle of fails as interrupted for a person to decide.
+//! and one the server stopped in the middle of fails as interrupted for a person to decide. The leader
+//! also reclaims a claim whose time ran out, as its worker stopped renewing it, in the same way.
 //! `jobs.follow` streams the log with a cursor and ends with the outcome.
+//!
+//! The leader's writes to jobs name its epoch: once another server leads, a handler's `log` and
+//! `progress` fail with `UNAVAILABLE`, and the attempt is the new leader's to recover.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -524,7 +528,14 @@ async fn work(kernel: Kernel) {
         registry.options.concurrency.max(1),
     ));
     let signals = signals(&kernel);
+    // Claims are looked at for their time running out as often as one lasts.
+    let reclaim_every = registry.options.lease.max(Duration::from_millis(100));
+    let mut next_reclaim = tokio::time::Instant::now() + reclaim_every;
     loop {
+        if tokio::time::Instant::now() >= next_reclaim {
+            reclaim(&kernel, &kinds, &once).await;
+            next_reclaim = tokio::time::Instant::now() + reclaim_every;
+        }
         let Ok(slot) = slots.clone().acquire_owned().await else {
             return;
         };
@@ -555,12 +566,37 @@ async fn work(kernel: Kernel) {
                 .unwrap_or(Duration::ZERO)
                 .min(Duration::from_secs(30)),
             _ => Duration::from_secs(30),
-        };
+        }
+        .min(next_reclaim.saturating_duration_since(tokio::time::Instant::now()));
         tokio::select! {
             _ = &mut woken => {}
             _ = tokio::time::sleep(wait) => {}
             _ = kernel.shutdown.cancelled() => return,
         }
+    }
+}
+
+/// Ends the attempts whose claim ran out, as their worker stopped renewing it, and wakes the worker for
+/// those that run again.
+async fn reclaim(kernel: &Kernel, kinds: &[String], once: &[String]) {
+    let signals = signals(kernel);
+    let running: Vec<Uuid> = signals.running.lock().unwrap().keys().copied().collect();
+    match kernel
+        .store
+        .jobs()
+        .reclaim_expired(kinds, once, &running)
+        .await
+    {
+        Ok(reclaimed) => {
+            for job in &reclaimed {
+                tracing::warn!(job = %job.id, kind = %job.kind, state = %job.state, "a job's claim ran out; it was ended or queued again");
+                signals.changed(job.id);
+            }
+            if reclaimed.iter().any(|j| j.state == "queued") {
+                signals.wake.notify_one();
+            }
+        }
+        Err(e) => tracing::warn!(error = %e, "reclaiming jobs whose claim ran out failed"),
     }
 }
 

@@ -26,6 +26,9 @@ pub struct ServerConfig {
     pub oidc: Option<Oidc>,
     /// `ROOKERY_ADMINS`, apart by commas.
     pub admins: Vec<String>,
+    /// `ROOKERY_OUTBOUND_ALLOW`: internal addresses and ranges, apart by commas, that the server may
+    /// reach for a member, such as `10.20.0.0/16` for a registry on the installation's own network.
+    pub outbound_allow: Vec<rookery_kernel::outbound::AddrRange>,
     /// `ROOKERY_SHELL_DIR`: a built shell, served at `/`.
     pub shell_dir: Option<PathBuf>,
     /// The Unix socket of the CLI on this machine: `ROOKERY_SOCKET`, or `server.sock` in rookery's
@@ -128,6 +131,11 @@ impl ServerConfig {
                     .collect()
             })
             .unwrap_or_default();
+        let outbound_allow = get("ROOKERY_OUTBOUND_ALLOW")
+            .map(|list| rookery_kernel::outbound::AddrRange::parse_list(&list))
+            .transpose()
+            .map_err(|e| ConfigError(format!("ROOKERY_OUTBOUND_ALLOW: {e}")))?
+            .unwrap_or_default();
         let oidc = match get("ROOKERY_OIDC_ISSUER") {
             Some(issuer) => {
                 let Some(client_id) = get("ROOKERY_OIDC_CLIENT_ID") else {
@@ -190,6 +198,7 @@ impl ServerConfig {
             auth,
             oidc,
             admins,
+            outbound_allow,
             shell_dir: get("ROOKERY_SHELL_DIR").map(PathBuf::from),
             socket: default_socket(var),
         })
@@ -222,6 +231,20 @@ mod tests {
         assert_eq!(config.public_url, "http://127.0.0.1:7777");
         assert_eq!(config.lock_url, config.database_url);
         assert_eq!(config.auth, AuthMode::Local);
+        assert!(config.outbound_allow.is_empty());
+        let allowing = read(&[
+            ("ROOKERY_DATABASE_URL", "postgres://db"),
+            ("ROOKERY_OUTBOUND_ALLOW", "10.20.0.0/16, fd00::1"),
+        ])
+        .unwrap();
+        assert_eq!(allowing.outbound_allow.len(), 2);
+        assert!(
+            read(&[
+                ("ROOKERY_DATABASE_URL", "postgres://db"),
+                ("ROOKERY_OUTBOUND_ALLOW", "intranet")
+            ])
+            .is_err()
+        );
 
         let public = [
             ("ROOKERY_DATABASE_URL", "postgres://db"),

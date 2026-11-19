@@ -7,4 +7,9 @@ export type LeaseAcquire = { plugin?: string, name: string, ttlMs: number,
 /**
  * For `leases.renew`: the fence it was acquired at.
  */
-fence?: number, };
+fence?: number, 
+/**
+ * The worker that holds it, such as a replica's id. Without one, the connection on `/ws` is the
+ * worker, and its leases are released when it closes.
+ */
+worker?: string, };

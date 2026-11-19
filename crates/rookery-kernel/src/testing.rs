@@ -86,12 +86,18 @@ impl Inbox {
 impl TestKernel {
     /// A kernel with `methods`, started, or `None` with no Postgres to test on.
     pub async fn new(methods: Methods) -> Option<TestKernel> {
+        TestKernel::with_config(methods, |_| {}).await
+    }
+
+    /// [`TestKernel::new`] with a config of its own.
+    pub async fn with_config(
+        methods: Methods,
+        change: impl FnOnce(&mut Config),
+    ) -> Option<TestKernel> {
         let db = TestDb::new().await?;
-        let kernel = Kernel::new(
-            Config::new("http://127.0.0.1:7777"),
-            db.store.clone(),
-            methods,
-        );
+        let mut config = Config::new("http://127.0.0.1:7777");
+        change(&mut config);
+        let kernel = Kernel::new(config, db.store.clone(), methods);
         kernel.methods.started(&kernel);
         Some(TestKernel { kernel, db })
     }
@@ -161,7 +167,10 @@ impl TestKernel {
 #[macro_export]
 macro_rules! test_kernel {
     ($methods:expr) => {
-        match $crate::testing::TestKernel::new($methods).await {
+        $crate::test_kernel!($methods, |_| {})
+    };
+    ($methods:expr, $change:expr) => {
+        match $crate::testing::TestKernel::with_config($methods, $change).await {
             Some(kernel) => kernel,
             None => {
                 eprintln!("skipped: ROOKERY_TEST_POSTGRES is not set");

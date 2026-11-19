@@ -18,6 +18,8 @@ const COLS: &str = "name, holder, fence, expires_at";
 
 pub struct Leases<'a> {
     pub(crate) pool: &'a PgPool,
+    /// The leader's epoch every grant names: see [`crate::leader`].
+    pub(crate) fence: Option<i64>,
 }
 
 fn ttl(ttl: std::time::Duration) -> Result<f64> {
@@ -39,7 +41,8 @@ impl Leases<'_> {
     ) -> Result<Lease> {
         let secs = ttl(duration)?;
         sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "INSERT INTO rookery.leases AS l (name, holder, fence, expires_at) VALUES ($1, $2, 1, now() + make_interval(secs => $3))
+            "INSERT INTO rookery.leases AS l (name, holder, fence, expires_at)
+             SELECT $1, $2, 1, now() + make_interval(secs => $3) WHERE rookery.fence($4)
              ON CONFLICT (name) DO UPDATE SET
                  fence = CASE WHEN l.holder = $2 AND l.expires_at > now() THEN l.fence ELSE l.fence + 1 END,
                  holder = $2, expires_at = now() + make_interval(secs => $3)
@@ -49,6 +52,7 @@ impl Leases<'_> {
         .bind(name)
         .bind(holder)
         .bind(secs)
+        .bind(self.fence)
         .fetch_optional(self.pool)
         .await?
         .ok_or_else(|| Error::Conflict(format!("the lease {name} is held by another")))
@@ -65,12 +69,14 @@ impl Leases<'_> {
         let secs = ttl(duration)?;
         sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "UPDATE rookery.leases SET expires_at = now() + make_interval(secs => $4)
-             WHERE name = $1 AND holder = $2 AND fence = $3 AND expires_at > now() RETURNING {COLS}"
+             WHERE name = $1 AND holder = $2 AND fence = $3 AND expires_at > now() AND rookery.fence($5)
+             RETURNING {COLS}"
         )))
         .bind(name)
         .bind(holder)
         .bind(fence)
         .bind(secs)
+        .bind(self.fence)
         .fetch_optional(self.pool)
         .await?
         .ok_or_else(|| {
@@ -81,13 +87,30 @@ impl Leases<'_> {
     }
 
     pub async fn release(&self, name: &str, holder: &str, fence: i64) -> Result<bool> {
-        let done = sqlx::query("UPDATE rookery.leases SET holder = NULL, expires_at = NULL WHERE name = $1 AND holder = $2 AND fence = $3")
-            .bind(name)
-            .bind(holder)
-            .bind(fence)
-            .execute(self.pool)
-            .await?;
+        let done = sqlx::query(
+            "UPDATE rookery.leases SET holder = NULL, expires_at = NULL
+             WHERE name = $1 AND holder = $2 AND fence = $3 AND rookery.fence($4)",
+        )
+        .bind(name)
+        .bind(holder)
+        .bind(fence)
+        .bind(self.fence)
+        .execute(self.pool)
+        .await?;
         Ok(done.rows_affected() > 0)
+    }
+
+    /// Gives up every lease `holder` has, such as when its worker's connection closed. Returns how many.
+    pub async fn release_held_by(&self, holder: &str) -> Result<u64> {
+        let done = sqlx::query(
+            "UPDATE rookery.leases SET holder = NULL, expires_at = NULL
+             WHERE holder = $1 AND expires_at > now() AND rookery.fence($2)",
+        )
+        .bind(holder)
+        .bind(self.fence)
+        .execute(self.pool)
+        .await?;
+        Ok(done.rows_affected())
     }
 
     /// A lease as it is now. An expired one shows no holder.
