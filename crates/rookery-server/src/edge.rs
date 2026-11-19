@@ -9,9 +9,9 @@ use std::sync::{Arc, OnceLock};
 
 use axum::Router;
 use axum::extract::{Extension, Request, State, WebSocketUpgrade};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{any, get, post};
 use rookery_kernel::auth::{authenticate, bearer, cookie};
 use rookery_kernel::{Caller, Kernel};
 use tokio_util::sync::CancellationToken;
@@ -68,9 +68,16 @@ fn kernel_routes(shell: Option<PathBuf>) -> Router<Kernel> {
         .fallback(move |request: Request| crate::shell::serve(shell.clone(), request))
 }
 
-async fn healthz(State(edge): State<Arc<Edge>>) -> Response {
+async fn healthz(State(edge): State<Arc<Edge>>, method: Method) -> Response {
     match edge.kernel() {
-        Some(_) => (StatusCode::OK, "leader\n").into_response(),
+        Some(_) if method == Method::GET || method == Method::HEAD => {
+            (StatusCode::OK, "leader\n").into_response()
+        }
+        Some(_) => (
+            StatusCode::METHOD_NOT_ALLOWED,
+            [(header::ALLOW, "GET,HEAD")],
+        )
+            .into_response(),
         None => (StatusCode::SERVICE_UNAVAILABLE, "standby\n").into_response(),
     }
 }
@@ -98,7 +105,7 @@ async fn forward(edge: Arc<Edge>, via: Via, request: Request) -> Response {
 
 fn edge_router(edge: Arc<Edge>, via: Via) -> Router {
     Router::new()
-        .route("/healthz", get(healthz))
+        .route("/healthz", any(healthz))
         .fallback(move |State(edge): State<Arc<Edge>>, request: Request| {
             forward(edge, via, request)
         })
@@ -116,14 +123,18 @@ pub async fn caller_of(
     if via == Via::Socket {
         return Some(Caller::Local);
     }
-    let token = bearer(headers).or_else(|| {
+    let token = credential(kernel, headers, cookie_ok)?;
+    authenticate(kernel, &token).await
+}
+
+fn credential(kernel: &Kernel, headers: &HeaderMap, cookie_ok: bool) -> Option<String> {
+    bearer(headers).or_else(|| {
         if cookie_ok && rookery_auth::session::same_origin(kernel, headers) {
             cookie(headers)
         } else {
             None
         }
-    })?;
-    authenticate(kernel, &token).await
+    })
 }
 
 async fn ws(
@@ -132,14 +143,27 @@ async fn ws(
     headers: HeaderMap,
     upgrade: WebSocketUpgrade,
 ) -> Response {
-    let Some(caller) = caller_of(&kernel, via, &headers, true).await else {
+    let token = if via == Via::Socket {
+        None
+    } else {
+        credential(&kernel, &headers, true)
+    };
+    let caller = match (via, token.as_deref()) {
+        (Via::Socket, _) => Some(Caller::Local),
+        (_, Some(token)) => authenticate(&kernel, token).await,
+        (_, None) => None,
+    };
+    let Some(caller) = caller else {
         return (
             StatusCode::UNAUTHORIZED,
             "sign in first: a device session or an access token",
         )
             .into_response();
     };
-    upgrade.on_upgrade(move |socket| rookery_kernel::conn::serve(kernel, socket, caller))
+    upgrade
+        .max_message_size(2 * 1024 * 1024)
+        .max_frame_size(2 * 1024 * 1024)
+        .on_upgrade(move |socket| rookery_kernel::conn::serve(kernel, socket, caller, token))
 }
 
 pub async fn serve_tcp(

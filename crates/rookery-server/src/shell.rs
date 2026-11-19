@@ -66,7 +66,10 @@ pub async fn serve(shell: Arc<Option<PathBuf>>, request: Request) -> Response {
         }
         return StatusCode::NOT_FOUND.into_response();
     };
-    let Some(mut file) = inside(root, &path) else {
+    let Ok(root) = tokio::fs::canonicalize(root).await else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let Some(mut file) = inside(&root, &path) else {
         return StatusCode::NOT_FOUND.into_response();
     };
     if file.is_dir() {
@@ -80,7 +83,13 @@ pub async fn serve(shell: Arc<Option<PathBuf>>, request: Request) -> Response {
         }
         file = root.join("index.html");
     }
-    match tokio::fs::read(&file).await {
+    let Ok(resolved) = tokio::fs::canonicalize(&file).await else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    if !resolved.starts_with(&root) || !resolved.is_file() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    match tokio::fs::read(resolved).await {
         Ok(bytes) => {
             let html = file.extension().is_some_and(|e| e == "html");
             // The pages are asked for again each time; the assets they name carry content hashes.

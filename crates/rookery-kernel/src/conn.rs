@@ -10,6 +10,7 @@ use futures_util::{SinkExt, StreamExt};
 use rookery_proto::{Message, Notification, Response};
 use serde::Serialize;
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -24,7 +25,42 @@ pub enum Outbound {
     Binary(Vec<u8>),
 }
 
-pub type OutTx = mpsc::UnboundedSender<Outbound>;
+const MAX_OUTBOUND_FRAMES: usize = 32;
+const MAX_OUTBOUND_MESSAGE: usize = 2 * 1024 * 1024;
+const MAX_PENDING_CALLS: usize = 16;
+
+#[derive(Clone)]
+pub struct OutTx {
+    tx: mpsc::Sender<Outbound>,
+    overflow: CancellationToken,
+}
+
+impl OutTx {
+    pub(crate) fn channel() -> (Self, mpsc::Receiver<Outbound>) {
+        let (tx, rx) = mpsc::channel(MAX_OUTBOUND_FRAMES);
+        (
+            Self {
+                tx,
+                overflow: CancellationToken::new(),
+            },
+            rx,
+        )
+    }
+
+    /// A slow peer must reconnect if it cannot keep up with replies or control notifications.
+    fn send_text(&self, text: String) {
+        if text.len() > MAX_OUTBOUND_MESSAGE || self.tx.try_send(Outbound::Text(text)).is_err() {
+            self.overflow.cancel();
+        }
+    }
+
+    pub(crate) async fn send_binary(&self, bytes: Vec<u8>) -> Result<(), crate::RpcError> {
+        self.tx
+            .send(Outbound::Binary(bytes))
+            .await
+            .map_err(|_| crate::RpcError::unavailable("the connection is closed"))
+    }
+}
 
 /// The close code that says the connection's session or token was revoked. A client shows its sign-in
 /// instead of connecting again.
@@ -33,9 +69,7 @@ pub const CLOSE_REVOKED: u16 = 4401;
 /// Puts a notification on a socket's queue. A closed socket drops it.
 pub fn send_notification(out: &OutTx, method: &str, params: impl Serialize) {
     let params = serde_json::to_value(params).expect("notification params serialize");
-    let _ = out.send(Outbound::Text(
-        Message::Notification(Notification::new(method, params)).to_text(),
-    ));
+    out.send_text(Message::Notification(Notification::new(method, params)).to_text());
 }
 
 /// A live connection.
@@ -148,9 +182,13 @@ impl Connections {
 }
 
 /// Serves one connection until it closes.
-pub async fn serve(kernel: Kernel, socket: WebSocket, caller: Caller) {
-    let (mut sink, mut source) = socket.split();
-    let (out, mut rx) = mpsc::unbounded_channel::<Outbound>();
+pub async fn serve(
+    kernel: Kernel,
+    mut socket: WebSocket,
+    caller: Caller,
+    credential: Option<String>,
+) {
+    let (out, mut rx) = OutTx::channel();
     let id = kernel.conns.next.fetch_add(1, Ordering::Relaxed) + 1;
     let conn = ConnHandle(Arc::new(ConnInner {
         id,
@@ -162,23 +200,45 @@ pub async fn serve(kernel: Kernel, socket: WebSocket, caller: Caller) {
     }));
     kernel.conns.map.write().unwrap().insert(id, conn.clone());
 
+    // Check again after registering so that a concurrent revoke or role change cannot miss the socket.
+    let expiry = if let Some(credential) = credential {
+        match crate::auth::authenticate_with_expiry(&kernel, &credential).await {
+            Some((caller, expiry)) if caller == *conn.caller() => expiry,
+            _ => {
+                kernel.conns.map.write().unwrap().remove(&id);
+                let _ = socket.send(revoked_frame()).await;
+                return;
+            }
+        }
+    } else {
+        None
+    };
+    let expires = async {
+        match expiry {
+            Some(duration) => tokio::time::sleep(duration).await,
+            None => std::future::pending().await,
+        }
+    };
+    tokio::pin!(expires);
+
+    let (mut sink, mut source) = socket.split();
     let (close_tx, mut close_rx) = mpsc::channel::<()>(1);
     let mut writer = tokio::spawn(async move {
         let mut ping = tokio::time::interval(Duration::from_secs(20));
         ping.tick().await;
         loop {
             let message = tokio::select! {
+                biased;
+                Some(()) = close_rx.recv() => {
+                    let _ = sink.send(revoked_frame()).await;
+                    break;
+                }
                 next = rx.recv() => match next {
                     Some(Outbound::Text(text)) => WsMessage::Text(text.into()),
                     Some(Outbound::Binary(bytes)) => WsMessage::Binary(bytes.into()),
                     None => break,
                 },
                 _ = ping.tick() => WsMessage::Ping(Vec::new().into()),
-                Some(()) = close_rx.recv() => {
-                    let frame = CloseFrame { code: CLOSE_REVOKED, reason: "the session ended".into() };
-                    let _ = sink.send(WsMessage::Close(Some(frame))).await;
-                    break;
-                }
             };
             if sink.send(message).await.is_err() {
                 break;
@@ -188,70 +248,120 @@ pub async fn serve(kernel: Kernel, socket: WebSocket, caller: Caller) {
     });
 
     let mut revoked = false;
+    let mut calls = JoinSet::new();
     loop {
         let message = tokio::select! {
-            next = source.next() => match next {
-                Some(Ok(message)) => message,
-                _ => break,
-            },
+            biased;
             _ = conn.0.revoked.cancelled() => {
+                revoked = true;
+                break;
+            }
+            _ = &mut expires => {
                 revoked = true;
                 break;
             }
             _ = conn.0.refresh.cancelled() => break,
             _ = kernel.shutdown.cancelled() => break,
+            _ = out.overflow.cancelled() => break,
+            _ = &mut writer => break,
+            _ = calls.join_next(), if !calls.is_empty() => continue,
+            next = source.next() => match next {
+                Some(Ok(message)) => message,
+                _ => break,
+            },
         };
         match message {
-            WsMessage::Text(text) => handle_text(&kernel, &conn, &out, text.as_str()),
+            WsMessage::Text(text) => {
+                handle_text(&kernel, &conn, &out, &mut calls, text.as_str()).await
+            }
             WsMessage::Binary(data) => conn.streams().deliver(&data),
             WsMessage::Close(_) => break,
             WsMessage::Ping(_) | WsMessage::Pong(_) => {}
         }
     }
+    calls.shutdown().await;
+    kernel.conns.map.write().unwrap().remove(&id);
+    conn.streams().close_all();
     if revoked {
         // Say why, so the client shows its sign-in instead of connecting again in a loop.
         let _ = close_tx.send(()).await;
         let _ = tokio::time::timeout(Duration::from_secs(2), &mut writer).await;
     }
-    kernel.conns.map.write().unwrap().remove(&id);
-    conn.streams().close_all();
     kernel.methods.connection_closed(&kernel, &conn);
     drop(out);
     drop(conn);
     writer.abort();
 }
 
-fn handle_text(kernel: &Kernel, conn: &ConnHandle, out: &OutTx, text: &str) {
-    let message = match Message::parse(text) {
-        Ok(message) => message,
+fn revoked_frame() -> WsMessage {
+    WsMessage::Close(Some(CloseFrame {
+        code: CLOSE_REVOKED,
+        reason: "the session ended".into(),
+    }))
+}
+
+async fn handle_text(
+    kernel: &Kernel,
+    conn: &ConnHandle,
+    out: &OutTx,
+    calls: &mut JoinSet<()>,
+    text: &str,
+) {
+    let (id, method, params) = match Message::parse(text) {
+        Ok(Message::Request(r)) => (Some(r.id), r.method, r.params),
+        Ok(Message::Notification(n)) => (None, n.method, n.params),
+        Ok(Message::Response(_)) => return,
         Err(refused) => {
-            let _ = out.send(Outbound::Text(Message::Response(refused).to_text()));
+            out.send_text(Message::Response(refused).to_text());
             return;
         }
     };
+    // Stream control is in wire order relative to binary frames and does not wait for a call slot.
+    let control = matches!(
+        method.as_str(),
+        "streams.credit" | "streams.eof" | "streams.close"
+    );
+    if !control && calls.len() >= MAX_PENDING_CALLS {
+        if let Some(id) = id {
+            let response = Response::from_result(
+                id,
+                Err(crate::RpcError::unavailable("too many calls in flight")),
+            );
+            out.send_text(Message::Response(response).to_text());
+        }
+        return;
+    }
     let call = Call::new(kernel.clone(), conn.caller().clone(), Some(conn.clone()));
-    match message {
-        Message::Request(request) => {
-            let done = kernel
-                .methods
-                .dispatch(call, &request.method, request.params);
-            let out = out.clone();
-            tokio::spawn(async move {
-                let response = Response::from_result(request.id, done.await);
-                let _ = out.send(Outbound::Text(Message::Response(response).to_text()));
-            });
+    let done = kernel.methods.dispatch(call, &method, params);
+    let out = out.clone();
+    let finish = async move {
+        let result = done.await;
+        if let Some(id) = id {
+            out.send_text(Message::Response(Response::from_result(id, result)).to_text());
+        } else if let Err(e) = result {
+            tracing::debug!(method = %method, error = %e, "a notification failed");
         }
-        Message::Notification(notification) => {
-            let done = kernel
-                .methods
-                .dispatch(call, &notification.method, notification.params);
-            tokio::spawn(async move {
-                if let Err(e) = done.await {
-                    tracing::debug!(method = %notification.method, error = %e, "a notification failed");
-                }
-            });
+    };
+    if control {
+        finish.await;
+    } else {
+        calls.spawn(finish);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_slow_socket_bounds_its_outbound_queue() {
+        let (out, rx) = OutTx::channel();
+        for _ in 0..MAX_OUTBOUND_FRAMES {
+            out.send_text("message".into());
         }
-        // The server sends clients no requests, so a response has nothing to answer.
-        Message::Response(_) => {}
+        assert!(!out.overflow.is_cancelled());
+        out.send_text("message".into());
+        assert!(out.overflow.is_cancelled());
+        assert_eq!(rx.len(), MAX_OUTBOUND_FRAMES);
     }
 }

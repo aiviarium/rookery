@@ -119,10 +119,15 @@ async fn run(
             quit.clone(),
         ))
     });
+    let mut held_lock = None;
     let led = async {
-        let lock = leader::Lock::acquire(&config.lock_url).await?;
+        let lock = held_lock.insert(leader::Lock::acquire(&config.lock_url).await?);
+        let kernel = tokio::select! {
+            biased;
+            lost = lock.lost() => return Err(lost),
+            kernel = lead(&config) => kernel?,
+        };
         tracing::info!("this server holds the lock and leads");
-        let kernel = lead(&config).await?;
         edge.set_kernel(kernel.clone());
         let _ = role.send(Role::Leader);
         Err::<(), String>(lock.lost().await)
@@ -142,6 +147,8 @@ async fn run(
     if let Some(kernel) = edge.kernel() {
         kernel.store.close().await;
     }
+    // A graceful stop drains requests before another server can take over.
+    drop(held_lock);
     result
 }
 

@@ -1,5 +1,7 @@
 //! Who a request is from: a device session or an access token, read from the store.
 
+use std::time::Duration;
+
 use rookery_store::auth::{SESSION_PREFIX, TOKEN_PREFIX};
 
 use crate::kernel::Kernel;
@@ -20,13 +22,29 @@ pub fn wire_user(user: &rookery_store::users::User) -> rookery_proto::User {
 
 /// The caller a token signs in as, or `None` when it does not work.
 pub async fn authenticate(kernel: &Kernel, token: &str) -> Option<Caller> {
+    authenticate_with_expiry(kernel, token)
+        .await
+        .map(|(caller, _)| caller)
+}
+
+pub(crate) async fn authenticate_with_expiry(
+    kernel: &Kernel,
+    token: &str,
+) -> Option<(Caller, Option<Duration>)> {
     let token = token.trim();
     if token.starts_with(TOKEN_PREFIX) {
         return match kernel.store.auth().resolve_token(token).await {
-            Ok(found) => found.map(|(record, user)| Caller::User {
-                user: wire_user(&user),
-                session: None,
-                token: Some(record.id),
+            Ok(found) => found.and_then(|(record, user)| {
+                (!user.is_disabled()).then(|| {
+                    (
+                        Caller::User {
+                            user: wire_user(&user),
+                            session: None,
+                            token: Some(record.id),
+                        },
+                        record.remaining(),
+                    )
+                })
             }),
             Err(e) => {
                 tracing::warn!(error = %e, "reading an access token failed");
@@ -36,10 +54,17 @@ pub async fn authenticate(kernel: &Kernel, token: &str) -> Option<Caller> {
     }
     if token.starts_with(SESSION_PREFIX) {
         return match kernel.store.auth().resolve_session(token).await {
-            Ok(found) => found.map(|(session, user)| Caller::User {
-                user: wire_user(&user),
-                session: Some(session.id),
-                token: None,
+            Ok(found) => found.and_then(|(session, user)| {
+                (!user.is_disabled()).then(|| {
+                    (
+                        Caller::User {
+                            user: wire_user(&user),
+                            session: Some(session.id),
+                            token: None,
+                        },
+                        session.remaining(),
+                    )
+                })
             }),
             Err(e) => {
                 tracing::warn!(error = %e, "reading a device session failed");

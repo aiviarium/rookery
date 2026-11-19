@@ -17,8 +17,11 @@ use rookery_proto::{Empty, ErrorBody, ErrorCode, RpcError};
 use tokio::sync::{Semaphore, mpsc};
 use tokio_util::sync::CancellationToken;
 
-use crate::conn::{OutTx, Outbound, send_notification};
+use crate::conn::{OutTx, send_notification};
 use crate::methods::{Call, Level, Methods};
+
+const MAX_STREAMS: usize = 32;
+const MAX_QUEUED_DATA_FRAMES: usize = 256;
 
 pub fn register(methods: &mut Methods) {
     methods
@@ -44,7 +47,7 @@ pub fn register(methods: &mut Methods) {
         .level(Level::Own);
     methods
         .add("streams.echo", |call: Call, _: Empty| async move {
-            let stream = call.conn()?.streams().open(Initiator::Peer);
+            let stream = call.conn()?.streams().open(Initiator::Peer)?;
             let id = stream.id();
             tokio::spawn(echo(stream));
             Ok(StreamOpened {
@@ -98,7 +101,9 @@ struct Shared {
     send_credit: Semaphore,
     /// Bytes the peer may still send.
     recv_window: AtomicI64,
-    inbound: mpsc::UnboundedSender<Inbound>,
+    inbound: mpsc::Sender<Inbound>,
+    peer_eof: AtomicBool,
+    credit_update: Mutex<()>,
     closed: AtomicBool,
     closed_signal: CancellationToken,
 }
@@ -132,22 +137,28 @@ impl Streams {
         }))
     }
 
-    pub fn open(&self, by: Initiator) -> Stream {
+    pub fn open(&self, by: Initiator) -> Result<Stream, RpcError> {
+        let mut map = self.0.map.lock().unwrap();
+        if map.len() >= MAX_STREAMS {
+            return Err(RpcError::unavailable("too many open streams"));
+        }
         let id = match by {
             Initiator::Peer => self.0.next_even.fetch_add(2, Ordering::Relaxed),
             Initiator::Server => self.0.next_odd.fetch_add(2, Ordering::Relaxed),
         };
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::channel(MAX_QUEUED_DATA_FRAMES + 2);
         let shared = Arc::new(Shared {
             id,
             send_credit: Semaphore::new(INITIAL_WINDOW as usize),
             recv_window: AtomicI64::new(INITIAL_WINDOW as i64),
             inbound: tx,
+            peer_eof: AtomicBool::new(false),
+            credit_update: Mutex::new(()),
             closed: AtomicBool::new(false),
             closed_signal: CancellationToken::new(),
         });
-        self.0.map.lock().unwrap().insert(id, shared.clone());
-        Stream {
+        map.insert(id, shared.clone());
+        Ok(Stream {
             reader: StreamReader {
                 shared: shared.clone(),
                 rx,
@@ -161,7 +172,7 @@ impl Streams {
                 id,
                 streams: self.clone(),
             }),
-        }
+        })
     }
 
     fn get(&self, id: u32) -> Option<Arc<Shared>> {
@@ -186,39 +197,47 @@ impl Streams {
             return;
         };
         let Some(shared) = self.get(id) else { return };
+        if payload.is_empty() || shared.peer_eof.load(Ordering::Acquire) {
+            return;
+        }
         let left = shared
             .recv_window
             .fetch_sub(payload.len() as i64, Ordering::AcqRel)
             - payload.len() as i64;
-        if left < 0 {
+        // Keep room for EOF and close even when the data queue is full.
+        if left < 0 || payload.len() > MAX_FRAME_PAYLOAD || shared.inbound.capacity() <= 2 {
             let error = ErrorBody {
                 code: ErrorCode::Invalid,
-                message: format!("stream {id}: the peer sent more than its credit"),
+                message: format!("stream {id}: the peer exceeded the receive limit"),
                 details: None,
             };
             self.close_local(id, Some(error));
             return;
         }
-        let _ = shared.inbound.send(Inbound::Data(payload.to_vec()));
+        let _ = shared.inbound.try_send(Inbound::Data(payload.to_vec()));
     }
 
     /// `streams.credit` from the peer.
     pub fn credit(&self, id: u32, bytes: u32) {
         if let Some(shared) = self.get(id) {
-            shared.send_credit.add_permits(bytes as usize);
+            let _update = shared.credit_update.lock().unwrap();
+            let room = INITIAL_WINDOW as usize - shared.send_credit.available_permits();
+            shared.send_credit.add_permits(room.min(bytes as usize));
         }
     }
 
     pub fn remote_eof(&self, id: u32) {
-        if let Some(shared) = self.get(id) {
-            let _ = shared.inbound.send(Inbound::Eof);
+        if let Some(shared) = self.get(id)
+            && !shared.peer_eof.swap(true, Ordering::AcqRel)
+        {
+            let _ = shared.inbound.try_send(Inbound::Eof);
         }
     }
 
     pub fn remote_close(&self, id: u32, error: Option<ErrorBody>) {
         if let Some(shared) = self.remove(id) {
             shared.mark_closed();
-            let _ = shared.inbound.send(Inbound::Closed(error));
+            let _ = shared.inbound.try_send(Inbound::Closed(error));
         }
     }
 
@@ -226,7 +245,7 @@ impl Streams {
     fn close_local(&self, id: u32, error: Option<ErrorBody>) {
         if let Some(shared) = self.remove(id) {
             shared.mark_closed();
-            let _ = shared.inbound.send(Inbound::Closed(error.clone()));
+            let _ = shared.inbound.try_send(Inbound::Closed(error.clone()));
             send_notification(
                 &self.0.out,
                 "streams.close",
@@ -240,7 +259,7 @@ impl Streams {
         let all: Vec<_> = self.0.map.lock().unwrap().drain().collect();
         for (_, shared) in all {
             shared.mark_closed();
-            let _ = shared.inbound.send(Inbound::Closed(None));
+            let _ = shared.inbound.try_send(Inbound::Closed(None));
         }
     }
 }
@@ -266,7 +285,7 @@ pub struct Stream {
 
 struct StreamReader {
     shared: Arc<Shared>,
-    rx: mpsc::UnboundedReceiver<Inbound>,
+    rx: mpsc::Receiver<Inbound>,
     streams: Streams,
 }
 
@@ -370,11 +389,13 @@ impl StreamWriter {
                     RpcError::unavailable(format!("stream {} is closed", self.shared.id))
                 })?;
             permit.forget();
-            self.streams
-                .0
-                .out
-                .send(Outbound::Binary(encode_frame(self.shared.id, chunk)))
-                .map_err(|_| RpcError::unavailable("the connection is closed"))?;
+            tokio::select! {
+                biased;
+                _ = self.shared.closed_signal.cancelled() => {
+                    return Err(RpcError::unavailable("the stream is closed"));
+                }
+                result = self.streams.0.out.send_binary(encode_frame(self.shared.id, chunk)) => result?,
+            }
         }
         Ok(())
     }
@@ -430,6 +451,7 @@ impl OwnedWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::conn::Outbound;
 
     fn text(out: Outbound) -> serde_json::Value {
         match out {
@@ -440,9 +462,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_writer_waits_for_credit() {
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = OutTx::channel();
         let streams = Streams::new(tx);
-        let stream = Arc::new(streams.open(Initiator::Peer));
+        let stream = Arc::new(streams.open(Initiator::Peer).unwrap());
         assert_eq!(stream.id(), 2);
         let data = vec![7u8; INITIAL_WINDOW as usize + 1000];
         let writing = {
@@ -471,9 +493,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_reader_grants_credit_and_an_overrun_closes() {
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = OutTx::channel();
         let streams = Streams::new(tx);
-        let mut stream = streams.open(Initiator::Server);
+        let mut stream = streams.open(Initiator::Server).unwrap();
         assert_eq!(stream.id(), 1);
         streams.deliver(&encode_frame(1, b"hello"));
         assert_eq!(stream.read().await, Some(Inbound::Data(b"hello".to_vec())));
@@ -497,10 +519,35 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn eof_close_and_drop() {
-        let (tx, mut rx) = mpsc::unbounded_channel();
+    async fn empty_data_and_repeated_eof_do_not_fill_the_queue() {
+        let (tx, mut rx) = OutTx::channel();
         let streams = Streams::new(tx);
-        let mut stream = streams.open(Initiator::Peer);
+        let mut stream = streams.open(Initiator::Peer).unwrap();
+        streams.deliver(&encode_frame(stream.id(), b""));
+        streams.deliver(&encode_frame(stream.id(), b"hello"));
+        assert_eq!(stream.read().await, Some(Inbound::Data(b"hello".to_vec())));
+        let _ = rx.recv().await.unwrap();
+        streams.remote_eof(stream.id());
+        streams.remote_eof(stream.id());
+        streams.remote_close(stream.id(), None);
+        assert_eq!(stream.read().await, Some(Inbound::Eof));
+        assert_eq!(stream.read().await, Some(Inbound::Closed(None)));
+    }
+
+    #[tokio::test]
+    async fn credit_never_exceeds_the_window() {
+        let (tx, _rx) = OutTx::channel();
+        let streams = Streams::new(tx);
+        let stream = streams.open(Initiator::Peer).unwrap();
+        streams.credit(stream.id(), 1);
+        assert!(stream.available_credit() <= INITIAL_WINDOW as usize);
+    }
+
+    #[tokio::test]
+    async fn eof_close_and_drop() {
+        let (tx, mut rx) = OutTx::channel();
+        let streams = Streams::new(tx);
+        let mut stream = streams.open(Initiator::Peer).unwrap();
         streams.remote_eof(stream.id());
         assert_eq!(stream.read().await, Some(Inbound::Eof));
         streams.remote_close(stream.id(), None);
@@ -508,7 +555,7 @@ mod tests {
         assert!(streams.is_empty());
 
         // Dropping both halves closes the stream and tells the peer.
-        let (reader, writer) = streams.open(Initiator::Peer).split();
+        let (reader, writer) = streams.open(Initiator::Peer).unwrap().split();
         drop(reader);
         drop(writer);
         let close = text(rx.recv().await.unwrap());
@@ -518,7 +565,7 @@ mod tests {
         );
 
         // A writer kept elsewhere sees the peer close it.
-        let (_reader, writer) = streams.open(Initiator::Peer).split();
+        let (_reader, writer) = streams.open(Initiator::Peer).unwrap().split();
         let id = writer.id();
         let waiting = writer.clone();
         let closed = tokio::spawn(async move { waiting.closed().await });

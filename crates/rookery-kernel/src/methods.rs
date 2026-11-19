@@ -24,7 +24,7 @@ use crate::conn::ConnHandle;
 use crate::kernel::Kernel;
 
 /// Who a call is from. The edge decides it before any method runs.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Caller {
     /// A person, signed in with a device session or an access token.
     User {

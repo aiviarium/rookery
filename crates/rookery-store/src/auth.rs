@@ -38,6 +38,22 @@ pub struct AccessToken {
     pub revoked_at: Option<DateTime<Utc>>,
 }
 
+fn remaining(expires_at: Option<DateTime<Utc>>) -> Option<std::time::Duration> {
+    expires_at.map(|expires| (expires - Utc::now()).to_std().unwrap_or_default())
+}
+
+impl DeviceSession {
+    pub fn remaining(&self) -> Option<std::time::Duration> {
+        remaining(self.expires_at)
+    }
+}
+
+impl AccessToken {
+    pub fn remaining(&self) -> Option<std::time::Duration> {
+        remaining(self.expires_at)
+    }
+}
+
 const SESSION_COLS: &str = "s.id, s.user_id, s.label, s.user_agent, s.created_at, s.last_used_at, s.expires_at, s.revoked_at";
 const TOKEN_COLS: &str =
     "t.id, t.user_id, t.name, t.hint, t.created_at, t.last_used_at, t.expires_at, t.revoked_at";

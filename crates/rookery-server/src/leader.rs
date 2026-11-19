@@ -42,7 +42,7 @@ impl Lock {
     }
 
     /// Returns when the lock's connection is gone, and says why.
-    pub async fn lost(mut self) -> String {
+    pub async fn lost(&mut self) -> String {
         let mut every = tokio::time::interval(CHECK_EVERY);
         loop {
             every.tick().await;

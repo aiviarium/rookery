@@ -23,6 +23,10 @@ async fn a_standby_answers_503_until_the_leader_stops() {
     assert_eq!(second.role(), rookery_server::Role::Standby);
     let (status, body, _) = http("GET", &format!("{url}/healthz"), &[], None).await;
     assert_eq!((status, body.as_str()), (503, "standby\n"));
+    assert_eq!(
+        http("POST", &format!("{url}/healthz"), &[], None).await.0,
+        503
+    );
     let (status, body, _) = http("POST", &format!("{url}/rpc"), &[], Some("{}".into())).await;
     assert_eq!(status, 503);
     assert_eq!(
@@ -443,6 +447,10 @@ async fn the_shell_is_served_from_its_folder() {
     )
     .unwrap();
     std::fs::write(shell.path().join("assets/app.js"), "export {}").unwrap();
+    let private = tempfile::tempdir().unwrap();
+    let private_file = private.path().join("private.txt");
+    std::fs::write(&private_file, "outside the shell").unwrap();
+    std::os::unix::fs::symlink(private_file, shell.path().join("outside.txt")).unwrap();
     let dir = shell.path().to_owned();
     let served =
         served!(move |config: &mut rookery_server::ServerConfig| config.shell_dir = Some(dir));
@@ -468,6 +476,7 @@ async fn the_shell_is_served_from_its_folder() {
         "<!doctype html><title>Crow</title>"
     );
     assert_eq!(get("/assets/gone.js").await.0, 404);
+    assert_eq!(get("/outside.txt").await.0, 404);
     assert_eq!(get("/../../etc/passwd").await.0, 404);
     served.stop().await;
 }
@@ -485,4 +494,90 @@ async fn without_a_shell_the_root_says_so() {
         404
     );
     served.stop().await;
+}
+
+#[tokio::test]
+async fn an_expired_device_ends_its_connections() {
+    let served = served!();
+    let token = served.first_admin("Maria").await;
+    sqlx::query("UPDATE rookery.device_sessions SET expires_at = now() + interval '2 seconds'")
+        .execute(served.db.store.pool())
+        .await
+        .unwrap();
+    let mut socket = connect(&served, &token).await;
+    assert!(
+        call(&mut socket, 1, "auth.me", json!({}))
+            .await
+            .get("result")
+            .is_some()
+    );
+    let close = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            match socket.next().await {
+                Some(Ok(Ws::Close(frame))) => break frame.map(|f| u16::from(f.code)),
+                Some(Ok(_)) => {}
+                _ => break None,
+            }
+        }
+    })
+    .await;
+    served.stop().await;
+    assert_eq!(close.unwrap(), Some(rookery_kernel::conn::CLOSE_REVOKED));
+}
+
+#[tokio::test]
+async fn the_leader_keeps_its_lock_while_draining_requests() {
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let first = served!();
+    let dir = tempfile::tempdir().unwrap();
+    let mut second = rookery_server::start(crate::common::config(&first.db, dir.path()))
+        .await
+        .unwrap();
+    let mut request = tokio::net::TcpStream::connect(first.running.addr)
+        .await
+        .unwrap();
+    request.write_all(b"POST /rpc HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n").await.unwrap();
+    let mut interim = [0; 25];
+    tokio::time::timeout(Duration::from_secs(5), request.read_exact(&mut interim))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(&interim, b"HTTP/1.1 100 Continue\r\n\r\n");
+
+    let draining = tokio::spawn(first.running.stop());
+    let promoted_early = tokio::time::timeout(Duration::from_millis(750), second.leading()).await;
+    request.write_all(b"{}").await.unwrap();
+    let mut response = String::new();
+    request.read_to_string(&mut response).await.unwrap();
+    assert!(response.starts_with("HTTP/1.1 400"), "{response}");
+    draining.await.unwrap().unwrap();
+    tokio::time::timeout(Duration::from_secs(5), second.leading())
+        .await
+        .unwrap();
+    second.stop().await.unwrap();
+    first.db.close().await;
+    assert!(promoted_early.is_err());
+}
+
+#[tokio::test]
+async fn concurrent_setup_links_create_only_the_first_admin() {
+    let served = served!();
+    let a = served
+        .local("auth.createLink", json!({"kind": "setup"}))
+        .await
+        .unwrap();
+    let b = served
+        .local("auth.createLink", json!({"kind": "setup"}))
+        .await
+        .unwrap();
+    let (a, b) = tokio::join!(
+        http("POST", a["url"].as_str().unwrap(), &[], None),
+        http("POST", b["url"].as_str().unwrap(), &[], None),
+    );
+    let mut statuses = [a.0, b.0];
+    statuses.sort_unstable();
+    served.stop().await;
+    assert_eq!(statuses, [303, 410]);
 }
