@@ -421,6 +421,7 @@ async fn rookerys_own_data_is_read_like_a_plugins() {
                 run_after: None,
                 subject: Some("env://studio"),
                 enqueued_by: "system:rookery",
+                token: None,
             })
             .await
             .unwrap();

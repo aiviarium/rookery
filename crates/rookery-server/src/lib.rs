@@ -14,6 +14,8 @@ pub mod leader;
 pub mod rpc;
 pub mod shell;
 
+mod plugin_data;
+
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -158,6 +160,7 @@ fn lead(config: &ServerConfig, store: rookery_store::Store, methods: Methods) ->
             host: config.exthost.clone(),
         });
     }
+    kernel.set_facility(rookery_plugins::DataLayer(Arc::new(plugin_data::DataLayer)));
     kernel.methods.started(&kernel);
     kernel
 }

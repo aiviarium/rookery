@@ -3462,6 +3462,7 @@ dependencies = [
 name = "rookery-server"
 version = "0.6.0"
 dependencies = [
+ "async-trait",
  "axum",
  "base64 0.22.1",
  "form_urlencoded",

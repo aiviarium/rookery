@@ -66,6 +66,7 @@ pub async fn target(call: &Call, t: &DataTarget) -> Result<(String, StoreCaller)
                 "the plugin {own} uses its own collections, not those of {named}"
             )));
         }
+        (_, Some(ROOKERY)) => ROOKERY.to_owned(),
         (_, Some(named)) => rookery_kernel::methods::plugin_id(named)?,
         (_, None) => {
             return Err(RpcError::invalid(

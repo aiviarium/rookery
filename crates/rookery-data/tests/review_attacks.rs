@@ -193,6 +193,7 @@ async fn attack_live_on_jobs_streams_metadata_of_invisible_rows() {
             run_after: None,
             subject: Some("env://secret"),
             enqueued_by: "system:rookery",
+            token: None,
         })
         .await
         .unwrap();

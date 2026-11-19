@@ -8,9 +8,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use rookery_proto::{
-    access, auth, context, data, documents, error, facilities, home, jobs, methods, rpc, stream,
-    access, auth, context, data, env, error, facilities, hosts, jobs, methods, rpc, stream,
-    terminals,
+    access, auth, context, data, documents, env, error, facilities, home, hosts, jobs, methods,
+    rpc, stream, terminals,
 };
 use ts_rs::{Config, TS};
 
