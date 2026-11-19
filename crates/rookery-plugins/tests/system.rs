@@ -1018,3 +1018,132 @@ async fn a_host_past_its_memory_is_ended_as_a_crash() {
     .await;
     k.close().await;
 }
+
+const JOBS: &str = r#"{"apiVersion": "1", "name": "Echo", "host": "host.ts",
+  "contributes": {"jobs": [
+    {"id": "echo.build", "title": "Build"},
+    {"id": "echo.wait", "title": "Wait", "maxAttempts": 1},
+    {"id": "echo.wipe", "title": "Wipe", "enqueue": "admin"}]}}"#;
+
+async fn job_ends(k: &TestKernel, caller: &Caller, id: &Value) -> Value {
+    for _ in 0..300 {
+        let job = k.call(caller, "jobs.get", json!({"id": id})).await.unwrap();
+        if ["succeeded", "failed", "cancelled"].contains(&job["state"].as_str().unwrap_or("")) {
+            return job;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the job {id} did not end in 15 seconds");
+}
+
+#[tokio::test]
+async fn declared_jobs_run_in_the_host_half_for_whom_the_manifest_allows() {
+    if !bun_ready() {
+        eprintln!("skipped: the extension host needs bun and `bun install`");
+        return;
+    }
+    let k = test_kernel!(methods());
+    let scratch = tempfile::tempdir().unwrap();
+    let plugins = plugins(&k, scratch.path()).await;
+    let admin = k.person("Ada", true).await;
+    let member = k.person("Bob", false).await;
+    echo_with(&k, &plugins, scratch.path(), "echo", JOBS).await;
+    use rookery_proto::ErrorCode;
+
+    // A member enqueues a job of a kind the plugin declares; its host half starts and runs it.
+    let job = k
+        .call(
+            &member,
+            "jobs.enqueue",
+            json!({"kind": "echo/build", "params": {"n": 2}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        job["enqueuedBy"],
+        format!("user:{}", member.user().unwrap().id)
+    );
+    let done = job_ends(&k, &member, &job["id"]).await;
+    assert_eq!(done["state"], "succeeded", "{done}");
+    assert_eq!(
+        done["result"],
+        json!({"built": 4, "attempt": 1, "kind": "echo/build"})
+    );
+    let output = k
+        .call(&member, "jobs.output", json!({"id": job["id"]}))
+        .await
+        .unwrap();
+    assert!(output.to_string().contains("building 2"), "{output}");
+
+    // One the manifest keeps for admins, and a kind nobody declares.
+    let refused = k
+        .call(&member, "jobs.enqueue", json!({"kind": "echo/wipe"}))
+        .await
+        .unwrap_err();
+    assert_eq!(refused.error_code(), ErrorCode::Forbidden);
+    let wiped = k
+        .call(&admin, "jobs.enqueue", json!({"kind": "echo/wipe"}))
+        .await
+        .unwrap();
+    assert_eq!(
+        job_ends(&k, &admin, &wiped["id"]).await["state"],
+        "succeeded"
+    );
+    let unknown = k
+        .call(&member, "jobs.enqueue", json!({"kind": "echo/nothing"}))
+        .await
+        .unwrap_err();
+    assert_eq!(unknown.error_code(), ErrorCode::Forbidden);
+    let subject = k
+        .call(
+            &member,
+            "jobs.enqueue",
+            json!({"kind": "echo/build", "params": {"n": 1}, "subject": "env://studio"}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(subject.error_code(), ErrorCode::Forbidden);
+
+    // A job that is cancelled ends its handler.
+    let waiting = k
+        .call(&member, "jobs.enqueue", json!({"kind": "echo/wait"}))
+        .await
+        .unwrap();
+    until("the job running", || async {
+        k.call(&member, "jobs.get", json!({"id": waiting["id"]}))
+            .await
+            .unwrap()["state"]
+            == "running"
+    })
+    .await;
+    k.call(&member, "jobs.cancel", json!({"id": waiting["id"]}))
+        .await
+        .unwrap();
+    let ended = job_ends(&k, &member, &waiting["id"]).await;
+    assert_ne!(ended["state"], "succeeded", "{ended}");
+
+    // A host half hears its own events by a name without a `/`.
+    let rpc = |method: &str| json!({"plugin": "echo", "method": method, "params": {}});
+    k.call(&member, "plugins.rpc", rpc("listen")).await.unwrap();
+    k.call(&member, "plugins.rpc", rpc("ping")).await.unwrap();
+    until("the event reaching the host half", || async {
+        k.call(&member, "plugins.rpc", rpc("heard")).await.unwrap()["heard"]
+            == json!(["echo/pinged"])
+    })
+    .await;
+
+    // A removed plugin's kinds have no handler: their jobs wait.
+    k.call(&admin, "plugins.remove", json!({"id": "echo"}))
+        .await
+        .unwrap();
+    let after = k
+        .call(
+            &member,
+            "jobs.enqueue",
+            json!({"kind": "echo/build", "params": {"n": 1}}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(after.error_code(), ErrorCode::Forbidden);
+    k.close().await;
+}

@@ -7339,9 +7339,9 @@
   },
   {
     "name": "jobs.enqueue",
-    "summary": "Enqueues a job of a kind a handler in the server runs.",
+    "summary": "Enqueues a job of a kind a handler in the server runs. Admins enqueue any; the kinds plugins declare, whoever their manifests allow, as the caller.",
     "level": {
-      "kind": "admin"
+      "kind": "self"
     },
     "params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
