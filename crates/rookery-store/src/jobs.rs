@@ -449,35 +449,31 @@ impl Jobs<'_> {
         text: &str,
         data: Option<&Value>,
     ) -> Result<i64> {
-        let mut tx = self.pool.begin().await?;
-        let attempt: i32 = sqlx::query_scalar(
-            "SELECT attempts FROM rookery.jobs WHERE id = $1
-               AND ($2::text IS NULL OR (state = 'running' AND claimed_by = $2)) AND rookery.fence($3)
-             FOR UPDATE",
+        // One statement, so no lock on the job's row outlives it: the UPDATE takes the next number
+        // of the job's log and waits for an append before it, whose number it then sees.
+        let seq: Option<i64> = sqlx::query_scalar(
+            "WITH job AS (
+                 UPDATE rookery.jobs SET log_seq = log_seq + 1
+                  WHERE id = $1
+                    AND ($2::text IS NULL OR (state = 'running' AND claimed_by = $2))
+                    AND rookery.fence($3)
+                 RETURNING id, attempts, log_seq)
+             INSERT INTO rookery.log_items (job_id, seq, attempt, level, text, data)
+             SELECT id, log_seq, attempts, $4, $5, $6 FROM job
+             RETURNING seq",
         )
         .bind(id)
         .bind(worker)
         .bind(self.fence)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| match worker {
-            Some(_) => Error::Conflict("the job's claim is gone".into()),
-            None => Error::NotFound("no such job".into()),
-        })?;
-        // Compute the next sequence in a fresh snapshot after taking the job row lock.
-        let seq = sqlx::query_scalar(
-            "INSERT INTO rookery.log_items (job_id, seq, attempt, level, text, data)
-             VALUES ($1, coalesce((SELECT max(seq) FROM rookery.log_items WHERE job_id = $1), 0) + 1, $2, $3, $4, $5)
-             RETURNING seq",
-        )
-        .bind(id)
-        .bind(attempt)
         .bind(level)
         .bind(text)
         .bind(data)
-        .fetch_one(&mut *tx)
+        .fetch_optional(self.pool)
         .await?;
-        tx.commit().await?;
+        let seq = seq.ok_or_else(|| match worker {
+            Some(_) => Error::Conflict("the job's claim is gone".into()),
+            None => Error::NotFound("no such job".into()),
+        })?;
         Ok(seq)
     }
 

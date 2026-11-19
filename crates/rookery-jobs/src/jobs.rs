@@ -687,6 +687,37 @@ async fn reclaim(kernel: &Kernel, kinds: &[String], once: &[String]) {
     }
 }
 
+/// Renews a running attempt's claim every third of its lease, until it is aborted or the claim is
+/// lost, which `lost` says. A cancel asked for in between cancels the attempt.
+async fn heartbeat(
+    kernel: Kernel,
+    id: Uuid,
+    worker: String,
+    lease: Duration,
+    cancel: CancellationToken,
+    lost: CancellationToken,
+) {
+    let mut beat = tokio::time::interval(lease / 3);
+    beat.tick().await;
+    loop {
+        beat.tick().await;
+        match kernel.store.jobs().heartbeat(id, &worker, lease).await {
+            Ok(true) => cancel.cancel(),
+            Ok(false) => {}
+            Err(rookery_store::Error::Conflict(_)) => {
+                tracing::warn!(job = %id, "a job's claim was lost; its attempt stops");
+                lost.cancel();
+                return;
+            }
+            // The claim is still this worker's: nothing takes a claim over while its leader leads,
+            // so the attempt goes on and the next beat renews it.
+            Err(e) => {
+                tracing::warn!(job = %id, error = %e, "renewing a job's claim failed; it is tried again");
+            }
+        }
+    }
+}
+
 async fn attempt(
     kernel: Kernel,
     registry: Arc<Registry>,
@@ -725,31 +756,27 @@ async fn attempt(
         cancel: cancel.clone(),
         worker: worker.clone(),
     };
+    // The claim is renewed by a task of its own, which never waits in the same poll as the handler:
+    // a beat that waits on the job's row must not stop the handler that holds it from going on.
     let lease = registry.options.lease;
-    let mut beat = tokio::time::interval(lease / 3);
-    beat.tick().await;
+    let lost = CancellationToken::new();
+    let beating = tokio::spawn(heartbeat(
+        kernel.clone(),
+        job.id,
+        worker.clone(),
+        lease,
+        cancel.clone(),
+        lost.clone(),
+    ));
     let running = handler.run(run);
     tokio::pin!(running);
-    let done = loop {
-        tokio::select! {
-            done = &mut running => break Some(done),
-            _ = beat.tick() => match kernel.store.jobs().heartbeat(job.id, &worker, lease).await {
-                Ok(true) => cancel.cancel(),
-                Ok(false) => {}
-                Err(rookery_store::Error::Conflict(_)) => {
-                    tracing::warn!(job = %job.id, "a job's claim was lost; its attempt stops");
-                    break None;
-                }
-                // The claim is still this worker's: nothing takes a claim over while its leader leads,
-                // so the attempt goes on and the next beat renews it.
-                Err(e) => {
-                    tracing::warn!(job = %job.id, error = %e, "renewing a job's claim failed; it is tried again");
-                }
-            },
-            // The server stops: the attempt is left running, for the next leader to recover.
-            _ = kernel.shutdown.cancelled() => break None,
-        }
+    let done = tokio::select! {
+        done = &mut running => Some(done),
+        _ = lost.cancelled() => None,
+        // The server stops: the attempt is left running, for the next leader to recover.
+        _ = kernel.shutdown.cancelled() => None,
     };
+    beating.abort();
     signals.running.lock().unwrap().remove(&job.id);
     let Some(done) = done else { return };
     let outcome = match done {

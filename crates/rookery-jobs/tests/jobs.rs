@@ -1129,3 +1129,69 @@ async fn no_plugin_acts_as_rookery() {
         );
     }
 }
+
+/// Holds its own job's row locked across awaits for a while, as a handler in the middle of a
+/// transaction does, then logs a line.
+struct HoldsItsRow(Arc<std::sync::Mutex<Option<sqlx::PgPool>>>);
+impl JobHandler for HoldsItsRow {
+    fn kind(&self) -> &'static str {
+        "test.holds"
+    }
+    fn run(&self, job: JobRun) -> BoxFuture<'static, Result<Value, RpcError>> {
+        let pool = self
+            .0
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("the pool is given before a job runs");
+        Box::pin(async move {
+            let fail = |e: sqlx::Error| RpcError::internal(e.to_string());
+            let mut tx = pool.begin().await.map_err(fail)?;
+            sqlx::query("SELECT 1 FROM rookery.jobs WHERE id = $1 FOR UPDATE")
+                .bind(job.id)
+                .execute(&mut *tx)
+                .await
+                .map_err(fail)?;
+            // Several beats of the claim come due while the row is held.
+            for _ in 0..10 {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            tx.commit().await.map_err(fail)?;
+            job.info("held and let go").await?;
+            Ok(json!({}))
+        })
+    }
+}
+
+#[tokio::test]
+async fn a_handler_that_holds_its_row_is_not_stopped_by_its_heartbeat() {
+    // A heartbeat waited on in the same poll as the handler would wait on the handler's row lock
+    // forever, while the handler, not polled, never lets it go.
+    let pool = Arc::new(std::sync::Mutex::new(None));
+    let mut methods = Methods::default();
+    rookery_kernel::streams::register(&mut methods);
+    let options = Options {
+        lease: Duration::from_millis(150),
+        ..Options::default()
+    };
+    rookery_jobs::register(
+        &mut methods,
+        vec![Arc::new(HoldsItsRow(pool.clone()))],
+        options,
+    );
+    let k: TestKernel = test_kernel!(methods);
+    *pool.lock().unwrap() = Some(k.db.store.pool().clone());
+    let admin = k.person("Maria", true).await;
+    let mut inbox = k.connect(&admin);
+    let job = k
+        .call(&admin, "jobs.enqueue", json!({"kind": "test.holds"}))
+        .await
+        .unwrap();
+    let lines = tokio::time::timeout(
+        Duration::from_secs(20),
+        follow(&k, &mut inbox, &job["id"], 0),
+    )
+    .await
+    .expect("the job ended in time: a heartbeat waited on its handler's row lock");
+    assert_eq!(lines.last().unwrap()["state"], "succeeded", "{lines:?}");
+}

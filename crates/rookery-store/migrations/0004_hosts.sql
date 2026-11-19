@@ -113,6 +113,10 @@ ALTER TABLE rookery.jobs
     ADD COLUMN session_offset bigint,
     ADD COLUMN hidden_key_id text,
     ADD COLUMN hidden_nonce bytea,
-    ADD COLUMN hidden bytea;
+    ADD COLUMN hidden bytea,
+    -- The number of the job's last log item, which an append takes the next of in one statement.
+    ADD COLUMN log_seq bigint NOT NULL DEFAULT 0;
+
+UPDATE rookery.jobs j SET log_seq = coalesce((SELECT max(seq) FROM rookery.log_items l WHERE l.job_id = j.id), 0);
 
 CREATE UNIQUE INDEX jobs_token ON rookery.jobs (subject, kind, (params->>'action'), token) WHERE token IS NOT NULL;
