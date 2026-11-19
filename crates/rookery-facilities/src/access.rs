@@ -129,9 +129,8 @@ pub fn register(methods: &mut Methods) {
         .level(Level::Own);
     methods
         .add("access.levelOf", |call: Call, p: LevelOf| async move {
-            rookery_store::access::check_principal(&p.principal)?;
-            let user = p
-                .principal
+            let principal = rookery_store::access::principal_name(&p.principal)?;
+            let user = principal
                 .strip_prefix("user:")
                 .and_then(|id| Uuid::parse_str(id).ok());
             if let Some(user) = user
@@ -152,7 +151,7 @@ pub fn register(methods: &mut Methods) {
                 .level(
                     &p.resource,
                     &Who {
-                        principal: &p.principal,
+                        principal: &principal,
                         user,
                     },
                 )

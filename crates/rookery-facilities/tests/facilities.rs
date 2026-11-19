@@ -140,6 +140,47 @@ async fn grants_give_levels_on_resources() {
 }
 
 #[tokio::test]
+async fn a_grant_names_its_principal_in_any_spelling() {
+    let k: TestKernel = test_kernel!(methods());
+    let admin = k.person("Maria", true).await;
+    let eve = k.person("Eve", false).await;
+    let studio = json!({"resource": "env://studio"});
+    let upper = format!("user:{}", id(&eve).to_uppercase());
+    k.call(
+        &admin,
+        "access.grant",
+        json!({"resource": "env://studio", "principal": upper, "level": "use"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        k.call(&eve, "access.level", studio.clone()).await.unwrap(),
+        json!({"level": "use"})
+    );
+    let grants = k
+        .call(&admin, "access.grants", studio.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        grants["grants"][0]["principal"],
+        format!("user:{}", id(&eve))
+    );
+    // It is revoked by its own spelling as well as by another.
+    k.call(
+        &admin,
+        "access.revoke",
+        json!({"resource": "env://studio", "principal": format!("user:{}", id(&eve).replace('-', ""))}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        k.call(&eve, "access.level", studio).await.unwrap(),
+        json!({"level": null})
+    );
+    k.close().await;
+}
+
+#[tokio::test]
 async fn admins_manage_people() {
     let k: TestKernel = test_kernel!(methods());
     let admin = k.person("Maria", true).await;

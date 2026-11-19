@@ -41,18 +41,24 @@ pub struct Access<'a> {
 
 /// A principal a grant may name: `user:<uuid>`, `group:<uuid>` or `everyone`.
 pub fn check_principal(principal: &str) -> Result<()> {
-    let ok = principal == "everyone"
-        || principal
-            .strip_prefix("user:")
-            .or_else(|| principal.strip_prefix("group:"))
-            .is_some_and(|id| Uuid::parse_str(id).is_ok());
-    if ok {
-        Ok(())
-    } else {
-        Err(Error::Invalid(format!(
-            "{principal:?} is not user:<id>, group:<id> or everyone"
-        )))
+    principal_name(principal).map(|_| ())
+}
+
+/// A principal as grants keep it, with its id in the one spelling the callers' principals have, so that
+/// `user:<UUID>` in capitals or without hyphens names the same person.
+pub fn principal_name(principal: &str) -> Result<String> {
+    if principal == "everyone" {
+        return Ok(principal.to_owned());
     }
+    let named = ["user:", "group:"].iter().find_map(|kind| {
+        let id = principal.strip_prefix(kind)?;
+        Uuid::parse_str(id).ok().map(|id| format!("{kind}{id}"))
+    });
+    named.ok_or_else(|| {
+        Error::Invalid(format!(
+            "{principal:?} is not user:<id>, group:<id> or everyone"
+        ))
+    })
 }
 
 /// A resource URI such as `env://studio`.
@@ -86,7 +92,7 @@ impl Access<'_> {
         by: &str,
     ) -> Result<Grant> {
         check_resource(resource)?;
-        check_principal(principal)?;
+        let principal = &principal_name(principal)?;
         if !(1..=3).contains(&level) {
             return Err(Error::Invalid("a level is view, use or manage".into()));
         }
@@ -104,6 +110,7 @@ impl Access<'_> {
     }
 
     pub async fn revoke(&self, resource: &str, principal: &str) -> Result<bool> {
+        let principal = &principal_name(principal)?;
         let done = sqlx::query("DELETE FROM rookery.grants WHERE resource = $1 AND principal = $2")
             .bind(resource)
             .bind(principal)
