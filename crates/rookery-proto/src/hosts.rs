@@ -401,3 +401,129 @@ impl Acted {
         }
     }
 }
+
+/// `terminals.open`: a session on the host, a terminal or a process. As the SSH user or root it
+/// needs manage on the host; as the agent account, use.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct TerminalOpen {
+    pub host: String,
+    #[serde(flatten)]
+    pub start: rookery_api::StartSession,
+    /// How long to wait for it to be running, such as `20s`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wait: Option<String>,
+}
+
+/// A session on a host, by the host and the session's id.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct TerminalRef {
+    pub host: String,
+    pub terminal: String,
+    /// The query, as the host takes it: `since`, `tail`, `lines` and the rest.
+    #[serde(default)]
+    pub query: BTreeMap<String, String>,
+}
+
+/// `terminals.input`, `terminals.resize` and `terminals.signal`: what the host takes, as it takes it.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct TerminalSend {
+    pub host: String,
+    pub terminal: String,
+    #[serde(default)]
+    pub body: Value,
+}
+
+/// A file on a host, by its path.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct FileRef {
+    pub host: String,
+    pub path: String,
+}
+
+/// `env.writeFile`: the bytes in base64. With `etag`, only if the file is still at it.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct FileWrite {
+    pub host: String,
+    pub path: String,
+    pub base64: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
+}
+
+/// `env.connect`: a TCP port on the host's loopback.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct PortConnect {
+    pub host: String,
+    pub port: u16,
+}
+
+/// `resources.connect`: an endpoint a resource's provisioner reported, by its name or its port.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct EndpointConnect {
+    pub id: String,
+    pub endpoint: String,
+}
+
+/// A secret, a registry or a setting of the installation, by its name, with what changes it.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct NamedValue {
+    pub name: String,
+    /// The secret's or setting's value, the registry as JSON, or a new name.
+    #[serde(default)]
+    pub value: Value,
+}
+
+/// `hosts.messages.list`: the messages taken in from the hosts' channels that they keep, newest first.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct MessageQuery {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    /// Those whose topic starts with this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topic: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub done: Option<bool>,
+    /// Those taken in before this `seq`: the page after one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+}
+
+/// A message a host kept, with where it came from.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostMessage {
+    #[serde(flatten)]
+    pub message: rookery_api::Message,
+    pub host: String,
+    pub done: bool,
+    /// The order it was taken in.
+    pub seq: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct MessageList {
+    pub messages: Vec<HostMessage>,
+    /// `before` for older ones, when there are more.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next: Option<i64>,
+}
+
+/// A host's message by its id there.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct MessageRef {
+    pub host: String,
+    pub id: u64,
+}

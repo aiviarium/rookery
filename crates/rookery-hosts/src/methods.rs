@@ -21,7 +21,7 @@ use serde_json::{Value, json};
 
 use crate::runner::CALLER;
 use crate::serve::api::{self, Answer, Json};
-use crate::serve::{Serve, actions, auth, keys, provisioners, resources, setup};
+use crate::serve::{Carry, Serve, actions, auth, keys, provisioners, resources, setup};
 
 fn host(grant: Grant) -> Level {
     Level::Resource {
@@ -119,6 +119,7 @@ async fn pass_stream(
     name: &str,
     capability: Capability,
     target: String,
+    carry: crate::serve::Carry,
 ) -> Result<StreamOpened, RpcError> {
     let state = serve(call)?;
     let remote = api::controller(&state, name, capability).await?;
@@ -129,7 +130,7 @@ async fn pass_stream(
     let upstream = link.stream(&target).await.map_err(api::Fail::from)?;
     let stream = call.conn()?.streams().open(Initiator::Peer)?;
     let id = stream.id();
-    tokio::spawn(crate::serve::pipe(upstream, stream));
+    tokio::spawn(crate::serve::pipe(upstream, stream, carry));
     Ok(StreamOpened {
         stream: id,
         offset: None,
@@ -142,8 +143,11 @@ pub fn register(methods: &mut Methods) {
     register_hosts(methods);
     register_controller(methods);
     register_keys(methods);
+    register_env(methods);
+    register_messages(methods);
     register_provisioning(methods);
     register_setup(methods);
+    register_installation(methods);
 }
 
 fn register_hosts(methods: &mut Methods) {
@@ -450,7 +454,14 @@ fn register_controller(methods: &mut Methods) {
     methods
         .add("hosts.logs.follow", |call: Call, p: HostQuery| async move {
             let target = format!("/v1/logs{}", query_of(&p.query));
-            pass_stream(&call, crate::name_of(&p.host), Capability::Sessions, target).await
+            pass_stream(
+                &call,
+                crate::name_of(&p.host),
+                Capability::Sessions,
+                target,
+                Carry::Lines,
+            )
+            .await
         })
         .summary("A host's journal as it is written, a line for each entry.")
         .stream()
@@ -545,12 +556,397 @@ fn register_controller(methods: &mut Methods) {
                     rookery_api::client::encode(&p.plugin),
                     rookery_api::client::encode(&p.name)
                 );
-                pass_stream(&call, crate::name_of(&p.host), Capability::Sessions, target).await
+                pass_stream(&call, crate::name_of(&p.host), Capability::Sessions, target, Carry::Tagged)
+                    .await
             },
         )
-        .summary("A stream to a plugin's service on a host.")
+        .summary("A stream to a plugin's service on a host; each frame has a byte before it, t for text and b for binary.")
         .stream()
         .level(host(Grant::Use));
+}
+
+fn terminal(
+    host: &str,
+    terminal: &str,
+    rest: &str,
+    query: &BTreeMap<String, String>,
+) -> (String, String) {
+    let target = format!(
+        "/v1/sessions/{}{rest}{}",
+        rookery_api::client::encode(terminal),
+        query_of(query)
+    );
+    (name(host), target)
+}
+
+/// Sessions, files and ports of a host, as the agent account: `terminals.*` and `env.*`.
+fn register_env(methods: &mut Methods) {
+    methods
+        .add("terminals.open", |call: Call, p: TerminalOpen| async move {
+            let name = name(&p.host);
+            // Another account than the agent's operates the host.
+            if p.start.user != "agent" {
+                let held = call.is_admin()
+                    || rookery_facilities::access::holds(&call, &crate::uri(&name), Grant::Manage)
+                        .await?;
+                if !held {
+                    return Err(RpcError::forbidden(format!(
+                        "a session as {} needs manage on {}",
+                        p.start.user,
+                        crate::uri(&name)
+                    )));
+                }
+            }
+            let query = match &p.wait {
+                Some(wait) => format!("?wait={}", rookery_api::client::encode(wait)),
+                None => String::new(),
+            };
+            let body =
+                serde_json::to_value(&p.start).map_err(|e| RpcError::internal(e.to_string()))?;
+            let opened = pass(
+                &call,
+                &name,
+                Capability::Sessions,
+                "POST",
+                format!("/v1/sessions{query}"),
+                Some(body),
+            )
+            .await?;
+            call.audit(
+                "terminal.open",
+                Some(&crate::uri(&name)),
+                json!({"user": p.start.user}),
+            )
+            .await;
+            Ok(opened)
+        })
+        .summary(
+            "Opens a session on a host: a terminal or a process. The screen is kept on the host.",
+        )
+        .level(host(Grant::Use));
+    methods
+        .add("terminals.list", |call: Call, p: HostRef| async move {
+            pass(
+                &call,
+                &name(&p.host),
+                Capability::Sessions,
+                "GET",
+                "/v1/sessions".into(),
+                None,
+            )
+            .await
+        })
+        .summary("The sessions on a host.")
+        .level(host(Grant::View));
+    methods
+        .add("terminals.get", |call: Call, p: TerminalRef| async move {
+            let (name, target) = terminal(&p.host, &p.terminal, "", &p.query);
+            pass(&call, &name, Capability::Sessions, "GET", target, None).await
+        })
+        .summary("A session on a host.")
+        .level(host(Grant::View));
+    methods
+        .add(
+            "terminals.output",
+            |call: Call, p: TerminalRef| async move {
+                let (name, target) = terminal(&p.host, &p.terminal, "/output", &p.query);
+                pass(&call, &name, Capability::Sessions, "GET", target, None).await
+            },
+        )
+        .summary("What a session wrote, from an offset or its last lines.")
+        .level(host(Grant::View));
+    methods
+        .add(
+            "terminals.screen",
+            |call: Call, p: TerminalRef| async move {
+                let (name, target) = terminal(&p.host, &p.terminal, "/screen", &p.query);
+                pass(&call, &name, Capability::Sessions, "GET", target, None).await
+            },
+        )
+        .summary("A terminal's screen as the host keeps it.")
+        .level(host(Grant::View));
+    methods
+        .add("terminals.close", |call: Call, p: TerminalRef| async move {
+            let (name, target) = terminal(&p.host, &p.terminal, "", &p.query);
+            pass(&call, &name, Capability::Sessions, "DELETE", target, None).await
+        })
+        .summary("Ends a session on a host, or forgets one that ended.")
+        .level(host(Grant::Use));
+    for (method, rest, summary) in [
+        ("terminals.input", "/input", "Types into a session."),
+        (
+            "terminals.resize",
+            "/resize",
+            "Gives a terminal another size.",
+        ),
+        (
+            "terminals.signal",
+            "/signal",
+            "Sends a signal to a session's process.",
+        ),
+    ] {
+        methods
+            .add(method, move |call: Call, p: TerminalSend| async move {
+                let (name, target) = terminal(&p.host, &p.terminal, rest, &BTreeMap::new());
+                pass(
+                    &call,
+                    &name,
+                    Capability::Sessions,
+                    "POST",
+                    target,
+                    Some(p.body),
+                )
+                .await
+            })
+            .summary(summary)
+            .level(host(Grant::Use));
+    }
+    methods
+        .add("terminals.attach", |call: Call, p: TerminalRef| async move {
+            let (name, target) = terminal(&p.host, &p.terminal, "", &p.query);
+            pass_stream(&call, &name, Capability::Sessions, target, Carry::Tagged).await
+        })
+        .summary("A session's output as it comes and its input, as a stream: each frame has a byte before it, b for the terminal's bytes and t for the host's JSON, such as a size to take or how it exited.")
+        .stream()
+        .level(host(Grant::Use));
+    methods
+        .add("env.readFile", |call: Call, p: FileRef| async move {
+            let name = name(&p.host);
+            let state = serve(&call)?;
+            let remote = api::controller(&state, &name, Capability::Sessions).await?;
+            let link = remote
+                .link
+                .as_ref()
+                .ok_or_else(|| RpcError::unavailable("no link"))?;
+            let target = format!("/v1/files?path={}", rookery_api::client::encode(&p.path));
+            let answer = link
+                .send("GET", &target, &[], &[])
+                .await
+                .map_err(api::Fail::from)?;
+            match answer.status {
+                404 => return Err(RpcError::not_found(format!("no file {}", p.path))),
+                status if status >= 400 => {
+                    return Err(RpcError::invalid(
+                        String::from_utf8_lossy(&answer.body).into_owned(),
+                    ));
+                }
+                _ => {}
+            }
+            let header = |key: &str| {
+                answer
+                    .headers
+                    .get(key)
+                    .and_then(|v| v.to_str().ok())
+                    .map(str::to_owned)
+            };
+            Ok(Passed(json!({
+                "base64": rookery_api::b64(&answer.body),
+                "content_type": header("content-type").unwrap_or_default(),
+                "etag": header("etag"),
+            })))
+        })
+        .summary(
+            "A file on a host, in base64 with its content_type and etag, inside the host's roots.",
+        )
+        .level(host(Grant::Use));
+    methods
+        .add("env.writeFile", |call: Call, p: FileWrite| async move {
+            let name = name(&p.host);
+            let state = serve(&call)?;
+            let remote = api::controller(&state, &name, Capability::Sessions).await?;
+            let link = remote
+                .link
+                .as_ref()
+                .ok_or_else(|| RpcError::unavailable("no link"))?;
+            let bytes = rookery_api::unb64(&p.base64)
+                .ok_or_else(|| RpcError::invalid("base64: not base64"))?;
+            // With no etag a file that is there is replaced.
+            let target = format!(
+                "/v1/files?path={}{}",
+                rookery_api::client::encode(&p.path),
+                if p.etag.is_none() {
+                    "&overwrite=true"
+                } else {
+                    ""
+                }
+            );
+            let mut headers = vec![("content-type", "application/octet-stream")];
+            if let Some(etag) = &p.etag {
+                headers.push(("if-match", etag.as_str()));
+            }
+            let answer = link
+                .send("PUT", &target, &headers, &bytes)
+                .await
+                .map_err(api::Fail::from)?;
+            if answer.status == 412 {
+                return Err(RpcError::conflict(format!(
+                    "{} changed since it was read",
+                    p.path
+                )));
+            }
+            if answer.status >= 400 {
+                return Err(RpcError::invalid(
+                    String::from_utf8_lossy(&answer.body).into_owned(),
+                ));
+            }
+            Ok(Passed(
+                serde_json::from_slice(&answer.body).unwrap_or(json!({})),
+            ))
+        })
+        .summary("Writes a file on a host, inside its roots; with etag only if it is still at it.")
+        .level(host(Grant::Use));
+    methods
+        .add("env.deleteFile", |call: Call, p: FileRef| async move {
+            let target = format!("/v1/files?path={}", rookery_api::client::encode(&p.path));
+            pass(
+                &call,
+                &name(&p.host),
+                Capability::Sessions,
+                "DELETE",
+                target,
+                None,
+            )
+            .await
+        })
+        .summary("Removes a file on a host, inside its roots.")
+        .level(host(Grant::Use));
+    methods
+        .add("env.connect", |call: Call, p: PortConnect| async move {
+            pass_stream(
+                &call,
+                &name(&p.host),
+                Capability::Sessions,
+                format!("/v1/ports/{}", p.port),
+                Carry::Bytes,
+            )
+            .await
+        })
+        .summary("A byte stream to a TCP port on a host's loopback.")
+        .stream()
+        .level(host(Grant::Use));
+    methods
+        .add("resources.connect", |call: Call, p: EndpointConnect| async move {
+            let state = serve(&call)?;
+            let connection = crate::serve::connect::connect(state, (p.id, p.endpoint)).await?;
+            let stream = call.conn()?.streams().open(Initiator::Peer)?;
+            let id = stream.id();
+            tokio::spawn(crate::serve::tunnel(stream, connection));
+            Ok(StreamOpened { stream: id, offset: None })
+        })
+        .summary("A byte stream to an endpoint a resource's provisioner reported, by its name or its port.")
+        .stream()
+        .level(Level::Admin);
+}
+
+/// The messages hosts keep, taken in by the leader from their channels.
+fn register_messages(methods: &mut Methods) {
+    methods
+        .add("hosts.messages.list", |call: Call, p: MessageQuery| async move {
+            let state = serve(&call)?;
+            let host = p.host.as_deref().map(name);
+            let key = host.as_ref().map(|host| {
+                let (state, host) = (state.clone(), host.clone());
+                (state, host)
+            });
+            let filter_host = match key {
+                Some((state, host)) => Some(
+                    tokio::task::spawn_blocking(move || api::host_key(&state.paths, &host))
+                        .await
+                        .map_err(|e| RpcError::internal(e.to_string()))?,
+                ),
+                None => None,
+            };
+            let limit = p.limit.unwrap_or(100).clamp(1, 1000);
+            let (topic, done, before) = (p.topic.clone(), p.done, p.before);
+            let found = {
+                let state = state.clone();
+                tokio::task::spawn_blocking(move || {
+                    let filter = rookery_core::store::Filter {
+                        host: filter_host.as_deref(),
+                        topic: topic.as_deref(),
+                        before,
+                        done,
+                        limit,
+                    };
+                    let found = state.store.inbox(&filter)?;
+                    let named: Vec<(rookery_core::store::Stored, String)> = found
+                        .0
+                        .into_iter()
+                        .map(|stored| {
+                            let name = state
+                                .store
+                                .label_of(rookery_core::store::kind::PROFILE, rookery_core::store::OWN, &stored.host)
+                                .ok()
+                                .flatten()
+                                .unwrap_or_else(|| stored.host.clone());
+                            (stored, name)
+                        })
+                        .collect();
+                    Ok::<_, rookery_core::store::Error>((named, found.1))
+                })
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))?
+                .map_err(api::Fail::from)?
+            };
+            let mut messages = vec![];
+            for (stored, host) in found.0 {
+                let seen = call.is_admin()
+                    || rookery_facilities::access::holds(&call, &crate::uri(&host), Grant::View).await?;
+                if seen {
+                    messages.push(HostMessage { message: stored.message, host, done: stored.done, seq: stored.seq });
+                }
+            }
+            Ok(MessageList { messages, next: found.1 })
+        })
+        .summary("The messages hosts kept on their channels, newest first, of the hosts the caller sees.")
+        .level(Level::Own);
+    for (method, done, summary) in [
+        ("hosts.messages.done", true, "Marks a host's message done."),
+        (
+            "hosts.messages.reopen",
+            false,
+            "Marks a host's message open again.",
+        ),
+    ] {
+        methods
+            .add(method, move |call: Call, p: MessageRef| async move {
+                let state = serve(&call)?;
+                let host = name(&p.host);
+                let changed = tokio::task::spawn_blocking(move || {
+                    let key = api::host_key(&state.paths, &host);
+                    state.store.set_done(&key, p.id, done)
+                })
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))?
+                .map_err(api::Fail::from)?;
+                match changed {
+                    true => Ok(Empty {}),
+                    false => Err(RpcError::not_found("no such message")),
+                }
+            })
+            .summary(summary)
+            .level(host(Grant::Manage));
+    }
+    methods
+        .add(
+            "hosts.channel.listen",
+            |call: Call, p: HostQuery| async move {
+                let target = format!("/v1/channel{}", query_of(&p.query));
+                pass_stream(
+                    &call,
+                    &name(&p.host),
+                    Capability::Sessions,
+                    target,
+                    Carry::Lines,
+                )
+                .await
+            },
+        )
+        .summary(
+            "A host's channel as its messages come, a JSON line each, from `since` in `query`.",
+        )
+        .stream()
+        .level(host(Grant::View));
 }
 
 fn register_keys(methods: &mut Methods) {
@@ -772,6 +1168,120 @@ fn register_provisioning(methods: &mut Methods) {
         )
         .summary("A resource's log as it comes, then a line with how it ended.")
         .stream()
+        .level(Level::Admin);
+}
+
+fn text(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
+fn parsed<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, RpcError> {
+    serde_json::from_value(value).map_err(|e| RpcError::invalid(format!("value: {e}")))
+}
+
+/// The installation's secrets, settings and registries, as Rookery has had them: a host's SSH and
+/// sudo passwords, a registry's login and a provisioner's secrets belong to what they are for.
+fn register_installation(methods: &mut Methods) {
+    methods
+        .add("installation.secrets.list", |call: Call, _: Empty| async move {
+            answer(&call, setup::secrets(serve(&call)?)).await
+        })
+        .summary("The names of the installation's secrets: its own, and those of hosts, registries and provisioners.")
+        .level(Level::Admin);
+    methods
+        .add("installation.secrets.set", |call: Call, p: NamedValue| async move {
+            let value = parsed(json!({"value": text(&p.value)}))?;
+            answer(&call, setup::set_secret(serve(&call)?, p.name.clone(), value)).await?;
+            call.audit("secret.set", None, json!({"name": p.name})).await;
+            Ok(Empty {})
+        })
+        .summary("Sets a secret: sudo/HOST and ssh/HOST for a host's passwords, registry/NAME for a registry's login, or one of a name of its own.")
+        .level(Level::Admin);
+    methods
+        .add(
+            "installation.secrets.rename",
+            |call: Call, p: NamedValue| async move {
+                let to = parsed(json!({"name": text(&p.value)}))?;
+                answer(&call, setup::rename_secret(serve(&call)?, p.name, to)).await?;
+                Ok(Empty {})
+            },
+        )
+        .summary("Renames a secret of a name of its own; value is the new name.")
+        .level(Level::Admin);
+    methods
+        .add(
+            "installation.secrets.remove",
+            |call: Call, p: Named| async move {
+                answer(&call, setup::remove_secret(serve(&call)?, p.name.clone())).await?;
+                call.audit("secret.remove", None, json!({"name": p.name}))
+                    .await;
+                Ok(Empty {})
+            },
+        )
+        .summary("Removes a secret.")
+        .level(Level::Admin);
+    methods
+        .add(
+            "installation.settings.list",
+            |call: Call, _: Empty| async move {
+                let caller = access(&call, None).await?;
+                answer(&call, setup::settings(serve(&call)?, caller)).await
+            },
+        )
+        .summary(
+            "The installation's settings, with what each means; secret ones without their value.",
+        )
+        .level(Level::Admin);
+    methods
+        .add("installation.settings.set", |call: Call, p: NamedValue| async move {
+            let caller = access(&call, None).await?;
+            let value = parsed(json!({"value": text(&p.value)}))?;
+            answer(&call, setup::set_setting(serve(&call)?, caller, p.name.clone(), value)).await?;
+            call.audit("setting.set", None, json!({"name": p.name})).await;
+            Ok(Empty {})
+        })
+        .summary("Sets one of the installation's settings, or with an empty value takes it back to its default. Those that are not open are set over the socket alone.")
+        .level(Level::Admin);
+    methods
+        .add("registries.list", |call: Call, _: Empty| async move {
+            answer(&call, setup::registries(serve(&call)?)).await
+        })
+        .summary("The registries hosts are given logins and mirrors of; connections of the type registry.")
+        .level(Level::Admin);
+    methods
+        .add("registries.save", |call: Call, p: NamedValue| async move {
+            answer(&call, setup::save_registry(serve(&call)?, p.name, p.value)).await?;
+            Ok(Empty {})
+        })
+        .summary("Saves a registry: value is the registry, with its type and url.")
+        .level(Level::Admin);
+    methods
+        .add(
+            "registries.rename",
+            |call: Call, p: NamedValue| async move {
+                let to = parsed(json!({"name": text(&p.value)}))?;
+                answer(&call, setup::rename_registry(serve(&call)?, p.name, to)).await?;
+                Ok(Empty {})
+            },
+        )
+        .summary("Renames a registry, with its login; value is the new name.")
+        .level(Level::Admin);
+    methods
+        .add("registries.remove", |call: Call, p: Named| async move {
+            answer(&call, setup::remove_registry(serve(&call)?, p.name)).await?;
+            Ok(Empty {})
+        })
+        .summary("Removes a registry with its login.")
+        .level(Level::Admin);
+    methods
+        .add("registries.check", |call: Call, p: Named| async move {
+            answer(&call, setup::check_registry(serve(&call)?, p.name)).await
+        })
+        .summary("Whether a registry answers, and takes its login.")
         .level(Level::Admin);
 }
 

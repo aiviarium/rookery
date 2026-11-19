@@ -179,3 +179,16 @@ pub struct Sso {
     /// Whether the server has the provider's metadata. Without it `/auth/login` fails.
     pub ready: bool,
 }
+
+/// `admin.createToken`: an access token of a person, by name or email, made by an admin, such as the
+/// CLI on the server's own machine does for scripts. A person of no such name is made, as a local
+/// account.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct TokenFor {
+    pub user: String,
+    pub name: String,
+    /// A person made for it is an admin.
+    #[serde(default)]
+    pub admin: bool,
+}
