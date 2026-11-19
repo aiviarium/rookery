@@ -72,6 +72,28 @@ fn user_of(call: &Call) -> Option<uuid::Uuid> {
     }
 }
 
+async fn audit_change(call: &Call, action: &str, plugin: &str, key: &str, at: Scope) {
+    match at {
+        Scope::Global => {
+            call.audit(
+                action,
+                Some(&format!("plugin://{plugin}")),
+                serde_json::json!({ "key": key }),
+            )
+            .await;
+        }
+        Scope::Space(space) => {
+            call.audit(
+                action,
+                Some(&format!("space://{space}")),
+                serde_json::json!({ "plugin": plugin, "key": key }),
+            )
+            .await;
+        }
+        _ => {}
+    }
+}
+
 pub fn register(methods: &mut Methods) {
     methods
         .add("settings.get", |call: Call, p: SettingRef| async move {
@@ -107,15 +129,7 @@ pub fn register(methods: &mut Methods) {
             let at = scope(&call, &p.plugin, p.scope, p.space.as_deref()).await?;
             call.store().settings().set(&p.plugin, &p.key, at, &p.value, &call.audit_name()).await?;
             // What others read is audited: the global value, and a space's on the space.
-            match at {
-                Scope::Global => {
-                    call.audit("settings.set", Some(&format!("plugin://{}", p.plugin)), serde_json::json!({ "key": p.key })).await;
-                }
-                Scope::Space(space) => {
-                    call.audit("settings.set", Some(&format!("space://{space}")), serde_json::json!({ "plugin": p.plugin, "key": p.key })).await;
-                }
-                _ => {}
-            }
+            audit_change(&call, "settings.set", &p.plugin, &p.key, at).await;
             Ok(Empty {})
         })
         .summary("Sets a plugin's setting: its default (the plugin, or an admin), the global value (an admin), a space's (its managers) or the caller's own.")
@@ -125,6 +139,7 @@ pub fn register(methods: &mut Methods) {
             rookery_kernel::methods::named_plugin(&call, &p.plugin)?;
             let at = scope(&call, &p.plugin, p.scope, p.space.as_deref()).await?;
             call.store().settings().reset(&p.plugin, &p.key, at).await?;
+            audit_change(&call, "settings.reset", &p.plugin, &p.key, at).await;
             Ok(Empty {})
         })
         .summary("Removes a setting's value at one scope, so the next one shows through.")

@@ -1156,49 +1156,59 @@ async fn settings_storage_and_connections_have_a_space_scope_for_its_members() {
         ),
         "NOT_FOUND"
     );
-    // A plugin resolves a space's connection only for a person who uses the space.
+    // The same lookup hides a scoped connection and a missing connection from a plugin.
     let docs = Caller::Plugin("docs".into());
-    let id_of = |c: &Caller| c.user().unwrap().id.clone();
-    let by_id = |user: Option<String>| match user {
-        Some(u) => json!({ "id": made["id"], "user": u }),
-        None => json!({ "id": made["id"] }),
-    };
-    assert_eq!(
-        code(k.call(&docs, "connections.resolve", by_id(None)).await),
-        "FORBIDDEN"
-    );
-    for outsider in [&bob, &eve] {
+    for id in [made["id"].clone(), json!(uuid::Uuid::now_v7().to_string())] {
         assert_eq!(
             code(
-                k.call(&docs, "connections.resolve", by_id(Some(id_of(outsider))))
+                k.call(&docs, "connections.resolve", json!({ "id": id }))
                     .await
             ),
-            "NOT_FOUND",
-            "view is not use"
+            "NOT_FOUND"
         );
     }
-    let resolved = k
-        .call(&docs, "connections.resolve", by_id(Some(id_of(&ada))))
+    let by_name = json!({ "type": "http", "name": "wiki", "space": space });
+    assert_eq!(
+        code(k.call(&docs, "connections.resolve", by_name.clone()).await),
+        "NOT_FOUND"
+    );
+    let global = k
+        .call(
+            &admin,
+            "connections.create",
+            json!({
+                "type": "http", "name": "wiki", "scope": "global",
+                "config": { "url": "https://global.example.test" }, "credential": "global-key"
+            }),
+        )
         .await
         .unwrap();
-    assert_eq!(resolved["connection"]["name"], "wiki");
-    let by_name = json!({ "type": "http", "name": "wiki", "space": space, "user": id_of(&ada) });
     assert_eq!(
-        k.call(&docs, "connections.resolve", by_name).await.unwrap()["connection"]["id"],
-        made["id"]
+        k.call(&docs, "connections.resolve", by_name.clone())
+            .await
+            .unwrap()["connection"]["id"],
+        global["id"]
     );
-    assert_eq!(
-        code(
+    for caller in [&admin, &Caller::Local] {
+        assert_eq!(
             k.call(
-                &docs,
+                caller,
                 "connections.resolve",
-                json!({ "type": "http", "name": "wiki", "user": id_of(&ada) })
+                json!({ "id": made["id"], "plugin": "docs" })
             )
             .await
-        ),
-        "NOT_FOUND",
-        "without the space, only the person's own and global connections"
-    );
+            .unwrap()["connection"]["id"],
+            made["id"]
+        );
+        let mut request = by_name.clone();
+        request["plugin"] = json!("docs");
+        assert_eq!(
+            k.call(caller, "connections.resolve", request)
+                .await
+                .unwrap()["connection"]["id"],
+            made["id"]
+        );
+    }
     // A space's setting is audited on the space.
     let audited =
         k.db.store
@@ -1262,6 +1272,93 @@ async fn disabled_accounts_hold_no_access_level() {
             .unwrap(),
             json!({"level": null})
         );
+    }
+    k.close().await;
+}
+
+#[tokio::test]
+async fn resolving_personal_connections_requires_the_authenticated_owner() {
+    let k: TestKernel = test_kernel!(methods());
+    let owner = k.person("Ada", true).await;
+    let other = k.person("Fran", true).await;
+    let docs = Caller::Plugin("docs".into());
+    let made = k
+        .call(
+            &owner,
+            "connections.create",
+            json!({
+                "type": "http", "name": "wiki", "scope": "user",
+                "config": { "url": "https://wiki.example.test" }, "credential": "personal-key"
+            }),
+        )
+        .await
+        .unwrap();
+    for caller in [&docs, &other, &Caller::Local] {
+        let mut params = json!({ "id": made["id"] });
+        if caller.is_admin() {
+            params["plugin"] = json!("docs");
+        }
+        assert_eq!(
+            code(k.call(caller, "connections.resolve", params).await),
+            "NOT_FOUND"
+        );
+    }
+    for params in [
+        json!({"plugin": "docs", "id": made["id"]}),
+        json!({"plugin": "docs", "type": "http", "name": "wiki"}),
+    ] {
+        let resolved = k.call(&owner, "connections.resolve", params).await.unwrap();
+        assert_eq!(resolved["credential"], "personal-key");
+    }
+    k.close().await;
+}
+
+#[test]
+fn connection_resolution_accepts_no_identity_parameter() {
+    use rookery_proto::facilities::ConnectionResolve;
+    let id = uuid::Uuid::now_v7().to_string();
+    assert!(serde_json::from_value::<ConnectionResolve>(json!({ "id": id })).is_ok());
+    assert!(
+        serde_json::from_value::<ConnectionResolve>(
+            json!({ "id": id, "user": uuid::Uuid::now_v7() })
+        )
+        .is_err()
+    );
+}
+
+#[tokio::test]
+async fn resetting_shared_settings_is_audited_on_the_right_resource() {
+    let k: TestKernel = test_kernel!(methods());
+    let admin = k.person("Maria", true).await;
+    let ada = k.person("Ada", false).await;
+    let bob = k.person("Bob", false).await;
+    let space = space_of(&k, &ada, &bob, 1).await;
+    for (caller, scope, target) in [
+        (&admin, "global", "plugin://notes".to_owned()),
+        (&ada, "space", format!("space://{space}")),
+    ] {
+        let mut params =
+            json!({ "plugin": "notes", "key": "pageSize", "scope": scope, "space": space });
+        params["value"] = json!(20);
+        k.call(caller, "settings.set", params.clone())
+            .await
+            .unwrap();
+        params.as_object_mut().unwrap().remove("value");
+        k.call(caller, "settings.reset", params).await.unwrap();
+        let entries =
+            k.db.store
+                .audit()
+                .list(&rookery_store::audit::Filter {
+                    action: Some("settings.reset".into()),
+                    resource: Some(target.clone()),
+                    limit: 10,
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].resource.as_deref(), Some(target.as_str()));
+        assert_eq!(entries[0].details["key"], "pageSize");
     }
     k.close().await;
 }

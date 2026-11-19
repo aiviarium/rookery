@@ -271,11 +271,8 @@ export interface Secrets {
 export interface Connections {
   list(opts?: { type?: string; space?: string }): Promise<ConnectionInfo[]>
   get(id: string): Promise<ConnectionInfo>
-  /**
-   * A connection with its credential. A space's connection needs `user`, the person the plugin acts
-   * for, to hold `use` on the space.
-   */
-  resolve(id: string, opts?: { user?: string }): Promise<ConnectionResolved>
+  /** A global connection with its credential. */
+  resolve(id: string): Promise<ConnectionResolved>
 }
 
 export interface BlobOptions {

@@ -2518,14 +2518,14 @@
   },
   {
     "name": "connections.resolve",
-    "summary": "A connection with its credential, for the plugin that uses it.",
+    "summary": "A connection with its credential. Plugins resolve global connections.",
     "level": {
       "kind": "plugin"
     },
     "params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "`connections.resolve`: by id, or by type and name: the person's own, then the space's, then the\nglobal one. A person's connection is theirs only, and a space's needs the person to hold `use`\non the space: a plugin names the person it acts for in `user`, as with `access.levelOf`.",
+      "description": "`connections.resolve`: by id, or by type and name. Plugins resolve global connections.\nAdmins can also resolve their own personal connections and connections in a named space.",
       "properties": {
         "id": {
           "default": null,
@@ -2558,14 +2558,6 @@
         },
         "type": {
           "default": null,
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "user": {
-          "default": null,
-          "description": "The person the plugin acts for, `<id>`; a person calling is themselves.",
           "type": [
             "string",
             "null"

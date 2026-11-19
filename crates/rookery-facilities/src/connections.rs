@@ -586,12 +586,8 @@ pub fn register(methods: &mut Methods) {
             "connections.resolve",
             |call: Call, p: ConnectionResolve| async move {
                 let plugin = call.plugin(p.plugin.as_deref())?;
-                // The person the call acts for: the caller, or whom the plugin names.
-                let user = match (&call.caller, &p.user) {
-                    (Caller::User { user, .. }, _) => uuid::Uuid::parse_str(&user.id).ok(),
-                    (_, Some(u)) => Some(parse_id("user", u)?),
-                    _ => None,
-                };
+                // A plugin's connection authenticates the plugin alone, even inside an RPC handler.
+                let user = call.user().and_then(|u| uuid::Uuid::parse_str(&u.id).ok());
                 if let (Caller::Plugin(_), None, Some(id)) = (&call.caller, &p.id, &p.kind) {
                     require_kind(&call, &plugin, id)?;
                 }
@@ -601,32 +597,28 @@ pub fn register(methods: &mut Methods) {
                     .map(|s| parse_id("space", s))
                     .transpose()?;
                 let connections = call.store().connections();
-                let found = match (&p.id, &p.kind, &p.name) {
-                    (Some(id), _, _) => connections
-                        .get(parse_id("connection", id)?)
-                        .await?
-                        .filter(|c| c.user_id.is_none() || c.user_id == user),
-                    (None, Some(kind), Some(name)) => {
-                        connections.find_in(kind, name, user, space).await?
-                    }
-                    _ => {
-                        return Err(RpcError::invalid(
-                            "name the connection by id, or by type and name",
-                        ));
-                    }
-                };
-                // A space's connection is for the people who use the space.
-                if let Some(s) = found.as_ref().and_then(|c| c.space_id) {
-                    let Some(u) = user else {
-                        return Err(RpcError::forbidden(
-                            "a space's connection is used for a person: name them in user",
-                        ));
+                let found =
+                    match (&p.id, &p.kind, &p.name) {
+                        (Some(id), _, _) => connections
+                            .get(parse_id("connection", id)?)
+                            .await?
+                            .filter(|c| match (c.user_id, c.space_id) {
+                                (Some(owner), _) => user == Some(owner),
+                                (None, Some(_)) => call.is_admin(),
+                                (None, None) => true,
+                            }),
+                        (None, Some(kind), Some(name)) => {
+                            // Only filter by scopes this caller can use, so a hidden override falls
+                            // through to the global connection.
+                            let space = space.filter(|_| call.is_admin());
+                            connections.find_in(kind, name, user, space).await?
+                        }
+                        _ => {
+                            return Err(RpcError::invalid(
+                                "name the connection by id, or by type and name",
+                            ));
+                        }
                     };
-                    let held = crate::access::user_level(&call, u, &format!("space://{s}")).await?;
-                    if held.is_none_or(|l| l < rookery_kernel::Grant::Use) {
-                        return Err(RpcError::not_found("no such connection"));
-                    }
-                }
                 let found = found.ok_or_else(|| RpcError::not_found("no such connection"))?;
                 if matches!(call.caller, Caller::Plugin(_)) {
                     require_kind(&call, &plugin, &found.kind)?;
@@ -648,6 +640,6 @@ pub fn register(methods: &mut Methods) {
                 })
             },
         )
-        .summary("A connection with its credential, for the plugin that uses it.")
+        .summary("A connection with its credential. Plugins resolve global connections.")
         .level(Level::Plugin);
 }
