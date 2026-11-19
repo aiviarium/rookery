@@ -85,9 +85,9 @@ UNITS = {
     'ts': dict(only=TS_PATHS),
 }
 
-# The shards that apply nothing but the first apply: they test rookery's own
-# code, so they run for any change rookery is built from.
-SMOKE = {'studio', 'forge'}
+# The shard that applies nothing but the first apply: it tests rookery's own
+# code, so it runs for any change rookery is built from.
+SMOKE = {'studio'}
 
 
 def files():

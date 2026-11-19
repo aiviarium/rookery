@@ -229,9 +229,9 @@ jobs:
           unit: ${{ needs.plan.outputs.ts }}
 
   # Each shard of the end-to-end tests (SHARDS of tests/e2e/run.py) in a job of
-  # its own, on fresh test hosts. A shard may hold the tests of both hosts,
-  # which then run side by side, so a run asks the runners for six jobs and not
-  # nine.
+  # its own, on fresh test hosts. A shard holds the tests of both hosts where it
+  # can, which then run side by side, so a run asks the runners for four jobs
+  # and not nine.
   # They build the images from the cache that the images job keeps, so they start when rookery is
   # built and do not wait for that job.
   e2e:

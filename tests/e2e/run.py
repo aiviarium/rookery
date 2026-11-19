@@ -84,31 +84,32 @@ HOSTS = {
 
 # The tests of each host cut into shards, in the order HOSTS has them. Each
 # shard starts from fresh hosts, so it pays for the first apply and the states
-# it uses; one state is never cut in two. A shard may hold the tests of both
-# hosts, which then run side by side, so that a run asks the runners for fewer
-# jobs. The shards `studio` and `forge` are the tests that make no apply but
-# the first: ci/plan.py runs them for any change to rookery, and the others
-# only for changes to what the role is given (its SEAM) on a pull request. A
-# shard of the tests that run only for SEAM may not hold one of those, which a
-# pull request would then skip.
+# it uses; one state is never cut in two. A shard holds the tests of both hosts
+# where it can: the tests of each host then run side by side, so that a run
+# asks the runners for four jobs and not nine. The shard `studio` is the tests
+# that make no apply but the first: ci/plan.py runs it for any change to
+# rookery, and the others only for changes to what the role is given (its SEAM)
+# on a pull request. A shard of those that run only for SEAM may not hold a
+# test of the others, which a pull request would then skip.
 SHARDS = {
+    # On `studio`, the tests that make no apply but the first, and a server of
+    # its own restored from a dump of its database, after the other tests of
+    # it. On `forge` beside them, the bare host: the ways rookery logs in,
+    # rookery's controller alone, which leave it as they found it, then the
+    # provisioners, which need no host, and last a node, which stays one.
     'studio': ['e2e_apply.Apply', 'e2e_host', 'e2e_secrets', 'e2e_local', 'e2e_controller.OnAWorkstation',
                'e2e_serve.Methods', 'e2e_serve.Streams', 'e2e_serve.Grants', 'e2e_serve.SetUp',
-               'e2e_client.Client', 'e2e_client.AccessToken',
-               # A server of its own, restored from a dump of its database, after the other tests of it.
-               'e2e_restore'],
-    # The bare host first: the ways rookery logs in, rookery's controller
-    # alone, which leave it as they found it, then the provisioners, which need
-    # no host, and last a node, which stays one.
-    'forge': ['e2e_access', 'e2e_controller.Controller', 'e2e_provisioners', 'e2e_node'],
-    # A host another rookery adopts, and one that only ever takes rookery's own
-    # key, side by side on the two hosts.
-    'adopt': ['e2e_adopt.Adopt', 'e2e_own_key'],
+               'e2e_client.Client', 'e2e_client.AccessToken', 'e2e_restore',
+               'e2e_access', 'e2e_controller.Controller', 'e2e_provisioners', 'e2e_node'],
+    # The most applies of any state, on `studio`; on `forge` beside it, the host
+    # that only ever takes rookery's own key.
     'extended': ['e2e_apply.Again', 'e2e_plugins.Plugin', 'e2e_tailnet.AutomaticKey', 'e2e_update.Update',
-                 'e2e_update.ShippedChanged'],
-    'plain': ['e2e_plugins.PluginRemoved', 'e2e_tailnet.JoinedByHand'],
+                 'e2e_update.ShippedChanged',
+                 'e2e_own_key'],
     'served-extended': ['e2e_tailnet.ThroughTheServer', 'e2e_serve.ApplyJob', 'e2e_client.ClientApply',
                         'e2e_update.UpdateServed'],
+    # A host another rookery adopts, then without the plugins it brought.
+    'adopt': ['e2e_adopt.Adopt', 'e2e_plugins.PluginRemoved', 'e2e_tailnet.JoinedByHand'],
 }
 
 
