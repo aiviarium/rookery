@@ -61,11 +61,11 @@ ovh-incus                Incus virtual machine
 
 The listing is shortened here. A secret marked *not set* is required and has no value yet.
 
-In the terminal UI, `a` on the **Provisioners** tab adds one. It asks for the name and then the type.
+`rookery provisioner add NAME TYPE` registers one, and asks for the settings the type requires.
 
-`rookery provisioner rename NAME NEW` gives a provisioner another name. It keeps its [id](/docs/reference/ids). Its settings, its secrets, the resources and machines it made or plans, and its jobs stay with it, and what it made is not touched. The action `rename` on its page does the same.
+`rookery provisioner rename NAME NEW` gives a provisioner another name. It keeps its [id](/docs/reference/ids). Its settings, its secrets, the resources and machines it made or plans, and its jobs stay with it, and what it made is not touched.
 
-`rookery provisioner remove NAME` forgets a provisioner, with its settings and its own secrets. Rookery refuses while it holds anything, so remove what it made first. The action `remove` on its page does the same. The action `adopt` makes one you registered the provisioner of a [node](/docs/use/nodes#take-in-a-server-that-exists) that reaches the same server.
+`rookery provisioner remove NAME` forgets a provisioner, with its settings and its own secrets. Rookery refuses while it holds anything, so remove what it made first. The action `adopt` makes one you registered the provisioner of a [node](/docs/use/nodes#take-in-a-server-that-exists) that reaches the same server.
 
 ## A provisioner's page
 
@@ -141,7 +141,7 @@ The plugin declares the secrets its provisioners need, such as `incus_client_cer
 rookery secret set provisioner/ovh-incus/incus_server_cert < server.crt
 ```
 
-The action `secrets` on the provisioner's page takes each in a hidden field. An empty value keeps what it has, and `-` forgets it. The Secrets tab of the terminal UI leaves them out. A provisioner a node offers gets the client certificate the node trusts as its own, at each apply of the node.
+`rookery provisioner show NAME` lists what one requires. A provisioner a node offers gets the client certificate the node trusts as its own, at each apply of the node.
 
 ### Actions
 
@@ -153,7 +153,7 @@ rookery provisioner run docker prune volumes=yes
 
 In a terminal, `run` prompts for a required argument you leave out. It puts the action's question first, unless `--yes` is given. An action that only reads, such as `images`, answers at once. One that changes something runs as a job and shows its output as it comes. Only one such job runs at a time for a provisioner.
 
-In the terminal UI, the **Provisioners** tab of the home screen (`2`) lists the provisioners, and `a` registers one. Enter opens a page, which lists the actions in their groups and what Rookery made there, by kind. Enter on an action shows its question and then a dialog for its arguments. A job's output fills a panel. An argument of several lines, such as a Compose file, keeps the line breaks of what you paste. Each shows as `⏎`. Enter on something Rookery made opens its [resource's page](/docs/deploy/resources#in-the-terminal-ui), and Esc comes back.
+`rookery provisioner show NAME` lists a provisioner's actions in their groups, and what Rookery made with it, by kind. `rookery provisioner run NAME ACTION NAME=VALUE` runs one, and `rookery resource show` opens the [page of what it made](/docs/deploy/resources).
 
 ## Seed and apply
 
@@ -241,15 +241,9 @@ The output of the provisioner and of the set-up follows as it runs. Rookery ends
 </Step>
 </Steps>
 
-In the terminal UI, choose **Create a machine** under **How To Install** on the host's Install tab. The arguments of the provisioner are spread over the tabs:
+`rookery host create studio --provisioner ovh-incus cpus=4` creates the machine. The first provisioner is chosen when you name none. There is no target to choose: a created machine always has the target `cloud`, which Rookery writes into the profile before it creates the machine.
 
-| Tab | Shows |
-| --- | --- |
-| Install | **Provisioner**, a choice like any other. Space or Enter switches to the next one, and → chooses from the suggestions. Under it the required arguments, marked `*` |
-| Settings | Under **Machine**, the resources it has, such as CPUs, memory and disk. Under **Provisioner Options**, its other arguments |
-| Run | **Create with PROVISIONER**, and every problem |
-
-The first provisioner is chosen when the list arrives. There is no **Target** row. A created machine always has the target `cloud`. Rookery writes that into the profile before it creates the machine, on the command line as well. Enter on an argument changes it. A missing secret is a problem of the Install tab, and a bad resource value one of the Settings tab. **Create with PROVISIONER** on the Run tab asks once before it saves the profile and starts, and does not start while a problem is listed. The output is shown as it runs. The screens are the same with a [Rookery server](/docs/use/server) elsewhere.
+The provisioner's arguments are given as `NAME=VALUE`, and each one it requires and that has no default is asked for at a terminal. The set-up asks for what the provisioner requires with the way to install, and keeps its resources, such as CPUs, memory and disk, for the settings. A missing secret is a problem of the way to install, and a bad resource value one of the settings. Rookery asks once before it saves the profile and starts, and does not start while a problem is listed. The output is shown as it runs. A [Rookery server](/docs/use/server) elsewhere works the same.
 
 Only one thing runs at a time for a host. A second command for the same host is refused until the first ends.
 
@@ -282,7 +276,7 @@ Its log: rookery resource logs r-k3q7wz2m [--follow]
 
 The state comes from the provisioner each time you ask. A machine the platform no longer has is `missing`, and its record stays until you delete it through Rookery ([States](/docs/deploy/resources#states)).
 
-`rookery host start HOST` and `stop` go through the provisioner when it offers them. The actions above say which, and so does the host's `power` ([Starting and stopping](/docs/use/lifecycle#starting-and-stopping)). The Run tab shows the machine's state and a **Start** and **Stop** row in the same cases, whatever install method is chosen.
+`rookery host start HOST` and `stop` go through the provisioner when it offers them. The actions above say which, and so does the host's `power` ([Starting and stopping](/docs/use/lifecycle#starting-and-stopping)). `rookery host show HOST` shows the machine's state, whatever install method was chosen.
 
 ## When it fails
 

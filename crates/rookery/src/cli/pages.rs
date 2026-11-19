@@ -4,9 +4,44 @@
 use rookery_api::{
     Action, PluginInfo, ProvisionerInfo, ProvisionerKind, ProvisionerState, Resource,
 };
+use serde_json::Value;
 use std::collections::BTreeMap;
 
-pub use rookery_tui::provisioners::answer_lines;
+/// The group an action is listed in. System is another name for the host's
+/// own group.
+pub fn group_of(action: &Action) -> &str {
+    match action.group.as_str() {
+        "" | "System" => "Host",
+        group => group,
+    }
+}
+
+/// What an action that answered at once said, as lines.
+pub fn answer_lines(answer: &Value) -> Vec<String> {
+    let mut lines = vec![];
+    if let Some(message) = answer["message"].as_str().filter(|text| !text.is_empty()) {
+        lines.push(message.to_owned());
+    }
+    let rows: Vec<(String, String)> = answer["details"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|row| {
+            let text = |key: &str| row[key].as_str().unwrap_or("").to_owned();
+            (text("label"), text("value"))
+        })
+        .collect();
+    let width = rows
+        .iter()
+        .map(|(label, _)| label.chars().count())
+        .max()
+        .unwrap_or(0);
+    lines.extend(
+        rows.into_iter()
+            .map(|(label, value)| format!("  {label:<width$}  {value}")),
+    );
+    lines
+}
 
 /// What `rookery plugin show` prints: each plugin with what its features add.
 pub fn plugins(plugins: &[PluginInfo]) -> String {
@@ -233,10 +268,7 @@ pub fn provisioner(
             .collections
             .iter()
             .find(|collection| collection.id == action.collection)
-            .map_or_else(
-                || rookery_tui::page::group_of(action),
-                |collection| collection.plural.as_str(),
-            );
+            .map_or_else(|| group_of(action), |collection| collection.plural.as_str());
         match groups
             .iter_mut()
             .find(|(known, _)| known.eq_ignore_ascii_case(title))

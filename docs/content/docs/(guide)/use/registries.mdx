@@ -34,9 +34,7 @@ rookery registry list                                  # the list
 rookery registry check                            # do they answer and accept the login?
 ```
 
-The **Registries** tab of the home screen (`4`) does the same. Enter changes the selected row, or switches the kind or format; `x` removes a repository, a user name or a stored password. `x` twice on a registry's name removes the registry.
-
-`c` on the tab, or `rookery registry check`, checks that the server answers, that each repository exists and is readable with the stored login, and that a Docker address speaks the Docker API. It only reads, so it does not show whether the account may upload.
+`rookery registry remove` takes a registry away again, and its repository and login with it. `rookery registry check` checks that the server answers, that each repository exists and is readable with the stored login, and that a Docker address speaks the Docker API. It only reads, so it does not show whether the account may upload.
 
 ### Nexus repositories
 
@@ -55,11 +53,11 @@ rookery host set studio registry.nexus=on
 rookery run studio secrets
 ```
 
-Or switch it on under **Registries** on the host's **Settings** tab and run **Secrets and registry logins**. The agent's `~/.npmrc` gets the first npm repository as its registry with the login, in a block Rookery manages. The rest of the file is kept. `~/.docker/config.json` gets the login of every Docker address.
+Or switch it on with `rookery host set studio registry.nexus=on`, then send the logins with `rookery run studio secrets`. The agent's `~/.npmrc` gets the first npm repository as its registry with the login, in a block Rookery manages. The rest of the file is kept. `~/.docker/config.json` gets the login of every Docker address.
 
 ## Publishing the release archive
 
-A machine set up from a [cloud seed](/docs/deploy/cloud) downloads the release archive. With **Cloud-init seed** chosen on a host's Install tab, **Publish release to** under Release on the Settings tab switches between your file servers and raw repositories. **Download with login** decides whether the machine logs in for the download. Making the seed then uploads the archive and points the seed at it. From the command line:
+A machine set up from a [cloud seed](/docs/deploy/cloud) downloads the release archive. With the cloud seed as the method, `release_store` names a file server or raw repository of the registries, and `release_private` decides whether the machine logs in for the download. Making the seed then uploads the archive and points the seed at it:
 
 ```bash
 rookery registry publish nexus/rookery-releases --host cloud-1

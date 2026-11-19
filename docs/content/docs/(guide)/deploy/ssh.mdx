@@ -6,7 +6,7 @@ icon: Server
 
 This method runs the role over SSH against a machine that already has Ubuntu. The role adds accounts, packages and services to the existing system without partitioning or reinstalling.
 
-A machine that should stay as it is can be added with only an address instead, and get Rookery's controller alone or nothing at all ([Host types](/docs/use/types)). The **Type** row on the Install tab chooses.
+A machine that should stay as it is can be added with only an address instead, and get Rookery's controller alone or nothing at all ([Host types](/docs/use/types)). `type` says which.
 
 <Callout type="warn" title="Dedicated machines only">
   The role installs services, changes the firewall policy and grants the agent sudo for the entire machine. Do not point it at a computer you use for anything else.
@@ -27,35 +27,35 @@ Your machine needs `ssh` and `ansible-playbook` ([Install](/docs/start/install#w
 
 ### Choose the method
 
-On the host's **Install** tab, choose **Existing host over SSH**. The SSH rows follow under it.
+`rookery host create studio --method ssh` asks for the way to log in and the address first.
 
 </Step>
 <Step>
 
 ### Give the address
 
-Enter a hostname, an IP address or a `Host` alias from your SSH configuration in **SSH host**. Rookery logs in from the machine its server runs on, with that machine's SSH configuration and its aliases.
+It asks for the address as `address`: a hostname, an IP address or a `Host` alias from your SSH configuration. Rookery logs in from the machine its server runs on, with that machine's SSH configuration and its aliases.
 
 </Step>
 <Step>
 
 ### Say how to log in
 
-**Log in with** says how Rookery logs in ([Logging in to hosts](/docs/use/accounts#logging-in-to-hosts)). The default is [the key of Rookery itself](/docs/reference/profile#the-key-of-rookery-itself). `ssh` uses your own ssh-agent and SSH configuration. A host that doesn't take Rookery's key yet gets it with `rookery key trust HOST` and a password used once. **Ask for sudo password** says whether Rookery asks for one on the target. Rookery records the host's SSH host key at the first login, and refuses the host if the key changes later.
+`login` says how Rookery logs in ([Logging in to hosts](/docs/use/accounts#logging-in-to-hosts)). The default is [the key of Rookery itself](/docs/reference/profile#the-key-of-rookery-itself). `ssh` uses your own ssh-agent and SSH configuration. A host that doesn't take Rookery's key yet gets it with `rookery key trust HOST` and a password used once. `ask_become_pass` says whether Rookery asks for a sudo password on the target. Rookery records the host's SSH host key at the first login, and refuses the host if the key changes later.
 
 </Step>
 <Step>
 
 ### Run
 
-Look over **Features** and **Settings**, then press Enter on **Run · Existing host over SSH** on the **Run** tab. Rookery writes a temporary private Ansible inventory and runs the role against the host in your terminal. When it finishes, the profile keeps the SSH address and `rookery HOST` opens the host's [overview](/docs/use/overview).
+Answer the rest of the questions, and answer yes to applying it. Rookery writes a temporary private Ansible inventory and runs the role against the host in your terminal, through `rookery apply studio`. When it finishes, the profile keeps the SSH address and `rookery host show studio` says how the host is.
 
 </Step>
 </Steps>
 
 ## The firewall
 
-The role turns on UFW. It keeps SSH open for the address you installed from and for the **Recovery SSH CIDR** if you set one. Everything else, including Cockpit, goes through the tailnet: UFW allows management on `tailscale0`.
+The role turns on UFW. It keeps SSH open for the address you installed from and for the recovery SSH CIDR, `bootstrap_ssh_cidr`, if you set one. Everything else, including Cockpit, goes through the tailnet: UFW allows management on `tailscale0`.
 
 <Callout type="warn">
   Remove a temporary SSH rule only after checking that SSH over the tailnet works.
@@ -65,6 +65,6 @@ Docker's published ports can bypass UFW's input rules. Publish project services 
 
 ## Applying changes later
 
-The same profile installs the host again with **Apply this configuration** on its overview, such as after switching a feature on. Applying is safe to repeat, and a second run on an unchanged profile does not change anything.
+The same profile installs the host again with `rookery apply studio`, such as after switching a feature on. Applying is safe to repeat, and a second run on an unchanged profile does not change anything.
 
 Profiles of other kinds, and installing without Rookery, are on [Ansible directly](/docs/deploy/ansible).

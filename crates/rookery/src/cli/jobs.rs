@@ -11,6 +11,59 @@ use rookery_api::portal::Piece;
 use serde_json::{Value, json};
 use std::io::Write;
 
+/// A job's arguments as words a shell reads back; `None` when it has none.
+fn job_arguments(job: &Value) -> Option<String> {
+    let arguments: Vec<String> = job["arguments"]
+        .as_array()?
+        .iter()
+        .filter_map(|word| word.as_str().map(str::to_owned))
+        .collect();
+    (!arguments.is_empty()).then(|| shell_words(&arguments))
+}
+
+/// Words as a shell reads them back: a word with a space or a character the
+/// shell gives a meaning is quoted.
+fn shell_words(words: &[String]) -> String {
+    let quote = |word: &String| {
+        let plain = !word.is_empty()
+            && word
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || "-_./=:,+@%^".contains(ch));
+        match plain {
+            true => word.clone(),
+            false => format!("'{}'", word.replace('\'', r"'\''")),
+        }
+    };
+    words.iter().map(quote).collect::<Vec<_>>().join(" ")
+}
+
+/// A line per host of a roll-out's report.
+fn summary(report: &rookery_api::RolloutReport) -> Vec<String> {
+    use rookery_api::RolloutState::*;
+    let mut lines = vec![];
+    for host in &report.hosts {
+        let state = match host.state {
+            Done if host.rebooted => "up to date, rebooted",
+            Done => "up to date",
+            Current => "was current",
+            Skipped => "not started",
+            Failed => "failed",
+        };
+        let mut line = format!("{}: {state}", host.name);
+        if !host.error.is_empty() {
+            line += &format!(": {}", host.error);
+        }
+        for warning in &host.warnings {
+            line += &format!("; {warning}");
+        }
+        lines.push(line);
+    }
+    if lines.is_empty() {
+        lines.push("No hosts".into());
+    }
+    lines
+}
+
 fn state_of(job: &Value) -> String {
     if job["ended"].is_null() {
         return styled("running", Style::Accent);
@@ -75,7 +128,7 @@ pub fn command(client: &Client, command: Job) -> Result<()> {
                             "exec" => "Command",
                             _ => "Arguments",
                         },
-                        rookery_tui::host::job_arguments(&job).unwrap_or_default(),
+                        job_arguments(&job).unwrap_or_default(),
                     ),
                     ("State", state_of(&job)),
                     ("Started", text("started")),
@@ -84,7 +137,7 @@ pub fn command(client: &Client, command: Job) -> Result<()> {
                 if let Some(report) = job["report"].as_object() {
                     let report: rookery_api::RolloutReport =
                         serde_json::from_value(Value::Object(report.clone())).unwrap_or_default();
-                    for line in rookery_tui::plugins::summary(&report) {
+                    for line in summary(&report) {
                         println!("{line}");
                     }
                 }
@@ -204,7 +257,7 @@ pub fn rollout(client: &Client, rollout: &args::Rollout) -> Result<()> {
     } else if ended.job["report"].is_object() {
         let report: rookery_api::RolloutReport =
             serde_json::from_value(ended.job["report"].clone()).unwrap_or_default();
-        for line in rookery_tui::plugins::summary(&report) {
+        for line in summary(&report) {
             println!("{line}");
         }
     }

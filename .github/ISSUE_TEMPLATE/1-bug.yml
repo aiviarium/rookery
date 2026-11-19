@@ -42,9 +42,8 @@ body:
     attributes:
       label: Where you saw it
       options:
-        - The screens
         - The command line
-        - Both
+        - Rookery's shell, Crow
         - On the host itself
   - type: dropdown
     id: client

@@ -62,7 +62,10 @@ pub const SETTINGS: &[(&str, &str)] = &[
         "source",
         "directory with a provisioning source to use instead of the built-in one, such as a checkout you are changing",
     ),
-    ("default_host", "host selected first on the home screen"),
+    (
+        "default_host",
+        "host that a command uses when it names none",
+    ),
     (
         "iso_dir",
         "directory for downloaded Ubuntu installer ISOs (default: next to the builds)",

@@ -1,24 +1,13 @@
-//! Colours and the logo.
-//!
-//! The mark is a rook's head in profile, in the tones of Rookery's icon
-//! (`docs/public/brand/rookery-icon.svg`): amber shade for the bird, the highlight for its bill.
-//! The greys are Aiviarium's neutrals and the accent is Rookery's amber.
-//! rookery paints its own background, so the colours below are chosen against
-//! `BASE` and not against whatever the terminal happens to use.
+//! What the command line paints with: the colours of its results, hints and
+//! prompts, in the tones of Rookery's icon. The greys are Aiviarium's
+//! neutrals and the accent is Rookery's amber, the base tone of the bird on a
+//! dark ground.
 
-use ratatui::{
-    style::{Color, Style},
-    text::{Line, Span},
-    widgets::{Block, BorderType, Padding},
-};
+use ratatui::style::{Color, Style};
 
-/// What a colour is for. The screens, the command line's prompts, its
-/// progress, its tables and its help all take their colours from here, so
-/// that the two look like one program.
+/// What a colour is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
-    /// Body text.
-    Text,
     /// Secondary text: hints, help, what was already said.
     Muted,
     /// Values, keys, commands and what is selected.
@@ -26,15 +15,12 @@ pub enum Role {
     Good,
     Warn,
     Bad,
-    /// The background of the selected row.
-    Selection,
 }
 
 impl Role {
     /// The colour in a terminal that shows any colour.
     pub const fn rgb(self) -> (u8, u8, u8) {
         match self {
-            Role::Text => (237, 237, 239),
             Role::Muted => (161, 161, 170),
             // Amber, the base tone of Rookery's icon on a dark ground.
             Role::Accent => (242, 179, 61),
@@ -42,7 +28,6 @@ impl Role {
             // A lemon yellow, so that a warning doesn't read as the amber accent.
             Role::Warn => (232, 224, 106),
             Role::Bad => (242, 128, 150),
-            Role::Selection => (24, 24, 27),
         }
     }
 
@@ -55,7 +40,7 @@ impl Role {
     /// the terminal's own text colour or dim text serves better.
     const fn basic(self) -> Option<Color> {
         match self {
-            Role::Text | Role::Muted | Role::Selection => None,
+            Role::Muted => None,
             Role::Accent => Some(Color::Yellow),
             Role::Good => Some(Color::Green),
             Role::Warn => Some(Color::LightYellow),
@@ -113,7 +98,6 @@ pub fn colour(role: Role, depth: Depth) -> Option<Color> {
 /// there are only a few colours, as a grey of sixteen is often unreadable.
 pub fn style(role: Role, depth: Depth) -> Style {
     let style = match colour(role, depth) {
-        Some(colour) if role == Role::Selection => Style::new().bg(colour),
         Some(colour) => Style::new().fg(colour),
         None => Style::new(),
     };
@@ -124,17 +108,16 @@ pub fn style(role: Role, depth: Depth) -> Style {
 }
 
 /// The parameters of an SGR escape that writes text in `role`'s colour,
-/// such as `38;2;116;178;255`; empty without a colour.
+/// such as `38;2;242;179;61`; empty without a colour.
 pub fn sgr(role: Role, depth: Depth) -> String {
-    let ground = if role == Role::Selection { 48 } else { 38 };
     match (colour(role, depth), role, depth) {
         (_, Role::Muted, Depth::Basic) => "2".into(),
-        (Some(Color::Rgb(r, g, b)), ..) => format!("{ground};2;{r};{g};{b}"),
-        (Some(Color::Indexed(index)), ..) => format!("{ground};5;{index}"),
-        (Some(Color::LightYellow), ..) => format!("{}", ground + 55),
-        (Some(Color::Green), ..) => format!("{}", ground - 6),
-        (Some(Color::Yellow), ..) => format!("{}", ground - 5),
-        (Some(Color::LightRed), ..) => format!("{}", ground + 53),
+        (Some(Color::Rgb(r, g, b)), ..) => format!("38;2;{r};{g};{b}"),
+        (Some(Color::Indexed(index)), ..) => format!("38;5;{index}"),
+        (Some(Color::LightYellow), ..) => "93".into(),
+        (Some(Color::Green), ..) => "32".into(),
+        (Some(Color::Yellow), ..) => "33".into(),
+        (Some(Color::LightRed), ..) => "91".into(),
         _ => String::new(),
     }
 }
@@ -163,111 +146,8 @@ fn indexed(r: u8, g: u8, b: u8) -> u8 {
     }
 }
 
-/// The screen.
-pub const BASE: Color = Color::Rgb(10, 10, 11);
-/// Pop-ups, the selected row and the current tab.
-pub const SURFACE: Color = Role::Selection.colour();
-/// The selected row in a pop-up, and inline code.
-pub const RAISED: Color = Color::Rgb(42, 42, 48);
-/// Panel borders.
-pub const LINE: Color = Color::Rgb(42, 42, 48);
-/// Body text.
-pub const TEXT: Color = Role::Text.colour();
-/// Secondary text.
-pub const MUTED: Color = Role::Muted.colour();
-/// Selection, values and keys.
-pub const ACCENT: Color = Role::Accent.colour();
-/// The plumage of the mark, and quiet marks beside it.
-pub const PLUMAGE: Color = Color::Rgb(173, 123, 40);
-/// The bill of the mark.
-pub const BILL: Color = Color::Rgb(249, 218, 151);
-pub const GOOD: Color = Role::Good.colour();
-pub const WARN: Color = Role::Warn.colour();
-pub const BAD: Color = Role::Bad.colour();
-
-/// The mark in front of the selected row, in the screens and in a prompt.
+/// The mark in front of the choice a question is on.
 pub const CURSOR: &str = "▌ ";
-
-/// The current tab: the accent on a neutral plate, as the accent is never a fill.
-pub fn plate() -> Style {
-    Style::new().fg(ACCENT).bg(SURFACE).bold()
-}
-
-/// What everything else is drawn on.
-pub fn backdrop() -> Block<'static> {
-    Block::new().style(Style::new().bg(BASE).fg(TEXT))
-}
-
-/// A titled panel; `focused` when it takes the keys.
-pub fn panel(title: &str, focused: bool) -> Block<'static> {
-    Block::bordered()
-        .border_type(BorderType::Rounded)
-        .border_style(Style::new().fg(if focused { ACCENT } else { LINE }))
-        .title(Span::styled(
-            format!(" {title} "),
-            Style::new().fg(if focused { ACCENT } else { MUTED }).bold(),
-        ))
-        .padding(Padding::horizontal(1))
-}
-
-/// A panel floating over the screen.
-pub fn popup(title: &str, colour: Color) -> Block<'static> {
-    Block::bordered()
-        .border_type(BorderType::Rounded)
-        .border_style(Style::new().fg(colour))
-        .style(Style::new().bg(SURFACE).fg(TEXT))
-        .title(Span::styled(
-            format!(" {title} "),
-            Style::new().fg(colour).bold(),
-        ))
-        .padding(Padding::horizontal(1))
-}
-
-/// The mark in front of the selected row.
-pub fn cursor() -> Line<'static> {
-    Line::styled(CURSOR, Style::new().fg(ACCENT))
-}
-
-/// Key hints such as `↑↓ select · Enter open`: the key stands out, the rest recedes.
-pub fn hints(text: &str) -> Line<'static> {
-    let mut spans = vec![];
-    for (index, hint) in text.split(" · ").enumerate() {
-        if index > 0 {
-            spans.push(Span::styled("  ", Style::new()));
-        }
-        let (key, action) = hint.split_once(' ').unwrap_or((hint, ""));
-        spans.push(Span::styled(key.to_owned(), Style::new().fg(ACCENT).bold()));
-        spans.push(Span::styled(format!(" {action}"), Style::new().fg(MUTED)));
-    }
-    Line::from(spans)
-}
-
-/// The mark, three rows high, with the name beside it.
-pub fn logo() -> Vec<Line<'static>> {
-    let plumage = Style::new().fg(PLUMAGE);
-    let bill = Style::new().fg(BILL);
-    let muted = Style::new().fg(MUTED);
-    let name = vec![
-        Span::styled(" ▄██▄  ", plumage),
-        Span::raw("   "),
-        Span::styled("rookery", Style::new().fg(ACCENT).bold()),
-    ];
-    let about = vec![
-        Span::styled("████", plumage),
-        Span::styled("▀▀ ", bill),
-        Span::raw("   "),
-        Span::styled(
-            "provisioning and management for development machines",
-            muted,
-        ),
-    ];
-    let version = vec![
-        Span::styled(" ▀██▀  ", plumage),
-        Span::raw("   "),
-        Span::styled(format!("v{}", rookery_api::VERSION), muted),
-    ];
-    vec![Line::from(name), Line::from(about), Line::from(version)]
-}
 
 #[cfg(test)]
 mod tests {
@@ -286,15 +166,13 @@ mod tests {
     }
 
     #[test]
-    fn the_screens_and_the_command_line_share_the_accent() {
-        assert_eq!(colour(Role::Accent, Depth::True), Some(ACCENT));
+    fn the_accent_is_the_ambers_of_rookerys_icon() {
         assert_eq!(sgr(Role::Accent, Depth::True), "38;2;242;179;61");
         assert_eq!(sgr(Role::Accent, Depth::Basic), "33");
         assert_eq!(sgr(Role::Bad, Depth::Basic), "91");
         assert_eq!(sgr(Role::Good, Depth::Basic), "32");
         assert_eq!(sgr(Role::Warn, Depth::Basic), "93");
         assert_eq!(sgr(Role::Muted, Depth::Basic), "2");
-        assert_eq!(sgr(Role::Selection, Depth::True), "48;2;24;24;27");
     }
 
     #[test]

@@ -135,9 +135,10 @@ A pull request is ready when:
   vale --minAlertLevel=warning "docs/content/docs/(guide)" README.md AGENTS.md
   ```
 
-- The screens do everything through the API of a server, whichever it is. A
-  feature of theirs is an operation or an action of the server first, and
-  then their part in `crates/rookery-page` and `crates/rookery-tui`.
+- The command line does everything through the API of a server, whichever it
+  is. A command is an operation or an action of the server first, and then a
+  caller of it in `crates/rookery`, with the set-up it asks for in
+  `crates/rookery-setup`.
 - Commits follow [Conventional Commits](https://www.conventionalcommits.org/),
   with a short subject that says what changed.
 - The pull request links its issue and stays within it. Leave unrelated

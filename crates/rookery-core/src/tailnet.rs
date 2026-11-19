@@ -55,9 +55,7 @@ pub const SETTINGS: &[&str] = &["tailnet_login_server", "tailnet_user", "tailnet
 
 /// How to set the secret, for messages that ask for it.
 fn set_the_secret() -> String {
-    format!(
-        "set the secret {TAILNET_API_KEY} with rookery secret set {TAILNET_API_KEY}, or on the Secrets tab of the home screen"
-    )
+    format!("set the secret {TAILNET_API_KEY} with rookery secret set {TAILNET_API_KEY}")
 }
 
 /// What rookery logs in to the control server's API with.
@@ -1297,7 +1295,6 @@ mod tests {
             said.contains("rookery secret set tailnet_api_key"),
             "{said}"
         );
-        assert!(said.contains("Secrets tab"), "{said}");
         assert!(said.contains("over SSH at its address"), "{said}");
         // A host that does not join needs nothing.
         let off = json!({"ansible_vars": {"rookery_install_tailscale": false}});

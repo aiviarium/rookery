@@ -28,7 +28,7 @@ rookery host add big 192.0.2.20 --user root --auth ssh --type node \
 rookery apply big
 ```
 
-`--feature` names the features it gets, which go into the profile's `ansible_vars` as `rookery_plugin_features`. `rookery host set big feature.incus/server=off` changes them later. `rookery host create big --type node` asks for the address, the login and the features at a terminal, with no desktop or accounts. The screens show the type `node` on the Install tab and the features of a node on the Features tab.
+`--feature` names the features it gets, which go into the profile's `ansible_vars` as `rookery_plugin_features`. `rookery host set big feature.incus/server=off` changes them later. `rookery host create big --type node` asks for the address, the login and the features at a terminal, with no desktop or accounts.
 
 The first apply installs Rookery's key for the SSH user. A node added with `--auth password` is logged in to with Rookery's key afterwards, and Rookery forgets the password. `--auth ssh` stays as it is.
 

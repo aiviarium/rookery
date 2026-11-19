@@ -1,8 +1,8 @@
 //! What rookery does on the machine its installation is on, which is Linux:
-//! `rookery serve`, the server the screens and commands use when no other is
-//! set, and what only makes sense where the server runs: its setup key, its
-//! store, its API documents, and the commands that need the installation's
-//! own files, such as `rookery ssh` with its key.
+//! `rookery serve`, the server its commands use when no other is set, and
+//! what only makes sense where the server runs: its setup key, its store,
+//! its API documents, and the commands that need the installation's own
+//! files, such as `rookery ssh` with its key.
 
 mod deploy;
 pub mod serve;
@@ -24,7 +24,7 @@ use serde_json::{Value, json};
 pub fn server(ask: bool) -> Result<Option<crate::Local>> {
     let (server, here) = serve::here::local(&Paths::locate()?, ask)?;
     if let Some(here) = &here {
-        rookery_page::net::serve_here(here.dial());
+        crate::cli::net::serve_here(here.dial());
     }
     Ok(Some((server, Box::new(move || serve::here::finish(here)))))
 }
@@ -76,7 +76,7 @@ pub(crate) fn restore_plugins(paths: &Paths) {
 /// rookery is set to use a server elsewhere.
 fn here_only(global: &Global, what: &str) -> Done<Paths> {
     if let Some(server) = client::named(global)
-        && !rookery_page::device::local(&server)
+        && !crate::cli::net::local(&server)
     {
         return Err(Fail::refused(format!(
             "{what} works where the rookery server runs, and this rookery uses the one at {server}. Run it there"

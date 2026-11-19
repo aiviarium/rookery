@@ -259,7 +259,7 @@ async fn controller_actions(
     let error =
         match tokio::time::timeout(Duration::from_secs(15), link.get::<Value>("/v1/actions")).await
         {
-            Ok(Ok(listed)) => return Ok(rookery_tui::host::list(listed, "actions")),
+            Ok(Ok(listed)) => return Ok(crate::cli::things::listed(listed, "actions")),
             Ok(Err(error)) => error.to_string(),
             Err(_) => return Err(Unlisted::Unanswered("no answer in time".into())),
         };
@@ -867,9 +867,7 @@ fn seed(state: Arc<Serve>, name: String, _: Act) -> Run {
 /// Why an action that works with this machine's own drives and files is
 /// not offered to a caller elsewhere.
 fn only_here(what: &str) -> String {
-    format!(
-        "{what} is done on the machine rookery serve runs on: there, with rookery ui or rookery host iso"
-    )
+    format!("{what} is done on the machine rookery serve runs on: there, with rookery host iso")
 }
 
 fn installer_action(seen: &Seen) -> Action {
@@ -1664,7 +1662,7 @@ fn duplicate(state: Arc<Serve>, name: String, act: Act) -> Run {
             let Some(planned) = planned else {
                 let _ = writeln!(
                     out,
-                    "Next: give it an address and apply it (rookery host set {new} address=ADDRESS, then rookery host apply {new}), or install it another way: rookery ui {new}"
+                    "Next: give it an address and apply it (rookery host set {new} address=ADDRESS, then rookery host apply {new}), or install it another way: rookery host create {new}"
                 );
                 return true;
             };
@@ -2053,7 +2051,7 @@ fn rename(state: Arc<Serve>, name: String, act: Act) -> Run {
         let new = given(&act, "name").unwrap_or_default().to_owned();
         let hostname = yes(&act, "hostname")?;
         let to = own_place(&state.paths, &new)?;
-        if hostname && let Some(problem) = rookery_tui::setup::hostname_problem(&new) {
+        if hostname && let Some(problem) = rookery_setup::setup::hostname_problem(&new) {
             return Err(bad(problem));
         }
         let from = own_place(&state.paths, &name)?;

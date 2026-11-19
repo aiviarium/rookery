@@ -24,17 +24,17 @@ The USB installer is the Ubuntu Server 26.04 ISO with the host's profile built i
 ### Create the host
 
 ```bash
-rookery garage-laptop
+rookery host create garage-laptop --method iso
 ```
 
-It opens on **Install**. Choose **USB installer** under **How To Install**, and keep **Target** at `laptop`. **Hostname** is the name the machine gets. F4 generates one.
+`hostname` is the name the machine gets, and `target` stays `laptop`.
 
 </Step>
 <Step>
 
 ### Optionally, join the tailnet
 
-**Tailscale** is on **Install** too. With it on, Rookery makes a one-use key through the control server's API each time it builds the installer, from the secret `tailnet_api_key` ([joining the tailnet](/docs/use/access#joining-the-tailnet)). Tailnets that require tags take them from `rookery config set tailnet_tags tag:rookery`. For a Headscale server, see [Headscale](/docs/use/access#headscale).
+Tailscale is asked about with the way it is installed, too. With it on, Rookery makes a one-use key through the control server's API each time it builds the installer, from the secret `tailnet_api_key` ([joining the tailnet](/docs/use/access#joining-the-tailnet)). Tailnets that require tags take them from `rookery config set tailnet_tags tag:rookery`. For a Headscale server, see [Headscale](/docs/use/access#headscale).
 
 The key lasts 24 hours. When Rookery builds the image, it says until when the image can join the tailnet. A machine installed later is set up without the tailnet, and the next apply from Rookery joins it.
 
@@ -43,47 +43,42 @@ The key lasts 24 hours. When Rookery builds the image, it says until when the im
 
 ### Set up the accounts
 
-On **Settings**, fill in the operator's SSH public key and a password under **Operator Account**.
+Give the operator an SSH key and a password: `rookery host set garage-laptop operator_ssh_public_keys=ssh-ed25519…` and `--generate-passwords`, or the hash of a password you choose.
 
 </Step>
 <Step>
 
 ### Choose the disk
 
-Under **Installer** on **Settings**, set **Disk selection**. `auto`, the default, takes the only eligible internal disk. The other modes are in the table [below](#disk-selection).
+`target_disk_mode` chooses the disk: `rookery host set garage-laptop target_disk_mode=serial target_disk_serial=…`. `auto`, the default, takes the only eligible internal disk. The other modes are in the table [below](#disk-selection).
 
 </Step>
 <Step>
 
 ### Set up the network
 
-Wired DHCP is always configured. To add Wi-Fi, switch **Wi-Fi** on under **Installer** and give the SSID and password. Leave the interface blank: the installer finds the wireless interface on the target and falls back to wired networking when there is none.
+Wired DHCP is always configured. To add Wi-Fi, set `wifi_enabled=on` and give `wifi_ssid` and `wifi_password`. Leave the interface out: the installer finds the wireless interface on the target and falls back to wired networking when there is none.
 
 </Step>
 <Step>
 
 ### Choose the ISO
 
-**Source ISO** on **Run** is the Ubuntu Server ISO to build from, a path on the machine the server runs on. Left empty, the build downloads the current one and checks it against Ubuntu's `SHA256SUMS`. For a file you already have, put the SHA-256 from Ubuntu's signed `SHA256SUMS` in **ISO SHA256**. The build checks the file against it.
+`iso` is the Ubuntu Server ISO to build from, a path on the machine the server runs on. Left empty, the build downloads the current one and checks it against Ubuntu's `SHA256SUMS`. For a file you already have, give the SHA-256 from Ubuntu's signed `SHA256SUMS` as `iso_sha` for the build to check it against.
 
 </Step>
 <Step>
 
 ### Build and write
 
-Press Enter on **Run · USB installer**. Rookery saves the profile and opens the host's overview with its action **Build the USB installer**. Its dialog takes the drive to write and your `sudo` password for writing it. The help of the drive lists the USB drives connected now. When one drive is connected, it's filled in. Leave the drive empty to build the ISO alone. The build and the writing run as a job, whose output fills a panel.
+`rookery host iso studio --write /dev/sdb` saves the profile and builds the installer, writing it to the drive you name. It asks for your `sudo` password for writing it, or reads it with `--password-stdin`. Leave `--write` out to build the ISO alone. The build and the writing run as a job, whose output follows as it comes.
 
-The installer is built on the machine the server runs on, which writes one of its own drives. Rookery on your machine does it with the server inside Rookery, or with a `rookery serve` of yours there. From another machine the action is listed as unavailable, with that reason.
+The installer is built on the machine the server runs on, which writes one of its own drives. Rookery on your machine does it with the server inside Rookery, or with a `rookery serve` of yours there. From another machine it is refused, with that reason.
 
 </Step>
 </Steps>
 
-The same from the command line:
-
-```bash
-rookery host iso garage-laptop                     # downloads the ISO when none is set
-rookery host iso garage-laptop --write /dev/sdX    # and writes it, after asking
-```
+`rookery host iso garage-laptop` downloads the ISO when none is set, and `--write /dev/sdX` writes it, after asking for your password.
 
 The image is `~/.local/share/rookery/build/HOSTNAME-autoinstall.iso`. To write it by hand, use the script from the provisioning source. It accepts only a whole USB disk that is large enough and has no system mount on it, and unmounts anything else first:
 
@@ -106,7 +101,7 @@ sudo systemctl start rookery-provision.service     # start it again after a fail
 `configured` means the role finished. The `ready` marker means Ansible converged, not that every acceptance test passed. If a dependency fails, the state is `failed` and a timer retries. The success marker is only written after a successful run.
 
 <Callout type="warn" title="Without a tailnet or recovery CIDR">
-  The installed machine accepts SSH only from the tailnet, unless you set a **Recovery SSH CIDR**. Keep **Tailscale** on with the secret `tailnet_api_key` set, set the CIDR, or be ready to use the console.
+  The installed machine accepts SSH only from the tailnet, unless you set a recovery SSH CIDR with `bootstrap_ssh_cidr`. Keep Tailscale on with the secret `tailnet_api_key` set, set the CIDR, or be ready to use the console.
 </Callout>
 
 ## Disk selection
@@ -122,7 +117,7 @@ sudo systemctl start rookery-provision.service     # start it again after a fail
 | `largest` / `smallest` | By capacity among eligible disks |
 | `ssd` / `hdd` | The only eligible non-rotating or rotating disk |
 
-For `auto`, `model`, `path`, `largest` and `smallest`, `target_disk_ssd` narrows the candidates to `any`, `ssd` or `hdd`. Each mode needs exactly one final candidate, including when capacities tie. The Settings tab shows the fields of the chosen mode.
+For `auto`, `model`, `path`, `largest` and `smallest`, `target_disk_ssd` narrows the candidates to `any`, `ssd` or `hdd`. Each mode needs exactly one final candidate, including when capacities tie. The set-up asks for the fields of the chosen mode.
 
 ```json title="In the host profile"
 {

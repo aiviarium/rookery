@@ -4,6 +4,7 @@
 //! its answer. Nobody is asked without a terminal or with `--no-input`.
 
 use super::fail::{Fail, Result};
+use super::look::{self, Role};
 use super::out;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
@@ -13,8 +14,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Paragraph, Wrap},
 };
-use rookery_tui::flow::{Answer, Asked, Asker, Choice, Question};
-use rookery_tui::theme::{self, Role};
+use rookery_setup::flow::{Answer, Asked, Asker, Choice, Question};
 use tui_input::Input;
 
 /// The most rows of choices shown at once.
@@ -95,7 +95,7 @@ fn lines(question: &Question, state: &State) -> Vec<Line<'static>> {
             let first = state.cursor.saturating_sub(ROWS - 1);
             for (index, option) in options.iter().enumerate().skip(first).take(ROWS) {
                 let here = index == state.cursor;
-                let pointer = if here { theme::CURSOR } else { "  " };
+                let pointer = if here { look::CURSOR } else { "  " };
                 let tick = match (many, state.ticked.get(index)) {
                     (true, Some(true)) => "◉ ",
                     (true, _) => "○ ",
@@ -150,6 +150,37 @@ fn shown(question: &Question, answer: &Answer) -> String {
     }
 }
 
+/// A key of the terminal as the prompts take it; `None` for one they do not.
+fn line_key(key: &KeyEvent) -> Option<rookery_setup::event::Key> {
+    use rookery_setup::event::{Code, Key};
+    let code = match key.code {
+        KeyCode::Char(ch) => Code::Char(ch),
+        KeyCode::Enter => Code::Enter,
+        KeyCode::Esc => Code::Esc,
+        KeyCode::Tab => Code::Tab,
+        KeyCode::BackTab => Code::BackTab,
+        KeyCode::Backspace => Code::Backspace,
+        KeyCode::Delete => Code::Delete,
+        KeyCode::Insert => Code::Insert,
+        KeyCode::Up => Code::Up,
+        KeyCode::Down => Code::Down,
+        KeyCode::Left => Code::Left,
+        KeyCode::Right => Code::Right,
+        KeyCode::Home => Code::Home,
+        KeyCode::End => Code::End,
+        KeyCode::PageUp => Code::PageUp,
+        KeyCode::PageDown => Code::PageDown,
+        KeyCode::F(number) => Code::F(number),
+        _ => return None,
+    };
+    Some(Key {
+        code,
+        ctrl: key.modifiers.contains(KeyModifiers::CONTROL),
+        alt: key.modifiers.contains(KeyModifiers::ALT),
+        shift: key.modifiers.contains(KeyModifiers::SHIFT),
+    })
+}
+
 /// What a key does to a question: its answer when it ends it.
 fn key(question: &Question, state: &mut State, key: KeyEvent) -> Result<Option<Answer>> {
     let count = options_of(question).len();
@@ -166,8 +197,8 @@ fn key(question: &Question, state: &mut State, key: KeyEvent) -> Result<Option<A
         Asked::Text { .. } => match key.code {
             KeyCode::Enter => return Ok(Some(Answer::Text(state.input.value().to_owned()))),
             _ => {
-                if let Some(key) = rookery_page::keys::key(&key) {
-                    rookery_tui::event::edit(&mut state.input, &key);
+                if let Some(key) = line_key(&key) {
+                    rookery_setup::event::edit(&mut state.input, &key);
                 }
             }
         },
@@ -285,7 +316,7 @@ pub fn asker() -> Person {
 /// Ask for a line of text, or say which flag gives it.
 pub fn text(label: &str, help: &str, flag: &str) -> Result<String> {
     let question = Question {
-        step: rookery_tui::fields::Step::Install,
+        step: rookery_setup::fields::Step::Install,
         label: label.into(),
         help: help.into(),
         flag: flag.into(),
@@ -304,7 +335,7 @@ pub fn text(label: &str, help: &str, flag: &str) -> Result<String> {
 /// Ask a yes or no that starts at `default`, or say which flag gives it.
 pub fn yes_no(label: &str, help: &str, flag: &str, default: bool) -> Result<bool> {
     let question = Question {
-        step: rookery_tui::fields::Step::Install,
+        step: rookery_setup::fields::Step::Install,
         label: label.into(),
         help: help.into(),
         flag: flag.into(),
@@ -326,7 +357,7 @@ pub fn choice(
     default: &str,
 ) -> Result<usize> {
     let question = Question {
-        step: rookery_tui::fields::Step::Install,
+        step: rookery_setup::fields::Step::Install,
         label: label.into(),
         help: help.into(),
         flag: flag.into(),
@@ -351,7 +382,7 @@ pub fn choice(
 /// Ask for a secret without showing it, or say which flag gives it.
 pub fn secret(label: &str, flag: &str) -> Result<String> {
     let question = Question {
-        step: rookery_tui::fields::Step::Install,
+        step: rookery_setup::fields::Step::Install,
         label: label.into(),
         help: String::new(),
         flag: flag.into(),
@@ -394,7 +425,7 @@ pub fn confirm(question: &str) -> Result<()> {
         )));
     }
     let asked = Question {
-        step: rookery_tui::fields::Step::Run,
+        step: rookery_setup::fields::Step::Run,
         label: question.into(),
         help: String::new(),
         flag: "--yes".into(),
@@ -432,7 +463,7 @@ pub fn secret_from(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rookery_tui::fields::Step;
+    use rookery_setup::fields::Step;
 
     fn press(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)

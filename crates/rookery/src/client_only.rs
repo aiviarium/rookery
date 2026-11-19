@@ -10,7 +10,7 @@ pub fn askpass(_: &[String]) -> Result<bool> {
     Ok(false)
 }
 
-/// No server runs here: a command needs one named, and the screens ask for one.
+/// No server runs here: a command needs one named.
 pub fn server(_ask: bool) -> Result<Option<crate::Local>> {
     Ok(None)
 }

@@ -11,7 +11,7 @@ use super::host;
 use super::out::{self, Style, Table, styled};
 use super::pages;
 use rookery_api::portal::{Piece, PortalStream};
-use rookery_api::{Act, Argument, SessionKind};
+use rookery_api::{Act, Action, Argument, SessionKind};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::io::{IsTerminal, Write};
@@ -51,8 +51,62 @@ pub(super) enum Ended {
     Lost,
 }
 
-fn exited(said: &Value) -> Option<Option<i32>> {
-    rookery_tui::host::exited(said)
+/// The exit code an `exited` frame of a session carries, when the frame is one.
+fn exited(frame: &Value) -> Option<Option<i32>> {
+    let exited = frame.get("exited")?;
+    let code = exited.get("exit_code").unwrap_or(exited);
+    Some(code.as_i64().map(|code| code as i32))
+}
+
+/// A list of the API's answers, bare or under `key`, as the types they are.
+pub fn listed<T: serde::de::DeserializeOwned>(value: Value, key: &str) -> Vec<T> {
+    let items = match value {
+        Value::Array(items) => items,
+        Value::Object(mut object) => match object.remove(key) {
+            Some(Value::Array(items)) => items,
+            _ => vec![],
+        },
+        _ => vec![],
+    };
+    items
+        .into_iter()
+        .filter_map(|item| serde_json::from_value(item).ok())
+        .collect()
+}
+
+/// The question to answer yes to before an action runs with `values`, if it
+/// has one. A switch that is on and has a question of its own, such as
+/// destroying a machine, asks that one instead of the action's. The others
+/// that are on are named after it.
+pub fn confirmation(action: &Action, values: &BTreeMap<String, String>) -> Option<String> {
+    let on: Vec<&Argument> = action
+        .arguments
+        .iter()
+        .filter(|argument| argument.is_boolean())
+        .filter(|argument| {
+            values
+                .get(&argument.name)
+                .is_some_and(|value| Argument::is_on(value))
+        })
+        .collect();
+    let own = on.iter().find(|argument| !argument.confirm.is_empty());
+    let question = match own {
+        Some(argument) => &argument.confirm,
+        None => action.confirm.as_ref()?,
+    };
+    let named: Vec<&str> = on
+        .iter()
+        .filter(|argument| argument.confirm.is_empty())
+        .map(|argument| match argument.label.is_empty() {
+            true => argument.name.as_str(),
+            false => argument.label.as_str(),
+        })
+        .collect();
+    Some(match named.as_slice() {
+        [] => question.clone(),
+        [one] => format!("{question} {one} is on."),
+        [rest @ .., last] => format!("{question} {} and {last} are on.", rest.join(", ")),
+    })
 }
 
 /// Follow a process session: its two streams to ours, apart. With `stdin`,
@@ -508,7 +562,7 @@ fn complete(
             action.name, action.why
         )));
     }
-    if let Some(question) = rookery_tui::page::confirmation(action, given) {
+    if let Some(question) = confirmation(action, given) {
         ask::confirm(&question)?;
     }
     Ok(())

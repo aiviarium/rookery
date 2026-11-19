@@ -55,12 +55,10 @@ docker run -d --name rookery -p 127.0.0.1:7777:7777 \
   ghcr.io/aiviarium/rookery
 ```
 
-Any other command goes after the image name, such as `ls`, or `ui` for the screens:
+Any other command goes after the image name, such as `ls`:
 
 ```bash
 docker run --rm -it -v rookery-config:/config -v rookery-data:/data ghcr.io/aiviarium/rookery ls
-docker run --rm -it -v rookery-config:/config -v rookery-data:/data \
-  -v ~/.ssh:/home/rookery/.ssh:ro ghcr.io/aiviarium/rookery ui
 ```
 
 See [`rookery serve`](/docs/extend/serve#in-a-container) for the volumes and the token. A Rookery installed on your machine, as a client, uses the container's hosts once it has logged in with a setup key made there:
@@ -113,7 +111,7 @@ python3 -m venv .venv && .venv/bin/pip install -r provision/requirements.txt
 | Build output such as the release archive, seeds and installer images | `~/.local/share/rookery/build/` |
 | Downloaded Ubuntu installer ISOs | `~/.local/share/rookery/iso/` (setting `iso_dir`) |
 
-`XDG_CONFIG_HOME` and `XDG_DATA_HOME` are honoured. `rookery config list` prints the paths and settings, and `rookery config set KEY VALUE` changes one, in the file or in the store. The Settings tab of the home screen does the same. `rookery server store status` says where the store is and whether it is encrypted. See [The store](/docs/use/store), which also says how to restore an installation from it.
+`XDG_CONFIG_HOME` and `XDG_DATA_HOME` are honoured. `rookery config list` prints the paths and settings, and `rookery config set KEY VALUE` changes one, in the file or in the store. `rookery server store status` says where the store is and whether it is encrypted. See [The store](/docs/use/store), which also says how to restore an installation from it.
 
 These settings stay in `config.json`, as they belong to this machine or are needed to open the store:
 

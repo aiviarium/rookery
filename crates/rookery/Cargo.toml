@@ -5,13 +5,13 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-# The screens and the client of a rookery serve, on every system.
+# The client of a rookery serve, and the set-up flow of its commands, on
+# every system.
 [dependencies]
 rookery-api = { workspace = true, features = ["client", "plugins"] }
 # Packs a plugin folder into an egg to send it to a server.
 hatchery.workspace = true
-rookery-page.workspace = true
-rookery-tui.workspace = true
+rookery-setup.workspace = true
 tokio.workspace = true
 serde_json = "1"
 serde.workspace = true
@@ -24,6 +24,11 @@ clap_complete = "4.5"
 ratatui = { version = "=0.30.2", default-features = false, features = ["crossterm"] }
 tui-input.workspace = true
 futures-util.workspace = true
+# TLS to a server, and the WebSocket of its portal.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+webpki-roots = "1"
+rustls-native-certs = "0.8"
 
 # The installation, rookery serve and the commands, on Linux, where hosts are
 # set up from.
@@ -41,4 +46,3 @@ jsonwebtoken = { version = "11", default-features = false, features = ["rust_cry
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 # Signs the access tokens of the tests.
 ring = "0.17"
-

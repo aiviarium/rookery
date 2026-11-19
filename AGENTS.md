@@ -6,13 +6,12 @@ Rookery provisions and manages development machines. It sets up Ubuntu hosts and
 
 | Path | What it is |
 | --- | --- |
-| `crates/rookery/` | The `rookery` program, for Linux, macOS and Windows. `main.rs` opens the screens, and `src/cli/` is the command line, the same on every system. In `cli/`, `args.rs` is the grammar in clap and `docs.rs` writes the reference page from it. `client.rs` reaches the server. `ask.rs` asks, `follow.rs` shows progress, and `out.rs` prints. On Linux, `src/local/` adds the commands of the server's own machine and `rookery serve` (`src/local/serve/`), behind one `#[cfg(target_os = "linux")]`. `client_only.rs` takes its place on other systems. In `serve/`, `here.rs` is the server in Rookery's own process. The screens and commands use it when no other is set. Then `actions.rs` has the actions of hosts and of the installation, `keys.rs` the key ring's routes, `provisioners.rs` and `resources.rs` those of provisioners and resources |
+| `crates/rookery/` | The `rookery` program, for Linux, macOS and Windows. `main.rs` hands it to `src/cli/`, the command line, which is the same on every system. In `cli/`, `args.rs` is the grammar in clap and `docs.rs` writes the reference page from it. `client.rs` reaches the server, and `net.rs` is the network under it: TCP, TLS, a socket and the process. `settings.rs` keeps the server and its token, `ask.rs` asks, `follow.rs` shows progress, `out.rs` prints, and `look.rs` has the colours. On Linux, `src/local/` adds the commands of the server's own machine and `rookery serve` (`src/local/serve/`), behind one `#[cfg(target_os = "linux")]`. `client_only.rs` takes its place on other systems. In `serve/`, `here.rs` is the server in Rookery's own process, used when no other is set. Then `actions.rs` has the actions of hosts and of the installation, `keys.rs` the key ring's routes, `provisioners.rs` and `resources.rs` those of provisioners and resources |
 | `crates/rookery-api/` | Types and the operations table shared by every program (`ops.rs` names each operation, its HTTP route and its role). `plugin_contract.rs` checks a plugin package against `schemas/rookery-plugin.schema.json`, for `rookery plugin check` and every install |
 | `crates/rookery-core/` | Hosts, profiles, links to hosts, registries and secrets, and plugins. The store is in `store/`. `kept.rs` and `plugin_state.rs` write files from it. `kept_profile.rs` is the profile a host keeps of itself and `rookery host adopt`. `runner.rs` runs every action as a job. `keys/` is the key ring and how Rookery logs in to hosts. `host_type.rs` says what each type of host can do. `provisioner.rs` and `resource.rs` are the provisioners of plugins and what they made. `simulate.rs` is the world of `rookery serve --simulate`: its hosts, its provisioner `sim/cloud` and its seed. `plugins.rs` reads the plugins, and `eggs.rs` installs, updates and removes them through the `hatchery` library |
-| `crates/rookery-tui/` | The parts of the screens with no terminal in them. `fields.rs`, `setup.rs` and `flow.rs` describe a host's set-up once, for the screens' tabs and the command line's prompts and flags alike, and `theme.rs` has the colours both draw with |
+| `crates/rookery-setup/` | A host's set-up, with nothing drawn. `fields.rs` is the fields of its profile, and `setup.rs` what changes them and what stops it. `flow.rs` has the questions the command line asks, `machine.rs` the machine a provisioner makes, and `event.rs` the keys a prompt takes |
 | `crates/rookery-pty/` | Terminals for sessions |
 | `crates/rookeryd/`, `crates/box/` | The controller on each host and the agent's own tool there |
-| `crates/rookery-page/` | Rookery's screens in a terminal. They do everything through the API of a server. That is one elsewhere, a `rookery serve` on its socket, or the one in the process. `net.rs` reaches it, `portal.rs` is its portal, `settings.rs` keeps the server and its token, and `device.rs` is what the program starts them with |
 | `crates/vendor/` | The vendored `tui-input` crate |
 | `provision/` | The installer side of the provisioning source: the role in `ansible/`, first-boot provisioning in `bootstrap/`, the builder of seeds and releases in `bin/rookery.py` and the example profile in `config/`. Rookery names these paths in `layout` in `crates/rookery-core/src/paths.rs` |
 | `plugins/` | The plugins that come with Rookery (`backup`, `docker`, `github`, `incus` and `unity`), a static Hatchery registry named `rookery`. Each package in `plugins/rookery/ID/` has a `package.kdl` and its files in `rookery/`, where `rookery.json` follows `schemas/rookery-plugin.schema.json` and `guide.md` is its guide, beside its egg and `index.json`. `builtin.rs` in rookery-core reads the registry. With `provision/` they make the provisioning source, which Rookery carries and unpacks with the same layout |
@@ -49,7 +48,7 @@ Use cargo for everything Rust and bun for `client/` and `sdk/`. These are what C
 
 ```bash
 cargo test --locked --no-fail-fast
-cargo fmt --check -p rookery-api -p rookery-pty -p rookery-core -p rookery-tui -p rookery -p rookeryd -p box -p rookery-page
+cargo fmt --check -p rookery-api -p rookery-pty -p rookery-core -p rookery-setup -p rookery -p rookeryd -p box
 cargo clippy --locked --all-targets -- -D warnings
 cargo run --locked -q -p rookery -- plugin check plugins
 python3 -m unittest discover -s tests -v
@@ -142,7 +141,6 @@ The Rust jobs restore the target directory from main's cache. `ci/mtimes.py` set
 - Add the operation to `crates/rookery-api/src/ops.rs` with the role it needs. A test fails when a route has no operation or the other way round.
 - The API documents in `docs/openapi/` are committed. Regenerate them with `ROOKERY_UPDATE_DOCS=1 cargo test -p rookery -p rookeryd`. The same writes the command line's reference page, `docs/content/docs/(guide)/reference/cli.mdx`, from the grammar in `crates/rookery/src/cli/args.rs`. A test fails while either is stale.
 - The pages under `docs/content/docs/api/host` and `api/serve` are generated from those documents when the docs are built (`docs/scripts/reference.mjs`), and are not committed. Do not edit them by hand.
-- The screenshots of the docs are taken offscreen by `docs/scripts/screens.py`, from made-up hosts.
 
 ### Actions
 
@@ -155,7 +153,7 @@ Give a new thing a host, the installation, a provisioner or a resource can do an
 | A provisioner | `provisioner::actions` in `crates/rookery-core/src/provisioner.rs`: its plugin's actions and Rookery's own |
 | A resource | `resource::actions` in `crates/rookery-core/src/resource.rs`: those of its kind and its plugin's |
 
-An action that changes something runs as a job through `runner.rs`. The screens do everything through the API. What works only with the server's own machine, such as writing a USB drive, is an action for a caller there alone (`Seen::local` is the socket or the process). To one over the network it says why not.
+An action that changes something runs as a job through `runner.rs`. The command line does everything through the API. What works only with the server's own machine, such as writing a USB drive, is an action for a caller there alone (`Seen::local` is the socket or the process). To one over the network it says why not.
 
 ## Versions and releases
 
@@ -169,7 +167,7 @@ An action that changes something runs as a job through `runner.rs`. The screens 
 - Commits follow Conventional Commits (`feat(serve): …`, `fix(role): …`, `docs: …`, `ci: …`). Write a short subject, and add a body only when it explains something the diff does not.
 - A comment gives the reason for the code in a sentence, and neither code nor docs refer to plans or decisions made elsewhere.
 - Documentation is written for people, in short sentences and with tables for lookups. It has to pass vale.
-- Tests, screenshots and examples use made-up hosts such as `studio` and addresses from `192.0.2.0/24`, never a real machine or a real configuration.
+- Tests and examples use made-up hosts such as `studio` and addresses from `192.0.2.0/24`, never a real machine or a real configuration.
 - A test that starts `rookery serve` or `rookeryd` sets `XDG_RUNTIME_DIR`, `XDG_CONFIG_HOME` and `XDG_DATA_HOME` to scratch directories, so it cannot touch the user's own.
 - Secrets never go into argv, logs or the repository. They travel in private files or on standard input.
 - An installation's state goes through the store (`rookery_core::store`), not through files of its own under the configuration or data directory, so that the database and its key file restore it. A file that has to stay, such as `id_ed25519` or `serve.token`, is written from the store.

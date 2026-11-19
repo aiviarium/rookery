@@ -84,38 +84,6 @@ class Profiles(unittest.TestCase):
         self.assertNotEqual(station.rookery('host', 'export', 'depot', check=False).returncode, 0)
 
 @needs_e2e
-class Screens(unittest.TestCase):
-    """The screens start with a server in rookery itself, show the host and what
-    rookeryd says of it, and quit."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.station = provisioned()
-
-    def test_the_home_screen_lists_the_host(self):
-        terminal = self.station.terminal('ui', cols=120, rows=30)
-        try:
-            terminal.expect(HOST)
-            terminal.send('q')
-            self.assertEqual(terminal.wait(), 0)
-        finally:
-            terminal.close()
-
-    def test_the_overview_shows_the_hosts_tasks(self):
-        terminal = self.station.terminal('ui', HOST, cols=120, rows=46)
-        try:
-            # The rows of the tasks come from rookeryd on the host.
-            terminal.expect('Secrets and registry logins')
-            # q goes back to the hosts, and there it quits.
-            terminal.send('q')
-            terminal.expect('New host')
-            terminal.send('q')
-            self.assertEqual(terminal.wait(), 0)
-        finally:
-            terminal.close()
-
-
-@needs_e2e
 class Listings(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

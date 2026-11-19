@@ -69,8 +69,8 @@ impl Host {
     }
 
     /// The SSH user's sudo password, for a host that asks for one: the
-    /// secret `sudo/HOST` when it is kept, or asked for on a terminal. The
-    /// screens and the commands ask for it themselves.
+    /// secret `sudo/HOST` when it is kept, or asked for on a terminal. A
+    /// caller asks for it itself.
     pub fn sudo_password(&self, paths: &Paths) -> Result<Option<String>> {
         if !self.asks_password() {
             return Ok(None);

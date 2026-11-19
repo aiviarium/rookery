@@ -1,5 +1,5 @@
 //! rookery's command line: one grammar, `rookery THING ACTION [NAME] [FLAGS]`,
-//! whose commands are calls of the same API the screens use.
+//! whose commands are calls of the API of a rookery server.
 
 pub mod args;
 pub mod ask;
@@ -12,10 +12,13 @@ pub mod follow;
 mod host;
 mod jobs;
 pub mod login;
+mod look;
+pub mod net;
 pub mod out;
 mod pages;
-mod setup;
-mod things;
+pub mod settings;
+pub mod setup;
+pub mod things;
 mod upgrade;
 
 #[cfg(target_os = "linux")]
@@ -26,13 +29,12 @@ use clap::{CommandFactory, FromArgMatches};
 use client::Client;
 use fail::{Fail, Result};
 
-/// What bare `rookery` prints: what it is, the commands most people need
-/// first, and how to open the screens.
+/// What bare `rookery` prints when no server answers: what it is, and the
+/// commands most people need first.
 pub const SHORT_HELP: &[(&str, &[(&str, &str)])] = &[
     (
         "Start here",
         &[
-            ("rookery ui", "the screens: hosts, set-up, plugins"),
             (
                 "rookery host create NAME",
                 "describe a new host, then install it",
@@ -84,16 +86,17 @@ pub fn command() -> clap::Command {
         .map(|(status, means)| format!("{status} {means}"))
         .collect();
     Cli::command().styles(help_styles()).after_help(format!(
-        "rookery THING --help explains a thing and its actions.\nExit statuses: {}. A command run on a host passes its own through.",
+        "rookery alone lists the hosts. rookery THING --help explains a thing and its actions.\nExit statuses: {}. A command run on a host passes its own through.",
         statuses.join("; ")
     ))
 }
 
-/// The colours of the help and of clap's errors, from the screens' palette.
-/// clap leaves them out by itself without a terminal or with `NO_COLOR`.
+/// The colours of the help and of clap's errors, as the rest of rookery
+/// paints. clap leaves them out by itself without a terminal or with
+/// `NO_COLOR`.
 fn help_styles() -> clap::builder::Styles {
+    use crate::cli::look::{Depth, Role, colour};
     use clap::builder::styling::{Ansi256Color, AnsiColor, Color, RgbColor, Style, Styles};
-    use rookery_tui::theme::{Depth, Role, colour};
     let depth = Depth::of_terminal(|name| std::env::var(name).ok());
     let paint = |role: Role| -> Option<Color> {
         use ratatui::style::Color as Tui;
@@ -280,8 +283,7 @@ fn after_word(args: &[String], word: &str) -> String {
 fn run(cli: Cli) -> Result<()> {
     let global = cli.global;
     let Some(command) = cli.command else {
-        short_help();
-        return Ok(());
+        return overview(&global);
     };
     let open = || Client::open(&global);
     match command {
@@ -290,7 +292,6 @@ fn run(cli: Cli) -> Result<()> {
         Command::Exec(exec) => things::exec(&open()?, &exec),
         Command::Ssh(ssh) => crate::local::ssh(&global, &ssh),
         Command::Run(run) => things::run_action(&open()?, &run),
-        Command::Ui { host } => crate::screens(&global, host.as_deref()),
         Command::Host(command) => host::command(&global, command),
         Command::Rollout(rollout) => jobs::rollout(&open()?, &rollout),
         Command::Action(args::ActionCommand::List { host }) => {
@@ -336,6 +337,19 @@ fn run(cli: Cli) -> Result<()> {
         Command::TailnetKey { host } => crate::local::tailnet_key(&host),
         #[cfg(target_os = "linux")]
         Command::SimulatedProvisioner { verb } => crate::local::simulated_provisioner(&verb),
+    }
+}
+
+/// Bare `rookery`: the hosts of the server it uses, as `rookery ls` lists
+/// them, or what it can do when no server answers.
+fn overview(global: &args::Global) -> Result<()> {
+    match Client::open(global) {
+        Ok(client) => host::list(&client),
+        Err(fail) => {
+            short_help();
+            out::hint(fail.message);
+            Ok(())
+        }
     }
 }
 

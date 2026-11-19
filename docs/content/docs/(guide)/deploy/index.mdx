@@ -6,16 +6,16 @@ icon: HardDriveDownload
 
 import { Boxes, Cloud, Container, FlaskConical, Server, LayoutGrid, Shapes, Terminal, Usb } from 'lucide-react';
 
-The install methods all run the same Ansible role with the settings of the host's profile. Choose one under **How To Install** on the **Install** tab of a host, or use the matching command.
+The install methods all run the same Ansible role with the settings of the host's profile. `rookery host create HOST --method METHOD` chooses one, or asks for it.
 
 | Method | For | Command |
 | --- | --- | --- |
 | USB installer | A blank laptop or PC; erases a disk and installs Ubuntu | `rookery host iso HOST` |
 | Cloud-init seed | A fresh cloud machine at a provider that takes cloud-init | `rookery host seed HOST` |
-| Create a machine | A container or virtual machine that a plugin creates, such as on Docker or Incus | Install tab, or `rookery host create HOST --provisioner PROVISIONER` |
-| Existing host over SSH | An Ubuntu 26.04 machine you can log in to | Install tab |
-| This machine or an inventory | The machine Rookery runs on, or your own Ansible inventory | Install tab, or `ansible-playbook` |
-| Container image | Trying the desktop on Docker | Install tab, or `docker compose` |
+| Create a machine | A container or virtual machine that a plugin creates, such as on Docker or Incus | `rookery host create HOST --provisioner PROVISIONER` |
+| Existing host over SSH | An Ubuntu 26.04 machine you can log in to | `rookery host create HOST --method ssh` |
+| This machine or an inventory | The machine Rookery runs on, or your own Ansible inventory | `rookery host create HOST --method inventory`, or `ansible-playbook` |
+| Container image | Trying the desktop on Docker | `rookery host create HOST --method container`, or `docker compose` |
 
 The target is Ubuntu 26.04 on amd64. The USB installer installs it, and the other methods expect it.
 
@@ -51,18 +51,18 @@ The target is Ubuntu 26.04 on amd64. The USB installer installs it, and the othe
 
 ## Before you run
 
-The set-up of a host has four tabs. Each tab depends only on the tabs before it.
+The set-up of a host comes in four parts, and each depends only on the parts before it. `rookery host create` asks them one question at a time.
 
-| Tab | What it holds |
+| Part | What it holds |
 | --- | --- |
 | Install | How to install, with the target (not for a created machine, which is always `cloud`), the provisioner and its required arguments, the SSH address, the hostname and Tailscale |
 | Features | What gets installed, including Cockpit and Docker on the host |
 | Settings | Everything with a default, such as the machine's resources, the accounts, registries and secrets, and the installer's disk and Wi-Fi |
-| Run | The last files for the method, every problem, and the buttons |
+| Run | The last files for the method, and every problem |
 
-A setting shows only when the method and features it belongs to are chosen. Each of the first three tabs lists its own problems at the bottom. **Run** lists all of them under the name of their tab, and does not start while one is listed. Warnings, such as SSH being open to any address, are listed too but do not stop it. **Save** on Run, or Ctrl+S anywhere, saves the profile.
+A question is asked only when the method and features it belongs to are chosen. At the end, every problem is listed with the flag that answers it, and the profile is not applied while one is listed. Warnings, such as SSH being open to any address, are listed too but do not stop it. `--set KEY=VALUE` gives an answer, and `rookery host create --help` lists the keys.
 
-What Run starts is a job of the server, whose output fills a panel. Esc hides the panel and the job goes on. It stays in the server's list. A password the job needs, such as a sudo password, is asked for in a dialog first. To provision this machine or an inventory, run the role [with Ansible directly](/docs/deploy/ansible).
+A method starts a job of the server, which Rookery follows and whose output it shows. A password the job needs, such as a sudo password, is asked for first, or read from standard input. To provision this machine or an inventory, run the role [with Ansible directly](/docs/deploy/ansible).
 
 <Callout type="warn" title="Use dedicated machines">
   The role installs services, changes the firewall and grants the agent sudo. Applied to `localhost`, it provisions **the machine you are sitting at**. Only do that on a dedicated box.

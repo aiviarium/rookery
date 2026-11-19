@@ -11,11 +11,9 @@ To take a later version of the base, compare the base from `dcffeac` to its new 
 | File | What Rookery adds |
 | --- | --- |
 | `package.json` | The name, and `scripts/gather.mjs` before `dev`, `build`, `typecheck` and after install. `npm run vale` runs Vale with the repository's `.vale.ini` |
-| `src/components/mdx.tsx` | `Screen`, a terminal screenshot from `public/screens/` |
 | `src/app/docs/[[...slug]]/page.tsx` | No "Edit on GitHub" for the generated API pages |
 | `scripts/check-links.ts` | Folders in parentheses, such as `(guide)`, have no part in the URL, and files in `public/` count as pages |
-| `scripts/site-screens.py` | The base's `scripts/screens.py` under another name, with a folder to write to |
-| `.gitignore` | The generated API pages, and `/screens/` anchored so that `public/screens/` is kept |
+| `.gitignore` | The generated API pages, and `/screens/` for the screenshots of the site that are never committed |
 
 Change the theme in the base, not here.
 
@@ -29,7 +27,6 @@ Change the theme in the base, not here.
 | `content/docs/api/` | The API overview, portal and testing pages. `api/host/` and `api/serve/` are generated and not committed |
 | `openapi/` | The committed API documents, written by the Rust tests |
 | `scripts/gather.mjs`, `scripts/reference.mjs` | Write the API pages from `openapi/` and copy the documents to `public/openapi/` |
-| `scripts/screens.py` | The terminal screenshots in `public/screens/`, from made-up hosts |
 | `scripts/site-screens.py` | Screenshots of the built site for review, into `screens/`, which git ignores |
 | `scripts/check-links.ts` | The link check |
 | `src/` | The base's routes, components, theme and helpers |

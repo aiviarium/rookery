@@ -1,6 +1,6 @@
 ---
 title: Resources
-description: What provisioners made for Rookery, such as a host's machine or a deployment, and how to look after each one from the command line, the terminal UI and the API.
+description: What provisioners made for Rookery, such as a host's machine or a deployment, and how to look after each one from the command line and the API.
 icon: Shapes
 ---
 
@@ -195,23 +195,20 @@ Each change is a job whose subject is `resource:ID`, and it holds the resource's
 
 A caller of the API can give a token of its own, as `token` in a request. The same token again answers with the job the first call started, and nothing runs a second time.
 
-## In the terminal UI
+## From the command line
 
-The **Provisioners** tab of the home screen (`2`) lists the provisioners. Enter opens a provisioner's page, which lists what it holds, grouped by kind:
+`rookery resource list` lists what provisioners made, and `rookery resource show ID` shows one with its state, its fields and its actions in their groups:
 
-```text
-Machines rookery made with it
-  studio-2           rookery-studio-2  running
-Compose project rookery made with it
-  notes              notes  running
-  attic              attic  running · no record of it
+```bash
+rookery resource list
+rookery resource show rookery-studio-2
+rookery resource logs notes -f             # its log, followed until you stop
+rookery resource actions notes             # what it can do
 ```
 
 An entry the provisioner lists with Rookery's labels, but that Rookery has no record of, is marked *no record of it*. Rookery does not remove it.
 
-Enter on an entry opens the resource's page. It shows the resource's state and fields, and its actions in their groups. **Show its log** is there when its kind gives logs, and follows the log in a panel until you close it. Esc goes back to the provisioner's page. Rookery on macOS and Windows has the same tab ([On other systems](/docs/use/server#on-other-systems)).
-
-A host's machine is also on the host's Run tab, with its state and rows to start, stop and delete it.
+A host's machine is also in `rookery host show HOST`, with rows to start, stop and delete it.
 
 ## With a Rookery server
 

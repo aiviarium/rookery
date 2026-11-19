@@ -20,7 +20,7 @@ import uuid
 
 # The root of the source: the checkout, or the unpacked release.
 ROOT = Path(__file__).resolve().parents[2]
-# The rookery UI keeps build output outside the checkout.
+# Build output stays outside the checkout.
 BUILD = Path(os.environ.get('ROOKERY_BUILD_DIR') or ROOT / 'build').resolve()
 
 # Explicit allowlist: local profiles, keys and build outputs never enter a release.

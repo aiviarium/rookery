@@ -56,7 +56,7 @@ SEAM = [
         'keys/', 'plugins.rs', 'plugin_state.rs', 'paths.rs', 'profiles.rs', 'host_type.rs', 'runner.rs',
         'relay.rs', 'server_image.rs', 'import.rs')),
     'crates/rookery/src/local/serve/actions.rs',
-    'crates/rookery-tui/src/fields.rs', 'crates/rookery-tui/src/setup.rs', 'crates/rookery-tui/src/flow.rs',
+    'crates/rookery-setup/src/fields.rs', 'crates/rookery-setup/src/setup.rs', 'crates/rookery-setup/src/flow.rs',
 ]
 
 # TypeScript packages (`@rookery/client` and `@rookery/sdk`) and their root

@@ -1,30 +1,11 @@
 import defaultMdxComponents from 'fumadocs-ui/mdx';
 import { Accordion, Accordions } from 'fumadocs-ui/components/accordion';
 import { File, Files, Folder } from 'fumadocs-ui/components/files';
-import { ImageZoom } from 'fumadocs-ui/components/image-zoom';
 import { Step, Steps } from 'fumadocs-ui/components/steps';
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 import { TypeTable } from 'fumadocs-ui/components/type-table';
 import type { MDXComponents } from 'mdx/types';
 import { Badge } from '@/components/badge';
-import { asset } from '@/lib/site';
-
-/** A terminal screenshot from public/screens, made by scripts/screens.py. */
-export function Screen({ name, alt, caption }: { name: string; alt: string; caption?: string }) {
-  return (
-    <figure className="not-prose my-6">
-      <ImageZoom
-        src={asset(`/screens/${name}.png`)}
-        alt={alt}
-        width={1000}
-        height={600}
-        // The terminal screenshots are dark in both themes.
-        className="h-auto w-full rounded-xl border border-(--line-soft) bg-[#0a0a0b]"
-      />
-      {caption && <figcaption className="mt-2 text-center text-sm text-fd-muted-foreground">{caption}</figcaption>}
-    </figure>
-  );
-}
 
 // Callout, Card, Cards, code blocks and tables come with the defaults.
 export function getMDXComponents(components?: MDXComponents) {
@@ -36,7 +17,6 @@ export function getMDXComponents(components?: MDXComponents) {
     File,
     Files,
     Folder,
-    Screen,
     Step,
     Steps,
     Tab,

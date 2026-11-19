@@ -4,7 +4,7 @@
 
 use super::args::{Colour, Global, Output};
 use super::fail::Fail;
-use rookery_tui::theme::{self, Depth, Role};
+use super::look::{self, Depth, Role};
 use serde_json::Value;
 use std::io::{IsTerminal, Write};
 use std::sync::OnceLock;
@@ -93,11 +93,11 @@ fn paint(text: &str, style: Style, on: bool) -> String {
     }
     let code = match style {
         Style::Bold => "1".into(),
-        Style::Good => theme::sgr(Role::Good, get().depth),
-        Style::Bad => theme::sgr(Role::Bad, get().depth),
-        Style::Warn => theme::sgr(Role::Warn, get().depth),
-        Style::Dim => theme::sgr(Role::Muted, get().depth),
-        Style::Accent => theme::sgr(Role::Accent, get().depth),
+        Style::Good => look::sgr(Role::Good, get().depth),
+        Style::Bad => look::sgr(Role::Bad, get().depth),
+        Style::Warn => look::sgr(Role::Warn, get().depth),
+        Style::Dim => look::sgr(Role::Muted, get().depth),
+        Style::Accent => look::sgr(Role::Accent, get().depth),
     };
     format!("\x1b[{code}m{text}\x1b[0m")
 }
@@ -107,7 +107,7 @@ fn paint(text: &str, style: Style, on: bool) -> String {
 pub fn look(role: Role) -> ratatui::style::Style {
     let out = get();
     match out.colour.1 {
-        true => theme::style(role, out.depth),
+        true => look::style(role, out.depth),
         false if role == Role::Muted => ratatui::style::Style::new().dim(),
         false => ratatui::style::Style::new(),
     }

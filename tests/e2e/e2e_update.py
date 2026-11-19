@@ -90,12 +90,13 @@ class Update(unittest.TestCase):
         plugins = json.loads(station.rookery('plugin', 'list', '-o', 'json').stdout)['plugins']
         self.assertIn(('up', PACKAGE, '2.0.0'), [(p['id'], p['package'], p['version']) for p in plugins])
 
-        # The overview says so too.
-        overview = station.terminal('ui', HOST, cols=160)
-        try:
-            overview.expect(r'Applied before these changed: up 1\.0\.0 → 2\.0\.0', timeout=60)
-        finally:
-            overview.close()
+        # The host says so too.
+        def behind():
+            shown = json.loads(station.rookery('host', 'show', HOST, '-o', 'json').stdout)
+            return (shown.get('behind') or {}).get('changes')
+
+        changes = [{'id': 'up', 'from': '1.0.0', 'to': '2.0.0'}]
+        wait_for('the host showing that it is behind', lambda: behind() == changes, timeout=60)
 
         # A roll-out that fails at its first host leaves the next as it was.
         alpha = station.read_profile()
@@ -207,17 +208,9 @@ class UpdateServed(unittest.TestCase):
         kept.plant(station, run)
 
         self.registry.publish(plugin_version('2.0.0', 'served'))
-        # The tab of the terminal client asks the server. It lists every plugin
-        # with its features before the row that adds one, so it is tall.
-        home = station.terminal('ui', cols=160, rows=46)
-        try:
-            home.expect(HOST)
-            home.send('6')
-            home.expect('Add plugin')
-            home.send('c')
-            home.expect(r'update available: 1\.0\.0 → 2\.0\.0', timeout=60)
-        finally:
-            home.close()
+        # The terminal client asks the server.
+        checked = station.rookery('plugin', 'update', '--check').stdout
+        self.assertRegex(checked, r'(?m)^served\s+1\.0\.0\s+2\.0\.0\s*$')
         updated = station.rookery('plugin', 'update').output
         self.assertIn('✓ example/served 1.0.0 → 2.0.0', updated)
         self.assertIn(f'{HOST} needs applying: served 1.0.0 → 2.0.0', updated)

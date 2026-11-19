@@ -20,7 +20,7 @@ Token: 3f9c…
 Setup key: 81ad…
 ```
 
-Send the token as `Authorization: Bearer TOKEN`, as with any [Rookery server](/docs/extend/serve). The token and the setup key belong to this throw-away server alone, so it prints them. `rookery login http://127.0.0.1:7777` with the setup key works too, and `rookery ui` then shows **simulated** in its header.
+Send the token as `Authorization: Bearer TOKEN`, as with any [Rookery server](/docs/extend/serve). The token and the setup key belong to this throw-away server alone, so it prints them. `rookery login http://127.0.0.1:7777` with the setup key works too, and `rookery ls` then lists its hosts.
 
 ## Telling it apart
 
@@ -32,7 +32,7 @@ Nobody should take a simulated server for a real one:
 | `version` of the server | `"simulated": true` |
 | `version` of each host's controller | `"simulated": true` |
 | The output of an apply | `applying, simulated: nothing is installed` |
-| The screens | **simulated** beside the name in the header |
+| `rookery version` | `"simulated": true` for the server |
 
 ## Options
 

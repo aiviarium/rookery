@@ -1,9 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["crates/rookery-api", "crates/rookery-pty", "crates/rookery-core", "crates/rookery-tui", "crates/rookery", "crates/rookeryd", "crates/box", "crates/rookery-page"]
+members = ["crates/rookery-api", "crates/rookery-pty", "crates/rookery-core", "crates/rookery-setup", "crates/rookery", "crates/rookeryd", "crates/box"]
 # The vendored crate is a member because it lives inside; it is left out of what
 # is built, tested and linted by default.
-default-members = ["crates/rookery-api", "crates/rookery-pty", "crates/rookery-core", "crates/rookery-tui", "crates/rookery", "crates/rookeryd", "crates/box", "crates/rookery-page"]
+default-members = ["crates/rookery-api", "crates/rookery-pty", "crates/rookery-core", "crates/rookery-setup", "crates/rookery", "crates/rookeryd", "crates/box"]
 
 [workspace.package]
 version = "0.6.0"
@@ -12,12 +12,11 @@ rust-version = "1.95"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
-# Members that talk to a server ask for the client; the screens alone do not.
+# Members that talk to a server ask for the client; the set-up alone does not.
 rookery-api = { path = "crates/rookery-api", default-features = false }
 rookery-pty = { path = "crates/rookery-pty" }
 rookery-core = { path = "crates/rookery-core" }
-rookery-tui = { path = "crates/rookery-tui" }
-rookery-page = { path = "crates/rookery-page" }
+rookery-setup = { path = "crates/rookery-setup" }
 tui-input = { path = "crates/vendor/tui-input", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

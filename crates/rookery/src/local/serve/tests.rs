@@ -980,7 +980,7 @@ async fn a_hosts_actions_are_its_controllers_and_rookerys_own() {
         "{lines:?}"
     );
     // Asked again with its token, it is the same job, and nothing runs again.
-    let sessions = |value: Value| rookery_tui::host::list::<Value>(value, "sessions").len();
+    let sessions = |value: Value| crate::cli::things::listed::<Value>(value, "sessions").len();
     let before = sessions(
         client
             .get("/v1/hosts/box/controller/sessions")
@@ -3687,7 +3687,7 @@ async fn rookery_connect_saves_the_server_and_its_token() {
     let connect = |key: String| {
         let (dir, url) = (paths.config_dir.clone(), url.clone());
         tokio::task::spawn_blocking(move || {
-            let settings = rookery_page::settings::Settings::new(Some(dir));
+            let settings = crate::cli::settings::Settings::new(Some(dir));
             crate::cli::login::claim(&settings, &url, &key)
                 .map(drop)
                 .map_err(|error| error.message)

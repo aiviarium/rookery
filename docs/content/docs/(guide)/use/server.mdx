@@ -4,7 +4,7 @@ description: Run a Rookery server on one machine and use its hosts from Rookery 
 icon: ServerCog
 ---
 
-A server machine keeps the hosts with their profiles and secrets, and runs `rookery serve`. Rookery on another machine, such as your laptop, then uses that server: the [screens](/docs/use/terminal-ui), `rookery ls`, `rookery run` and every other command call the server's API through its [portal](/docs/api/portal). On macOS and Windows Rookery is only that: a client of a server.
+A server machine keeps the hosts with their profiles and secrets, and runs `rookery serve`. Rookery on another machine, such as your laptop, then uses that server: `rookery ls`, `rookery run` and every other command call the server's API through its [portal](/docs/api/portal). On macOS and Windows Rookery is only that: a client of a server.
 
 ```text
  your laptop                  the server                       hosts
@@ -83,7 +83,7 @@ Rookery checks the key, collects the token and keeps the server and the token. T
 
 ## On other systems
 
-Rookery on macOS and Windows is the client of a server: the screens and the commands, which all call a server. Install it on Windows in PowerShell:
+Rookery on macOS and Windows is the client of a server: `rookery login`, `rookery ls` and the other commands, which all call a server. Install it on Windows in PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/aiviarium/rookery/main/install.ps1 | iex
@@ -97,26 +97,25 @@ curl -fsSL https://raw.githubusercontent.com/aiviarium/rookery/main/install.sh |
 
 Each script downloads the latest release for this machine, checks it against its SHA-256 and installs it, to `%LOCALAPPDATA%\Programs\rookery` on Windows and to `~/.local/bin` on macOS. `ROOKERY_INSTALL_DIR` and `ROOKERY_VERSION` work as on Linux. To download it by hand, take the archive for your system and its `.sha256` file from the [latest release](https://github.com/aiviarium/rookery/releases/latest).
 
-Then connect it with a setup key, and open the screens. On Windows, use Windows Terminal or the console of Windows 10 or later.
+Then connect it with a setup key, and see its hosts:
 
 ```bash
 rookery login https://rookery.example.ts.net
-rookery ui
+rookery ls
 ```
 
-Rookery keeps the server and the token in the folder of [Rookery's settings](/docs/use/terminal-ui#your-machine-and-the-server). When none is kept, the screens open with a form for a server's address and token.
+Rookery keeps the server and the token as the settings `server` and `server_token`, in `config.json` of its folder of settings, which only you can read: `~/.config/rookery` on Linux, or under `$XDG_CONFIG_HOME`.
 
 | Variable | Effect |
 | --- | --- |
 | `ROOKERY_SERVER` | The server, for this run |
 | `ROOKERY_TOKEN` | The token, so it isn't asked for |
-| `ROOKERY_FILE` | The plugin package the screens send, where there is no file dialog |
 
-Rookery talks to a server over `https` only with a certificate that the system or the Mozilla roots trust. It opens only `http` and `https` links, in the system's browser. **o** on the host list signs out.
+Rookery talks to a server over `https` only with a certificate that the system or the Mozilla roots trust. `rookery logout` forgets the server and its token.
 
 A password the server makes up is shown once. The server keeps a copy in its store, and `rookery host credentials HOST` shows it again to an admin of the server.
 
-What works with the server's own machine is offered there only. That is the USB installer, which writes a drive of that machine, and the settings that aren't open to the network. Elsewhere the screens list them as unavailable, with the reason.
+What works with the server's own machine is offered there only. That is the USB installer, which writes a drive of that machine, and the settings that aren't open to the network. Elsewhere they are refused, with the reason.
 
 ## What works from another machine
 
@@ -142,8 +141,8 @@ With the role `admin` on the server, which its token has, Rookery sets the serve
 - `rookery resource` uses the server's resources. A deployment's specification is sent to the server and kept there, and it gets the server's secrets ([Deployments](/docs/deploy/deployments#with-a-rookery-server)).
 - A secret's value is sent to the server and kept only there.
 - The `tailnet_` settings and the secret `tailnet_api_key` are the server's, which creates the [keys its hosts join with](/docs/use/access#joining-the-tailnet) and looks after their [devices](/docs/use/access#the-hosts-device). Settings and `rookery config set` change them there.
-- A plugin is installed on the server, and its features show on the Features tab of the server's hosts. An egg or package folder of yours is sent there first.
+- A plugin is installed on the server, and its features are offered for the server's hosts. An egg or package folder of yours is sent there first.
 - The server logs in to hosts with the keys of [its own key ring](/docs/use/accounts#keys), by default its key `rookery`. `rookery key` acts on the server's ring, and its private halves stay there. `rookery key trust HOST` and `rookery host verify HOST --accept` make first contact and accept a changed host key from the server.
 - `rookery key rotate` replaces a key on the hosts that take it, as a job of the server ([Rekeying](/docs/use/accounts#rekeying)).
 
-With a lesser role the set-up tabs say *This host is set up on the Rookery server at URL*, and the host's overview works as before. The roles, access tokens of an OAuth 2.0 issuer in place of the token, and how to keep set-up on the server itself are in [`rookery serve`](/docs/extend/serve#who-gets-in).
+With a lesser role the set-up says *This host is set up on the Rookery server at URL*, and the host's other commands work as before. The roles, access tokens of an OAuth 2.0 issuer in place of the token, and how to keep set-up on the server itself are in [`rookery serve`](/docs/extend/serve#who-gets-in).

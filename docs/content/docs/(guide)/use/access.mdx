@@ -4,7 +4,7 @@ description: How to reach a host's desktop, T3 Code, Cockpit and SSH, on the tai
 icon: MonitorSmartphone
 ---
 
-A host serves its desktop, Cockpit and T3 Code, when a plugin installed it, only to the tailnet or to loopback. **Access links and desktop password** on the overview prints the addresses and the desktop's password, or from the command line:
+A host serves its desktop, Cockpit and T3 Code, when a plugin installed it, only to the tailnet or to loopback. The action `access` prints the addresses and the desktop's password:
 
 ```bash
 rookery run studio access
@@ -17,13 +17,13 @@ rookery run studio access
 | Cockpit | `https://HOST.TAILNET.ts.net:9090` | 9090 |
 | SSH | `ssh ops@TAILNET-ADDRESS` | 22 |
 
-In the panel, **Alt+R** shows the links as QR codes. Scan one with a phone to open it there. The pairing link of **Use T3 from another device** works the same way.
+The pairing link of the action `t3-pair` works the same way on a phone.
 
 The desktop link printed by the action includes the password after `#` and signs in by itself, so treat it like the password. The names are the ones `tailscale status` reports for the host, such as `HOST.TAILNET.ts.net` on Tailscale. They need the tailnet's DNS on the machine you browse from, while the tailnet address works without it. Rookery configures no Funnel or public proxy for them.
 
 ## Joining the tailnet
 
-A host joins the tailnet while it is set up, with a one-use key Rookery makes through the API of the tailnet's control server. Nobody pastes a key. The one choice in a profile is **Tailscale** on the host's Install tab (`rookery_install_tailscale`): whether the host joins at all.
+A host joins the tailnet while it is set up, with a one-use key Rookery makes through the API of the tailnet's control server. Nobody pastes a key. The one choice in a profile is `rookery_install_tailscale`, which the set-up asks as Tailscale: whether the host joins at all.
 
 Rookery needs the control server's API key in the secret `tailnet_api_key`:
 
@@ -40,7 +40,7 @@ The secret is one of these:
 | Tailscale | An API access token from the admin console | 1 to 90 days, chosen when you make it |
 | Headscale | An API key from `headscale apikeys create` | 90 days unless you choose otherwise |
 
-Prefer an OAuth client for Tailscale, so the secret doesn't run out. Keys it makes have tags, from those the client may give, so set `tailnet_tags` to them. On the Secrets tab of the home screen, Enter replaces the value. With a Rookery server, the server keeps the secret and the `tailnet_` settings.
+Prefer an OAuth client for Tailscale, so the secret doesn't run out. Keys it makes have tags, from those the client may give, so set `tailnet_tags` to them. `rookery secret set tailnet_api_key` replaces the value. With a Rookery server, the server keeps the secret and the `tailnet_` settings.
 
 Rookery makes a key only at the moment it's used:
 
@@ -83,9 +83,9 @@ When the control server refuses, or Rookery has no key, the job says so, and the
 
 ### When Rookery has no API key
 
-A host whose profile wants the tailnet needs the secret. Without it, Rookery stops before anything runs and says what to do: set the secret, or switch **Tailscale** off for the host. A seed, an installer or a new machine isn't made, and the set-up tabs show the problem for them. An apply stops before its first change. A host that's on the tailnet already is applied as usual, as it doesn't need a key.
+A host whose profile wants the tailnet needs the secret. Without it, Rookery stops before anything runs and says what to do: set the secret, or switch Tailscale off for the host with `rookery_install_tailscale`. A seed, an installer or a new machine isn't made, and the set-up names the problem. An apply stops before its first change. A host that's on the tailnet already is applied as usual, as it doesn't need a key.
 
-A new host on an installation without the secret starts with **Tailscale** off.
+A new host on an installation without the secret starts with Tailscale off.
 
 ### Headscale
 
@@ -110,13 +110,13 @@ Rookery makes its keys through Headscale's API with that key, and hosts join wit
 
 The agent's desktop is XFCE on a persistent virtual X display, `:1`, from TigerVNC, which also provides the loopback VNC endpoint. websockify connects the browser to it, and noVNC is the client in the browser. The password is generated on the host by TigerVNC's password utility. The agent can read it at `~/.config/tigervnc/password`.
 
-The desktop keeps running when you close the browser, and agents can drive it with [`box desktop`](/docs/reference/box#desktop). Set its size with **Desktop size** under Host on the Settings tab (`rookery_geometry`, such as `1600x900`).
+The desktop keeps running when you close the browser, and agents can drive it with [`box desktop`](/docs/reference/box#desktop). Set its size with `rookery_geometry`, such as `1600x900`, or with `rookery host set HOST geometry=1600x900`.
 
 ## Cockpit
 
-Full hosts get the [Cockpit](https://cockpit-project.org/) web console by default (`rookery_install_cockpit`, or **Cockpit web console** under Host Services on the Features tab). It shows logs, systemd services, storage and software updates, and has a file browser and a terminal, plus network settings on laptops. It listens on port 9090 and the firewall only admits it from the tailnet.
+Full hosts get the [Cockpit](https://cockpit-project.org/) web console by default (`rookery_install_cockpit`, which the features ask as Cockpit web console). It shows logs, systemd services, storage and software updates, and has a file browser and a terminal, plus network settings on laptops. It listens on port 9090 and the firewall only admits it from the tailnet.
 
-Log in as the operator with its password. Cockpit does not accept SSH keys, so give the operator a password under Operator Account on the Settings tab. The agent has no password unless you set one.
+Log in as the operator with its password. Cockpit does not accept SSH keys, so give the operator a password with `operator_password_hash` or `--generate-passwords`. The agent has no password unless you set one.
 
 Without a tailnet, tunnel it and open `https://127.0.0.1:9090`:
 
@@ -130,7 +130,7 @@ Switching the option off on an existing host stops the console and closes the po
 
 The operator logs in over SSH with keys only, on every host. The role writes a `Match User` block for it to `/etc/ssh/sshd_config.d/00-rookery-operator.conf` with `AuthenticationMethods publickey`, `PasswordAuthentication no` and `KbdInteractiveAuthentication no`. No setting turns it off.
 
-`rookery_harden_ssh` (**SSH hardening** on the Settings tab, on by default) does the same for every other account and refuses root. It writes `PasswordAuthentication no`, `KbdInteractiveAuthentication no` and `PermitRootLogin no` to `/etc/ssh/sshd_config.d/00-rookery.conf`. With it off, the agent and other accounts log in as the SSH server's own settings allow, and the operator still uses keys only.
+`rookery_harden_ssh` (`harden_ssh`, on by default) does the same for every other account and refuses root. It writes `PasswordAuthentication no`, `KbdInteractiveAuthentication no` and `PermitRootLogin no` to `/etc/ssh/sshd_config.d/00-rookery.conf`. With it off, the agent and other accounts log in as the SSH server's own settings allow, and the operator still uses keys only.
 
 Hardening is applied only when a key login for a non-root account will exist afterwards. That is the case when the operator has a key in the profile or the key of Rookery, or the account used for installing has its own authorized keys. Otherwise the run says so and leaves the server as it was.
 
@@ -140,7 +140,7 @@ For which addresses may reach SSH, see [the firewall](/docs/deploy/ssh#the-firew
 
 ## Without a tailnet
 
-Switch **Tailscale** off for a host, and Rookery reaches it over SSH at its address. The access action says so where the tailnet's links would be, and shows the tunnels. Tunnel the ports over SSH and open them on your own machine:
+Switch Tailscale off for a host, and Rookery reaches it over SSH at its address. The access action says so where the tailnet's links would be, and shows the tunnels. Tunnel the ports over SSH and open them on your own machine:
 
 ```bash
 ssh -L 16080:127.0.0.1:6080 -L 13773:127.0.0.1:3773 ops@HOST

@@ -13,18 +13,18 @@ agents come from plugins too. A set-up has these pieces:
 
 | Piece | What it is |
 | --- | --- |
-| `rookery` client | The program on the user's machine. It has a terminal UI and commands. |
+| `rookery` client | The program on the user's machine: its commands, and the set-up prompts they ask with. |
 | Rookery server | Optional. `rookery serve`, usually in a Docker container, reached over a tailnet with TLS. It keeps the hosts, profiles and secrets. |
 | Host | A machine Rookery logs in to over SSH. Its type is one of four: `ssh` means Rookery only logs in, `managed` adds rookeryd and box, `node` is a server Rookery applies without a desktop, and `workstation` is set up from a profile. A machine that exists is added with `rookery host add NAME ADDRESS --user USER`. |
 | Node | A server for machines. Its features `incus/server` and `docker/engine` install Incus and Docker, and after the apply Rookery registers their provisioners, such as `big-incus-vm`, `big-incus-container` and `big-docker-container`. |
-| Provisioner | Creates the machine for a host, such as on Docker or Incus. Plugins bring the types `docker/container`, `incus/vm` and `incus/container`, and Rookery runs each provisioner under a name of its own, registered with `rookery provisioner add NAME TYPE` or by a node. `rookery provisioner list` lists them, and the Provisioners tab of the terminal UI (key `2`) shows each one's page. |
+| Provisioner | Creates the machine for a host, such as on Docker or Incus. Plugins bring the types `docker/container`, `incus/vm` and `incus/container`, and Rookery runs each provisioner under a name of its own, registered with `rookery provisioner add NAME TYPE` or by a node. `rookery provisioner list` lists them, and `rookery provisioner show NAME` says what one requires and what Rookery made with it. |
 
 ## Where to look things up
 
 | Path | Answers |
 | --- | --- |
 | `README.md` | Installing the client |
-| `docs/content/docs/(guide)/start/quick-start.mdx` | A first host from the terminal UI |
+| `docs/content/docs/(guide)/start/quick-start.mdx` | A first host, from the prompt down |
 | `docs/content/docs/(guide)/use/server.mdx` | Running a server and connecting to it |
 | `docs/content/docs/(guide)/use/types.mdx` | Host types, and adding a machine by its address |
 | `docs/content/docs/(guide)/use/nodes.mdx` | Nodes, which are servers for Incus and Docker machines, and taking in one that exists |
@@ -167,7 +167,7 @@ The recipes make a key on the first run and print it at the end. Give the
 user the key and the address, which `tailscale serve status` shows:
 
 1. On their own machine they run `rookery login https://THIS-MACHINE.YOUR-TAILNET.ts.net` and enter the key. It works on Windows and macOS too.
-2. Then `rookery ui` opens the screens, and the other commands use that server.
+2. Then `rookery ls` lists its hosts, and every other command uses that server.
 
 The key ends when they choose Done, or when `rookery login` has saved the token.
 

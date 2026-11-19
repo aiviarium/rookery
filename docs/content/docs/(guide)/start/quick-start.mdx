@@ -4,7 +4,7 @@ description: Create a profile for a host, install it, and open its desktop.
 icon: Zap
 ---
 
-This walks through a first host, in Rookery's screens and then with the commands alone. The example uses an Ubuntu 26.04 server you can already reach over SSH, at `192.0.2.10`. The other ways to install differ only in what you choose on the Install tab. With no server set, Rookery keeps everything on your machine. No server has to run.
+This walks through a first host with the commands. The example uses an Ubuntu 26.04 server you can already reach over SSH, at `192.0.2.10`. The other ways to install differ only in the method and what it asks for. With no server set, Rookery keeps everything on your machine. No server has to run.
 
 <Callout title="Try it without a machine">
   The [container](/docs/deploy/container) runs the same desktop on Docker, and [QEMU](/docs/deploy/qemu) runs a whole host in a VM.
@@ -16,96 +16,71 @@ This walks through a first host, in Rookery's screens and then with the commands
 ### Create the host
 
 ```bash
-rookery ui studio
+rookery host create studio
 ```
 
-A name Rookery doesn't know starts a new host, whose profile Rookery saves in its store under the name `studio`. `rookery ui` alone opens the home screen, where `n` creates a host. `rookery host create studio` asks the same questions on the command line, as the last section shows. `rookery host export studio` prints the profile as JSON.
+The name is new, so Rookery makes a profile and puts its questions. The answers are saved in its store under the name `studio`. `rookery host export studio` prints the profile as JSON, and `rookery host create --help` lists every answer as a flag, for the last section.
 
 </Step>
 <Step>
 
 ### Choose how to install
 
-The profile opens on **Install** (key `1`). Choose **Existing host over SSH** under **How To Install**, then enter the address in **SSH address**: an IP, a hostname or a `Host` alias from your SSH configuration. The Tailscale settings are on this tab too.
+The first question is how. Choose **Existing host over SSH**, then give the address: an IP, a hostname or a `Host` alias from your SSH configuration. The Tailscale setting follows.
 
-The set-up has four tabs. Each one depends only on the tabs before it.
+The methods are on [Deploying](/docs/deploy). A script gives every answer with a flag:
 
-| Tab | Key | What it holds |
-| --- | --- | --- |
-| Install | `1` | How to install, and what that needs: the address, the hostname, Tailscale |
-| Features | `2` | What gets installed |
-| Settings | `3` | Everything with a default, such as accounts, registries and secrets |
-| Run | `4` | Every open problem, and the button that installs |
-
-Tab and Shift+Tab switch tabs too. Ctrl+S saves the profile at any point.
+```bash
+rookery host create studio --method ssh --set address=192.0.2.10 --set user=ops
+```
 
 </Step>
 <Step>
 
 ### Choose what to install
 
-**Features** (key `2`) lists the tool categories, browsers, Cockpit and the features of the installed plugins, which is where the coding agents are. Space on a group heading switches the whole group. [Plugins](/docs/extend/plugins) says how to install one.
-
-<Screen name="features" alt="The Features tab: Development Tools, Browsers, Desktop, Host Services and System groups with switches" />
+Then it asks for the tool categories, browsers, Cockpit and the features of the installed plugins, which is where the coding agents are. Say yes or no to each, or pass `--feature PLUGIN/FEATURE` and `--no-feature PLUGIN/FEATURE` for the ones that matter. [Plugins](/docs/extend/plugins) says how to install one.
 
 </Step>
 <Step>
 
 ### Check the settings
 
-**Settings** (key `3`) holds what has a default. That covers the *operator*, your account on the host, and the *agent* account the coding agents use. Paste an SSH public key into an account's key row. Each account can take several, and the operator also takes [the key of Rookery itself](/docs/reference/profile#the-key-of-rookery-itself). `c` on that field copies it.
+What has a default is asked next. That covers the *operator*, your account on the host, and the *agent* account the coding agents use. An account's SSH public key is given with `rookery host set studio operator_ssh_public_key=ssh-ed25519…`, and each account can take several. The operator also takes [the key of Rookery itself](/docs/reference/profile#the-key-of-rookery-itself), which `rookery key show rookery` prints.
 
-On a password hash field, F4 generates a password and stores its hash, and F5 hashes one you type. Rookery keeps a generated password in its store, and `rookery host credentials studio` shows it.
-
-<Screen name="accounts" alt="The Settings tab with the operator and agent accounts, Access with SSH hardening, registries and secrets" />
+A password hash is not typed: `--generate-passwords` makes the passwords, stores their hashes in the profile, and Rookery keeps the passwords themselves in its store. `rookery host credentials studio` shows them.
 
 </Step>
 <Step>
 
 ### Install
 
-**Run** (key `4`) lists every problem that stops the install, under the name of the tab it belongs to. Each tab also lists its own problems at the bottom. Fix them, and press Enter on **Run**.
+At the end it lists every problem that stops the install, and the flag for each one. Fix them, and answer yes to applying the profile to the host. The command follows the job and says how it went:
 
-<Screen name="install-cloud" alt="The Run tab listing the open problems by tab, a warning, and the Run and Save buttons" />
-
-The other methods are on [Deploying](/docs/deploy).
+```bash
+rookery apply studio
+```
 
 </Step>
 <Step>
 
 ### Use the host
 
-Once the host has an SSH address, `rookery ui studio` opens its **overview**. Run **Status** to check it, then **Access links and desktop password** for the address of the desktop.
+Once the host answers, `rookery host show studio` says how it is and what it can do. `rookery run studio status` checks it, and `rookery action list studio` names the rest:
 
-<Screen name="overview" alt="The overview of a host with its actions" />
+```bash
+rookery run studio status
+rookery run studio access-links             # the address of the desktop
+```
+
+`rookery ssh studio` is a shell as the agent, and `rookery exec studio -- uname -a` runs one command.
 
 </Step>
 <Step>
 
 ### Sign the agents in
 
-Installing a coding agent or a tool does not sign it in. Under **Sign-In**, **Sign in to GitHub** and the actions that other plugins add run the tool's sign-in on the host and show its link, which you open in your own browser. See [Sign-ins](/docs/use/sign-ins).
+Installing a coding agent or a tool does not sign it in. `rookery run studio github:login` and the actions that other plugins add run the tool's sign-in on the host and print its link, which you open in your own browser. See [Sign-ins](/docs/use/sign-ins).
 
 </Step>
 </Steps>
-
-## The same with the commands
-
-`rookery host create` asks the questions of the four tabs in their order, below the command. Each flag answers one. With every answer given as a flag and `--no-input`, it asks nothing:
-
-```bash
-rookery host create studio --method ssh --set address=192.0.2.10 --set user=ops \
-  --feature github/cli --generate-passwords --no-input
-rookery host apply studio
-rookery host credentials studio
-```
-
-`rookery host apply` follows the install as a job until it ends. `rookery ls` lists the hosts and whether each answers, and `rookery action list studio` names what it can do. `rookery run studio status` runs one. A step that fails says which flag or field to fix, and exits with a status of its own. The reference lists [the exit statuses](/docs/reference/cli#exit-statuses).
-
-## Next
-
-<Cards>
-  <Card title="Access and the desktop" href="/docs/use/access">Tailnet addresses, Cockpit and SSH.</Card>
-  <Card title="Secrets" href="/docs/use/secrets">Give the agent a GitHub token.</Card>
-  <Card title="The commands" href="/docs/use/cli">The same work without the UI.</Card>
-</Cards>

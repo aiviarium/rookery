@@ -520,7 +520,7 @@ rookery has no page in the browser any more. Use rookery on your own machine,
 on Linux, macOS or Windows:
 
     rookery login https://THIS-SERVER
-    rookery ui
+    rookery ls
 
 A link that ends in #setup-key=KEY holds a setup key: rookery login asks for it.
 ";

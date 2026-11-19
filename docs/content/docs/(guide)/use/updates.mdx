@@ -12,7 +12,7 @@ Ubuntu security updates and Firefox's vendor updates install automatically. The 
 
 | How | Updates |
 | --- | --- |
-| **Update** on the overview, or `rookery run HOST update` | `apt` update and `dist-upgrade`, then what plugins installed, such as the Unity CLI, to their latest versions |
+| `rookery run HOST update` | `apt` update and `dist-upgrade`, then what plugins installed, such as the Unity CLI, to their latest versions |
 | **Reboot**, or `rookery run HOST reboot` | Restarts the host to finish updates |
 | **Apply this configuration** | Runs the role again, which brings new or changed features and settings, rookeryd and box, and plugin actions and services |
 | `rookery plugin update` | Your plugins, to the latest version of their registry ([Updating a plugin](/docs/extend/plugins#updating-a-plugin)) |
@@ -26,7 +26,7 @@ rookery update --check     # is there a newer release?
 rookery update             # download it, check its SHA-256 and replace this program
 ```
 
-`rookery update` takes the same archive as the install script. It offers only full releases, not pre-releases such as `0.4.0-rc.1`, and moves from a pre-release to its release. A container is updated by pulling a newer image. `rookeryd` and `box` travel inside `rookery`. A host gets the new ones when you apply its configuration. Its overview says when its tools are of another version than your Rookery.
+`rookery update` takes the same archive as the install script. It offers only full releases, not pre-releases such as `0.4.0-rc.1`, and moves from a pre-release to its release. A container is updated by pulling a newer image. `rookeryd` and `box` travel inside `rookery`. A host gets the new ones when you apply its configuration. `rookery host show` says when its tools are of another version than your Rookery.
 
 A host whose rookeryd is older than Rookery needs is marked `old controller` in `rookery ls`. Its sessions, files and `rookery exec` work, but its actions and port forwarding need a newer rookeryd. The host's page and its actions say what updates it, `rookery apply HOST` or, for a managed host, `rookery run HOST install-controller`. A Rookery that meets a newer rookeryd is out of date: update it. It refuses the profile a newer Rookery left on the host rather than misread it. `rookery update --from URL` takes the releases from a mirror instead, and the setting `releases` keeps one.
 
@@ -34,7 +34,7 @@ A client refuses a server with an older API, and says to update the server first
 
 ## Hosts that are behind
 
-Applying records on the host which Rookery and which plugins the configuration came from, with each plugin's version and a digest of its files. Rookery compares that with what it would apply now. When a plugin was updated, or Rookery was, the overview says what changed, such as `unity 1.0.0 → 1.1.0`. A plugin that changed without a new version shows as `(changed)`. A Rookery server's host list marks such a host `behind`, and `hosts.get` says what changed.
+Applying records on the host which Rookery and which plugins the configuration came from, with each plugin's version and a digest of its files. Rookery compares that with what it would apply now. When a plugin was updated, or Rookery was, `rookery host show` says what changed, such as `unity 1.0.0 → 1.1.0`. A plugin that changed without a new version shows as `(changed)`. A Rookery server's host list marks such a host `behind`, and `hosts.get` says what changed.
 
 A host that was applied before this record existed says nothing yet. Applying it once records it.
 
@@ -55,7 +55,7 @@ The hosts are taken one at a time, by name. Each is applied and then checked. It
 | `--force` | Reboots also while sessions run, which ends them |
 | `--all` | Applies the hosts that are current too |
 
-With a Rookery server set, the roll-out is a job of the server. On the Plugins tab, after an update, `r` lists the hosts with what changed and starts on a second `r`. `R` does the same with `--reboot`.
+With a Rookery server set, the roll-out is a job of the server. `rookery rollout` lists the hosts with what changed and applies them, and `--reboot` reboots the ones that need it.
 
 ## What applying again keeps
 

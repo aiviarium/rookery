@@ -1,8 +1,8 @@
-//! This installation's API for a client in the same process, which rookery's
-//! screens use when no server is set: the router of rookery serve's own
-//! socket, over pipes in memory. Like a caller on that socket, the caller is
-//! the user the installation belongs to, so it is an admin and shows no
-//! token. Nothing listens anywhere: only this process can reach it.
+//! This installation's API for a client in the same process, which rookery
+//! uses when no server is set: the router of rookery serve's own socket,
+//! over pipes in memory. Like a caller on that socket, the caller is the
+//! user the installation belongs to, so it is an admin and shows no token.
+//! Nothing listens anywhere: only this process can reach it.
 
 use super::{Serve, api, auth};
 use crate::Result;
@@ -31,7 +31,7 @@ pub fn local(paths: &Paths, ask: bool) -> Result<(String, Option<Here>)> {
         return Ok((format!("unix:{}", socket.display()), None));
     }
     let here = Here::start(paths, ask)?;
-    Ok((rookery_page::device::HERE.to_owned(), Some(here)))
+    Ok((crate::cli::net::HERE.to_owned(), Some(here)))
 }
 
 /// Wait for the jobs a command started in its own server, saying on
@@ -201,7 +201,7 @@ mod tests {
             .unwrap();
         let here = Here::start(&paths, false).unwrap();
         let dial = here.dial();
-        // The client has a runtime of its own, as the screens do.
+        // The client has a runtime of its own.
         let client_runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -270,76 +270,6 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
-    }
-
-    fn screen(app: &mut rookery_page::App) -> String {
-        use ratatui::{Terminal, backend::TestBackend};
-        let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
-        terminal.draw(|frame| app.draw(frame)).unwrap();
-        let buffer = terminal.backend().buffer();
-        (0..30)
-            .map(|y| {
-                (0..120)
-                    .map(|x| buffer[(x, y)].symbol())
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-
-    #[test]
-    fn the_screens_list_and_open_a_host_through_it() {
-        let (dir, paths) = scratch();
-        for (name, address) in [("studio", "192.0.2.10"), ("forge", "192.0.2.11")] {
-            let profile = json!({"hostname": name, "builder": {}, "access": {"address": address, "link": ["sh", "-c", "exit 1"]}});
-            rookery_core::profiles::Place::own(&paths, name)
-                .unwrap()
-                .save(&paths, &profile)
-                .unwrap();
-        }
-        let here = Here::start(&paths, false).unwrap();
-        rookery_page::net::serve_here(here.dial());
-        let kept = dir.path().join("client");
-        let linked = rookery_page::device::Linked {
-            server: Some(rookery_page::device::HERE.into()),
-            ..Default::default()
-        };
-        rookery_page::device::install(
-            linked,
-            rookery_page::settings::Settings::new(Some(kept.clone())),
-        );
-        let mut app = rookery_page::App::new();
-        app.open_when_listed("forge");
-        let started = std::time::Instant::now();
-        let shown = loop {
-            rookery_page::pump();
-            app.tick();
-            let shown = screen(&mut app);
-            if shown.contains("Connection") && shown.contains("192.0.2.11") {
-                break shown;
-            }
-            assert!(
-                started.elapsed() < Duration::from_secs(10),
-                "the host did not open:\n{shown}"
-            );
-            std::thread::sleep(Duration::from_millis(20));
-        };
-        // Its own server needs no token and says where it is, and is never kept.
-        assert!(!shown.contains("through the rookery server"), "{shown}");
-        assert!(!kept.join("config.json").exists());
-        app.event(rookery_tui::Event::Key(rookery_tui::Key::plain(
-            rookery_tui::Code::Esc,
-        )));
-        app.tick();
-        let home = screen(&mut app);
-        assert!(
-            home.contains("this machine") && home.contains("studio"),
-            "{home}"
-        );
-        app.event(rookery_tui::Event::Key(rookery_tui::Key::plain(
-            rookery_tui::Code::Char('q'),
-        )));
-        assert!(app.quit());
     }
 
     #[test]

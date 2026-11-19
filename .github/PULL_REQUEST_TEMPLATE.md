@@ -11,5 +11,5 @@ Issue: #
 - [ ] `ci/run.sh all` passes
 - [ ] Tried on a real host as well as in the containers (say which kind above)
 - [ ] Documentation is updated and Vale doesn't report warnings
-- [ ] The screens do it through the API, and the client build for macOS and Windows still checks
+- [ ] The command line does it through the API, and the build for macOS and Windows still checks
 - [ ] I read every line of this change myself

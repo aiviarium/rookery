@@ -1,15 +1,42 @@
-//! The network under the screens: TCP or TLS to a `rookery serve`, plain HTTP
-//! requests to it, and a way back to the thread that draws.
+//! The network under the command line: TCP or TLS to a `rookery serve`, its
+//! socket on this machine, a server in this program's own process, and plain
+//! HTTP requests to it.
 
 use rookery_api::client::{self, Error};
-use std::cell::RefCell;
-use std::future::Future;
-use std::sync::{Arc, OnceLock, mpsc};
+use std::sync::{Arc, OnceLock};
 use tokio::net::TcpStream;
 
 pub use rookery_api::client::Stream;
 
-/// The runtime the connections run on; the screens stay on the main thread.
+/// The address of the server in this program's own process, which the
+/// command line starts when no other is set.
+pub const HERE: &str = "here:";
+
+/// Whether the server is on this machine, reached without a token: the one
+/// in this program, or the socket of a `rookery serve` of this user.
+pub fn local(server: &str) -> bool {
+    server == HERE || server.starts_with("unix:")
+}
+
+/// A server's address as typed, made whole: without a scheme it is https,
+/// or http for this machine itself.
+pub fn address(typed: &str) -> String {
+    let typed = typed.trim().trim_end_matches('/');
+    if typed.is_empty()
+        || typed.starts_with("http://")
+        || typed.starts_with("https://")
+        || local(typed)
+    {
+        return typed.to_owned();
+    }
+    let local = ["localhost", "127.", "[::1]"]
+        .iter()
+        .any(|name| typed.starts_with(name));
+    format!("{}://{typed}", if local { "http" } else { "https" })
+}
+
+/// The runtime the connections run on; the command line stays on the main
+/// thread.
 pub fn runtime() -> &'static tokio::runtime::Runtime {
     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| {
@@ -44,18 +71,18 @@ pub struct Target {
 }
 
 /// The server in this process, when the program runs one.
-static HERE: std::sync::RwLock<Option<client::Dial>> = std::sync::RwLock::new(None);
+static HERE_DIAL: std::sync::RwLock<Option<client::Dial>> = std::sync::RwLock::new(None);
 
 /// Reach `here:` through `dial`, until another is given.
 pub fn serve_here(dial: client::Dial) {
-    *HERE
+    *HERE_DIAL
         .write()
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(dial);
 }
 
 /// Where `path` of `server` is: `http(s)://HOST[:PORT]`, `unix:/path` or `here:`.
 pub fn target(server: &str, path: &str) -> Result<Target, String> {
-    if server == crate::device::HERE {
+    if server == HERE {
         return Ok(Target {
             way: Way::Here,
             authority: "rookery".into(),
@@ -129,7 +156,7 @@ fn tls() -> Arc<rustls::ClientConfig> {
 pub async fn connect(target: &Target) -> Result<Stream, String> {
     let (name, port, secure) = match &target.way {
         Way::Here => {
-            let dial = HERE
+            let dial = HERE_DIAL
                 .read()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .clone()
@@ -232,66 +259,6 @@ pub fn describe(error: &Error) -> String {
     }
 }
 
-type Waiting = Box<dyn FnMut() -> bool>;
-
-thread_local! {
-    /// What the main thread waits for: each says whether it is done.
-    static WAITING: RefCell<Vec<Waiting>> = RefCell::default();
-}
-
-/// Hand `then` what `work` gives, on the main thread, at a later [`pump`].
-pub fn later<T: Send + 'static>(
-    work: impl Future<Output = T> + Send + 'static,
-    then: impl FnOnce(T) + 'static,
-) {
-    let (sender, receiver) = mpsc::channel();
-    runtime().spawn(async move {
-        let _ = sender.send(work.await);
-    });
-    wait(receiver, then);
-}
-
-/// The same for work that blocks, such as a program that is waited for.
-pub fn later_blocking<T: Send + 'static>(
-    work: impl FnOnce() -> T + Send + 'static,
-    then: impl FnOnce(T) + 'static,
-) {
-    let (sender, receiver) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = sender.send(work());
-    });
-    wait(receiver, then);
-}
-
-fn wait<T: 'static>(receiver: mpsc::Receiver<T>, then: impl FnOnce(T) + 'static) {
-    let mut then = Some(then);
-    WAITING.with(|waiting| {
-        waiting
-            .borrow_mut()
-            .push(Box::new(move || match receiver.try_recv() {
-                Ok(value) => {
-                    if let Some(then) = then.take() {
-                        then(value);
-                    }
-                    true
-                }
-                Err(mpsc::TryRecvError::Empty) => false,
-                Err(mpsc::TryRecvError::Disconnected) => true,
-            }))
-    });
-}
-
-/// Run what has arrived. What it runs may wait for more.
-pub fn pump() {
-    let mut taken = WAITING.with(|waiting| std::mem::take(&mut *waiting.borrow_mut()));
-    taken.retain_mut(|done| !done());
-    WAITING.with(|waiting| {
-        let mut waiting = waiting.borrow_mut();
-        taken.append(&mut waiting);
-        *waiting = taken;
-    });
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -332,5 +299,22 @@ mod tests {
         ] {
             assert!(target(wrong, "/").is_err(), "{wrong}");
         }
+    }
+
+    #[test]
+    fn a_server_typed_is_made_whole() {
+        assert_eq!(
+            address("studio.example:8080"),
+            "https://studio.example:8080"
+        );
+        assert_eq!(address("127.0.0.1:7878/"), "http://127.0.0.1:7878");
+        assert_eq!(address(" https://192.0.2.10/ "), "https://192.0.2.10");
+        assert_eq!(address("here:"), "here:");
+        assert_eq!(
+            address("unix:/run/rookery/serve.sock"),
+            "unix:/run/rookery/serve.sock"
+        );
+        assert!(local(HERE) && local("unix:/run/rookery/serve.sock"));
+        assert!(!local("https://studio.example"));
     }
 }

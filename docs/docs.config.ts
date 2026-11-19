@@ -124,9 +124,9 @@ const config: DocsConfig = {
       url: '/docs/use/access',
     },
     {
-      title: 'One terminal UI for every host',
-      description: 'Status, a shell, updates and reboots per host, and the same tasks as commands for scripts.',
-      url: '/docs/use/overview',
+      title: 'One command line for every host',
+      description: 'Status, a shell, updates and reboots per host, from the same API a script uses.',
+      url: '/docs/use/cli',
     },
     {
       title: 'Sign-ins and secrets',

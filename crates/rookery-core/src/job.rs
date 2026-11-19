@@ -1,4 +1,4 @@
-//! Commands that run inside the UI, with their output and progress on screen.
+//! Commands that run as a job, with their output and progress as records.
 
 use crate::Result;
 use std::{
