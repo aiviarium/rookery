@@ -16,6 +16,8 @@ rookery-kernel.workspace = true
 rookery-auth.workspace = true
 rookery-facilities.workspace = true
 rookery-jobs.workspace = true
+rookery-hosts.workspace = true
+rookery-core.workspace = true
 tokio.workspace = true
 axum.workspace = true
 tower = { version = "0.5", features = ["util"] }

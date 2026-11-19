@@ -23,6 +23,8 @@ pub mod code {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ErrorDetail {
     pub code: String,
     pub message: String,
@@ -46,11 +48,15 @@ pub fn error_message_header(message: &str) -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ErrorBody {
     pub error: ErrorDetail,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Version {
     pub version: String,
     pub api: u32,
@@ -88,6 +94,8 @@ pub struct Version {
     Deserialize,
     ToSchema,
 )]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum HostType {
     /// rookery logs in over SSH. Nothing of rookery is installed.
@@ -172,6 +180,8 @@ pub const PLANNED: &str = "planned";
 
 /// Whether a host runs, as far as the server knows.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum PowerState {
     Running,
@@ -195,6 +205,8 @@ impl PowerState {
 /// provisioner made is started and stopped through it, when its kind can;
 /// any other declares in its profile's `power` how it is stopped.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Power {
     /// Whether rookery can start it.
     pub start: bool,
@@ -227,6 +239,8 @@ pub fn type_mismatch(name: &str, intended: HostType, observed: Option<HostType>)
 
 /// What a setup key says of the server it is for.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SetupKey {
     /// The version of rookery serve.
     pub version: String,
@@ -237,6 +251,8 @@ pub struct SetupKey {
 
 /// The server's token, collected with a setup key.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SetupClaim {
     /// The token of rookery serve, as in its serve.token.
     pub token: String,
@@ -246,7 +262,10 @@ pub struct SetupClaim {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "ts", ts(rename = "HostLevel"))]
 pub enum Level {
     Host,
     Agent,
@@ -254,6 +273,9 @@ pub enum Level {
 
 /// Who did something, as rookeryd saw it.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(rename = "MessageFrom"))]
 pub struct From {
     pub level: Level,
     pub uid: u32,
@@ -264,6 +286,8 @@ pub struct From {
 // ── Sessions ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum SessionKind {
     Process,
@@ -272,6 +296,8 @@ pub enum SessionKind {
 
 /// A list of arguments, or one string for `sh -c`.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(untagged)]
 pub enum CommandLine {
     Args(Vec<String>),
@@ -283,6 +309,8 @@ fn agent() -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct StartSession {
     pub kind: SessionKind,
     pub command: CommandLine,
@@ -310,6 +338,8 @@ pub struct StartSession {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Step {
     pub name: String,
     pub user: String,
@@ -318,6 +348,8 @@ pub struct Step {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Session {
     pub id: String,
     pub kind: SessionKind,
@@ -359,6 +391,8 @@ impl Session {
 /// The answer to a start with `wait=`: the session and, when it has ended in
 /// time, what it wrote.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Started {
     #[serde(flatten)]
     pub session: Session,
@@ -374,6 +408,8 @@ pub struct Started {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Output {
     pub data_b64: String,
     /// The same as text, when read by lines.
@@ -391,6 +427,8 @@ pub struct Output {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Screen {
     pub rows: u16,
     pub cols: u16,
@@ -400,6 +438,8 @@ pub struct Screen {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Input {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
@@ -411,12 +451,16 @@ pub struct Input {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Resize {
     pub rows: u16,
     pub cols: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Signal {
     /// `INT`, `TERM`, `HUP` or `KILL`.
     pub signal: String,
@@ -425,6 +469,8 @@ pub struct Signal {
 // ── A host's actions ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Argument {
     pub name: String,
     #[serde(default)]
@@ -566,6 +612,8 @@ pub fn parse_bool(value: &str) -> Option<bool> {
 /// An action of the host's controller: an entry of `/etc/rookery/actions.json`.
 /// Listed without `run`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct HostAction {
     pub name: String,
     #[serde(default)]
@@ -596,6 +644,8 @@ pub struct HostAction {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct RunAction {
     #[serde(default)]
     pub arguments: BTreeMap<String, String>,
@@ -608,6 +658,8 @@ pub struct RunAction {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Choices {
     pub choices: Vec<String>,
 }
@@ -616,6 +668,8 @@ pub struct Choices {
 
 /// Where an action runs.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Runs {
     /// Where rookery runs, as a function of rookery or a plugin's program. A run
@@ -628,6 +682,8 @@ pub enum Runs {
 
 /// What a plugin adds to an action: a step run after it in the same run.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ActionStep {
     pub label: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -645,6 +701,8 @@ fn operate() -> crate::ops::Role {
 /// Something that can be done to a subject: a host, the installation, and
 /// later a provisioner or a resource. It says enough to build a form from.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Action {
     pub name: String,
     #[serde(default)]
@@ -747,6 +805,8 @@ impl Action {
 
 /// What running an action is given.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Act {
     #[serde(default)]
     pub arguments: BTreeMap<String, String>,
@@ -783,6 +843,8 @@ pub mod upgrade_server {
 
 /// What running an action answers: one of the three.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Acted {
     /// The job that runs it, for an action of rookery that changes something.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -797,6 +859,8 @@ pub struct Acted {
 
 /// A job of rookery: one run of an action, with its output kept where it ran.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct JobInfo {
     pub id: String,
     /// What it was done to, by id: `host:ID`, `provisioner:ID`,
@@ -836,6 +900,8 @@ pub struct JobInfo {
 // ── System ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Memory {
     pub total: u64,
     pub used: u64,
@@ -843,6 +909,8 @@ pub struct Memory {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Filesystem {
     pub mount: String,
     pub device: String,
@@ -853,6 +921,8 @@ pub struct Filesystem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Interface {
     pub name: String,
     pub rx_bytes: u64,
@@ -860,6 +930,8 @@ pub struct Interface {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Gpu {
     pub name: String,
     /// Percent.
@@ -869,12 +941,16 @@ pub struct Gpu {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct UnitState {
     pub unit: String,
     pub active: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Stats {
     pub hostname: String,
     pub load: [f64; 3],
@@ -895,6 +971,8 @@ pub struct Stats {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct FileEntry {
     pub name: String,
     /// `file`, `dir`, `link` or `other`.
@@ -904,12 +982,16 @@ pub struct FileEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Listing {
     pub path: String,
     pub entries: Vec<FileEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Unit {
     pub unit: String,
     pub load: String,
@@ -919,6 +1001,8 @@ pub struct Unit {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct LogEntry {
     pub time: String,
     pub unit: String,
@@ -929,6 +1013,8 @@ pub struct LogEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Process {
     pub pid: u32,
     pub parent: u32,
@@ -941,6 +1027,8 @@ pub struct Process {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Done {
     pub ok: bool,
 }
@@ -948,6 +1036,8 @@ pub struct Done {
 // ── Channel ─────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, Default)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Keep {
     None,
@@ -957,6 +1047,8 @@ pub enum Keep {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Message {
     pub id: u64,
     pub topic: String,
@@ -967,6 +1059,8 @@ pub struct Message {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Publish {
     #[serde(default)]
     pub body: Value,
@@ -976,6 +1070,8 @@ pub struct Publish {
 
 /// What a client sends over the channel stream to publish.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PublishFrame {
     pub topic: String,
     #[serde(default)]
@@ -985,6 +1081,8 @@ pub struct PublishFrame {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Messages {
     pub messages: Vec<Message>,
     /// Pass as `since` for the rest, when there is more.
@@ -994,6 +1092,8 @@ pub struct Messages {
 
 /// An entry of `/etc/rookery/channels.json`.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Topic {
     pub topic: String,
     #[serde(default)]
@@ -1007,6 +1107,8 @@ pub struct Topic {
 // ── Services ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Method {
     pub name: String,
     #[serde(default)]
@@ -1015,6 +1117,8 @@ pub struct Method {
 
 /// An entry of `/etc/rookery/services.json`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ServiceSpec {
     pub name: String,
     #[serde(default)]
@@ -1034,6 +1138,8 @@ pub struct ServiceSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Service {
     pub name: String,
     pub description: String,
@@ -1048,6 +1154,8 @@ pub struct Service {
 
 /// rookeryd to the serving program.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CallFrame {
     pub id: u64,
     pub method: String,
@@ -1057,6 +1165,8 @@ pub struct CallFrame {
 
 /// The serving program's answer.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ReplyFrame {
     pub id: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1069,6 +1179,8 @@ pub struct ReplyFrame {
 
 /// `/etc/rookery/rookeryd.json`.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(default)]
 pub struct Config {
     /// The agent account.
@@ -1109,6 +1221,8 @@ impl Default for Config {
 /// Where a plugin comes from, which says whether it can be removed and how
 /// it is updated.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum PluginOrigin {
     /// Installed from the registry named `rookery`, which comes with
@@ -1125,6 +1239,8 @@ pub enum PluginOrigin {
 
 /// An action a feature adds to a host.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PluginAction {
     /// The action is `PLUGIN:NAME` on the host.
     pub name: String,
@@ -1144,6 +1260,8 @@ pub struct PluginAction {
 
 /// A program a feature keeps running on the host to answer calls.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PluginService {
     /// The service is `PLUGIN/NAME` on the host.
     pub name: String,
@@ -1154,6 +1272,8 @@ pub struct PluginService {
 
 /// Something a plugin installs, switched on per host.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PluginFeature {
     /// A profile names it `PLUGIN/ID`.
     pub id: String,
@@ -1173,6 +1293,8 @@ pub struct PluginFeature {
 
 /// A plugin that was found, with what it can install.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PluginInfo {
     pub id: String,
     pub label: String,
@@ -1200,6 +1322,8 @@ pub struct PluginInfo {
 
 /// The plugins a rookery serve has, and where it keeps its own.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PluginList {
     pub plugins: Vec<PluginInfo>,
     /// The folder its own plugins are installed in.
@@ -1208,6 +1332,8 @@ pub struct PluginList {
 
 /// What a change of the plugins did, a few lines; the first starts with ✓.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PluginReport {
     pub lines: Vec<String>,
     /// After an update: the hosts whose configuration is now behind.
@@ -1217,6 +1343,8 @@ pub struct PluginReport {
 
 /// Whether a newer version of a plugin is there, as its registry says.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PluginUpdate {
     pub id: String,
     pub package: String,
@@ -1234,12 +1362,16 @@ pub struct PluginUpdate {
 
 /// The answer of `plugins.check`: each of the user's plugins.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PluginUpdates {
     pub plugins: Vec<PluginUpdate>,
 }
 
 /// What to update: one plugin by its id or package, or all of them.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PluginUpdateSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -1248,6 +1380,8 @@ pub struct PluginUpdateSpec {
 /// What to install as a plugin: a package of the plugin registries, the
 /// address of an egg, or one folder of a git repository.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PluginSpec {
     /// `GROUP/ID[@RANGE]`, `ID[@RANGE]`, or the https address of an egg.
     /// Empty with `git`.
@@ -1270,6 +1404,8 @@ pub struct PluginSpec {
 
 /// A registry plugins are installed from, a line of `hatchery.kdl`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PluginRegistry {
     /// Its name, which a line of its own keeps. The one named `rookery`
     /// holds the plugins that come with Rookery.
@@ -1304,6 +1440,8 @@ pub struct PluginRegistry {
 
 /// The answer of `plugins.registries`, in the order they are searched.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PluginRegistries {
     pub registries: Vec<PluginRegistry>,
     /// The file they are kept in.
@@ -1312,6 +1450,8 @@ pub struct PluginRegistries {
 
 /// A thing rookery keeps, by its id and its name.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Named {
     /// Its id, which stays when it is renamed.
     pub id: String,
@@ -1320,6 +1460,8 @@ pub struct Named {
 
 /// A new name for a thing.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Rename {
     pub name: String,
 }
@@ -1328,6 +1470,8 @@ pub struct Rename {
 
 /// Something a plugin creates machines with, for a saved host's profile.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ProvisionerInfo {
     /// Its id, which stays when it is renamed. In the list of types, the
     /// type itself.
@@ -1400,6 +1544,8 @@ impl ProvisionerInfo {
 
 /// A provisioner to register, or the type and settings of one that is.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SavedProvisioner {
     /// The plugin's provisioner it is, as `PLUGIN/ID`. A registered one keeps
     /// its type: this is the same or empty.
@@ -1413,6 +1559,8 @@ pub struct SavedProvisioner {
 
 /// A kind of thing a provisioner makes.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ProvisionerKind {
     /// `machine`, or a kind the plugin names, such as `deployment`.
     pub id: String,
@@ -1439,6 +1587,8 @@ pub struct ProvisionerKind {
 
 /// A row of what a provisioner says, shown as it is given.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Detail {
     pub label: String,
     #[serde(default)]
@@ -1447,6 +1597,8 @@ pub struct Detail {
 
 /// What a provisioner lists of what it holds, beside rookery's records.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ListedResource {
     /// The provisioner's id of it; empty for a record whose `create` did not end.
     #[serde(default)]
@@ -1469,6 +1621,8 @@ pub struct ListedResource {
 /// A provisioner's page: what it is, what it says of itself now, and what
 /// it holds.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ProvisionerState {
     pub provisioner: ProvisionerInfo,
     /// `ready`, `unreachable` or `unusable`, or what the provisioner said.
@@ -1496,6 +1650,8 @@ pub struct ProvisionerState {
 /// the provisioner's own: some make an item, some act on one item, whose
 /// key fills their arguments, and some act on the whole list.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Collection {
     pub id: String,
     /// What one item is called, such as `Storage pool`.
@@ -1543,6 +1699,8 @@ pub struct Collection {
 
 /// A value an item of a collection shows.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CollectionColumn {
     pub name: String,
     #[serde(default)]
@@ -1551,6 +1709,8 @@ pub struct CollectionColumn {
 
 /// An action of a provisioner as one of a collection's.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CollectionAction {
     /// The provisioner's action, by its name.
     pub action: String,
@@ -1573,6 +1733,8 @@ impl CollectionAction {
 
 /// One item of a collection, as the provisioner's status gives it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CollectionItem {
     pub name: String,
     /// The value of each part of the collection's key.
@@ -1609,6 +1771,8 @@ impl Collection {
 /// value is resolved when the provisioner is called and never kept with
 /// the resource.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ResourceSecret {
     /// The name of the rookery secret.
     pub name: String,
@@ -1631,6 +1795,8 @@ impl ResourceSecret {
 /// provisioner reports it. The address is as seen from the machine the
 /// provisioner's engine runs on, such as a Docker engine or an Incus server.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Endpoint {
     /// Unique among the resource's endpoints: lowercase letters, digits, `-`, `_` and `.`.
     pub name: String,
@@ -1707,6 +1873,8 @@ impl Endpoint {
 /// Something a provisioner made for rookery: a machine, which may be a
 /// host's, or a kind its plugin names, such as a deployment.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Resource {
     /// rookery's id of it, stable for the life of the record.
     pub id: String,
@@ -1764,6 +1932,8 @@ pub struct Resource {
 
 /// What to create a resource with.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct NewResource {
     /// The provisioner, by name or id.
     pub provisioner: String,
@@ -1793,6 +1963,8 @@ pub struct NewResource {
 
 /// What to change of a resource: what is given replaces what it had.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ResourceChange {
     /// Values of the kind's arguments, over those it has.
     #[serde(default)]
@@ -1807,6 +1979,8 @@ pub struct ResourceChange {
 
 /// What creating a resource answers: its record and the job that makes it.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Created {
     pub resource: Resource,
     pub job: JobInfo,
@@ -1816,6 +1990,8 @@ pub struct Created {
 
 /// A plugin as it was when a host's configuration was applied.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct AppliedPlugin {
     pub id: String,
     pub package: String,
@@ -1828,6 +2004,8 @@ pub struct AppliedPlugin {
 /// version, the plugins whose features the host has, and the provisioners
 /// those features offer.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Applied {
     pub rookery: String,
     #[serde(default)]
@@ -1843,6 +2021,8 @@ pub struct Applied {
 /// A host's device on the tailnet, from `tailscale status --json`. It
 /// holds public values only, which the control server's API finds it by.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TailnetDevice {
     /// The device's stable id: Tailscale's `nodeId`, or the number of
     /// Headscale's node.
@@ -1873,6 +2053,8 @@ impl TailnetDevice {
 /// serves this to anyone who may read it, so it holds public values only,
 /// such as a server's certificate, never a key.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Offer {
     /// The feature, as `PLUGIN/FEATURE`.
     pub feature: String,
@@ -1903,6 +2085,8 @@ pub struct Offer {
 /// `access`, how the rookery that wrote it reaches the host. A rookery that does
 /// not have the host can take it over from this.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct KeptProfile {
     /// The format of this document.
     pub format: u64,
@@ -1926,6 +2110,9 @@ pub struct KeptProfile {
 
 /// Something that changed since a host was applied: rookery itself or a plugin.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(rename = "BehindChange"))]
 pub struct Change {
     /// `rookery`, or a plugin's id.
     pub id: String,
@@ -1949,6 +2136,8 @@ impl Change {
 
 /// How a host's configuration differs from what rookery would apply now.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Behind {
     /// rookery first when its version changed, then the plugins.
     pub changes: Vec<Change>,
@@ -1991,6 +2180,8 @@ impl Behind {
 
 /// A host whose configuration is behind, and how.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct HostBehind {
     pub name: String,
     #[serde(flatten)]
@@ -2002,6 +2193,8 @@ pub struct HostBehind {
 /// What a roll-out does: apply the hosts that are behind one after another,
 /// stopping at the first that fails.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Rollout {
     /// These hosts, in this order; all saved hosts by name when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -2075,6 +2268,8 @@ impl Rollout {
 
 /// How one host of a roll-out went.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum RolloutState {
     /// Applied, and healthy afterwards.
@@ -2090,6 +2285,8 @@ pub enum RolloutState {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct RolloutHost {
     pub name: String,
     pub state: RolloutState,
@@ -2118,6 +2315,8 @@ pub fn rollout_line(line: &str) -> bool {
 
 /// The result of a roll-out, host by host in the order they were taken.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct RolloutReport {
     pub hosts: Vec<RolloutHost>,
     /// Every host is done or current.

@@ -10,7 +10,7 @@ mod sqlite;
 mod suite;
 
 pub use installation::{
-    Installation, default_file, hold_lock, keep_before_converting, shared, wait_lock,
+    Installation, default_file, hold_lock, keep_before_converting, set_shared, shared, wait_lock,
 };
 pub use postgres::PostgresBackend;
 pub use sqlite::SqliteBackend;
@@ -598,6 +598,11 @@ fn now() -> String {
 }
 
 impl Store {
+    /// A store on a backend of the caller's, such as the tables of `rookery serve` on Postgres.
+    pub fn from_backend(backend: Box<dyn Backend>) -> Store {
+        Store::new(backend)
+    }
+
     fn new(backend: Box<dyn Backend>) -> Store {
         Store {
             backend: Mutex::new(backend),

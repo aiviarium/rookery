@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use rookery_proto::{access, auth, context, error, facilities, jobs, methods, rpc, stream};
+use rookery_proto::{access, auth, context, error, facilities, hosts, jobs, methods, rpc, stream};
 use ts_rs::{Config, TS};
 
 macro_rules! export {
@@ -178,6 +178,49 @@ fn typescript_bindings() {
         jobs::Count,
         jobs::NotifyAnswer,
         jobs::NotifyPref,
+        hosts::HostInfo,
+        hosts::HostMachine,
+        hosts::KeyInfo,
+        hosts::KeyList,
+        hosts::HostRef,
+        hosts::HostList,
+        hosts::HostSave,
+        hosts::HostSaved,
+        hosts::HostRename,
+        hosts::HostProfile,
+        hosts::HostCheck,
+        hosts::Refusal,
+        hosts::HostChecked,
+        hosts::ActionList,
+        hosts::HostAct,
+        hosts::InstallationAct,
+        hosts::Acted,
+        hosts::HostQuery,
+        hosts::HostPower,
+        hosts::HostUnit,
+        hosts::HostUnitAct,
+        hosts::HostSignal,
+        hosts::HostService,
+        hosts::HostServiceStream,
+        hosts::Passed,
+        hosts::KeyRef,
+        hosts::KeyAdd,
+        hosts::Named,
+        hosts::ProvisionerSave,
+        hosts::ProvisionerGet,
+        hosts::ProvisionerAct,
+        hosts::ResourceRef,
+        hosts::ResourceAct,
+        hosts::ResourceChangeOf,
+        hosts::ResourceRemove,
+        hosts::ResourceLogs,
+        hosts::Text,
+        hosts::HostOnly,
+        rookery_api::ProvisionerInfo,
+        rookery_api::ProvisionerState,
+        rookery_api::Resource,
+        rookery_api::NewResource,
+        rookery_api::Message,
     );
     let made = files(&scratch);
     let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../client/src/generated");

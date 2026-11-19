@@ -32,12 +32,18 @@ pub fn methods() -> Methods {
 }
 
 /// Every method of the server, with these handlers of jobs.
-pub fn methods_with(handlers: Vec<Arc<dyn JobHandler>>, jobs: rookery_jobs::Options) -> Methods {
+pub fn methods_with(
+    mut handlers: Vec<Arc<dyn JobHandler>>,
+    jobs: rookery_jobs::Options,
+) -> Methods {
     let mut methods = Methods::default();
     rookery_kernel::streams::register(&mut methods);
     rookery_auth::register(&mut methods);
     rookery_facilities::register(&mut methods);
+    let hosts = rookery_hosts::Registration::new();
+    handlers.extend(hosts.handlers());
     rookery_jobs::register(&mut methods, handlers, jobs);
+    hosts.register(&mut methods);
     methods
 }
 
@@ -111,6 +117,14 @@ async fn lead(config: &ServerConfig, methods: Methods) -> Result<Kernel, String>
     kernel_config.oidc = config.oidc.clone();
     kernel_config.admins = config.admins.clone();
     let kernel = Kernel::new(kernel_config, store, methods);
+    if let Some(paths) = &config.paths {
+        kernel.set_facility(rookery_hosts::Setup {
+            database_url: config.database_url.clone(),
+            secret_key: config.secret_key.clone(),
+            paths: paths.clone(),
+            provision: config.provision,
+        });
+    }
     kernel.methods.started(&kernel);
     Ok(kernel)
 }

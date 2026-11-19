@@ -409,12 +409,21 @@ async fn allowed(
             let named = params.get("plugin").and_then(Value::as_str);
             call.plugin(named).map(|_| ())
         }
-        Level::Resource { param, grant } => {
-            let Some(uri) = params.get(param.as_str()).and_then(Value::as_str) else {
+        Level::Resource {
+            param,
+            grant,
+            scheme,
+        } => {
+            let Some(given) = params.get(param.as_str()).and_then(Value::as_str) else {
                 return Err(RpcError::invalid(format!(
                     "params: {param} names the resource"
                 )));
             };
+            let uri = match scheme {
+                Some(scheme) if !given.contains("://") => format!("{scheme}://{given}"),
+                _ => given.to_owned(),
+            };
+            let uri = uri.as_str();
             if call.is_admin() {
                 return Ok(());
             }
@@ -486,6 +495,7 @@ mod tests {
             .level(Level::Resource {
                 param: "host".into(),
                 grant: Grant::Use,
+                scheme: None,
             });
         methods
             .add("test.plugin", |_: Call, _: serde_json::Value| async {

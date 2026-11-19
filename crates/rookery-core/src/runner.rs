@@ -80,6 +80,23 @@ thread_local! {
     static CURRENT: RefCell<Option<Arc<Stop>>> = const { RefCell::new(None) };
 }
 
+/// Run `work` on this thread as the work of a job that `stop` stops: its
+/// programs get process groups of their own and end when the stop is asked.
+pub fn with_stop<T>(stop: Arc<Stop>, work: impl FnOnce() -> T) -> T {
+    let before = CURRENT.with(|current| current.borrow_mut().replace(stop));
+    let done = work();
+    CURRENT.with(|current| *current.borrow_mut() = before);
+    done
+}
+
+impl Stop {
+    /// Ask the job to stop, as `by`: its programs get SIGTERM, and SIGKILL
+    /// when they outlast the grace. Says whether this was the first to ask.
+    pub fn ask(self: &Arc<Self>, by: &str) -> bool {
+        self.request(by)
+    }
+}
+
 /// Who asked the job this thread runs to stop, for work that looks
 /// between its steps.
 pub fn stopped() -> Option<String> {
@@ -304,15 +321,54 @@ fn each_host(hosts: &str, map: impl Fn(&str) -> String) -> String {
 
 /// Held while something changes a subject. A second caller is refused rather
 /// than kept waiting.
-pub struct Lock(fs::File);
+pub struct Lock(Held);
+
+enum Held {
+    File(fs::File),
+    /// One a [`Locks`] gave, let go when it is dropped.
+    Other(#[allow(dead_code)] Box<dyn Send>),
+}
 
 impl Drop for Lock {
     /// Unlocked rather than only closed: a process started meanwhile may hold
     /// a copy of the descriptor until it runs its program, and with it the lock.
     fn drop(&mut self) {
         use std::os::fd::AsRawFd;
-        // SAFETY: the descriptor is the open file's own.
-        unsafe { libc::flock(self.0.as_raw_fd(), libc::LOCK_UN) };
+        if let Held::File(file) = &self.0 {
+            // SAFETY: the descriptor is the open file's own.
+            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+        }
+    }
+}
+
+/// What takes the locks of subjects in place of files, such as the leases of `rookery serve` on
+/// Postgres, which hold across the servers of one database.
+pub trait Locks: Send + Sync {
+    /// Take the lock named `name` for what `doing` names, or say who holds it.
+    fn take(&self, name: &str, doing: &str) -> std::result::Result<Box<dyn Send>, Holder>;
+}
+
+/// Why a lock was refused.
+pub enum Holder {
+    /// What the one who holds it is doing, which may be unknown.
+    Held(String),
+    Failed(String),
+}
+
+static LOCKS: std::sync::RwLock<Option<Arc<dyn Locks>>> = std::sync::RwLock::new(None);
+
+/// Take every lock through `locks` from now on, or through files again.
+pub fn set_locks(locks: Option<Arc<dyn Locks>>) {
+    *LOCKS.write().unwrap_or_else(|e| e.into_inner()) = locks;
+}
+
+/// The name a lock file has among [`Locks`]: its path below the data directory's `locks`, or the
+/// whole path.
+fn lock_name(path: &Path) -> String {
+    let text = path.to_string_lossy();
+    match text.rfind("/locks/") {
+        Some(at) => text[at + 1..].trim_end_matches(".lock").to_owned(),
+        None => text.into_owned(),
     }
 }
 
@@ -320,6 +376,20 @@ impl Drop for Lock {
 /// file so that a caller who is refused can be told who holds it. `refused`
 /// makes the refusal from that, with ` (…)` around it or empty.
 pub fn lock_at(path: &Path, doing: &str, refused: impl FnOnce(&str) -> String) -> Result<Lock> {
+    let locks = LOCKS.read().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(locks) = locks {
+        return match locks.take(&lock_name(path), doing) {
+            Ok(held) => Ok(Lock(Held::Other(held))),
+            Err(Holder::Held(holder)) => {
+                let said = match holder.trim().is_empty() {
+                    true => String::new(),
+                    false => format!(" ({})", holder.trim()),
+                };
+                Err(refused(&said).into())
+            }
+            Err(Holder::Failed(error)) => Err(error.into()),
+        };
+    }
     if let Some(dir) = path.parent() {
         use std::os::unix::fs::DirBuilderExt;
         fs::DirBuilder::new()
@@ -349,7 +419,7 @@ pub fn lock_at(path: &Path, doing: &str, refused: impl FnOnce(&str) -> String) -
     // Only the holder writes, so what is there is the one holding it.
     file.set_len(0)?;
     let _ = writeln!(file, "{doing}, process {}", std::process::id());
-    Ok(Lock(file))
+    Ok(Lock(Held::File(file)))
 }
 
 /// Take the subject's lock for what `doing` names, or say what else changes

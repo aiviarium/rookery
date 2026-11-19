@@ -12,8 +12,15 @@ pub enum Level {
     Own,
     /// The org role admin.
     Admin,
-    /// A level on the resource the param `param` names, as a URI such as `env://studio`.
-    Resource { param: String, grant: Grant },
+    /// A level on the resource the param `param` names, as a URI such as `env://studio`. With a
+    /// scheme, the param may also give the bare name, which is `SCHEME://NAME`.
+    Resource {
+        param: String,
+        grant: Grant,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        scheme: Option<String>,
+    },
     /// A plugin for itself, or an admin naming the plugin in `plugin`.
     Plugin,
 }
