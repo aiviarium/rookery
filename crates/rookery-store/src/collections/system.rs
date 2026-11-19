@@ -390,7 +390,12 @@ pub(crate) async fn register(conn: &mut PgConnection, t: &SystemTable) -> Result
     let mut fields = Vec::new();
     let mut selects = Vec::new();
     for (column, ty) in &columns {
-        let api = camel(column);
+        let mut api = camel(column);
+        // A global table's own person or space of a row, such as a setting's, is a field: the system
+        // columns of those names are a scope's, which it has none of.
+        if t.scope == Scope::Global && (api == "userId" || api == "spaceId") {
+            api = api.trim_end_matches("Id").to_owned();
+        }
         if column == "rev"
             || t.omit.contains(&column.as_str())
             || SYSTEM_NAMES.contains(&api.as_str())

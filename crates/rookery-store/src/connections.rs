@@ -8,8 +8,34 @@ use uuid::Uuid;
 use crate::Store;
 use crate::error::{Error, Result};
 use crate::seal::{Sealed, row};
-use crate::secrets::Scope;
 use crate::util::new_id;
+
+/// Whose a connection is: everyone's, a space's members', or one person's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    Global,
+    Space(Uuid),
+    User(Uuid),
+}
+
+impl From<crate::secrets::Scope> for Scope {
+    fn from(s: crate::secrets::Scope) -> Self {
+        match s {
+            crate::secrets::Scope::Global => Scope::Global,
+            crate::secrets::Scope::User(u) => Scope::User(u),
+        }
+    }
+}
+
+impl Scope {
+    fn parts(self) -> (&'static str, Option<Uuid>, Option<Uuid>) {
+        match self {
+            Scope::Global => ("global", None, None),
+            Scope::Space(s) => ("space", None, Some(s)),
+            Scope::User(u) => ("user", Some(u), None),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
 pub struct Connection {
@@ -19,6 +45,7 @@ pub struct Connection {
     pub name: String,
     pub scope: String,
     pub user_id: Option<Uuid>,
+    pub space_id: Option<Uuid>,
     pub config: Value,
     /// Whether it has a credential.
     pub sealed: bool,
@@ -27,7 +54,7 @@ pub struct Connection {
     pub updated_at: DateTime<Utc>,
 }
 
-const COLS: &str = "id, type, name, scope, user_id, config, ciphertext IS NOT NULL AS sealed, created_by, created_at, updated_at";
+const COLS: &str = "id, type, name, scope, user_id, space_id, config, ciphertext IS NOT NULL AS sealed, created_by, created_at, updated_at";
 
 /// A change to a connection: what is `Some` changes. A credential of `Some(None)` removes it.
 #[derive(Debug, Clone, Default)]
@@ -64,7 +91,7 @@ impl Connections<'_> {
         &self,
         kind: &str,
         name: &str,
-        scope: Scope,
+        scope: impl Into<Scope>,
         config: &Value,
         credential: Option<&[u8]>,
         by: &str,
@@ -76,11 +103,11 @@ impl Connections<'_> {
         }
         let id = new_id();
         let sealed = self.seal(id, credential)?;
-        let (scope, user) = scope.parts();
+        let (scope, user, space) = scope.into().parts();
         let mut tx = crate::actor::begin_as(self.store.pool(), by).await?;
         let made = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "INSERT INTO rookery.connections (id, type, name, scope, user_id, config, key_id, nonce, ciphertext, created_by)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING {COLS}"
+            "INSERT INTO rookery.connections (id, type, name, scope, user_id, space_id, config, key_id, nonce, ciphertext, created_by)
+             VALUES ($1, $2, $3, $4, $5, $11, $6, $7, $8, $9, $10) RETURNING {COLS}"
         )))
         .bind(id)
         .bind(kind)
@@ -92,11 +119,31 @@ impl Connections<'_> {
         .bind(sealed.as_ref().map(|s| s.nonce.clone()))
         .bind(sealed.as_ref().map(|s| s.ciphertext.clone()))
         .bind(by)
+        .bind(space)
         .fetch_one(&mut *tx)
         .await
         .map_err(unique)?;
         tx.commit().await?;
         Ok(made)
+    }
+
+    /// The global connections, those of `user` and those of `spaces`.
+    pub async fn list_in(
+        &self,
+        kind: Option<&str>,
+        user: Option<Uuid>,
+        spaces: &[Uuid],
+    ) -> Result<Vec<Connection>> {
+        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {COLS} FROM rookery.connections WHERE ($1::text IS NULL OR type = $1)
+                 AND (scope = 'global' OR user_id = $2 OR space_id = ANY ($3))
+             ORDER BY type, lower(name), scope"
+        )))
+        .bind(kind)
+        .bind(user)
+        .bind(spaces)
+        .fetch_all(self.store.pool())
+        .await?)
     }
 
     pub async fn get(&self, id: Uuid) -> Result<Option<Connection>> {
@@ -122,6 +169,28 @@ impl Connections<'_> {
         .bind(kind)
         .bind(name)
         .bind(user)
+        .fetch_optional(self.store.pool())
+        .await?)
+    }
+
+    /// The connection of a type and name for a person in a space: theirs first, then the space's, then the
+    /// global one.
+    pub async fn find_in(
+        &self,
+        kind: &str,
+        name: &str,
+        user: Option<Uuid>,
+        space: Option<Uuid>,
+    ) -> Result<Option<Connection>> {
+        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {COLS} FROM rookery.connections WHERE type = $1 AND name = $2
+                 AND (scope = 'global' OR user_id = $3 OR space_id = $4)
+             ORDER BY CASE WHEN user_id IS NOT NULL THEN 0 WHEN space_id IS NOT NULL THEN 1 ELSE 2 END LIMIT 1"
+        )))
+        .bind(kind)
+        .bind(name)
+        .bind(user)
+        .bind(space)
         .fetch_optional(self.store.pool())
         .await?)
     }

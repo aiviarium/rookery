@@ -4,4 +4,8 @@ import type { Scope } from "./Scope";
 /**
  * A connection, without its credential.
  */
-export type ConnectionInfo = { id: string, type: string, name: string, scope: Scope, config: Record<string, unknown>, hasCredential: boolean, updatedAt: string, };
+export type ConnectionInfo = { id: string, type: string, name: string, scope: Scope, config: Record<string, unknown>, hasCredential: boolean, updatedAt: string, 
+/**
+ * The space of a connection of the space scope.
+ */
+spaceId: string | null, };

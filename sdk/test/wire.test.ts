@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test"
 import { fileURLToPath } from "node:url"
 import { type ClientRuntime, createClientApi } from "../src/client/runtime"
 import type { JobEnd, LogItem, Manifest } from "../src/generated"
+import { createHost } from "../src/host/runtime"
 import { disposable } from "../src/types"
 import { NOT_ON_SERVER, NOTIFICATIONS, WIRE } from "../src/wire"
 
@@ -235,4 +236,36 @@ describe("the wire of @rookery/client and @rookery/sdk", () => {
     ])
     expect(ends).toEqual([{ state: "failed", result: null, error: { code: "INTERNAL", message: "boom" } }])
   })
+})
+
+test("host settings and storage forward the requested space", async () => {
+  const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+  const { rookery } = createHost("demo", manifest, {
+    async call(method, params) {
+      calls.push({ method, params })
+      return { value: true, entries: [] }
+    },
+    registered() {},
+    unregistered() {},
+    log() {},
+  })
+  const space = "019369e0-31a8-71cb-b9be-28b2b28afb23"
+  const scope = { scope: "space", space } as const
+  await rookery.settings.get("autoSave", { space })
+  await rookery.settings.set("autoSave", true, scope)
+  await rookery.settings.reset("autoSave", scope)
+  await rookery.storage.get("key", scope)
+  await rookery.storage.set("key", true, { ...scope, expectedRevision: 4 })
+  await rookery.storage.list(scope)
+  await rookery.storage.delete("key", scope)
+  expect(calls.map(({ method, params }) => [method, params.scope, params.space])).toEqual([
+    ["settings.get", undefined, space],
+    ["settings.set", "space", space],
+    ["settings.reset", "space", space],
+    ["storage.get", "space", space],
+    ["storage.set", "space", space],
+    ["storage.list", "space", space],
+    ["storage.delete", "space", space],
+  ])
+  expect(calls[4]?.params.revision).toBe(4)
 })

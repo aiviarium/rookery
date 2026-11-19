@@ -11,8 +11,7 @@ use rookery_proto::facilities::{
     ConnectionTested, ConnectionType, ConnectionTypes, ConnectionUpdate, ConnectionsOf,
     Scope as WireScope,
 };
-use rookery_store::connections::{Change, Connection};
-use rookery_store::secrets::Scope;
+use rookery_store::connections::{Change, Connection, Scope};
 use serde_json::{Value, json};
 use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver};
 
@@ -161,6 +160,7 @@ fn check_connection(
     let scope = match scope {
         WireScope::Global => "global",
         WireScope::User => "user",
+        WireScope::Space => "space",
     };
     if !kind.scopes.is_empty() && !kind.scopes.iter().any(|s| s == scope) {
         return Err(RpcError::invalid(format!(
@@ -244,18 +244,36 @@ fn info(c: Connection) -> ConnectionInfo {
         id: c.id.to_string(),
         kind: c.kind,
         name: c.name,
-        scope: if c.scope == "user" {
-            WireScope::User
-        } else {
-            WireScope::Global
+        scope: match c.scope.as_str() {
+            "user" => WireScope::User,
+            "space" => WireScope::Space,
+            _ => WireScope::Global,
         },
+        space_id: c.space_id.map(|s| s.to_string()),
         config: c.config,
         has_credential: c.sealed,
         updated_at: time(c.updated_at),
     }
 }
 
-/// A connection the caller may change: a global one as admin, a user's one as that person.
+/// Whether the caller sees a connection: a global one, their own, or one of a space they hold `need` on.
+async fn reaches(
+    call: &Call,
+    c: &Connection,
+    need: rookery_kernel::Grant,
+) -> Result<bool, RpcError> {
+    let user = call.user().and_then(|u| uuid::Uuid::parse_str(&u.id).ok());
+    Ok(match (c.user_id, c.space_id) {
+        (Some(owner), _) => Some(owner) == user,
+        (None, Some(space)) => {
+            crate::access::holds(call, &format!("space://{space}"), need).await?
+        }
+        (None, None) => true,
+    })
+}
+
+/// A connection the caller may change: a global one as admin, a space's as a manager of the space, a
+/// user's one as that person.
 async fn changeable(call: &Call, id: &str) -> Result<Connection, RpcError> {
     let found = call
         .store()
@@ -263,11 +281,10 @@ async fn changeable(call: &Call, id: &str) -> Result<Connection, RpcError> {
         .get(parse_id("connection", id)?)
         .await?
         .ok_or_else(|| RpcError::not_found("no such connection"))?;
-    match found.user_id {
-        None => call.require_admin()?,
-        Some(owner)
-            if Some(owner) == call.user().and_then(|u| uuid::Uuid::parse_str(&u.id).ok()) => {}
-        Some(_) => return Err(RpcError::not_found("no such connection")),
+    match (found.user_id, found.space_id) {
+        (None, None) => call.require_admin()?,
+        _ if reaches(call, &found, rookery_kernel::Grant::Manage).await? => {}
+        _ => return Err(RpcError::not_found("no such connection")),
     }
     Ok(found)
 }
@@ -395,10 +412,14 @@ pub fn register(methods: &mut Methods) {
                     require_kind(&call, plugin, id)?;
                 }
                 let user = call.user().and_then(|u| uuid::Uuid::parse_str(&u.id).ok());
+                let spaces = match p.space.as_deref() {
+                    Some(_) => vec![crate::space_held(&call, p.space.as_deref(), rookery_kernel::Grant::View).await?],
+                    None => Vec::new(),
+                };
                 let all = call
                     .store()
                     .connections()
-                    .list(p.kind.as_deref(), user)
+                    .list_in(p.kind.as_deref(), user, &spaces)
                     .await?;
                 Ok(ConnectionList {
                     connections: all
@@ -413,7 +434,7 @@ pub fn register(methods: &mut Methods) {
                 })
             },
         )
-        .summary("The global connections and the caller's own, without credentials.")
+        .summary("The global connections, the caller's own and those of a space they name, without credentials.")
         .level(Level::Own);
     methods
         .add("connections.get", |call: Call, p: IdRef| async move {
@@ -422,9 +443,8 @@ pub fn register(methods: &mut Methods) {
                 .connections()
                 .get(parse_id("connection", &p.id)?)
                 .await?;
-            let user = call.user().and_then(|u| uuid::Uuid::parse_str(&u.id).ok());
             match found {
-                Some(c) if c.user_id.is_none() || c.user_id == user => {
+                Some(c) if reaches(&call, &c, rookery_kernel::Grant::View).await? => {
                     if matches!(call.caller, Caller::Plugin(_)) {
                         require_kind(&call, &call.plugin(None)?, &c.kind)?;
                     }
@@ -450,6 +470,9 @@ pub fn register(methods: &mut Methods) {
                         Scope::Global
                     }
                     WireScope::User => Scope::User(own_user(&call)?),
+                    WireScope::Space => Scope::Space(
+                        crate::space_held(&call, p.space.as_deref(), rookery_kernel::Grant::Manage).await?,
+                    ),
                 };
                 let made = call
                     .store()
@@ -472,7 +495,7 @@ pub fn register(methods: &mut Methods) {
                 Ok(info(made))
             },
         )
-        .summary("Makes a connection: a global one as admin, or one of the caller's own.")
+        .summary("Makes a connection: a global one as admin, a space's as its manager, or one of the caller's own.")
         .level(Level::Own);
     methods
         .add(
@@ -564,33 +587,68 @@ pub fn register(methods: &mut Methods) {
             "connections.resolve",
             |call: Call, p: ConnectionResolve| async move {
                 let plugin = call.plugin(p.plugin.as_deref())?;
-                let user = match &call.caller {
-                    Caller::User { user, .. } => uuid::Uuid::parse_str(&user.id).ok(),
-                    _ => None,
-                };
+                // A plugin's connection authenticates the plugin alone, even inside an RPC handler.
+                let user = call.user().and_then(|u| uuid::Uuid::parse_str(&u.id).ok());
                 if let (Caller::Plugin(_), None, Some(id)) = (&call.caller, &p.id, &p.kind) {
                     require_kind(&call, &plugin, id)?;
                 }
+                let space = p
+                    .space
+                    .as_deref()
+                    .map(|s| parse_id("space", s))
+                    .transpose()?;
                 let connections = call.store().connections();
-                let found = match (&p.id, &p.kind, &p.name) {
-                    (Some(id), _, _) => connections
-                        .get(parse_id("connection", id)?)
-                        .await?
-                        .filter(|c| c.user_id.is_none() || c.user_id == user),
-                    (None, Some(kind), Some(name)) => connections.find(kind, name, user).await?,
-                    _ => {
-                        return Err(RpcError::invalid(
-                            "name the connection by id, or by type and name",
+                let found =
+                    match (&p.id, &p.kind, &p.name) {
+                        (Some(id), _, _) => connections
+                            .get(parse_id("connection", id)?)
+                            .await?
+                            .filter(|c| match (c.user_id, c.space_id) {
+                                (Some(owner), _) => user == Some(owner),
+                                (None, Some(_)) => call.is_admin(),
+                                (None, None) => true,
+                            }),
+                        (None, Some(kind), Some(name)) => {
+                            // Only filter by scopes this caller can use, so a hidden override falls
+                            // through to the global connection.
+                            let space = space.filter(|_| call.is_admin());
+                            connections.find_in(kind, name, user, space).await?
+                        }
+                        _ => {
+                            return Err(RpcError::invalid(
+                                "name the connection by id, or by type and name",
+                            ));
+                        }
+                    };
+                let found = found.ok_or_else(|| RpcError::not_found("no such connection"))?;
+                // Rookery's own types are for people, the shell and the server, never a plugin: a
+                // plugin declares its own type and reads only that one.
+                if kind(&found.kind).is_some() {
+                    if matches!(call.caller, Caller::Plugin(_)) {
+                        return Err(RpcError::forbidden(
+                            "a plugin resolves only the connection types it declares",
                         ));
                     }
-                };
-                let found = found.ok_or_else(|| RpcError::not_found("no such connection"))?;
-                if matches!(call.caller, Caller::Plugin(_)) {
-                    require_kind(&call, &plugin, &found.kind)?;
-                } else if kind(&found.kind).is_none() {
-                    return Err(RpcError::forbidden(
-                        "only the declaring plugin can resolve this connection",
-                    ));
+                } else {
+                    let declares = call
+                        .kernel
+                        .get_facility::<PluginKinds>()
+                        .is_some_and(|kinds| {
+                            kinds
+                                .0
+                                .get(&found.kind)
+                                .is_some_and(|kind| kind.plugin == plugin)
+                        });
+                    // A global connection of a plugin's type is the plugin's own: it reads the
+                    // credential, and a person does not. One a person holds, or a space, is
+                    // resolved with the declaring plugin named for whoever it is shared with.
+                    let shared = found.user_id.is_some() || found.space_id.is_some();
+                    let itself = matches!(call.caller, Caller::Plugin(_));
+                    if !declares || !(shared || itself) {
+                        return Err(RpcError::forbidden(
+                            "only the declaring plugin can resolve this connection",
+                        ));
+                    }
                 }
                 let credential = connections.credential(found.id).await?;
                 let credential = credential
@@ -605,6 +663,6 @@ pub fn register(methods: &mut Methods) {
                 })
             },
         )
-        .summary("A connection with its credential, for the plugin that uses it.")
+        .summary("A connection with its credential. Plugins resolve global connections.")
         .level(Level::Plugin);
 }

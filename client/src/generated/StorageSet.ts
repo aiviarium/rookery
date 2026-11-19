@@ -4,4 +4,8 @@ import type { Scope } from "./Scope";
 /**
  * `storage.set`. With `revision`, only if the key is at it; 0 for a key that is not there yet.
  */
-export type StorageSet = { plugin?: string, scope: Scope, key: string, value: unknown, revision?: number, };
+export type StorageSet = { plugin?: string, scope: Scope, key: string, value: unknown, revision?: number, 
+/**
+ * The space of the `space` scope, or the space to resolve in.
+ */
+space?: string, };

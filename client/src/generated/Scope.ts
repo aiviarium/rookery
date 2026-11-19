@@ -3,4 +3,4 @@
 /**
  * Where a secret, a connection or a stored value belongs.
  */
-export type Scope = "global" | "user";
+export type Scope = "global" | "space" | "user";

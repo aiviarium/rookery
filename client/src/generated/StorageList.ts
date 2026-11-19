@@ -4,4 +4,8 @@ import type { Scope } from "./Scope";
 /**
  * `storage.list`: the keys that start with `prefix`, after `after`.
  */
-export type StorageList = { plugin?: string, scope: Scope, prefix: string, after?: string, limit?: number, };
+export type StorageList = { plugin?: string, scope: Scope, prefix: string, after?: string, limit?: number, 
+/**
+ * The space of the `space` scope, or the space to resolve in.
+ */
+space?: string, };
