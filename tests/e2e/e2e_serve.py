@@ -155,8 +155,11 @@ class Grants(unittest.TestCase):
             for method, params, needed in asked:
                 refused = self.serve.refused(method, params, token=token)
                 allowed = order.index(level) >= order.index(needed)
-                self.assertEqual(refused is None, allowed, (level, method, refused))
-                if not allowed:
+                if allowed:
+                    # The host may still say no, as units do without a working systemd: that is
+                    # the host's answer, never the server's own failure.
+                    self.assertIn(refused, (None, 'UNAVAILABLE'), (level, method))
+                else:
                     self.assertEqual(refused, 'FORBIDDEN', (level, method))
 
     def test_a_person_sees_the_hosts_they_were_granted(self):
