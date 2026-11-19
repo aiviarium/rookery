@@ -1,35 +1,11 @@
 name: Boot
 # Real installs in QEMU with KVM: the cloud image with rookery's seed, and
 # rookery's unattended installer on a blank virtual disk (ci/run.sh boot). They
-# take long, so they only run for changes that can break a first boot, or when
-# started by hand. The installer takes longest and is used least, so a change
-# boots only the cloud image, and the installer is booted once a week.
+# take 25 to 50 minutes, so they run on a nightly schedule (cloud nightly,
+# installer weekly on Mondays) and by hand rather than gating pull requests.
 on:
   schedule:
-    - cron: '17 3 * * 1'
-  pull_request:
-    paths:
-      - 'provision/**'
-      - 'plugins/**'
-      - 'ci/boot*'
-      - 'ci/run.sh'
-      - 'ci/dev.Dockerfile*'
-      - 'tests/e2e/boot*'
-      - 'tests/e2e/vm.py'
-      - 'container/**'
-      - '.github/workflows/boot.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'provision/**'
-      - 'plugins/**'
-      - 'ci/boot*'
-      - 'ci/run.sh'
-      - 'ci/dev.Dockerfile*'
-      - 'tests/e2e/boot*'
-      - 'tests/e2e/vm.py'
-      - 'container/**'
-      - '.github/workflows/boot.yml'
+    - cron: '17 3 * * *'
   workflow_dispatch:
     inputs:
       kind:
@@ -49,19 +25,30 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       kinds: ${{ steps.plan.outputs.kinds }}
+      extras: ${{ steps.plan.outputs.extras }}
     steps:
       - id: plan
         env:
           KIND: ${{ inputs.kind }}
           EVENT: ${{ github.event_name }}
         run: |
+          extras=''
           case "$EVENT:$KIND" in
-            workflow_dispatch:cloud) kinds='["cloud"]' ;;
-            workflow_dispatch:iso) kinds='["iso"]' ;;
-            workflow_dispatch:*|schedule:*) kinds='["cloud","iso"]' ;;
+            workflow_dispatch:cloud) kinds='["cloud"]'; extras='1' ;;
+            workflow_dispatch:iso) kinds='["iso"]'; extras='1' ;;
+            workflow_dispatch:*) kinds='["cloud","iso"]'; extras='1' ;;
+            schedule:*)
+              if [ "$(date -u +%u)" -eq 1 ]; then
+                kinds='["cloud","iso"]'
+                extras='1'
+              else
+                kinds='["cloud"]'
+              fi
+              ;;
             *) kinds='["cloud"]' ;;
           esac
           echo "kinds=$kinds" >> "$GITHUB_OUTPUT"
+          echo "extras=$extras" >> "$GITHUB_OUTPUT"
 
   boot:
     needs: plan
@@ -141,11 +128,11 @@ jobs:
       # role's files. A newer Cargo.lock makes it.
       - name: Have the build script run
         run: touch Cargo.lock
-      # A change boots without the programs a host can do without. The weekly
-      # run and one started by hand install them too.
+      # Nightly cloud runs skip programs a host can do without; weekly Monday
+      # runs and runs started by hand install them too.
       - name: Boot ${{ matrix.kind }}
         env:
-          ROOKERY_CI_BOOT_EXTRAS: ${{ github.event_name != 'pull_request' && github.event_name != 'push' && '1' || '' }}
+          ROOKERY_CI_BOOT_EXTRAS: ${{ needs.plan.outputs.extras }}
         run: ci/run.sh boot ${{ matrix.kind }}
       - name: Disk and memory
         if: always()
