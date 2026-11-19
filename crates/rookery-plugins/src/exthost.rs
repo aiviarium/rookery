@@ -481,37 +481,48 @@ impl ExtHost {
         let deadline = chrono::Utc::now().timestamp_millis()
             + i64::try_from(left.as_millis()).unwrap_or(i64::MAX / 2);
         let ctx = json!({
-            "callId": call_id,
+            "callId": call_id.clone(),
             "user": call.user(),
             "principal": call.principal(),
             "deadline": deadline,
         });
         let invoke =
             json!({"plugin": plugin, "kind": kind, "key": key, "params": params, "ctx": ctx});
-        let mut request = Box::pin(link.request("plugins.invoke", invoke));
-        tokio::select! {
-            done = &mut request => return done,
-            _ = tokio::time::sleep(left) => {}
-        }
-        link.notify(
-            "plugins.cancel",
-            json!({"plugin": plugin, "callId": call_id}),
-        );
+        // The request and its deadline run in a task of their own: the kernel ends this call at its
+        // deadline too, and a future dropped then must not take the host half's ending with it.
         let (kernel, plugins, id) = (call.kernel.clone(), plugins.clone(), plugin.to_owned());
+        let (kind, key) = (kind.to_owned(), key.to_owned());
         let generation = link.generation();
+        let deadline = call.deadline;
+        let (tx, rx) = oneshot::channel();
         tokio::spawn(async move {
-            if tokio::time::timeout(CANCEL_GRACE, request).await.is_err() {
-                let error = ErrorBody {
-                    code: ErrorCode::Timeout,
-                    message: format!("{id} did not stop a call {CANCEL_GRACE:?} past its deadline"),
-                    details: None,
-                };
-                crashed(&kernel, &plugins, &id, generation, Some(error));
+            let mut request = Box::pin(link.request("plugins.invoke", invoke));
+            let left = deadline.saturating_duration_since(Instant::now());
+            match tokio::time::timeout(left, &mut request).await {
+                Ok(done) => {
+                    let _ = tx.send(done);
+                }
+                Err(_) => {
+                    // The handler has its grace past the call's deadline, and then its host half ends.
+                    link.notify("plugins.cancel", json!({"plugin": id, "callId": call_id}));
+                    let _ = tx.send(Err(RpcError::timeout(format!(
+                        "{id} did not answer {kind} {key} before the call's deadline"
+                    ))));
+                    if tokio::time::timeout(CANCEL_GRACE, request).await.is_err() {
+                        let error = ErrorBody {
+                            code: ErrorCode::Timeout,
+                            message: format!(
+                                "{id} did not stop a call {CANCEL_GRACE:?} past its deadline"
+                            ),
+                            details: None,
+                        };
+                        crashed(&kernel, &plugins, &id, generation, Some(error));
+                    }
+                }
             }
         });
-        Err(RpcError::timeout(format!(
-            "{plugin} did not answer {kind} {key} before the call's deadline"
-        )))
+        rx.await
+            .unwrap_or_else(|_| Err(RpcError::unavailable("the call went away")))
     }
 
     /// Counts a crash of a plugin's host half. Says how long to wait before it is activated again, or
