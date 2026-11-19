@@ -48,6 +48,7 @@ async fn plugins(k: &TestKernel, scratch: &Path) -> Arc<Plugins> {
         host: HostOptions {
             bun: PathBuf::from("bun"),
             entry: Some(checkout().join("host/src/main.ts")),
+            ..HostOptions::default()
         },
     }));
     let plugins = k.kernel.get_facility::<Plugins>().unwrap();
@@ -55,15 +56,16 @@ async fn plugins(k: &TestKernel, scratch: &Path) -> Arc<Plugins> {
     plugins
 }
 
-/// A package folder of a plugin `id` at `version`, with these files in its target.
-fn package(scratch: &Path, id: &str, version: &str, files: &[(&str, &str)]) -> PathBuf {
-    let dir = scratch.join(format!("packages/{id}-{version}"));
+/// A package folder of a plugin `id`, or `group/id`, at `version`, with these files in its target.
+fn package(scratch: &Path, name: &str, version: &str, files: &[(&str, &str)]) -> PathBuf {
+    let (group, id) = name.split_once('/').unwrap_or(("example", name));
+    let dir = scratch.join(format!("packages/{group}-{id}-{version}"));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(dir.join("rookery")).unwrap();
     fs::write(
         dir.join("package.kdl"),
         format!(
-            "format 1\npackage {{\n  group example\n  id {id}\n  version \"{version}\"\n}}\ntargets {{\n  rookery {{\n    requires {{\n      rookery \">=0.6\"\n    }}\n  }}\n}}\n"
+            "format 1\npackage {{\n  group {group}\n  id {id}\n  version \"{version}\"\n}}\ntargets {{\n  rookery {{\n    requires {{\n      rookery \">=0.6\"\n    }}\n  }}\n}}\n"
         ),
     )
     .unwrap();
@@ -77,12 +79,19 @@ fn package(scratch: &Path, id: &str, version: &str, files: &[(&str, &str)]) -> P
 
 /// Installs a package folder as an egg that was sent.
 async fn install(k: &TestKernel, plugins: &Arc<Plugins>, dir: &Path) {
+    try_install(k, plugins, dir).await.unwrap();
+}
+
+async fn try_install(
+    k: &TestKernel,
+    plugins: &Arc<Plugins>,
+    dir: &Path,
+) -> Result<Vec<String>, rookery_kernel::RpcError> {
     let egg = hatchery::Egg::pack(dir, &[&rookery_api::plugin_contract::RookeryTarget]).unwrap();
     let bytes = egg.bytes().to_vec();
     plugins
         .change(&k.kernel, move |manager| manager.upload(&bytes))
         .await
-        .unwrap();
 }
 
 fn info<'a>(list: &'a Value, id: &str) -> Option<&'a Value> {
@@ -231,6 +240,46 @@ async fn installs_are_recorded_and_client_halves_served_by_their_hash() {
     assert_eq!(version, "1.1.0");
     assert!(after > before);
 
+    // What is served is what was hashed: a file changed in place is not served under the old address.
+    let script = panel["client"]["script"].as_str().unwrap().to_owned();
+    let installed = plugins.get("panel").unwrap().dir.join("client/index.js");
+    fs::write(&installed, "export default {changed: true}").unwrap();
+    assert_eq!(get(&k, &script).await.2, b"export default {two: 2}");
+
+    // An id another package holds is refused, and the holder stays.
+    let other = package(
+        scratch.path(),
+        "elsewhere/panel",
+        "9.0.0",
+        &[(
+            "plugin.json",
+            r#"{"apiVersion": "1", "name": "Not the panel"}"#,
+        )],
+    );
+    let refused = try_install(&k, &plugins, &other).await.unwrap_err();
+    assert!(
+        refused
+            .message
+            .contains("the plugin id panel is held by the package example/panel"),
+        "{refused}"
+    );
+    let list = k.call(&member, "plugins.list", json!({})).await.unwrap();
+    assert_eq!(info(&list, "panel").unwrap()["package"], "example/panel");
+    assert_eq!(info(&list, "panel").unwrap()["version"], "1.1.0");
+
+    // A record of a plugin the folder lacks is kept and reported when the server reads the folder, as
+    // a new leader does; the next change of the plugins drops it.
+    sqlx::query(
+        "INSERT INTO rookery.plugins (id, package, version, origin, digest) VALUES ('gone', 'example/gone', '1.0.0', 'file', 'x')",
+    )
+    .execute(k.kernel.store.pool())
+    .await
+    .unwrap();
+    plugins.reload(&k.kernel).await.unwrap();
+    let list = k.call(&member, "plugins.list", json!({})).await.unwrap();
+    assert_eq!(list["missing"], json!(["gone"]));
+    assert!(row(&k, "gone").await.is_some());
+
     // What updates there are, and a removal.
     let checked = k.call(&admin, "plugins.check", json!({})).await.unwrap();
     assert!(
@@ -247,6 +296,7 @@ async fn installs_are_recorded_and_client_halves_served_by_their_hash() {
         .unwrap();
     assert!(info(&removed, "panel").is_none());
     assert!(row(&k, "panel").await.is_none());
+    assert!(row(&k, "gone").await.is_none());
     assert!(row(&k, "github").await.is_some());
     k.close().await;
 }
@@ -279,117 +329,246 @@ async fn state(k: &TestKernel, caller: &Caller, id: &str) -> Value {
     info(&list, id).unwrap()["state"].clone()
 }
 
+fn echo_files(host: &str) -> Vec<(&'static str, String)> {
+    vec![
+        (
+            "plugin.json",
+            r#"{"apiVersion": "1", "name": "Echo", "host": "host.ts"}"#.to_owned(),
+        ),
+        ("host.ts", host.to_owned()),
+    ]
+}
+
+async fn echo_like(k: &TestKernel, plugins: &Arc<Plugins>, scratch: &Path, id: &str) {
+    let host = fs::read_to_string(checkout().join("host/test/fixtures/echo/host.ts")).unwrap();
+    let files = echo_files(&host);
+    let files: Vec<(&str, &str)> = files.iter().map(|(p, t)| (*p, t.as_str())).collect();
+    install(k, plugins, &package(scratch, id, "1.0.0", &files)).await;
+}
+
+fn rpc(plugin: &str, method: &str, params: Value) -> Value {
+    json!({"plugin": plugin, "method": method, "params": params})
+}
+
 #[tokio::test]
-async fn host_halves_run_call_the_kernel_and_start_again_when_they_end() {
+async fn host_halves_run_alone_call_the_kernel_as_themselves_and_start_again_when_they_end() {
     if !bun_ready() {
         eprintln!("skipped: the extension host needs bun and `bun install`");
         return;
     }
-    let k = test_kernel!(methods());
+    let k = test_kernel!(methods(), |config| config.call_timeout =
+        Duration::from_secs(3));
     let scratch = tempfile::tempdir().unwrap();
     let plugins = plugins(&k, scratch.path()).await;
     let admin = k.person("Ada", true).await;
     let member = k.person("Bob", false).await;
-    let host = fs::read_to_string(checkout().join("host/test/fixtures/echo/host.ts")).unwrap();
-    let echo = package(
-        scratch.path(),
-        "echo",
-        "1.0.0",
-        &[
-            (
-                "plugin.json",
-                r#"{"apiVersion": "1", "name": "Echo", "host": "host.ts"}"#,
-            ),
-            ("host.ts", &host),
-        ],
-    );
-    install(&k, &plugins, &echo).await;
-    // It starts when it is first used.
+    echo_like(&k, &plugins, scratch.path(), "echo").await;
+    echo_like(&k, &plugins, scratch.path(), "other").await;
+    // A host half starts when it is first used.
     assert_eq!(state(&k, &member, "echo").await, "inactive");
-    assert_eq!(plugins.host_pid(), None);
-    let rpc =
-        |method: &str, params: Value| json!({"plugin": "echo", "method": method, "params": params});
+    assert_eq!(plugins.host_pid("echo"), None);
     let greeted = k
-        .call(&member, "plugins.rpc", rpc("greet", json!({"name": "Ada"})))
+        .call(
+            &member,
+            "plugins.rpc",
+            rpc("echo", "greet", json!({"name": "Ada"})),
+        )
         .await
         .unwrap();
     let bob = member.user().unwrap().id.clone();
     // A handler runs for the caller; the calls it makes go as the plugin.
-    assert_eq!(greeted, json!({"greeting": "Hello, Ada", "as": bob}));
+    assert_eq!(
+        greeted,
+        json!({"greeting": "Hello, Ada", "as": bob, "from": "echo"})
+    );
     assert_eq!(state(&k, &member, "echo").await, "active");
     let remembered = k
         .call(
             &member,
             "plugins.rpc",
-            rpc("remember", json!({"value": "x"})),
+            rpc("echo", "remember", json!({"value": "x"})),
         )
         .await
         .unwrap();
     assert_eq!(remembered, json!({"stored": "x"}));
-    let stored = k
+    let stored = |plugin: &'static str, key: &'static str| {
+        let (k, admin) = (&k, &admin);
+        async move {
+            k.call(admin, "storage.get", json!({"plugin": plugin, "key": key}))
+                .await
+                .unwrap()["value"]
+                .clone()
+        }
+    };
+    assert_eq!(stored("echo", "last").await, "x");
+    let error = |e: rookery_kernel::RpcError| e.error_code();
+    use rookery_proto::ErrorCode;
+    let refused = k
+        .call(&member, "plugins.rpc", rpc("echo", "greet", json!({})))
+        .await
+        .unwrap_err();
+    assert_eq!(error(refused), ErrorCode::Invalid);
+    let missing = k
+        .call(&member, "plugins.rpc", rpc("echo", "none", json!({})))
+        .await
+        .unwrap_err();
+    assert_eq!(error(missing), ErrorCode::NotFound);
+    // A handler says who may call it.
+    let forbidden = k
+        .call(&member, "plugins.rpc", rpc("echo", "reset", json!({})))
+        .await
+        .unwrap_err();
+    assert_eq!(error(forbidden), ErrorCode::Forbidden);
+    let reset = k
+        .call(&admin, "plugins.rpc", rpc("echo", "reset", json!({})))
+        .await
+        .unwrap();
+    assert_eq!(reset, json!({"reset": true}));
+
+    // It gets none of the server's environment beyond what it needs.
+    let env = k
+        .call(&member, "plugins.rpc", rpc("echo", "env", json!({})))
+        .await
+        .unwrap();
+    assert_eq!(env["keys"], json!(["ROOKERY_EXTHOST_PROTOCOL"]), "{env}");
+
+    // Each plugin has a process of its own, and what one writes to its pipe is its own, whichever
+    // plugin it names.
+    k.call(
+        &member,
+        "plugins.rpc",
+        rpc("other", "greet", json!({"name": "x"})),
+    )
+    .await
+    .unwrap();
+    let (echo_pid, other_pid) = (
+        plugins.host_pid("echo").unwrap(),
+        plugins.host_pid("other").unwrap(),
+    );
+    assert_ne!(echo_pid, other_pid);
+    k.call(
+        &member,
+        "plugins.rpc",
+        rpc("echo", "forge", json!({"as": "other"})),
+    )
+    .await
+    .unwrap();
+    until("the forged call to land", || async {
+        stored("echo", "forged").await == json!(true)
+    })
+    .await;
+    assert_eq!(stored("other", "forged").await, Value::Null);
+    // The forged unregistering took echo's own greet away, and left other's.
+    let gone = k
         .call(
-            &admin,
-            "storage.get",
-            json!({"plugin": "echo", "key": "last"}),
+            &member,
+            "plugins.rpc",
+            rpc("echo", "greet", json!({"name": "x"})),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error(gone), ErrorCode::NotFound);
+    let still = k
+        .call(
+            &member,
+            "plugins.rpc",
+            rpc("other", "greet", json!({"name": "x"})),
         )
         .await
         .unwrap();
-    assert_eq!(stored["value"], "x");
-    let invalid = k
-        .call(&member, "plugins.rpc", rpc("greet", json!({})))
-        .await
-        .unwrap_err();
-    assert_eq!(invalid.error_code(), rookery_proto::ErrorCode::Invalid);
-    let missing = k
-        .call(&member, "plugins.rpc", rpc("none", json!({})))
-        .await
-        .unwrap_err();
-    assert_eq!(missing.error_code(), rookery_proto::ErrorCode::NotFound);
+    assert_eq!(still["from"], "other");
 
-    // A worker that ends is started again.
+    // A worker that ends is started again, in a process of its own, as is one that keeps running a
+    // call past its deadline; neither touches the other plugin.
     let crashed = k
-        .call(&member, "plugins.rpc", rpc("crash", json!({})))
+        .call(&member, "plugins.rpc", rpc("echo", "crash", json!({})))
         .await
         .unwrap_err();
-    assert_eq!(
-        crashed.error_code(),
-        rookery_proto::ErrorCode::Unavailable,
-        "{crashed}"
-    );
-    let greet = || async {
-        k.call(
+    assert_eq!(crashed.error_code(), ErrorCode::Unavailable, "{crashed:?}");
+    until("echo starting again", || async {
+        state(&k, &member, "echo").await == "active"
+            && plugins.host_pid("echo").is_some_and(|pid| pid != echo_pid)
+    })
+    .await;
+    let echo_pid = plugins.host_pid("echo").unwrap();
+    let late = k
+        .call(&member, "plugins.rpc", rpc("echo", "stuck", json!({})))
+        .await
+        .unwrap_err();
+    assert_eq!(error(late), ErrorCode::Timeout);
+    until(
+        "echo ended and started again after a call past its deadline",
+        || async {
+            state(&k, &member, "echo").await == "active"
+                && plugins.host_pid("echo").is_some_and(|pid| pid != echo_pid)
+        },
+    )
+    .await;
+    assert_eq!(plugins.host_pid("other"), Some(other_pid));
+    assert_eq!(state(&k, &member, "other").await, "active");
+
+    // A process that is killed is started again too.
+    let echo_pid = plugins.host_pid("echo").unwrap();
+    unsafe { libc::kill(echo_pid as i32, libc::SIGKILL) };
+    until("a new process for echo", || async {
+        state(&k, &member, "echo").await == "active"
+            && plugins.host_pid("echo").is_some_and(|pid| pid != echo_pid)
+    })
+    .await;
+    k.call(
+        &member,
+        "plugins.rpc",
+        rpc("echo", "greet", json!({"name": "x"})),
+    )
+    .await
+    .unwrap();
+
+    // One that keeps ending is failed, and only an admin starts it again.
+    until("echo failing", || async {
+        if state(&k, &member, "echo").await == "failed" {
+            return true;
+        }
+        let _ = k
+            .call(&member, "plugins.rpc", rpc("echo", "crash", json!({})))
+            .await;
+        false
+    })
+    .await;
+    let refused = k
+        .call(&member, "plugins.activate", json!({"id": "echo"}))
+        .await
+        .unwrap_err();
+    assert_eq!(error(refused), ErrorCode::Forbidden);
+    let refused = k
+        .call(
             &member,
             "plugins.rpc",
-            rpc("greet", json!({"name": "again"})),
+            rpc("echo", "greet", json!({"name": "x"})),
         )
         .await
-        .is_ok()
-    };
-    until("the host half starting again", || async {
-        state(&k, &member, "echo").await == "active"
-    })
-    .await;
-    assert!(greet().await);
+        .unwrap_err();
+    assert_eq!(error(refused), ErrorCode::Unavailable);
+    let again = k
+        .call(&admin, "plugins.activate", json!({"id": "echo"}))
+        .await
+        .unwrap();
+    assert_eq!(again["state"], "active");
 
-    // So is a host that ends, with the plugins that ran in it.
-    let pid = plugins.host_pid().unwrap();
-    unsafe { libc::kill(pid as i32, libc::SIGKILL) };
-    until("a new extension host", || async {
-        plugins.host_pid().is_some_and(|now| now != pid)
-            && state(&k, &member, "echo").await == "active"
-    })
-    .await;
-    assert!(greet().await);
-
-    // A removed plugin's host half stops.
+    // A removed plugin's host half runs its cleanups and stops.
     k.call(&admin, "plugins.remove", json!({"id": "echo"}))
         .await
         .unwrap();
+    assert_eq!(stored("echo", "disposed").await, json!(true));
+    assert_eq!(plugins.host_pid("echo"), None);
     let gone = k
-        .call(&member, "plugins.rpc", rpc("greet", json!({"name": "x"})))
+        .call(
+            &member,
+            "plugins.rpc",
+            rpc("echo", "greet", json!({"name": "x"})),
+        )
         .await
         .unwrap_err();
-    assert_eq!(gone.error_code(), rookery_proto::ErrorCode::NotFound);
+    assert_eq!(error(gone), ErrorCode::NotFound);
     k.close().await;
 }
 

@@ -1,5 +1,6 @@
-// The Rookery extension host. rookery serve starts it and talks JSON-RPC 2.0 with it over standard input
-// and output, one message a line. It ends when its input ends, as the server's does.
+// The Rookery extension host of one plugin. rookery serve starts one for each plugin whose host half
+// runs, and talks JSON-RPC 2.0 with it over standard input and output, one message a line: the pipes
+// say which plugin it is. It ends when its input ends, as when the server stops it.
 import { RookeryError } from "@rookery/sdk/errors"
 import { Host, type ServerLink } from "./host"
 
@@ -29,7 +30,10 @@ const server: ServerLink = {
   },
 }
 
-const host = new Host(server)
+const heap = process.argv.find((a) => a.startsWith("--heap-mb="))
+const host = new Host(server, {
+  heapMb: heap ? Number(heap.slice("--heap-mb=".length)) || undefined : undefined,
+})
 
 async function message(line: string) {
   let msg: any

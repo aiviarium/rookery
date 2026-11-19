@@ -9,7 +9,7 @@ use serde_json::json;
 use crate::Plugins;
 use crate::wire::{
     PluginAdd, PluginInfo, PluginList, PluginNewer, PluginRef, PluginReport, PluginRpc,
-    PluginUpdate, PluginUpdates,
+    PluginState, PluginUpdate, PluginUpdates,
 };
 
 fn plugins(kernel: &Kernel) -> Result<Arc<Plugins>, RpcError> {
@@ -47,8 +47,10 @@ pub fn register(methods: &mut Methods) {
     });
     methods
         .add("plugins.list", |call: Call, _: Empty| async move {
+            let plugins = plugins(&call.kernel)?;
             Ok(PluginList {
-                plugins: plugins(&call.kernel)?.infos(),
+                plugins: plugins.infos(),
+                missing: plugins.missing(),
             })
         })
         .summary("The plugins installed on the server, with their manifests and the addresses of their client halves: what a shell loads.")
@@ -126,6 +128,12 @@ pub fn register(methods: &mut Methods) {
     methods
         .add("plugins.activate", |call: Call, p: PluginRef| async move {
             let plugins = plugins(&call.kernel)?;
+            // One that failed starts again when an admin says so.
+            if plugins.info_of(&p.id).is_some_and(|i| i.state == PluginState::Failed) {
+                call.require_admin().map_err(|_| {
+                    RpcError::forbidden(format!("{} failed: an admin activates it again", p.id))
+                })?;
+            }
             plugins.activate(&call.kernel, &p.id).await?;
             let plugin = plugins
                 .get(&p.id)

@@ -27,6 +27,8 @@ export type LogLevel = "debug" | "info" | "warn" | "error"
 export interface Registration {
   kind: "rpc" | "command"
   key: string
+  /** For `rpc`: who may call it. */
+  level?: "own" | "admin"
   params?: Record<string, unknown>
   description?: string
 }
@@ -61,6 +63,7 @@ export interface HostTransport {
 interface Handler {
   kind: Registration["kind"]
   key: string
+  level?: Registration["level"]
   params?: { parse(input: unknown): unknown }
   description?: string
   run(ctx: Ctx, params: any): unknown
@@ -145,6 +148,7 @@ export class HostRuntime {
 
   registration(h: Handler): Registration {
     const r: Registration = { kind: h.kind, key: h.key }
+    if (h.level) r.level = h.level
     const params = jsonSchema(h.params)
     if (params) r.params = params
     if (h.description) r.description = h.description
@@ -264,8 +268,11 @@ function createApi(rt: HostRuntime): Rookery {
       },
     },
     rpc: {
-      handle: (method, def: RpcHandlerDef) =>
-        rt.register({ kind: "rpc", key: method, params: def.params, run: def.run }),
+      handle: (method, def: RpcHandlerDef) => {
+        if (def.level !== "own" && def.level !== "admin")
+          throw new RookeryError("INVALID", `rpc ${method} needs a level: "own" or "admin"`)
+        return rt.register({ kind: "rpc", key: method, level: def.level, params: def.params, run: def.run })
+      },
     },
     events: {
       publish: async (topic, payload) => {

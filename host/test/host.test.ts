@@ -52,10 +52,14 @@ describe("the extension host", () => {
     })
     expect(activated.registrations.map((r: any) => `${r.kind}:${r.key}`).sort()).toEqual([
       "rpc:crash",
+      "rpc:env",
+      "rpc:forge",
       "rpc:greet",
       "rpc:remember",
+      "rpc:reset",
       "rpc:setting",
       "rpc:slow",
+      "rpc:stuck",
     ])
     expect(activated.registrations.find((r: any) => r.key === "greet").params.properties.name.type).toBe(
       "string",
@@ -67,7 +71,7 @@ describe("the extension host", () => {
       params: { name: "Ada" },
       ctx: ctx(),
     })
-    expect(greet).toEqual({ greeting: "Hello, Ada", as: "u1" })
+    expect(greet).toEqual({ greeting: "Hello, Ada", as: "u1", from: "echo" })
     expect(
       await host.handle("plugins.invoke", {
         plugin: "echo",

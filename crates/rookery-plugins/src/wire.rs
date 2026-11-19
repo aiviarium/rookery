@@ -71,6 +71,10 @@ pub struct PluginInfo {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct PluginList {
     pub plugins: Vec<PluginInfo>,
+    /// Plugins the database records as installed that the plugin folder does not have, as on a new
+    /// leader whose folder is behind. Their records stay until the next change of the plugins.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing: Vec<String>,
 }
 
 /// `plugins.add`: a package of the plugin registries, the https address of an egg, or one folder of a

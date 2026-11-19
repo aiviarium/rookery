@@ -76,7 +76,15 @@ export interface Commands {
   run<T = unknown>(ctx: Ctx, id: CommandId, params?: Record<string, unknown>): Promise<T>
 }
 
+/**
+ * Who may call a method of `rookery.rpc.handle` through `plugins.rpc`: `own`, anyone signed in, or
+ * `admin`. The server checks it before the handler runs; a handler of level `own` decides the rest.
+ */
+export type RpcLevel = "own" | "admin"
+
 export interface RpcHandlerDef<P = any, R = unknown> {
+  /** Every handler says who may call it. */
+  level: RpcLevel
   params?: { parse(input: unknown): P }
   run(ctx: Ctx, params: P): R | Promise<R>
 }

@@ -1,19 +1,25 @@
-//! The extension host: one Bun process the server starts when a plugin's host half is first needed,
-//! with one worker in it for each plugin's host half. It runs `host/src/main.ts` of the source, and
-//! the two talk JSON-RPC 2.0 over its standard input and output, one message a line.
+//! The extension host: one Bun process for each plugin whose host half runs, started when it is first
+//! needed. Each runs `host/src/main.ts` of the source, with the plugin's host half in a worker of its
+//! own, and talks JSON-RPC 2.0 with the server over its standard input and output, one message a line.
 //!
-//! The server asks the host `plugins.activate`, `plugins.invoke`, `plugins.deactivate` and
-//! `plugins.transform` (a migration's transform step, see [`crate::data`]), and tells
-//! it `plugins.cancel` and `plugins.notify`, which carries what the kernel sent to the plugin's
-//! connection, such as `events.event` and `topics.message`. The host asks `host.hello` first, then
-//! the facility calls of plugins, each with the plugin in the envelope (`"plugin": "hello"`): they run
-//! as that plugin, on a connection of its own. It tells the server `plugins.registered`,
-//! `plugins.unregistered`, `plugins.exited` and `plugins.log`.
+//! The pipes are the plugin's identity. A process speaks for its plugin alone: whatever it says of
+//! another plugin, such as a `plugin` field in a message, is ignored, and it never sees another
+//! plugin's traffic. It starts with an empty environment but for `PATH`, `HOME`, `LANG`, `LC_ALL`,
+//! `TZ`, `NODE_PATH` and `ROOKERY_EXTHOST_PROTOCOL`, so the server's database address and keys are not
+//! handed to it. It still runs as the server's user: a host half is code an admin installed and
+//! trusts, and keeping it from what that user can read is left to a sandbox.
 //!
-//! A host that ends is started again, with a wait that grows while it keeps ending, and the plugins
-//! that ran in it are activated again. A worker that ends is activated again the same way, up to
-//! [`CRASHES`] times in [`CRASH_WINDOW`], after which its plugin is failed until it is activated by
-//! hand or changed.
+//! The server asks the process `plugins.activate`, `plugins.invoke`, `plugins.deactivate` and
+//! `plugins.transform` (a migration's transform step, see [`crate::data`]), and tells it
+//! `plugins.cancel` and `plugins.notify`, which carries what the kernel sent to the plugin's
+//! connection, such as `events.event`. The process asks `host.hello` first, then calls the server's
+//! methods, which run as the plugin on a connection of its own. It tells the server
+//! `plugins.registered`, `plugins.unregistered`, `plugins.exited` and `plugins.log`.
+//!
+//! A host half that ends, whether its worker or its whole process, or that does not stop a call past
+//! its deadline, counts against its own plugin: it is activated again with a wait that grows, up to
+//! [`CRASHES`] times in [`CRASH_WINDOW`], after which the plugin is failed until an admin activates
+//! it or it changes. When the server stops, each host half is deactivated, which runs its cleanups.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -30,19 +36,26 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{mpsc, oneshot};
+use tokio_util::sync::CancellationToken;
 
 use crate::wire::PluginState;
 
-/// How a plugin's worker that keeps ending is given up on.
+/// How a plugin's host half that keeps ending is given up on.
 pub const CRASHES: usize = 5;
 pub const CRASH_WINDOW: Duration = Duration::from_secs(60);
-/// How long a new host may take to say hello, and a host half to activate.
+/// How long a new process may take to say hello, and a host half to activate.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const ACTIVATE_TIMEOUT: Duration = Duration::from_secs(30);
 const DEACTIVATE_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a handler has to stop once its call's deadline passed, before its host half is ended.
+pub const CANCEL_GRACE: Duration = Duration::from_secs(3);
+/// How long one transform step of a migration may run.
+pub const TRANSFORM_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// The version of this protocol.
 pub const PROTOCOL: &str = "1";
+/// What of the server's environment a host half gets.
+const KEPT_ENV: &[&str] = &["PATH", "HOME", "LANG", "LC_ALL", "TZ"];
 
 /// How the server starts the extension host.
 #[derive(Debug, Clone)]
@@ -51,6 +64,8 @@ pub struct HostOptions {
     pub bun: PathBuf,
     /// `host/src/main.ts`. Without it no host half runs, and a plugin with one fails to activate.
     pub entry: Option<PathBuf>,
+    /// The most memory a host half's worker may use for its heap, in MiB.
+    pub heap_mb: u32,
 }
 
 impl Default for HostOptions {
@@ -58,6 +73,7 @@ impl Default for HostOptions {
         HostOptions {
             bun: PathBuf::from("bun"),
             entry: None,
+            heap_mb: 512,
         }
     }
 }
@@ -67,6 +83,9 @@ impl Default for HostOptions {
 pub struct Registration {
     pub kind: String,
     pub key: String,
+    /// Who may call it: `own`, anyone signed in, or `admin`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub params: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -78,35 +97,35 @@ struct Slot {
     state: Option<PluginState>,
     error: Option<ErrorBody>,
     registrations: Vec<Registration>,
-    /// The host it runs in.
+    /// The process it is active in.
     generation: u64,
-    conn: Option<ConnHandle>,
-    /// It is to run: it is activated again when its worker or the host ends.
+    /// It is to run: it is activated again when it ends.
     wanted: bool,
     crashes: Vec<Instant>,
 }
 
+/// A plugin's running process: its link, and the plugin's connection, which lives as long.
+struct Proc {
+    link: Link,
+    conn: ConnHandle,
+}
+
 pub(crate) struct ExtHost {
     options: HostOptions,
-    link: watch::Sender<Option<Link>>,
     generation: AtomicU64,
-    started: AtomicBool,
     slots: Mutex<HashMap<String, Slot>>,
+    procs: Mutex<HashMap<String, Proc>>,
     gates: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
-    /// The connection of a plugin's transform step that runs, with the host it runs in.
-    transforms: Mutex<HashMap<String, (u64, ConnHandle)>>,
 }
 
 impl ExtHost {
     pub fn new(options: HostOptions) -> ExtHost {
         ExtHost {
             options,
-            link: watch::channel(None).0,
             generation: AtomicU64::new(0),
-            started: AtomicBool::new(false),
             slots: Mutex::default(),
+            procs: Mutex::default(),
             gates: Mutex::default(),
-            transforms: Mutex::default(),
         }
     }
 
@@ -127,12 +146,13 @@ impl ExtHost {
             .unwrap_or_default()
     }
 
-    /// The link of the running host.
-    pub fn running(&self) -> Option<Link> {
-        self.link.borrow().clone()
+    /// The link of a plugin's running process.
+    pub fn running(&self, plugin: &str) -> Option<Link> {
+        let procs = self.procs.lock().unwrap();
+        procs.get(plugin).map(|p| p.link.clone())
     }
 
-    /// Serializes activating and deactivating one plugin.
+    /// Serializes starting, activating, deactivating and transforming one plugin.
     pub fn gate(&self, plugin: &str) -> Arc<tokio::sync::Mutex<()>> {
         self.gates
             .lock()
@@ -142,9 +162,9 @@ impl ExtHost {
             .clone()
     }
 
-    /// The link of a plugin that runs in the current host.
+    /// The link of a plugin whose host half is active in its running process.
     pub fn active_link(&self, plugin: &str) -> Option<Link> {
-        let link = self.link.borrow().clone()?;
+        let link = self.running(plugin)?;
         let slots = self.slots.lock().unwrap();
         let slot = slots.get(plugin)?;
         (slot.state == Some(PluginState::Active) && slot.generation == link.generation())
@@ -152,50 +172,11 @@ impl ExtHost {
     }
 
     fn plugin_conn(&self, plugin: &str, generation: u64) -> Option<ConnHandle> {
-        let active = {
-            let slots = self.slots.lock().unwrap();
-            slots
-                .get(plugin)
-                .filter(|slot| slot.generation == generation)
-                .and_then(|slot| slot.conn.clone())
-        };
-        active.or_else(|| {
-            let transforms = self.transforms.lock().unwrap();
-            transforms
-                .get(plugin)
-                .filter(|(at, _)| *at == generation)
-                .map(|(_, conn)| conn.clone())
-        })
-    }
-
-    /// Runs a transform step of a plugin's migration in the host, in a worker of its own. Its calls of
-    /// the server go as the plugin, whether or not its host half runs.
-    pub async fn transform(
-        &self,
-        kernel: &Kernel,
-        plugins: Arc<crate::Plugins>,
-        plugin: &str,
-        params: Value,
-    ) -> Result<(), RpcError> {
-        self.ensure_started(kernel, plugins)?;
-        let link = self.wait_link(CONNECT_TIMEOUT).await?;
-        let (conn, rx) = ConnHandle::detached(kernel, Caller::Plugin(plugin.to_owned()));
-        tokio::spawn(forward(rx, link.clone(), plugin.to_owned()));
-        let earlier = self
-            .transforms
-            .lock()
-            .unwrap()
-            .insert(plugin.to_owned(), (link.generation(), conn.clone()));
-        if earlier.is_some() {
-            tracing::warn!(
-                plugin,
-                "a transform step started while another of the plugin ran"
-            );
-        }
-        let done = link.request("plugins.transform", params).await;
-        self.transforms.lock().unwrap().remove(plugin);
-        conn.close_detached(kernel);
-        done.map(|_| ())
+        let procs = self.procs.lock().unwrap();
+        procs
+            .get(plugin)
+            .filter(|p| p.link.generation() == generation)
+            .map(|p| p.conn.clone())
     }
 
     fn set(&self, plugin: &str, change: impl FnOnce(&mut Slot)) {
@@ -203,42 +184,117 @@ impl ExtHost {
         change(slots.entry(plugin.to_owned()).or_default());
     }
 
-    /// Starts the host and its supervisor, once.
-    fn ensure_started(
+    /// The plugin's running process, started when there is none. The caller holds its gate.
+    async fn start(
         &self,
         kernel: &Kernel,
-        plugins: Arc<crate::Plugins>,
-    ) -> Result<(), RpcError> {
+        plugins: &Arc<crate::Plugins>,
+        plugin: &str,
+    ) -> Result<Link, RpcError> {
+        if let Some(link) = self.running(plugin).filter(|l| !l.is_closed()) {
+            return Ok(link);
+        }
         let Some(entry) = self.options.entry.clone() else {
             return Err(RpcError::unavailable(
                 "no extension host is set up on this server (ROOKERY_EXTHOST), so no host half can run",
             ));
         };
-        if !self.started.swap(true, Ordering::SeqCst) {
-            tokio::spawn(supervise(kernel.clone(), plugins, entry));
+        let child = spawn(&self.options, &entry).map_err(|e| {
+            RpcError::unavailable(format!(
+                "the extension host of {plugin} could not start with {}: {e}",
+                self.options.bun.display()
+            ))
+        })?;
+        let generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
+        let (out, rx) = mpsc::unbounded_channel::<String>();
+        let link = Link(Arc::new(LinkInner {
+            generation,
+            pid: child.id(),
+            out,
+            pending: Mutex::default(),
+            next: AtomicI64::new(1),
+            closed: AtomicBool::new(false),
+            stop: CancellationToken::new(),
+        }));
+        let (conn, notices) = ConnHandle::detached(kernel, Caller::Plugin(plugin.to_owned()));
+        tokio::spawn(forward(notices, link.clone(), plugin.to_owned()));
+        self.procs.lock().unwrap().insert(
+            plugin.to_owned(),
+            Proc {
+                link: link.clone(),
+                conn,
+            },
+        );
+        let (ready, said_hello) = oneshot::channel();
+        tokio::spawn(run(
+            kernel.clone(),
+            plugins.clone(),
+            plugin.to_owned(),
+            child,
+            link.clone(),
+            rx,
+            ready,
+        ));
+        match tokio::time::timeout(CONNECT_TIMEOUT, said_hello).await {
+            Ok(Ok(())) => Ok(link),
+            _ => {
+                self.stop(kernel, plugin, generation);
+                Err(RpcError::unavailable(format!(
+                    "the extension host of {plugin} did not start"
+                )))
+            }
         }
-        Ok(())
     }
 
-    async fn wait_link(&self, wait: Duration) -> Result<Link, RpcError> {
-        let mut rx = self.link.subscribe();
-        let ready = async {
-            loop {
-                if let Some(link) = rx.borrow_and_update().clone() {
-                    return Some(link);
-                }
-                if rx.changed().await.is_err() {
-                    return None;
-                }
+    /// Ends a plugin's process on purpose: what it was doing does not count as a crash.
+    fn stop(&self, kernel: &Kernel, plugin: &str, generation: u64) {
+        let proc = {
+            let mut procs = self.procs.lock().unwrap();
+            match procs.get(plugin) {
+                Some(p) if p.link.generation() == generation => procs.remove(plugin),
+                _ => None,
             }
         };
-        match tokio::time::timeout(wait, ready).await {
-            Ok(Some(link)) => Ok(link),
-            _ => Err(RpcError::unavailable("the extension host is not running")),
+        if let Some(proc) = proc {
+            proc.link.stop();
+            proc.conn.close_detached(kernel);
         }
     }
 
-    /// Starts a plugin's host half in the host, starting the host first when it does not run.
+    /// Runs a transform step of a plugin's migration in its process, in a worker of its own. Its calls
+    /// of the server go as the plugin, whether or not its host half runs.
+    pub async fn transform(
+        &self,
+        kernel: &Kernel,
+        plugins: Arc<crate::Plugins>,
+        plugin: &str,
+        params: Value,
+        limit: Duration,
+    ) -> Result<(), RpcError> {
+        let gate = self.gate(plugin);
+        let _one = gate.lock().await;
+        let link = self.start(kernel, &plugins, plugin).await?;
+        let done = tokio::time::timeout(limit, link.request("plugins.transform", params)).await;
+        let idle = self.active_link(plugin).is_none();
+        match done {
+            Ok(done) => {
+                if idle {
+                    self.stop(kernel, plugin, link.generation());
+                }
+                done.map(|_| ())
+            }
+            Err(_) => {
+                // Its worker is still running: the process goes, and with it the step.
+                self.stop(kernel, plugin, link.generation());
+                Err(RpcError::timeout(format!(
+                    "the transform step of {plugin} did not end in {} seconds",
+                    limit.as_secs()
+                )))
+            }
+        }
+    }
+
+    /// Starts a plugin's host half in its process, starting the process when it does not run.
     pub async fn activate(
         &self,
         kernel: &Kernel,
@@ -258,30 +314,26 @@ impl ExtHost {
             slot.wanted = true;
         });
         let activated = async {
-            self.ensure_started(kernel, plugins)?;
-            let link = self.wait_link(CONNECT_TIMEOUT).await?;
-            let (conn, rx) = ConnHandle::detached(kernel, Caller::Plugin(plugin.to_owned()));
-            tokio::spawn(forward(rx, link.clone(), plugin.to_owned()));
+            let link = self.start(kernel, &plugins, plugin).await?;
             let params = json!({"plugin": plugin, "dir": dir, "manifest": manifest});
             match link
                 .call::<Activated>("plugins.activate", params, ACTIVATE_TIMEOUT)
                 .await
             {
-                Ok(activated) => Ok((link, conn, activated.registrations)),
+                Ok(activated) => Ok((link, activated.registrations)),
                 Err(e) => {
-                    conn.close_detached(kernel);
+                    self.stop(kernel, plugin, link.generation());
                     Err(e)
                 }
             }
         }
         .await;
         match activated {
-            Ok((link, conn, registrations)) => {
-                tracing::info!(plugin, "a plugin's host half is active");
+            Ok((link, registrations)) => {
+                tracing::info!(plugin, pid = ?link.pid(), "a plugin's host half is active");
                 self.set(plugin, |slot| {
                     slot.state = Some(PluginState::Active);
                     slot.generation = link.generation();
-                    slot.conn = Some(conn);
                     slot.registrations = registrations;
                 });
                 Ok(())
@@ -298,33 +350,30 @@ impl ExtHost {
         }
     }
 
-    /// Stops a plugin's host half. One that is not wanted any more is not started again.
+    /// Stops a plugin's host half and its process, after its cleanups. It is not started again.
     pub async fn deactivate(&self, kernel: &Kernel, plugin: &str) {
         let gate = self.gate(plugin);
         let _one = gate.lock().await;
-        let link = self.active_link(plugin);
-        let conn = {
-            let mut slots = self.slots.lock().unwrap();
-            slots.remove(plugin).and_then(|slot| slot.conn)
+        self.slots.lock().unwrap().remove(plugin);
+        let Some(link) = self.running(plugin) else {
+            return;
         };
-        if let Some(link) = link {
-            let _ = link
-                .call::<Value>(
-                    "plugins.deactivate",
-                    json!({"plugin": plugin}),
-                    DEACTIVATE_TIMEOUT,
-                )
-                .await;
-        }
-        if let Some(conn) = conn {
-            conn.close_detached(kernel);
-        }
+        let _ = link
+            .call::<Value>(
+                "plugins.deactivate",
+                json!({"plugin": plugin}),
+                DEACTIVATE_TIMEOUT,
+            )
+            .await;
+        self.stop(kernel, plugin, link.generation());
     }
 
-    /// Runs one of a plugin's handlers in the host, as the caller of `call`.
+    /// Runs one of a plugin's handlers, as the caller of `call`. An `rpc` handler says who may call it.
+    /// A handler that does not stop within [`CANCEL_GRACE`] of its deadline ends its host half.
     pub async fn invoke(
         &self,
         call: &Call,
+        plugins: &Arc<crate::Plugins>,
         plugin: &str,
         kind: &str,
         key: &str,
@@ -335,12 +384,23 @@ impl ExtHost {
                 "the host half of {plugin} does not run"
             )));
         };
-        if !self
+        let Some(registration) = self
             .registrations(plugin)
-            .iter()
-            .any(|r| r.kind == kind && r.key == key)
-        {
+            .into_iter()
+            .find(|r| r.kind == kind && r.key == key)
+        else {
             return Err(RpcError::not_found(format!("{plugin} has no {kind} {key}")));
+        };
+        match registration.level.as_deref() {
+            None | Some("own") => {}
+            Some("admin") => call.require_admin().map_err(|_| {
+                RpcError::forbidden(format!("{kind} {key} of {plugin} is for admins"))
+            })?,
+            Some(other) => {
+                return Err(RpcError::forbidden(format!(
+                    "{kind} {key} of {plugin} has the level {other:?}, which Rookery does not know"
+                )));
+            }
         }
         let call_id = uuid::Uuid::now_v7().to_string();
         let left = call.deadline.saturating_duration_since(Instant::now());
@@ -354,99 +414,61 @@ impl ExtHost {
         });
         let invoke =
             json!({"plugin": plugin, "kind": kind, "key": key, "params": params, "ctx": ctx});
-        match tokio::time::timeout(left, link.request("plugins.invoke", invoke)).await {
-            Ok(done) => done,
-            Err(_) => {
-                link.notify(
-                    "plugins.cancel",
-                    json!({"plugin": plugin, "callId": call_id}),
-                );
-                Err(RpcError::timeout(format!(
-                    "{plugin} did not answer {kind} {key} before the call's deadline"
-                )))
-            }
+        let mut request = Box::pin(link.request("plugins.invoke", invoke));
+        tokio::select! {
+            done = &mut request => return done,
+            _ = tokio::time::sleep(left) => {}
         }
-    }
-
-    /// The host connected: the plugins that ran in the one before run again.
-    fn attached(&self, link: Link) -> Vec<String> {
-        self.link.send_replace(Some(link));
-        let slots = self.slots.lock().unwrap();
-        slots
-            .iter()
-            .filter(|(_, slot)| slot.wanted)
-            .map(|(id, _)| id.clone())
-            .collect()
-    }
-
-    /// The host went away: what ran in it does not run any more.
-    fn detached(&self, kernel: &Kernel, generation: u64) {
-        self.link.send_if_modified(|current| {
-            if current
-                .as_ref()
-                .is_some_and(|l| l.generation() == generation)
-            {
-                *current = None;
-                true
-            } else {
-                false
+        link.notify(
+            "plugins.cancel",
+            json!({"plugin": plugin, "callId": call_id}),
+        );
+        let (kernel, plugins, id) = (call.kernel.clone(), plugins.clone(), plugin.to_owned());
+        let generation = link.generation();
+        tokio::spawn(async move {
+            if tokio::time::timeout(CANCEL_GRACE, request).await.is_err() {
+                let error = ErrorBody {
+                    code: ErrorCode::Timeout,
+                    message: format!("{id} did not stop a call {CANCEL_GRACE:?} past its deadline"),
+                    details: None,
+                };
+                crashed(&kernel, &plugins, &id, generation, Some(error));
             }
         });
-        let conns: Vec<ConnHandle> = {
-            let mut slots = self.slots.lock().unwrap();
-            slots
-                .values_mut()
-                .filter(|slot| slot.generation == generation)
-                .filter_map(|slot| {
-                    if slot.state == Some(PluginState::Active) {
-                        slot.state = Some(PluginState::Inactive);
-                    }
-                    slot.registrations.clear();
-                    slot.conn.take()
-                })
-                .collect()
-        };
-        for conn in conns {
-            conn.close_detached(kernel);
-        }
+        Err(RpcError::timeout(format!(
+            "{plugin} did not answer {kind} {key} before the call's deadline"
+        )))
     }
 
-    /// A plugin's worker ended without being asked to. Says how long to wait before it is activated
-    /// again, or `None` when it ended too often.
-    fn exited(&self, kernel: &Kernel, plugin: &str, error: Option<ErrorBody>) -> Option<Duration> {
+    /// Counts a crash of a plugin's host half. Says how long to wait before it is activated again, or
+    /// `None` when it ended too often or is not wanted.
+    fn exited(&self, plugin: &str, error: Option<ErrorBody>) -> Option<Duration> {
         let now = Instant::now();
-        let (conn, again) = {
-            let mut slots = self.slots.lock().unwrap();
-            let slot = slots.entry(plugin.to_owned()).or_default();
-            slot.crashes
-                .retain(|at| now.duration_since(*at) < CRASH_WINDOW);
-            slot.crashes.push(now);
-            slot.registrations.clear();
-            let crashes = slot.crashes.len();
-            let again = if slot.wanted && crashes < CRASHES {
-                slot.state = Some(PluginState::Inactive);
-                slot.error = error;
-                Some(Duration::from_millis(250 * 2u64.pow(crashes as u32 - 1)))
-            } else {
-                let said = error.map(|e| e.message).unwrap_or_default();
-                slot.state = Some(PluginState::Failed);
-                slot.wanted = false;
-                slot.error = Some(ErrorBody {
-                    code: ErrorCode::Unavailable,
-                    message: format!(
-                        "the host half of {plugin} ended {crashes} times in {} seconds, and is not started again until it is activated: {said}",
-                        CRASH_WINDOW.as_secs()
-                    ),
-                    details: None,
-                });
-                None
-            };
-            (slot.conn.take(), again)
-        };
-        if let Some(conn) = conn {
-            conn.close_detached(kernel);
+        let mut slots = self.slots.lock().unwrap();
+        let slot = slots.get_mut(plugin)?;
+        slot.crashes
+            .retain(|at| now.duration_since(*at) < CRASH_WINDOW);
+        slot.crashes.push(now);
+        slot.registrations.clear();
+        let crashes = slot.crashes.len();
+        if slot.wanted && crashes < CRASHES {
+            slot.state = Some(PluginState::Inactive);
+            slot.error = error;
+            Some(Duration::from_millis(250 * 2u64.pow(crashes as u32 - 1)))
+        } else {
+            let said = error.map(|e| e.message).unwrap_or_default();
+            slot.state = Some(PluginState::Failed);
+            slot.wanted = false;
+            slot.error = Some(ErrorBody {
+                code: ErrorCode::Unavailable,
+                message: format!(
+                    "the host half of {plugin} ended {crashes} times in {} seconds, and is not started again until an admin activates it: {said}",
+                    CRASH_WINDOW.as_secs()
+                ),
+                details: None,
+            });
+            None
         }
-        again
     }
 
     fn registered(&self, plugin: &str, registration: Registration) {
@@ -465,6 +487,35 @@ impl ExtHost {
     }
 }
 
+/// A plugin's host half ended, or is ended, without being asked to: its process goes, the crash is
+/// counted against the plugin, and it is activated again when it may be.
+fn crashed(
+    kernel: &Kernel,
+    plugins: &Arc<crate::Plugins>,
+    plugin: &str,
+    generation: u64,
+    error: Option<ErrorBody>,
+) {
+    let host = &plugins.host;
+    let current = host
+        .running(plugin)
+        .is_some_and(|l| l.generation() == generation);
+    if !current || kernel.shutdown.is_cancelled() {
+        return;
+    }
+    host.stop(kernel, plugin, generation);
+    tracing::warn!(plugin, ?error, "a plugin's host half ended");
+    let again = host.exited(plugin, error);
+    plugins.changed(kernel, &[plugin.to_owned()]);
+    if let Some(wait) = again {
+        let (kernel, plugins, plugin) = (kernel.clone(), plugins.clone(), plugin.to_owned());
+        tokio::spawn(async move {
+            tokio::time::sleep(wait).await;
+            let _ = plugins.activate(&kernel, &plugin).await;
+        });
+    }
+}
+
 #[derive(Deserialize)]
 struct Activated {
     #[serde(default)]
@@ -473,7 +524,7 @@ struct Activated {
 
 type Pending = Mutex<HashMap<i64, oneshot::Sender<Result<Value, RpcError>>>>;
 
-/// The server's side of the connection to one running host.
+/// The server's side of the pipes of one plugin's process.
 #[derive(Clone)]
 pub struct Link(Arc<LinkInner>);
 
@@ -484,6 +535,8 @@ struct LinkInner {
     pending: Pending,
     next: AtomicI64,
     closed: AtomicBool,
+    /// Ends the process.
+    stop: CancellationToken,
 }
 
 impl Link {
@@ -499,7 +552,11 @@ impl Link {
         self.0.out.send(message.to_string()).is_ok()
     }
 
-    /// A request. It answers `UNAVAILABLE` when the host goes away first, and has no time limit of
+    fn stop(&self) {
+        self.0.stop.cancel();
+    }
+
+    /// A request. It answers `UNAVAILABLE` when the process goes away first, and has no time limit of
     /// its own.
     pub fn request(
         &self,
@@ -581,7 +638,7 @@ impl Link {
     }
 }
 
-/// What the kernel sends a plugin's connection goes to its worker.
+/// What the kernel sends a plugin's connection goes to its process.
 async fn forward(mut rx: mpsc::Receiver<Outbound>, link: Link, plugin: String) {
     while let Some(out) = rx.recv().await {
         if link.is_closed() {
@@ -603,47 +660,9 @@ async fn forward(mut rx: mpsc::Receiver<Outbound>, link: Link, plugin: String) {
     }
 }
 
-/// Starts the host and starts it again when it ends, until the server stops.
-async fn supervise(kernel: Kernel, plugins: Arc<crate::Plugins>, entry: PathBuf) {
-    let host = &plugins.host;
-    let mut failures: u32 = 0;
-    loop {
-        let started = Instant::now();
-        let generation = host.generation.fetch_add(1, Ordering::Relaxed) + 1;
-        match spawn(&host.options.bun, &entry) {
-            Ok(child) => {
-                let done = run(&kernel, &plugins, child, generation);
-                tokio::select! {
-                    _ = done => {}
-                    _ = kernel.shutdown.cancelled() => {}
-                }
-                host.detached(&kernel, generation);
-                if kernel.shutdown.is_cancelled() {
-                    return;
-                }
-            }
-            Err(e) => {
-                tracing::error!(error = %e, bun = %host.options.bun.display(), "the extension host could not start")
-            }
-        }
-        failures = if started.elapsed() > Duration::from_secs(30) {
-            0
-        } else {
-            failures + 1
-        };
-        let delay = Duration::from_millis(250 * 2u64.saturating_pow(failures.min(6)))
-            .min(Duration::from_secs(10));
-        tracing::info!(?delay, "the extension host starts again");
-        tokio::select! {
-            _ = tokio::time::sleep(delay) => {}
-            _ = kernel.shutdown.cancelled() => return,
-        }
-    }
-}
-
-fn spawn(bun: &Path, entry: &Path) -> std::io::Result<Child> {
+fn spawn(options: &HostOptions, entry: &Path) -> std::io::Result<Child> {
     // A plugin's folder has no node_modules of its own to find @rookery/sdk in: it gets the host
-    // package's workspace's (host/src/main.ts → node_modules beside host/), which its workers inherit.
+    // package's workspace's (host/src/main.ts → node_modules beside host/), which its worker inherits.
     let mut node_path: Vec<PathBuf> = std::env::var_os("NODE_PATH")
         .map(|p| std::env::split_paths(&p).collect())
         .unwrap_or_default();
@@ -653,17 +672,24 @@ fn spawn(bun: &Path, entry: &Path) -> std::io::Result<Child> {
     {
         node_path.push(root.join("node_modules"));
     }
-    let mut cmd = Command::new(bun);
+    let mut cmd = Command::new(&options.bun);
     cmd.arg(entry)
-        .env(
-            "NODE_PATH",
-            std::env::join_paths(node_path).unwrap_or_default(),
-        )
-        .env("ROOKERY_EXTHOST_PROTOCOL", PROTOCOL)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+        .arg(format!("--heap-mb={}", options.heap_mb))
+        .env_clear();
+    for name in KEPT_ENV {
+        if let Some(value) = std::env::var_os(name) {
+            cmd.env(name, value);
+        }
+    }
+    cmd.env(
+        "NODE_PATH",
+        std::env::join_paths(node_path).unwrap_or_default(),
+    )
+    .env("ROOKERY_EXTHOST_PROTOCOL", PROTOCOL)
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .kill_on_drop(true);
     #[cfg(target_os = "linux")]
     // SAFETY: prctl is async-signal-safe; it asks the kernel to end the child when the server ends.
     unsafe {
@@ -675,19 +701,19 @@ fn spawn(bun: &Path, entry: &Path) -> std::io::Result<Child> {
     cmd.spawn()
 }
 
-/// One host's life: its messages until it ends.
-async fn run(kernel: &Kernel, plugins: &Arc<crate::Plugins>, mut child: Child, generation: u64) {
+/// One process's life: its messages until it ends, is stopped or the server stops.
+async fn run(
+    kernel: Kernel,
+    plugins: Arc<crate::Plugins>,
+    plugin: String,
+    mut child: Child,
+    link: Link,
+    mut rx: mpsc::UnboundedReceiver<String>,
+    ready: oneshot::Sender<()>,
+) {
     let host = &plugins.host;
-    let (out, mut rx) = mpsc::unbounded_channel::<String>();
-    let link = Link(Arc::new(LinkInner {
-        generation,
-        pid: child.id(),
-        out,
-        pending: Mutex::default(),
-        next: AtomicI64::new(1),
-        closed: AtomicBool::new(false),
-    }));
-    tracing::info!(pid = ?child.id(), generation, "the extension host started");
+    let generation = link.generation();
+    tracing::info!(plugin, pid = ?child.id(), generation, "a plugin's extension host started");
     let mut stdin = child.stdin.take().expect("stdin is piped");
     let writer = tokio::spawn(async move {
         while let Some(mut line) = rx.recv().await {
@@ -698,29 +724,39 @@ async fn run(kernel: &Kernel, plugins: &Arc<crate::Plugins>, mut child: Child, g
         }
     });
     if let Some(err) = child.stderr.take() {
+        let plugin = plugin.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(err).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                tracing::info!(target: "rookery::exthost", "{line}");
+                tracing::info!(target: "rookery::exthost", plugin, "{line}");
             }
         });
     }
     let stdout = child.stdout.take().expect("stdout is piped");
     let mut lines = BufReader::new(stdout).lines();
-    let hello = tokio::time::sleep(CONNECT_TIMEOUT);
-    tokio::pin!(hello);
-    let mut said_hello = false;
+    let mut ready = Some(ready);
+    let stop = link.0.stop.clone();
+    let mut leaving = false;
     loop {
         let line = tokio::select! {
             line = lines.next_line() => line,
-            _ = &mut hello, if !said_hello => {
-                tracing::error!("the extension host did not say hello in time; it is started again");
-                break;
+            _ = stop.cancelled() => break,
+            _ = kernel.shutdown.cancelled(), if !leaving => {
+                // A host half's cleanups run before the server goes; this loop reads their answer.
+                leaving = true;
+                let (link, plugin) = (link.clone(), plugin.clone());
+                tokio::spawn(async move {
+                    let _ = link
+                        .call::<Value>("plugins.deactivate", json!({"plugin": plugin}), DEACTIVATE_TIMEOUT)
+                        .await;
+                    link.stop();
+                });
+                continue;
             }
         };
         let Ok(Some(line)) = line else { break };
         let Ok(message) = serde_json::from_str::<Value>(&line) else {
-            tracing::warn!(target: "rookery::exthost", "{line}");
+            tracing::warn!(target: "rookery::exthost", plugin, "{line}");
             continue;
         };
         let method = message.get("method").and_then(Value::as_str);
@@ -728,40 +764,25 @@ async fn run(kernel: &Kernel, plugins: &Arc<crate::Plugins>, mut child: Child, g
         match (method, id) {
             (Some("host.hello"), Some(id)) => {
                 link.respond(id, Ok(json!({"protocol": PROTOCOL})));
-                if !said_hello {
-                    said_hello = true;
-                    for plugin in host.attached(link.clone()) {
-                        let (kernel, plugins) = (kernel.clone(), plugins.clone());
-                        tokio::spawn(async move {
-                            let _ = plugins.activate(&kernel, &plugin).await;
-                        });
-                    }
+                if let Some(ready) = ready.take() {
+                    let _ = ready.send(());
                 }
             }
             (Some(method), Some(id)) => {
-                let plugin = message.get("plugin").and_then(Value::as_str).unwrap_or("");
+                // The pipe says whose call this is, whatever the message says.
                 let params = message.get("params").cloned().unwrap_or_else(|| json!({}));
-                let Some(conn) = host.plugin_conn(plugin, generation) else {
-                    link.respond(
-                        id,
-                        Err(RpcError::forbidden(format!(
-                            "{plugin:?} is no plugin that runs in this host"
-                        ))),
-                    );
+                let Some(conn) = host.plugin_conn(&plugin, generation) else {
+                    link.respond(id, Err(RpcError::unavailable("this host half was stopped")));
                     continue;
                 };
-                let call = Call::new(
-                    kernel.clone(),
-                    Caller::Plugin(plugin.to_owned()),
-                    Some(conn),
-                );
+                let call = Call::new(kernel.clone(), Caller::Plugin(plugin.clone()), Some(conn));
                 let done = kernel.methods.dispatch(call, method, params);
                 let link = link.clone();
                 tokio::spawn(async move { link.respond(id, done.await) });
             }
             (Some(method), None) => {
                 let params = message.get("params").cloned().unwrap_or(Value::Null);
-                notified(kernel, plugins, method, params);
+                notified(&kernel, &plugins, &plugin, generation, method, params);
             }
             (None, Some(_)) => link.resolve(&message),
             (None, None) => {}
@@ -771,43 +792,48 @@ async fn run(kernel: &Kernel, plugins: &Arc<crate::Plugins>, mut child: Child, g
     writer.abort();
     let _ = child.start_kill();
     let status = child.wait().await;
-    tracing::warn!(?status, generation, "the extension host ended");
+    tracing::info!(
+        plugin,
+        ?status,
+        generation,
+        "a plugin's extension host ended"
+    );
+    let error = ErrorBody {
+        code: ErrorCode::Unavailable,
+        message: format!("the extension host of {plugin} ended ({status:?})"),
+        details: None,
+    };
+    crashed(&kernel, &plugins, &plugin, generation, Some(error));
 }
 
-fn notified(kernel: &Kernel, plugins: &Arc<crate::Plugins>, method: &str, params: Value) {
+/// A notification of a plugin's process, about that plugin alone.
+fn notified(
+    kernel: &Kernel,
+    plugins: &Arc<crate::Plugins>,
+    plugin: &str,
+    generation: u64,
+    method: &str,
+    params: Value,
+) {
     let host = &plugins.host;
-    let plugin = params
-        .get("plugin")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_owned();
     match method {
         "plugins.exited" => {
             let error = params
                 .get("error")
                 .and_then(|e| serde_json::from_value(e.clone()).ok());
-            tracing::warn!(plugin, ?error, "a plugin's host half ended");
-            let again = host.exited(kernel, &plugin, error);
-            plugins.changed(kernel, std::slice::from_ref(&plugin));
-            if let Some(wait) = again {
-                let (kernel, plugins) = (kernel.clone(), plugins.clone());
-                tokio::spawn(async move {
-                    tokio::time::sleep(wait).await;
-                    let _ = plugins.activate(&kernel, &plugin).await;
-                });
-            }
+            crashed(kernel, plugins, plugin, generation, error);
         }
         "plugins.registered" => {
             if let Some(registration) = params
                 .get("registration")
                 .and_then(|r| serde_json::from_value(r.clone()).ok())
             {
-                host.registered(&plugin, registration);
+                host.registered(plugin, registration);
             }
         }
         "plugins.unregistered" => {
             let text = |key: &str| params.get(key).and_then(Value::as_str).unwrap_or("");
-            host.unregistered(&plugin, text("kind"), text("key"));
+            host.unregistered(plugin, text("kind"), text("key"));
         }
         "plugins.log" => {
             let message = params.get("message").and_then(Value::as_str).unwrap_or("");

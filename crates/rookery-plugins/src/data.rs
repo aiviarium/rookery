@@ -86,7 +86,8 @@ impl Transforms {
         &self.plugin
     }
 
-    /// Runs `migrations/<name>.ts` with a `tx` of the migration `migration`, until its function returns.
+    /// Runs `migrations/<name>.ts` with a `tx` of the migration `migration`, until its function returns
+    /// or [`crate::exthost::TRANSFORM_TIMEOUT`] passes, when its process is ended.
     pub async fn run(&self, name: &str, migration: &str) -> Result<(), RpcError> {
         if name.is_empty()
             || !name
@@ -112,7 +113,13 @@ impl Transforms {
             json!({"plugin": self.plugin, "dir": self.dir, "name": name, "migration": migration});
         self.plugins
             .host
-            .transform(&self.kernel, self.plugins.clone(), &self.plugin, params)
+            .transform(
+                &self.kernel,
+                self.plugins.clone(),
+                &self.plugin,
+                params,
+                crate::exthost::TRANSFORM_TIMEOUT,
+            )
             .await
     }
 }

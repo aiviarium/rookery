@@ -81,6 +81,7 @@ export type {
   RookeryStream,
   Rpc,
   RpcHandlerDef,
+  RpcLevel,
   Schedules,
   SecretOptions,
   Secrets,

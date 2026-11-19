@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
 use rookery_api::PluginOrigin;
 use rookery_api::plugin_contract::{self, Format, SCHEMA};
@@ -46,7 +47,10 @@ pub struct ClientHalf {
     /// The folder served with the entry, relative to the target's folder: every file of a build, its
     /// chunks and assets among them. Empty for the target's folder itself.
     pub root: String,
+    /// The SHA-256 of the files below, which are what is served.
     pub hash: String,
+    /// Each file served, by its path relative to the target's folder.
+    pub files: Arc<BTreeMap<String, Arc<[u8]>>>,
 }
 
 impl Loaded {
@@ -221,7 +225,19 @@ pub fn load(plugin: &rookery_core::plugins::Plugin) -> Loaded {
         return loaded;
     }
     let manifest = complete(read.manifest, &plugin.id, &plugin.version, &plugin.label);
-    loaded.client = client_half(&plugin.dir, &manifest);
+    match client_half(&plugin.dir, &manifest) {
+        Ok(client) => loaded.client = client,
+        Err(problem) => {
+            loaded.problem = Some(invalid(
+                format!(
+                    "the client half of {} cannot be served: {problem}",
+                    plugin.id
+                ),
+                vec![problem],
+            ));
+            return loaded;
+        }
+    }
     loaded.manifest = Some(manifest);
     loaded
 }
@@ -238,9 +254,16 @@ pub fn inside(dir: &Path, path: &str) -> Option<PathBuf> {
     Some(dir.join(relative))
 }
 
-/// The client half of a manifest, with the hash of its files.
-fn client_half(dir: &Path, manifest: &Value) -> Option<ClientHalf> {
-    let entry = manifest.get("client")?.as_str()?.trim_start_matches("./");
+/// The most a client half's files may hold together, as they are kept in memory.
+pub const MAX_CLIENT_BYTES: usize = 64 << 20;
+
+/// The client half of a manifest: its files, read into memory, and their hash. A link that leads out
+/// of the client half's folder (out of the target's folder, for the stylesheet) is not one of them.
+fn client_half(dir: &Path, manifest: &Value) -> Result<Option<ClientHalf>, String> {
+    let Some(entry) = manifest.get("client").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    let entry = entry.trim_start_matches("./");
     let styles = manifest
         .get("styles")
         .and_then(Value::as_str)
@@ -249,33 +272,72 @@ fn client_half(dir: &Path, manifest: &Value) -> Option<ClientHalf> {
         .parent()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let mut files = vec![];
-    walk(&dir.join(&root), Path::new(&root), &mut files);
-    if let Some(styles) = &styles
-        && !files.iter().any(|f| f == Path::new(styles))
-    {
-        files.push(PathBuf::from(styles));
+    let target = fs::canonicalize(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let root_dir = fs::canonicalize(dir.join(&root)).map_err(|e| format!("{root}: {e}"))?;
+    if !root_dir.starts_with(&target) {
+        return Err(format!(
+            "the client half's folder {root} leads out of the target's folder"
+        ));
     }
-    files.sort();
+    let mut paths = vec![];
+    walk(&dir.join(&root), Path::new(&root), &mut paths);
+    let mut files: BTreeMap<String, Arc<[u8]>> = BTreeMap::new();
+    let mut total = 0usize;
+    let take = |files: &mut BTreeMap<String, Arc<[u8]>>,
+                total: &mut usize,
+                path: &Path,
+                within: &Path|
+     -> Result<(), String> {
+        let name = path.to_string_lossy().into_owned();
+        let real = fs::canonicalize(dir.join(path)).map_err(|e| format!("{name}: {e}"))?;
+        if !real.starts_with(within) {
+            return Err(format!(
+                "{name} of the client half is a link out of its folder"
+            ));
+        }
+        let data = fs::read(&real).map_err(|e| format!("{name}: {e}"))?;
+        *total += data.len();
+        if *total > MAX_CLIENT_BYTES {
+            return Err(format!(
+                "the client half's files are larger than {} MiB",
+                MAX_CLIENT_BYTES >> 20
+            ));
+        }
+        files.insert(name, data.into());
+        Ok(())
+    };
+    for path in &paths {
+        take(&mut files, &mut total, path, &root_dir)?;
+    }
+    if let Some(styles) = &styles
+        && !files.contains_key(styles)
+    {
+        take(&mut files, &mut total, Path::new(styles), &target)?;
+    }
+    if !files.contains_key(entry) {
+        return Err(format!(
+            "the client half's entry {entry} is not a file of its folder"
+        ));
+    }
     let mut hash = Sha256::new();
-    for file in &files {
-        let data = fs::read(dir.join(file)).unwrap_or_default();
-        hash.update(file.to_string_lossy().as_bytes());
+    for (name, data) in &files {
+        hash.update(name.as_bytes());
         hash.update([0]);
         hash.update((data.len() as u64).to_be_bytes());
-        hash.update(&data);
+        hash.update(data);
     }
     let hash: String = hash
         .finalize()
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect();
-    Some(ClientHalf {
+    Ok(Some(ClientHalf {
         entry: entry.to_owned(),
         styles,
         root,
         hash,
-    })
+        files: Arc::new(files),
+    }))
 }
 
 fn walk(dir: &Path, relative: &Path, files: &mut Vec<PathBuf>) {
@@ -297,14 +359,10 @@ fn walk(dir: &Path, relative: &Path, files: &mut Vec<PathBuf>) {
 }
 
 impl ClientHalf {
-    /// Whether a path, relative to the target's folder, is one of the files served with it.
-    pub fn serves(&self, path: &str) -> bool {
-        let under_root = self.root.is_empty()
-            || path
-                .strip_prefix(self.root.as_str())
-                .is_some_and(|rest| rest.starts_with('/'));
-        let hidden = path.split('/').any(|part| part.starts_with('.'));
-        (under_root && !hidden) || self.styles.as_deref() == Some(path)
+    /// The bytes of a file served with it, by its path relative to the target's folder, as they were
+    /// when the plugin was read and hashed.
+    pub fn file(&self, path: &str) -> Option<&Arc<[u8]>> {
+        self.files.get(path)
     }
 
     pub fn info(&self, id: &str) -> crate::wire::ClientInfo {

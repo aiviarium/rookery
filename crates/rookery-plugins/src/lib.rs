@@ -49,6 +49,8 @@ pub struct Plugins {
     setup: Setup,
     loaded: RwLock<BTreeMap<String, Arc<Loaded>>>,
     rows: RwLock<BTreeMap<String, record::Row>>,
+    /// Plugins recorded as installed that the folder does not have, as the last read found.
+    missing: RwLock<Vec<String>>,
     /// One change of the plugin folder at a time.
     changing: tokio::sync::Mutex<()>,
     pub(crate) host: exthost::ExtHost,
@@ -62,6 +64,7 @@ impl Plugins {
             setup,
             loaded: RwLock::default(),
             rows: RwLock::default(),
+            missing: RwLock::default(),
             changing: tokio::sync::Mutex::new(()),
             started: AtomicBool::new(false),
         }
@@ -92,9 +95,9 @@ impl Plugins {
         })
     }
 
-    /// The process id of the running extension host, if one runs.
-    pub fn host_pid(&self) -> Option<u32> {
-        self.host.running().and_then(|link| link.pid())
+    /// The process id of a plugin's extension host, if one runs.
+    pub fn host_pid(&self, plugin: &str) -> Option<u32> {
+        self.host.running(plugin).and_then(|link| link.pid())
     }
 
     /// A plugin as `plugins.list` says it.
@@ -129,6 +132,15 @@ impl Plugins {
         }
     }
 
+    /// Plugins recorded as installed that the folder does not have.
+    pub fn missing(&self) -> Vec<String> {
+        self.missing.read().unwrap().clone()
+    }
+
+    pub fn info_of(&self, id: &str) -> Option<PluginInfo> {
+        self.get(id).map(|p| self.info(&p))
+    }
+
     pub fn infos(&self) -> Vec<PluginInfo> {
         self.all().iter().map(|p| self.info(p)).collect()
     }
@@ -136,6 +148,13 @@ impl Plugins {
     /// Reads the plugin folder again, records it and tells clients what changed. Host halves of
     /// plugins that changed or went away stop; those that start with the server start.
     pub async fn reload(self: &Arc<Self>, kernel: &Kernel) -> Result<(), RpcError> {
+        let _one = self.changing.lock().await;
+        self.reload_held(kernel, false).await
+    }
+
+    /// [`Plugins::reload`], for a caller that holds `changing`. With `prune`, after a change of the
+    /// folder, the records of plugins that are gone go too.
+    async fn reload_held(self: &Arc<Self>, kernel: &Kernel, prune: bool) -> Result<(), RpcError> {
         let manager = self.manager();
         let found = tokio::task::spawn_blocking(move || {
             manager.scan().iter().map(loaded::load).collect::<Vec<_>>()
@@ -144,7 +163,14 @@ impl Plugins {
         .map_err(|e| RpcError::internal(format!("reading the plugins: {e}")))?;
         let mut found = with_dependencies(found);
         self.apply_data(kernel, &mut found).await;
-        record::sync(&kernel.store, &found).await?;
+        let missing = record::sync(&kernel.store, &found, prune).await?;
+        if !missing.is_empty() {
+            tracing::warn!(
+                ?missing,
+                "plugins are recorded as installed and are not in the plugin folder"
+            );
+        }
+        *self.missing.write().unwrap() = missing;
         let rows = record::rows(&kernel.store).await?;
         let new: BTreeMap<String, Arc<Loaded>> = found
             .into_iter()
@@ -279,8 +305,15 @@ impl Plugins {
         method: &str,
         params: serde_json::Value,
     ) -> Result<serde_json::Value, RpcError> {
+        if let (Some(PluginState::Failed), Some(error)) = self.host.state(plugin)
+            && !call.is_admin()
+        {
+            return Err(error_of(&error));
+        }
         self.activate(&call.kernel, plugin).await?;
-        self.host.invoke(call, plugin, "rpc", method, params).await
+        self.host
+            .invoke(call, self, plugin, "rpc", method, params)
+            .await
     }
 
     /// Starts the plugin system on a leader: reads the plugins, records them and starts the host halves
@@ -300,11 +333,22 @@ impl Plugins {
     ) -> Result<T, RpcError> {
         let _one = self.changing.lock().await;
         let manager = self.manager();
-        let done = tokio::task::spawn_blocking(move || change(&manager).map_err(|e| e.to_string()))
-            .await
-            .map_err(|e| RpcError::internal(format!("changing the plugins: {e}")))?;
+        let held: BTreeMap<String, String> = self
+            .all()
+            .iter()
+            .map(|p| (p.id.clone(), p.package.clone()))
+            .collect();
+        let done = tokio::task::spawn_blocking(move || {
+            let done = change(&manager).map_err(|e| e.to_string());
+            match refuse_taken_ids(&manager, &held) {
+                Ok(()) => done,
+                Err(refused) => Err(refused),
+            }
+        })
+        .await
+        .map_err(|e| RpcError::internal(format!("changing the plugins: {e}")))?;
         // What was changed before a failure is read too.
-        self.reload(kernel).await?;
+        self.reload_held(kernel, true).await?;
         let done = done.map_err(RpcError::invalid)?;
         Ok(done)
     }
@@ -319,6 +363,43 @@ impl Plugins {
             .await
             .map_err(|e| RpcError::internal(format!("reading the plugins: {e}")))?
             .map_err(RpcError::invalid)
+    }
+}
+
+/// Takes out each package that came in under a plugin id another package holds: a plugin's settings,
+/// secrets and data are kept by its id, and would go to the newcomer.
+fn refuse_taken_ids(
+    manager: &rookery_core::eggs::Manager,
+    held: &BTreeMap<String, String>,
+) -> Result<(), String> {
+    let mut by_id: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for package in manager.locked() {
+        let id = package.rsplit('/').next().unwrap_or(&package).to_owned();
+        by_id.entry(id).or_default().push(package);
+    }
+    let mut refused = vec![];
+    for (id, packages) in by_id {
+        if packages.len() < 2 {
+            continue;
+        }
+        let keeper = held
+            .get(&id)
+            .filter(|holder| packages.contains(holder))
+            .cloned()
+            .unwrap_or_else(|| packages[0].clone());
+        for newcomer in packages.into_iter().filter(|p| *p != keeper) {
+            if let Err(e) = manager.remove_package(&newcomer) {
+                tracing::error!(package = %newcomer, error = %e, "a package under a taken plugin id could not be removed");
+            }
+            refused.push(format!(
+                "the plugin id {id} is held by the package {keeper}, so {newcomer} was not installed: remove {keeper} first to put another package in its place"
+            ));
+        }
+    }
+    if refused.is_empty() {
+        Ok(())
+    } else {
+        Err(refused.join("; "))
     }
 }
 

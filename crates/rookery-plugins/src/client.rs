@@ -2,6 +2,10 @@
 //! `/plugins/<id>/<hash>/<path>`, where `<hash>` is the SHA-256 of the client half's files and `<path>`
 //! is relative to the plugin's target folder. A browser keeps them for good. An address with another
 //! hash is gone: `plugins.list` gives the current one.
+//!
+//! The files are read into memory when the plugin is read, and the hash is of those bytes, so a file
+//! changed in place is not served under an address it does not match. The route needs no sign-in, as
+//! a browser loads a shell's scripts before it signs in: a client half holds no secrets.
 
 use std::path::Path;
 
@@ -11,8 +15,6 @@ use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use rookery_kernel::Kernel;
-
-use crate::loaded::inside;
 
 /// The routes the server mounts beside `/ws` and `/rpc`.
 pub fn routes() -> Router<Kernel> {
@@ -32,38 +34,27 @@ async fn serve(
     let Some(client) = &plugin.client else {
         return not_found();
     };
-    if client.hash != hash || !client.serves(&path) {
+    if client.hash != hash {
         return not_found();
     }
-    let Some(file) = inside(&plugin.dir, &path) else {
+    let Some(data) = client.file(&path) else {
         return not_found();
     };
-    // A link out of the folder is not served, whatever it points at.
-    let real = match (
-        tokio::fs::canonicalize(&file).await,
-        tokio::fs::canonicalize(&plugin.dir).await,
-    ) {
-        (Ok(real), Ok(dir)) if real.starts_with(&dir) => real,
-        _ => return not_found(),
-    };
-    match tokio::fs::read(&real).await {
-        Ok(data) => (
-            [
-                (header::CONTENT_TYPE, content_type(&real)),
-                (
-                    header::CACHE_CONTROL,
-                    HeaderValue::from_static("public, max-age=31536000, immutable"),
-                ),
-                (
-                    header::X_CONTENT_TYPE_OPTIONS,
-                    HeaderValue::from_static("nosniff"),
-                ),
-            ],
-            data,
-        )
-            .into_response(),
-        Err(_) => not_found(),
-    }
+    (
+        [
+            (header::CONTENT_TYPE, content_type(Path::new(&path))),
+            (
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("public, max-age=31536000, immutable"),
+            ),
+            (
+                header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            ),
+        ],
+        data.to_vec(),
+    )
+        .into_response()
 }
 
 fn not_found() -> Response {
