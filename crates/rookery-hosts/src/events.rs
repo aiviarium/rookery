@@ -39,7 +39,12 @@ pub async fn forward(kernel: Kernel, serve: Arc<Serve>) {
 pub const HOSTS_CHANGED: &str = "rookery/hosts.changed";
 pub const RESOURCES_CHANGED: &str = "rookery/resources.changed";
 
+/// Whether a connection hears of a host: an admin's, one with a grant on it, or a plugin's host half,
+/// code an admin installed that keeps up with the hosts.
 async fn sees(kernel: &Kernel, caller: rookery_kernel::Caller, host: &str) -> bool {
+    if matches!(caller, rookery_kernel::Caller::Plugin(_)) {
+        return true;
+    }
     let call = Call::new(kernel.clone(), caller, None);
     call.is_admin()
         || rookery_facilities::access::holds(&call, &crate::uri(host), Grant::View)
@@ -80,7 +85,9 @@ async fn tell(kernel: &Kernel, serve: &Arc<Serve>, event: Event) {
                 kernel,
                 RESOURCES_CHANGED,
                 &payload,
-                |caller| async move { caller.is_admin() },
+                |caller| async move {
+                    caller.is_admin() || matches!(caller, rookery_kernel::Caller::Plugin(_))
+                },
             )
             .await;
         }

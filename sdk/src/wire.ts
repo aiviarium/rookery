@@ -24,6 +24,7 @@ import type {
   EventSubscribed,
   EventsDropped,
   EventUnsubscribe,
+  HostInfo,
   IdRef,
   JobChanged,
   JobEnqueue,
@@ -143,26 +144,47 @@ export function wireCall<M extends WireMethod>(
 /**
  * The notifications of `rookery serve`, with the generated types of their params.
  *
- * `jobs.changed` and `notify.changed` are the prototype's; no code in `rookery serve` sends either
- * yet, so a listener hears nothing until the server does.
+ * `notify.changed` is the prototype's; no code in `rookery serve` sends it yet. What changed among
+ * hosts, resources and jobs comes as events of the server instead: see [`ServerEvents`].
  */
 export interface WireNotifications {
   "events.event": EventNotice
   "events.dropped": EventsDropped
   "notify.new": NotifyNew
-  "jobs.changed": JobChanged
   "notify.changed": NotifyChanged
 }
 
 /**
+ * The events `rookery serve` publishes, under its own plugin id `rookery`, with their payloads. A
+ * plugin subscribes to them by these names, as to any other plugin's events (`events.subscribe`), and
+ * gets those about what it may see.
+ */
+export interface ServerEvents {
+  /** A saved host was added, changed or removed. `info` is the host as `hosts.get` gives it. */
+  "rookery/hosts.changed": {
+    host: string
+    info: HostInfo | null
+    change: string
+    from?: string | null
+    removed: boolean
+  }
+  /** A resource of a provisioner was made, changed or removed. */
+  "rookery/resources.changed": { resource: string; provisioner: string; kind: string; change: string }
+  /** A job was enqueued, ran, or ended. */
+  "rookery/jobs.changed": JobChanged
+}
+
+/** The name of an event `rookery serve` publishes. */
+export type ServerEventName = keyof ServerEvents
+
+/**
  * The notifications the client listens for, for a test that checks the names it listens to. The last
- * five are what the prototype sent and no code in `rookery serve` sends yet.
+ * four are what the prototype sent and no code in `rookery serve` sends yet, but `plugins.changed`.
  */
 export const NOTIFICATIONS = [
   "events.event",
   "events.dropped",
   "notify.new",
-  "jobs.changed",
   "notify.changed",
   "data.changed",
   "plugins.changed",

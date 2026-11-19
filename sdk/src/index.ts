@@ -111,6 +111,8 @@ export type {
   NOT_ON_SERVER,
   NotificationMethod,
   NotificationParams,
+  ServerEventName,
+  ServerEvents,
   WireCall,
   WireMethod,
   WireNotifications,

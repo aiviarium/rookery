@@ -59,7 +59,8 @@ export class Host {
 
   /** A notification of the server. */
   notification(method: string, params: any) {
-    if (method === "plugins.cancel") this.send(params.plugin, { type: "cancel", callId: params.callId })
+    if (method === "plugins.cancel")
+      this.send(params.plugin, { type: "cancel", callId: params.callId, reason: params.reason })
     else if (method === "plugins.notify")
       this.send(params.plugin, { type: "notify", method: params.method, params: params.params })
   }
