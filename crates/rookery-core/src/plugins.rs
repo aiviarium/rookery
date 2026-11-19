@@ -261,6 +261,9 @@ pub struct Plugin {
     pub problem: Option<String>,
     pub features: Vec<Feature>,
     pub provisioners: Vec<Provisioner>,
+    /// The interface module the manifest names, relative to its target folder. The extension host
+    /// writes `interface.json` from it.
+    pub interface: Option<String>,
 }
 
 /// The plugins found in the given directories, without those Rookery does
@@ -380,6 +383,7 @@ pub fn read(package: &Path) -> Option<Plugin> {
         problem: None,
         features: vec![],
         provisioners: vec![],
+        interface: None,
     };
     // `sign-in:NAME` are rookery's own sign-ins.
     plugin.problem = if !rookery_api::plugin_contract::valid_plugin_id(&id) {
@@ -399,7 +403,10 @@ pub fn read(package: &Path) -> Option<Plugin> {
         unmet(target)
     };
     let rookery = match rookery_api::plugin_contract::read_dir(&real) {
-        Ok(read) => read.host_parts(),
+        Ok(read) => {
+            plugin.interface = read.interface().map(str::to_owned);
+            read.host_parts()
+        }
         Err(problem) => {
             plugin.problem.get_or_insert_with(|| match &problem.path {
                 Some(path) => format!("{}/{path}: {}", target.dir(), problem.message),

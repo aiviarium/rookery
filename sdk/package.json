@@ -15,6 +15,7 @@
     "./types": "./src/types.ts",
     "./data": "./src/data.ts",
     "./filter": "./src/filter.ts",
+    "./interface": "./src/interface.ts",
     "./generated": "./src/generated.ts",
     "./wire": "./src/wire.ts"
   },

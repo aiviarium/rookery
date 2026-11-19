@@ -98,6 +98,18 @@ export type {
 } from "./host/types"
 export { isHostPlugin } from "./host/types"
 export type {
+  Interface,
+  InterfaceDecl,
+  MethodDecl,
+  MethodDecls,
+  MethodImpl,
+  NoExtraMethods,
+  Schema,
+  ServiceDecl,
+  ServiceImpl,
+} from "./interface"
+export { defineInterface, isInterface } from "./interface"
+export type {
   Collections,
   CommandId,
   Disposable,

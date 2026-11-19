@@ -172,6 +172,62 @@ mod tests {
     }
 
     #[test]
+    fn interfaces_and_composer_are_part_of_the_manifest() {
+        let base = tempfile::tempdir().unwrap();
+        let dir = plugin_json(
+            base.path(),
+            "mention",
+            r#"{"apiVersion": "1", "name": "Mention", "interface": "interface.ts",
+                "provides": {"services": ["mention"]},
+                "contributes": {"composer": [
+                  {"type": "mention", "id": "mention.issues", "title": "Issues", "schemes": ["issue"]},
+                  {"type": "command", "id": "mention.create", "title": "Create", "prompt": "Create {input}"}
+                ]}}"#,
+        );
+        fs::write(
+            dir.join("rookery/interface.ts"),
+            "export default defineInterface({ services: { mention: {} } })\n",
+        )
+        .unwrap();
+        assert_eq!(check_dir(&dir), Vec::<String>::new());
+        let read = crate::plugins::read(&dir).unwrap();
+        assert_eq!(read.problem, None);
+        assert_eq!(read.interface.as_deref(), Some("interface.ts"));
+
+        // The schema names a composer type, and each entry's id is declared once.
+        let bad = plugin_json(
+            base.path(),
+            "bad-mention",
+            r#"{"apiVersion": "1", "name": "Bad", "contributes": {"composer": [
+                  {"type": "shout", "id": "bad.one", "title": "One"},
+                  {"type": "mention", "id": "bad.two", "title": "Two"},
+                  {"type": "mention", "id": "bad.two", "title": "Again"}
+                ]}}"#,
+        );
+        let problems = check_dir(&bad).join("\n");
+        assert!(
+            problems.contains("/contributes/composer/0/type"),
+            "{problems}"
+        );
+        assert!(
+            problems.contains("the composer entry bad.two is declared twice"),
+            "{problems}"
+        );
+
+        // An interface module that is not in the package is refused where it is named.
+        let missing = plugin_json(
+            base.path(),
+            "missing-interface",
+            r#"{"apiVersion": "1", "name": "Missing", "interface": "interface.ts"}"#,
+        );
+        let problems = check_dir(&missing).join("\n");
+        assert!(
+            problems.contains("the interface, interface.ts, is not in the target's folder"),
+            "{problems}"
+        );
+    }
+
+    #[test]
     fn the_ids_rookery_keeps_are_refused() {
         let base = tempfile::tempdir().unwrap();
         for id in ["rookery", "sign-in"] {
