@@ -918,6 +918,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "des"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ffdd80ce8ce993de27e9f063a444a4d53ce8e8db4c1f00cc03af5ad5a9867a1e"
+dependencies = [
+ "cipher",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1601,12 +1610,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddc03d96684f9226b8a787cdb71488417b53ab5ea8fdb1dac946cb9431cc8bff"
 dependencies = [
  "bytes",
+ "futures-channel",
+ "futures-util",
  "http",
  "http-body",
+ "httparse",
  "hyper",
+ "libc",
  "pin-project-lite",
+ "socket2",
  "tokio",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -3208,9 +3223,15 @@ dependencies = [
 name = "rookery-hosts"
 version = "0.6.0"
 dependencies = [
+ "axum",
  "chrono",
+ "des",
  "futures-util",
+ "hex",
+ "hyper",
+ "hyper-util",
  "libc",
+ "rand 0.9.5",
  "rookery-api",
  "rookery-core",
  "rookery-facilities",
@@ -3222,10 +3243,13 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "sqlx",
  "tempfile",
  "tokio",
  "tokio-util",
+ "tower",
+ "tower-service",
  "tracing",
  "uuid",
 ]

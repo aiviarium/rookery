@@ -736,7 +736,18 @@ async fn session_guard(call: &Call, name: &str, terminal: &str) -> Result<(), Rp
     let action = session["action"]
         .as_str()
         .filter(|action| !action.is_empty());
-    if user == "agent" && action.is_none() {
+    // A session the server keeps as a terminal is its owner's alone, as terminals.* has it.
+    let owner = call
+        .store()
+        .terminals()
+        .by_session(name, terminal)
+        .await?
+        .map(|held| held.owner);
+    let own = match (&owner, call.user_id()) {
+        (Some(Some(owner)), Ok(me)) => *owner == me,
+        _ => false,
+    };
+    if user == "agent" && action.is_none() && (owner.is_none() || own) {
         return Ok(());
     }
     let uri = crate::uri(name);
@@ -747,6 +758,9 @@ async fn session_guard(call: &Call, name: &str, terminal: &str) -> Result<(), Rp
         Some(action) => {
             format!("the session of the action {action} on {name} needs manage on {uri}")
         }
+        None if owner.is_some() => {
+            format!("another account's terminal on {name} needs manage on {uri}")
+        }
         None => format!("a session as {user} on {name} needs manage on {uri}"),
     }))
 }
@@ -756,7 +770,7 @@ fn register_env(methods: &mut Methods) {
     methods
         .add(
             "hosts.sessions.open",
-            |call: Call, p: TerminalOpen| async move {
+            |call: Call, p: HostSessionOpen| async move {
                 let name = name(&p.host);
                 // Another account than the agent's operates the host.
                 if p.start.user != "agent" {
@@ -796,6 +810,10 @@ fn register_env(methods: &mut Methods) {
                     json!({"user": p.start.user}),
                 )
                 .await;
+                // A terminal is the caller's, as one terminals.open opens is.
+                if p.start.kind == rookery_api::SessionKind::Terminal {
+                    crate::terminals::keep_opened(&call, &name, &p.start, &opened.0).await;
+                }
                 Ok(opened)
             },
         )
@@ -820,7 +838,7 @@ fn register_env(methods: &mut Methods) {
     methods
         .add(
             "hosts.sessions.get",
-            |call: Call, p: TerminalRef| async move {
+            |call: Call, p: HostSessionRef| async move {
                 let (name, target) = terminal(&p.host, &p.terminal, "", &p.query);
                 pass(&call, &name, Capability::Sessions, "GET", target, None).await
             },
@@ -830,7 +848,7 @@ fn register_env(methods: &mut Methods) {
     methods
         .add(
             "hosts.sessions.output",
-            |call: Call, p: TerminalRef| async move {
+            |call: Call, p: HostSessionRef| async move {
                 let (name, target) = terminal(&p.host, &p.terminal, "/output", &p.query);
                 session_guard(&call, &name, &p.terminal).await?;
                 pass(&call, &name, Capability::Sessions, "GET", target, None).await
@@ -841,7 +859,7 @@ fn register_env(methods: &mut Methods) {
     methods
         .add(
             "hosts.sessions.screen",
-            |call: Call, p: TerminalRef| async move {
+            |call: Call, p: HostSessionRef| async move {
                 let (name, target) = terminal(&p.host, &p.terminal, "/screen", &p.query);
                 session_guard(&call, &name, &p.terminal).await?;
                 pass(&call, &name, Capability::Sessions, "GET", target, None).await
@@ -850,7 +868,7 @@ fn register_env(methods: &mut Methods) {
         .summary("A terminal's screen as the host keeps it. Another account's session, or an action's, needs manage.")
         .level(host(Grant::Use));
     methods
-        .add("hosts.sessions.close", |call: Call, p: TerminalRef| async move {
+        .add("hosts.sessions.close", |call: Call, p: HostSessionRef| async move {
             let (name, target) = terminal(&p.host, &p.terminal, "", &p.query);
             session_guard(&call, &name, &p.terminal).await?;
             pass(&call, &name, Capability::Sessions, "DELETE", target, None).await
@@ -875,7 +893,7 @@ fn register_env(methods: &mut Methods) {
         ),
     ] {
         methods
-            .add(method, move |call: Call, p: TerminalSend| async move {
+            .add(method, move |call: Call, p: HostSessionSend| async move {
                 let (name, target) = terminal(&p.host, &p.terminal, rest, &BTreeMap::new());
                 session_guard(&call, &name, &p.terminal).await?;
                 pass(
@@ -892,7 +910,7 @@ fn register_env(methods: &mut Methods) {
             .level(host(Grant::Use));
     }
     methods
-        .add("hosts.sessions.attach", |call: Call, p: TerminalRef| async move {
+        .add("hosts.sessions.attach", |call: Call, p: HostSessionRef| async move {
             let (name, target) = terminal(&p.host, &p.terminal, "", &p.query);
             session_guard(&call, &name, &p.terminal).await?;
             pass_stream(&call, &name, Capability::Sessions, target, Carry::Tagged).await
@@ -901,104 +919,113 @@ fn register_env(methods: &mut Methods) {
         .stream()
         .level(host(Grant::Use));
     methods
-        .add("hosts.files.read", |call: Call, p: FileRef| async move {
-            let name = name(&p.host);
-            let state = serve(&call)?;
-            let remote = api::controller(&state, &name, Capability::Sessions).await?;
-            let link = remote
-                .link
-                .as_ref()
-                .ok_or_else(|| RpcError::unavailable("no link"))?;
-            let target = format!("/v1/files?path={}", rookery_api::client::encode(&p.path));
-            let answer = link
-                .send("GET", &target, &[], &[])
-                .await
-                .map_err(api::Fail::from)?;
-            match answer.status {
-                404 => return Err(RpcError::not_found(format!("no file {}", p.path))),
-                status if status >= 400 => return Err(host_refused(status, &answer.body)),
-                _ => {}
-            }
-            let header = |key: &str| {
-                answer
-                    .headers
-                    .get(key)
-                    .and_then(|v| v.to_str().ok())
-                    .map(str::to_owned)
-            };
-            Ok(Passed(json!({
-                "base64": rookery_api::b64(&answer.body),
-                "content_type": header("content-type").unwrap_or_default(),
-                "etag": header("etag"),
-            })))
-        })
+        .add(
+            "hosts.files.read",
+            |call: Call, p: HostFileRef| async move {
+                let name = name(&p.host);
+                let state = serve(&call)?;
+                let remote = api::controller(&state, &name, Capability::Sessions).await?;
+                let link = remote
+                    .link
+                    .as_ref()
+                    .ok_or_else(|| RpcError::unavailable("no link"))?;
+                let target = format!("/v1/files?path={}", rookery_api::client::encode(&p.path));
+                let answer = link
+                    .send("GET", &target, &[], &[])
+                    .await
+                    .map_err(api::Fail::from)?;
+                match answer.status {
+                    404 => return Err(RpcError::not_found(format!("no file {}", p.path))),
+                    status if status >= 400 => return Err(host_refused(status, &answer.body)),
+                    _ => {}
+                }
+                let header = |key: &str| {
+                    answer
+                        .headers
+                        .get(key)
+                        .and_then(|v| v.to_str().ok())
+                        .map(str::to_owned)
+                };
+                Ok(Passed(json!({
+                    "base64": rookery_api::b64(&answer.body),
+                    "content_type": header("content-type").unwrap_or_default(),
+                    "etag": header("etag"),
+                })))
+            },
+        )
         .summary(
             "A file on a host, in base64 with its content_type and etag, inside the host's roots.",
         )
         .level(host(Grant::Use));
     methods
-        .add("hosts.files.write", |call: Call, p: FileWrite| async move {
-            let name = name(&p.host);
-            let state = serve(&call)?;
-            let remote = api::controller(&state, &name, Capability::Sessions).await?;
-            let link = remote
-                .link
-                .as_ref()
-                .ok_or_else(|| RpcError::unavailable("no link"))?;
-            let bytes = rookery_api::unb64(&p.base64)
-                .ok_or_else(|| RpcError::invalid("base64: not base64"))?;
-            // With no etag a file that is there is replaced.
-            let target = format!(
-                "/v1/files?path={}{}",
-                rookery_api::client::encode(&p.path),
-                if p.etag.is_none() {
-                    "&overwrite=true"
-                } else {
-                    ""
+        .add(
+            "hosts.files.write",
+            |call: Call, p: HostFileWrite| async move {
+                let name = name(&p.host);
+                let state = serve(&call)?;
+                let remote = api::controller(&state, &name, Capability::Sessions).await?;
+                let link = remote
+                    .link
+                    .as_ref()
+                    .ok_or_else(|| RpcError::unavailable("no link"))?;
+                let bytes = rookery_api::unb64(&p.base64)
+                    .ok_or_else(|| RpcError::invalid("base64: not base64"))?;
+                // With no etag a file that is there is replaced.
+                let target = format!(
+                    "/v1/files?path={}{}",
+                    rookery_api::client::encode(&p.path),
+                    if p.etag.is_none() {
+                        "&overwrite=true"
+                    } else {
+                        ""
+                    }
+                );
+                let mut headers = vec![("content-type", "application/octet-stream")];
+                if let Some(etag) = &p.etag {
+                    headers.push(("if-match", etag.as_str()));
                 }
-            );
-            let mut headers = vec![("content-type", "application/octet-stream")];
-            if let Some(etag) = &p.etag {
-                headers.push(("if-match", etag.as_str()));
-            }
-            let answer = link
-                .send("PUT", &target, &headers, &bytes)
-                .await
-                .map_err(api::Fail::from)?;
-            if answer.status == 412 {
-                return Err(RpcError::conflict(format!(
-                    "{} changed since it was read",
-                    p.path
-                )));
-            }
-            if answer.status >= 400 {
-                return Err(host_refused(answer.status, &answer.body));
-            }
-            Ok(Passed(
-                serde_json::from_slice(&answer.body).unwrap_or(json!({})),
-            ))
-        })
+                let answer = link
+                    .send("PUT", &target, &headers, &bytes)
+                    .await
+                    .map_err(api::Fail::from)?;
+                if answer.status == 412 {
+                    return Err(RpcError::conflict(format!(
+                        "{} changed since it was read",
+                        p.path
+                    )));
+                }
+                if answer.status >= 400 {
+                    return Err(host_refused(answer.status, &answer.body));
+                }
+                Ok(Passed(
+                    serde_json::from_slice(&answer.body).unwrap_or(json!({})),
+                ))
+            },
+        )
         .summary("Writes a file on a host, inside its roots; with etag only if it is still at it.")
         .level(host(Grant::Use));
     methods
-        .add("hosts.files.delete", |call: Call, p: FileRef| async move {
-            let target = format!("/v1/files?path={}", rookery_api::client::encode(&p.path));
-            pass(
-                &call,
-                &name(&p.host),
-                Capability::Sessions,
-                "DELETE",
-                target,
-                None,
-            )
-            .await
-        })
+        .add(
+            "hosts.files.delete",
+            |call: Call, p: HostFileRef| async move {
+                let target = format!("/v1/files?path={}", rookery_api::client::encode(&p.path));
+                pass(
+                    &call,
+                    &name(&p.host),
+                    Capability::Sessions,
+                    "DELETE",
+                    target,
+                    None,
+                )
+                .await
+            },
+        )
         .summary("Removes a file on a host, inside its roots.")
         .level(host(Grant::Use));
     methods
         .add(
             "hosts.ports.connect",
-            |call: Call, p: PortConnect| async move {
+            |call: Call, p: HostPortConnect| async move {
                 pass_stream(
                     &call,
                     &name(&p.host),

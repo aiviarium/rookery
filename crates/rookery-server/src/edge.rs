@@ -30,6 +30,8 @@ struct Leading {
     kernel: Kernel,
     tcp: Router,
     socket: Router,
+    /// The hosts' ports, each on an origin of its own.
+    ports: Router,
 }
 
 pub struct Edge {
@@ -64,10 +66,12 @@ impl Edge {
         let socket = routes
             .layer(Extension(Via::Socket))
             .with_state(kernel.clone());
+        let ports = rookery_hosts::proxy::port_routes().with_state(kernel.clone());
         *self.leading.write().unwrap() = Some(Arc::new(Leading {
             kernel,
             tcp,
             socket,
+            ports,
         }));
     }
 
@@ -94,6 +98,7 @@ fn kernel_routes(shell: Option<PathBuf>) -> Router<Kernel> {
             post(crate::rpc::handle).layer(DefaultBodyLimit::max(MAX_RPC_MESSAGE)),
         )
         .merge(rookery_auth::routes())
+        .merge(rookery_hosts::proxy::routes())
         .fallback(move |request: Request| crate::shell::serve(shell.clone(), request))
 }
 
@@ -127,6 +132,9 @@ async fn forward(edge: Arc<Edge>, via: Via, request: Request) -> Response {
     };
     let router = if via == Via::Socket {
         &leading.socket
+    } else if rookery_hosts::proxy::is_port_request(&leading.kernel, request.headers()) {
+        // A port's own origin is the port's, with none of the server's routes.
+        &leading.ports
     } else {
         &leading.tcp
     };

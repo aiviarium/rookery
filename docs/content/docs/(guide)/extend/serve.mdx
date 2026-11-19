@@ -29,6 +29,7 @@ The server takes its settings from the environment:
 | `ROOKERY_ADMINS` | Accounts that are admins, apart by commas |
 | `ROOKERY_OIDC_ISSUER`, `ROOKERY_OIDC_CLIENT_ID`, `ROOKERY_OIDC_CLIENT_SECRET_FILE` | Sign-in with an OpenID Connect provider instead of local accounts |
 | `ROOKERY_SHELL_DIR` | A built shell, such as Crow's, served at `/` |
+| `ROOKERY_PORTS_URL` | Where the hosts' ports open in a browser, such as `https://ports.rookery.example`, with a wildcard name and certificate for it. Unless set, a server at a `localhost` or `127.0.0.1` address opens them under `localhost`, and any other refuses them |
 
 The server writes the files the hosts need, such as its key ring and the hosts' known keys, into Rookery's configuration and data folders on the machine it leads on.
 
@@ -82,6 +83,12 @@ On its own machine it also serves a unix socket, readable by its user only. The 
 rookery server setup-key                 # a sign-in link for the first admin
 rookery server token --user ada --admin  # an access token of ada, who is made an admin
 ```
+
+## Ports and desktops in a browser
+
+A port on a host's loopback opens at `/env/NAME/port/PORT/` for someone with `use` on the host. The server sends the browser on to the port's own address under `ROOKERY_PORTS_URL`, such as `https://3000-HOSTID.ports.rookery.example/`, with a link that works once. That address is the port's alone: the page it shows cannot reach the server with your session, and the server checks your `use` on every request to it. Give the name a wildcard record and certificate, and pick a domain apart from the server's own, such as `rookery-ports.example`, so that the pages of ports don't share cookies with it.
+
+A workstation's desktop is a WebSocket at `/env/NAME/desktop` for a viewer such as noVNC, from the server's own pages and with `use` on the host. The server reads the VNC password on the host and completes the handshake with it, so the password never reaches the browser.
 
 <Callout type="warn" title="Plain HTTP">
   The server speaks plain HTTP. Serve it behind a TLS proxy such as Tailscale Serve or Caddy, or keep it on a private network such as your tailnet.

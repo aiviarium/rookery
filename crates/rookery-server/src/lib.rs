@@ -134,6 +134,13 @@ fn lead(config: &ServerConfig, store: rookery_store::Store, methods: Methods) ->
     kernel_config.admins = config.admins.clone();
     kernel_config.outbound_allow = config.outbound_allow.clone();
     let kernel = Kernel::new(kernel_config, store, methods);
+    if let Some(ports) = config
+        .ports_url
+        .as_deref()
+        .and_then(|url| rookery_hosts::proxy::Ports::parse(url).ok())
+    {
+        kernel.set_facility(ports);
+    }
     if let Some(paths) = &config.paths {
         kernel.set_facility(rookery_hosts::Setup {
             database_url: config.database_url.clone(),

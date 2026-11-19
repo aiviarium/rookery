@@ -2555,6 +2555,886 @@
     }
   },
   {
+    "name": "env.connect",
+    "summary": "A byte stream to a TCP port on a host's loopback.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "stream": true,
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`env.connect`: a byte stream to a TCP port on the host's loopback. `streams.eof` half-closes.",
+      "properties": {
+        "env": {
+          "type": "string"
+        },
+        "port": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "env",
+        "port"
+      ],
+      "title": "Connect",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of a method that opens a stream. A source that can be resumed says where it starts.",
+      "properties": {
+        "offset": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stream": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stream"
+      ],
+      "title": "StreamOpened",
+      "type": "object"
+    }
+  },
+  {
+    "name": "env.deleteFile",
+    "summary": "Removes a file, or a folder with recursive, on a host inside its roots, as the agent account.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`env.deleteFile`.",
+      "properties": {
+        "env": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "recursive": {
+          "default": false,
+          "description": "A folder with what is in it.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "env",
+        "path"
+      ],
+      "title": "FileDelete",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "env.get",
+    "summary": "One host as an environment.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "view",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`{ env }`: a host as `env://NAME` or its name.",
+      "properties": {
+        "env": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "env"
+      ],
+      "title": "EnvRef",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "EnvState": {
+          "description": "`online`, `offline`, `starting`, `degraded`, with the reason in `error` for the last three.",
+          "enum": [
+            "online",
+            "offline",
+            "starting",
+            "degraded"
+          ],
+          "type": "string"
+        },
+        "EnvSupports": {
+          "additionalProperties": false,
+          "description": "What a host can do, from its type and what its controller was seen to be.",
+          "properties": {
+            "checkouts": {
+              "type": "boolean"
+            },
+            "connect": {
+              "type": "boolean"
+            },
+            "deploy": {
+              "description": "Plugins' app services can be placed on it.",
+              "type": "boolean"
+            },
+            "desktop": {
+              "description": "A desktop on a virtual display (VNC on the host's loopback).",
+              "type": "boolean"
+            },
+            "files": {
+              "type": "boolean"
+            },
+            "persistentSessions": {
+              "description": "Sessions outlive the controller's connection and can be attached again.",
+              "type": "boolean"
+            },
+            "privileged": {
+              "description": "Sessions as `operator` or `root`, which need manage.",
+              "type": "boolean"
+            },
+            "process": {
+              "type": "boolean"
+            },
+            "terminal": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "terminal",
+            "process",
+            "files",
+            "connect",
+            "checkouts",
+            "desktop",
+            "privileged",
+            "persistentSessions",
+            "deploy"
+          ],
+          "type": "object"
+        },
+        "Grant": {
+          "description": "A level on a resource. Each includes those before it.",
+          "enum": [
+            "view",
+            "use",
+            "manage"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`env.list`, `env.get`: a host as an environment.",
+      "properties": {
+        "error": {
+          "description": "Why it is offline, starting or degraded.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "The host's type: `ssh`, `managed`, `node`, `workstation` or `local`.",
+          "type": "string"
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Grant"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The caller's level on it: `view`, `use` or `manage`."
+        },
+        "name": {
+          "type": "string"
+        },
+        "os": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owner": {
+          "description": "The owner's user id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/EnvState"
+        },
+        "supports": {
+          "$ref": "#/$defs/EnvSupports"
+        },
+        "uri": {
+          "description": "`env://<name>`.",
+          "type": "string"
+        },
+        "version": {
+          "description": "The version of its controller.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "uri",
+        "kind",
+        "state",
+        "supports"
+      ],
+      "title": "EnvInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "env.list",
+    "summary": "The hosts the caller may see, as environments: their state, what each supports and the caller's level on it.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "EnvInfo": {
+          "additionalProperties": false,
+          "description": "`env.list`, `env.get`: a host as an environment.",
+          "properties": {
+            "error": {
+              "description": "Why it is offline, starting or degraded.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "description": "The host's type: `ssh`, `managed`, `node`, `workstation` or `local`.",
+              "type": "string"
+            },
+            "level": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Grant"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The caller's level on it: `view`, `use` or `manage`."
+            },
+            "name": {
+              "type": "string"
+            },
+            "os": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "owner": {
+              "description": "The owner's user id.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "state": {
+              "$ref": "#/$defs/EnvState"
+            },
+            "supports": {
+              "$ref": "#/$defs/EnvSupports"
+            },
+            "uri": {
+              "description": "`env://<name>`.",
+              "type": "string"
+            },
+            "version": {
+              "description": "The version of its controller.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "uri",
+            "kind",
+            "state",
+            "supports"
+          ],
+          "type": "object"
+        },
+        "EnvState": {
+          "description": "`online`, `offline`, `starting`, `degraded`, with the reason in `error` for the last three.",
+          "enum": [
+            "online",
+            "offline",
+            "starting",
+            "degraded"
+          ],
+          "type": "string"
+        },
+        "EnvSupports": {
+          "additionalProperties": false,
+          "description": "What a host can do, from its type and what its controller was seen to be.",
+          "properties": {
+            "checkouts": {
+              "type": "boolean"
+            },
+            "connect": {
+              "type": "boolean"
+            },
+            "deploy": {
+              "description": "Plugins' app services can be placed on it.",
+              "type": "boolean"
+            },
+            "desktop": {
+              "description": "A desktop on a virtual display (VNC on the host's loopback).",
+              "type": "boolean"
+            },
+            "files": {
+              "type": "boolean"
+            },
+            "persistentSessions": {
+              "description": "Sessions outlive the controller's connection and can be attached again.",
+              "type": "boolean"
+            },
+            "privileged": {
+              "description": "Sessions as `operator` or `root`, which need manage.",
+              "type": "boolean"
+            },
+            "process": {
+              "type": "boolean"
+            },
+            "terminal": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "terminal",
+            "process",
+            "files",
+            "connect",
+            "checkouts",
+            "desktop",
+            "privileged",
+            "persistentSessions",
+            "deploy"
+          ],
+          "type": "object"
+        },
+        "Grant": {
+          "description": "A level on a resource. Each includes those before it.",
+          "enum": [
+            "view",
+            "use",
+            "manage"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "environments": {
+          "items": {
+            "$ref": "#/$defs/EnvInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "environments"
+      ],
+      "title": "EnvList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "env.listDir",
+    "summary": "What a folder on a host holds, inside its roots.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`env.readFile`, `env.listDir`, `env.stat`: a path on the host, inside its roots.",
+      "properties": {
+        "env": {
+          "type": "string"
+        },
+        "path": {
+          "description": "Absolute, inside the host's roots.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "env",
+        "path"
+      ],
+      "title": "FilePath",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "DirEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "$ref": "#/$defs/FileKind"
+            },
+            "modified": {
+              "description": "RFC 3339, when known.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": "string"
+            },
+            "size": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "name",
+            "kind",
+            "size"
+          ],
+          "type": "object"
+        },
+        "FileKind": {
+          "description": "What a path names.",
+          "enum": [
+            "file",
+            "dir",
+            "link",
+            "other"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "The result of `env.listDir`.",
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/DirEntry"
+          },
+          "type": "array"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "entries"
+      ],
+      "title": "DirListing",
+      "type": "object"
+    }
+  },
+  {
+    "name": "env.portUrl",
+    "summary": "An address that opens a port of a host in a browser, on the ports' own origin, signing in to that port alone. It works once, within a minute.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`env.portUrl`: where a browser opens a port of a host.",
+      "properties": {
+        "env": {
+          "type": "string"
+        },
+        "path": {
+          "description": "The path under the port, `/` when absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "port": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "env",
+        "port"
+      ],
+      "title": "PortRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "The result of `env.portUrl`: an address on the ports' own origin that signs the browser in to\nthat one port once, within a minute, and then shows `path`.",
+      "properties": {
+        "origin": {
+          "description": "The origin the port is served on.",
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "origin"
+      ],
+      "title": "PortUrl",
+      "type": "object"
+    }
+  },
+  {
+    "name": "env.presence",
+    "summary": "Who has terminals running on a host, and how many: never the terminals themselves.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "view",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`{ env }`: a host as `env://NAME` or its name.",
+      "properties": {
+        "env": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "env"
+      ],
+      "title": "EnvRef",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "PresenceUser": {
+          "additionalProperties": false,
+          "description": "One person with terminals running on a host.",
+          "properties": {
+            "id": {
+              "description": "The user's id.",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "since": {
+              "description": "The newest start among them, RFC 3339.",
+              "type": "string"
+            },
+            "terminals": {
+              "description": "Their terminals that run on the host.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "terminals",
+            "since"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`env.presence`: who is on a host. Terminals are their owner's, so this is how someone with\n`view` learns that another person works there, without seeing what they do.",
+      "properties": {
+        "users": {
+          "items": {
+            "$ref": "#/$defs/PresenceUser"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "users"
+      ],
+      "title": "EnvPresence",
+      "type": "object"
+    }
+  },
+  {
+    "name": "env.readFile",
+    "summary": "A file on a host inside its roots, as the agent account, in base64 with its SHA-256. Up to 8 MiB.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`env.readFile`, `env.listDir`, `env.stat`: a path on the host, inside its roots.",
+      "properties": {
+        "env": {
+          "type": "string"
+        },
+        "path": {
+          "description": "Absolute, inside the host's roots.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "env",
+        "path"
+      ],
+      "title": "FilePath",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "The result of `env.readFile`.",
+      "properties": {
+        "base64": {
+          "type": "string"
+        },
+        "sha256": {
+          "description": "SHA-256 of the content, lower-case hex: the version `env.writeFile` can name in `ifMatch`.",
+          "type": "string"
+        },
+        "size": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "base64",
+        "size",
+        "sha256"
+      ],
+      "title": "FileData",
+      "type": "object"
+    }
+  },
+  {
+    "name": "env.stat",
+    "summary": "What a path on a host is, inside its roots; no entry when nothing is there.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`env.readFile`, `env.listDir`, `env.stat`: a path on the host, inside its roots.",
+      "properties": {
+        "env": {
+          "type": "string"
+        },
+        "path": {
+          "description": "Absolute, inside the host's roots.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "env",
+        "path"
+      ],
+      "title": "FilePath",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "DirEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "$ref": "#/$defs/FileKind"
+            },
+            "modified": {
+              "description": "RFC 3339, when known.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": "string"
+            },
+            "size": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "name",
+            "kind",
+            "size"
+          ],
+          "type": "object"
+        },
+        "FileKind": {
+          "description": "What a path names.",
+          "enum": [
+            "file",
+            "dir",
+            "link",
+            "other"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "The result of `env.stat`: `entry` is absent when nothing is there.",
+      "properties": {
+        "entry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DirEntry"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "FileStat",
+      "type": "object"
+    }
+  },
+  {
+    "name": "env.writeFile",
+    "summary": "Writes a file on a host inside its roots, as the agent account. With ifMatch only while the file is at that SHA-256.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`env.writeFile`. Missing folders are made.",
+      "properties": {
+        "base64": {
+          "type": "string"
+        },
+        "env": {
+          "type": "string"
+        },
+        "ifMatch": {
+          "description": "Write only while the file's SHA-256 is this, as `env.readFile` gave it; otherwise, or\nwhen the file is gone, `CONFLICT`. Implies `overwrite`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "overwrite": {
+          "default": false,
+          "description": "Replace a file that is there; otherwise one that is there is a `CONFLICT`.",
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "env",
+        "path",
+        "base64"
+      ],
+      "title": "EnvFileWrite",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "The result of `env.writeFile`.",
+      "properties": {
+        "sha256": {
+          "description": "SHA-256 of what was written, the file's version from now on.",
+          "type": "string"
+        },
+        "size": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sha256",
+        "size"
+      ],
+      "title": "FileWritten",
+      "type": "object"
+    }
+  },
+  {
     "name": "events.publish",
     "summary": "Sends an event of the plugin to the connections subscribed now, at most once: a connection too slow for it loses it, and later hears events.dropped.",
     "level": {
@@ -3597,7 +4477,7 @@
         "host",
         "path"
       ],
-      "title": "FileRef",
+      "title": "HostFileRef",
       "type": "object"
     },
     "result": {
@@ -3630,7 +4510,7 @@
         "host",
         "path"
       ],
-      "title": "FileRef",
+      "title": "HostFileRef",
       "type": "object"
     },
     "result": {
@@ -3673,7 +4553,7 @@
         "path",
         "base64"
       ],
-      "title": "FileWrite",
+      "title": "HostFileWrite",
       "type": "object"
     },
     "result": {
@@ -4599,7 +5479,7 @@
         "host",
         "port"
       ],
-      "title": "PortConnect",
+      "title": "HostPortConnect",
       "type": "object"
     },
     "result": {
@@ -5626,7 +6506,7 @@
         "host",
         "terminal"
       ],
-      "title": "TerminalRef",
+      "title": "HostSessionRef",
       "type": "object"
     },
     "result": {
@@ -5686,7 +6566,7 @@
         "host",
         "terminal"
       ],
-      "title": "TerminalRef",
+      "title": "HostSessionRef",
       "type": "object"
     },
     "result": {
@@ -5727,7 +6607,7 @@
         "host",
         "terminal"
       ],
-      "title": "TerminalRef",
+      "title": "HostSessionRef",
       "type": "object"
     },
     "result": {
@@ -5763,7 +6643,7 @@
         "host",
         "terminal"
       ],
-      "title": "TerminalSend",
+      "title": "HostSessionSend",
       "type": "object"
     },
     "result": {
@@ -5922,7 +6802,7 @@
         "kind",
         "command"
       ],
-      "title": "TerminalOpen",
+      "title": "HostSessionOpen",
       "type": "object"
     },
     "result": {
@@ -5963,7 +6843,7 @@
         "host",
         "terminal"
       ],
-      "title": "TerminalRef",
+      "title": "HostSessionRef",
       "type": "object"
     },
     "result": {
@@ -5999,7 +6879,7 @@
         "host",
         "terminal"
       ],
-      "title": "TerminalSend",
+      "title": "HostSessionSend",
       "type": "object"
     },
     "result": {
@@ -6040,7 +6920,7 @@
         "host",
         "terminal"
       ],
-      "title": "TerminalRef",
+      "title": "HostSessionRef",
       "type": "object"
     },
     "result": {
@@ -6076,7 +6956,7 @@
         "host",
         "terminal"
       ],
-      "title": "TerminalSend",
+      "title": "HostSessionSend",
       "type": "object"
     },
     "result": {
@@ -18191,6 +19071,1862 @@
         "stream"
       ],
       "title": "StreamEof",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "terminals.adopt",
+    "summary": "Makes a terminal session of a host that no terminal holds the caller's terminal. A session the server did not open for them is someone else's, so this needs manage.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "manage",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`terminals.adopt`: a terminal session of a host that no terminal holds, made a terminal of the\ncaller's.",
+      "properties": {
+        "env": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "env",
+        "session"
+      ],
+      "title": "TerminalAdopt",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "EnvUser": {
+          "description": "The account a terminal runs as. Anything but `agent` needs manage on the host.",
+          "enum": [
+            "agent",
+            "operator",
+            "root"
+          ],
+          "type": "string"
+        },
+        "Grant": {
+          "description": "A level on a resource. Each includes those before it.",
+          "enum": [
+            "view",
+            "use",
+            "manage"
+          ],
+          "type": "string"
+        },
+        "InputInfo": {
+          "additionalProperties": false,
+          "description": "Who last typed into a terminal.",
+          "properties": {
+            "at": {
+              "description": "Unix ms.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "bytes": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "principal": {
+              "description": "`user:<id>` or another principal.",
+              "type": "string"
+            },
+            "via": {
+              "description": "`viewer`, from an attached viewer, or `automation`, from `terminals.write`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "principal",
+            "at",
+            "via",
+            "bytes"
+          ],
+          "type": "object"
+        },
+        "TermSize": {
+          "additionalProperties": false,
+          "properties": {
+            "cols": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rows": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "cols",
+            "rows"
+          ],
+          "type": "object"
+        },
+        "TerminalState": {
+          "oneOf": [
+            {
+              "enum": [
+                "running",
+                "exited"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "lost",
+              "description": "Its session ended with the host or its controller, not by itself.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "createdAt": {
+          "description": "RFC 3339.",
+          "type": "string"
+        },
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "env": {
+          "description": "`env://<name>`.",
+          "type": "string"
+        },
+        "exitCode": {
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "lastInput": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Grant"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The caller's level on it: `use` for one's own, `manage` for another's on a host one\nmanages."
+        },
+        "offset": {
+          "description": "Output bytes so far, as far as the server has seen.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "owner": {
+          "description": "The owner's user id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recording": {
+          "description": "Recordings come later; always false.",
+          "type": "boolean"
+        },
+        "sessionId": {
+          "description": "The session's id on the host.",
+          "type": "string"
+        },
+        "size": {
+          "$ref": "#/$defs/TermSize"
+        },
+        "state": {
+          "$ref": "#/$defs/TerminalState"
+        },
+        "title": {
+          "type": "string"
+        },
+        "uri": {
+          "description": "`terminal://<id>`.",
+          "type": "string"
+        },
+        "user": {
+          "$ref": "#/$defs/EnvUser"
+        },
+        "viewers": {
+          "description": "Viewers attached now.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "uri",
+        "env",
+        "title",
+        "command",
+        "user",
+        "state",
+        "size",
+        "viewers",
+        "offset",
+        "createdAt",
+        "sessionId",
+        "recording"
+      ],
+      "title": "TerminalInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "terminals.attach",
+    "summary": "A stream of a terminal: its screen or the output after an offset, then output as it comes, events of its size, viewers and state, and the viewer's input. Frames carry a type byte: 0 output or input, 1 an event or a control in JSON, 2 the screen.",
+    "level": {
+      "kind": "resource",
+      "param": "id",
+      "grant": "use",
+      "scheme": "terminal"
+    },
+    "stream": true,
+    "params": {
+      "$defs": {
+        "TermSize": {
+          "additionalProperties": false,
+          "properties": {
+            "cols": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rows": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "cols",
+            "rows"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`terminals.attach`.",
+      "properties": {
+        "after": {
+          "description": "Go on after this output offset. Absent on a first attach, which starts with the screen.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "readonly": {
+          "default": false,
+          "description": "Watch only: the viewer's input and size are ignored.",
+          "type": "boolean"
+        },
+        "size": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TermSize"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The viewer's size, for the size rule."
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "TerminalAttach",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "AttachMode": {
+          "description": "How an attach starts: with the screen as it stands, or with the output after `after`.",
+          "oneOf": [
+            {
+              "const": "snapshot",
+              "description": "Clear the display: type-2 frames draw the screen, then output goes on from `offset`.",
+              "type": "string"
+            },
+            {
+              "const": "resume",
+              "description": "Output goes on from `offset`, which is the `after` asked for.",
+              "type": "string"
+            }
+          ]
+        },
+        "EnvUser": {
+          "description": "The account a terminal runs as. Anything but `agent` needs manage on the host.",
+          "enum": [
+            "agent",
+            "operator",
+            "root"
+          ],
+          "type": "string"
+        },
+        "Grant": {
+          "description": "A level on a resource. Each includes those before it.",
+          "enum": [
+            "view",
+            "use",
+            "manage"
+          ],
+          "type": "string"
+        },
+        "InputInfo": {
+          "additionalProperties": false,
+          "description": "Who last typed into a terminal.",
+          "properties": {
+            "at": {
+              "description": "Unix ms.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "bytes": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "principal": {
+              "description": "`user:<id>` or another principal.",
+              "type": "string"
+            },
+            "via": {
+              "description": "`viewer`, from an attached viewer, or `automation`, from `terminals.write`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "principal",
+            "at",
+            "via",
+            "bytes"
+          ],
+          "type": "object"
+        },
+        "TermSize": {
+          "additionalProperties": false,
+          "properties": {
+            "cols": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rows": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "cols",
+            "rows"
+          ],
+          "type": "object"
+        },
+        "TerminalInfo": {
+          "additionalProperties": false,
+          "properties": {
+            "command": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "createdAt": {
+              "description": "RFC 3339.",
+              "type": "string"
+            },
+            "cwd": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "env": {
+              "description": "`env://<name>`.",
+              "type": "string"
+            },
+            "exitCode": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "lastInput": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/InputInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "level": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Grant"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The caller's level on it: `use` for one's own, `manage` for another's on a host one\nmanages."
+            },
+            "offset": {
+              "description": "Output bytes so far, as far as the server has seen.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "owner": {
+              "description": "The owner's user id.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "recording": {
+              "description": "Recordings come later; always false.",
+              "type": "boolean"
+            },
+            "sessionId": {
+              "description": "The session's id on the host.",
+              "type": "string"
+            },
+            "size": {
+              "$ref": "#/$defs/TermSize"
+            },
+            "state": {
+              "$ref": "#/$defs/TerminalState"
+            },
+            "title": {
+              "type": "string"
+            },
+            "uri": {
+              "description": "`terminal://<id>`.",
+              "type": "string"
+            },
+            "user": {
+              "$ref": "#/$defs/EnvUser"
+            },
+            "viewers": {
+              "description": "Viewers attached now.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "uri",
+            "env",
+            "title",
+            "command",
+            "user",
+            "state",
+            "size",
+            "viewers",
+            "offset",
+            "createdAt",
+            "sessionId",
+            "recording"
+          ],
+          "type": "object"
+        },
+        "TerminalState": {
+          "oneOf": [
+            {
+              "enum": [
+                "running",
+                "exited"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "lost",
+              "description": "Its session ended with the host or its controller, not by itself.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "The result of `terminals.attach`: the stream and how it starts.",
+      "properties": {
+        "info": {
+          "$ref": "#/$defs/TerminalInfo"
+        },
+        "mode": {
+          "$ref": "#/$defs/AttachMode"
+        },
+        "offset": {
+          "description": "The output offset the first type-0 frame starts at.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "readonly": {
+          "description": "Whether the viewer's input is ignored.",
+          "type": "boolean"
+        },
+        "size": {
+          "$ref": "#/$defs/TermSize",
+          "description": "The terminal's size now."
+        },
+        "snapshot": {
+          "description": "Bytes of type-2 frames that come before it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stream": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "viewer": {
+          "description": "This viewer's id, which a `size` event's `active` names.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stream",
+        "mode",
+        "offset",
+        "snapshot",
+        "size",
+        "viewer",
+        "readonly",
+        "info"
+      ],
+      "title": "TerminalAttached",
+      "type": "object"
+    }
+  },
+  {
+    "name": "terminals.close",
+    "summary": "Ends a terminal, and forgets it and its session on the host.",
+    "level": {
+      "kind": "resource",
+      "param": "id",
+      "grant": "use",
+      "scheme": "terminal"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`terminals.get`, `terminals.close`: a terminal by its id.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "TerminalRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "terminals.get",
+    "summary": "One terminal: the caller's own, or one on a host they manage.",
+    "level": {
+      "kind": "resource",
+      "param": "id",
+      "grant": "view",
+      "scheme": "terminal"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`terminals.get`, `terminals.close`: a terminal by its id.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "TerminalRef",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "EnvUser": {
+          "description": "The account a terminal runs as. Anything but `agent` needs manage on the host.",
+          "enum": [
+            "agent",
+            "operator",
+            "root"
+          ],
+          "type": "string"
+        },
+        "Grant": {
+          "description": "A level on a resource. Each includes those before it.",
+          "enum": [
+            "view",
+            "use",
+            "manage"
+          ],
+          "type": "string"
+        },
+        "InputInfo": {
+          "additionalProperties": false,
+          "description": "Who last typed into a terminal.",
+          "properties": {
+            "at": {
+              "description": "Unix ms.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "bytes": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "principal": {
+              "description": "`user:<id>` or another principal.",
+              "type": "string"
+            },
+            "via": {
+              "description": "`viewer`, from an attached viewer, or `automation`, from `terminals.write`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "principal",
+            "at",
+            "via",
+            "bytes"
+          ],
+          "type": "object"
+        },
+        "TermSize": {
+          "additionalProperties": false,
+          "properties": {
+            "cols": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rows": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "cols",
+            "rows"
+          ],
+          "type": "object"
+        },
+        "TerminalState": {
+          "oneOf": [
+            {
+              "enum": [
+                "running",
+                "exited"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "lost",
+              "description": "Its session ended with the host or its controller, not by itself.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "createdAt": {
+          "description": "RFC 3339.",
+          "type": "string"
+        },
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "env": {
+          "description": "`env://<name>`.",
+          "type": "string"
+        },
+        "exitCode": {
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "lastInput": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Grant"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The caller's level on it: `use` for one's own, `manage` for another's on a host one\nmanages."
+        },
+        "offset": {
+          "description": "Output bytes so far, as far as the server has seen.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "owner": {
+          "description": "The owner's user id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recording": {
+          "description": "Recordings come later; always false.",
+          "type": "boolean"
+        },
+        "sessionId": {
+          "description": "The session's id on the host.",
+          "type": "string"
+        },
+        "size": {
+          "$ref": "#/$defs/TermSize"
+        },
+        "state": {
+          "$ref": "#/$defs/TerminalState"
+        },
+        "title": {
+          "type": "string"
+        },
+        "uri": {
+          "description": "`terminal://<id>`.",
+          "type": "string"
+        },
+        "user": {
+          "$ref": "#/$defs/EnvUser"
+        },
+        "viewers": {
+          "description": "Viewers attached now.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "uri",
+        "env",
+        "title",
+        "command",
+        "user",
+        "state",
+        "size",
+        "viewers",
+        "offset",
+        "createdAt",
+        "sessionId",
+        "recording"
+      ],
+      "title": "TerminalInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "terminals.list",
+    "summary": "The caller's terminals, running first and newest first, with ended the last 50 that ended; with all, also others' on hosts the caller manages.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`terminals.list`: the caller's terminals, newest first.",
+      "properties": {
+        "all": {
+          "default": false,
+          "description": "Also other people's, on the hosts the caller manages.",
+          "type": "boolean"
+        },
+        "ended": {
+          "default": false,
+          "description": "Also the last 50 that ended.",
+          "type": "boolean"
+        },
+        "env": {
+          "description": "Only those on this host.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "TerminalQuery",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "EnvUser": {
+          "description": "The account a terminal runs as. Anything but `agent` needs manage on the host.",
+          "enum": [
+            "agent",
+            "operator",
+            "root"
+          ],
+          "type": "string"
+        },
+        "Grant": {
+          "description": "A level on a resource. Each includes those before it.",
+          "enum": [
+            "view",
+            "use",
+            "manage"
+          ],
+          "type": "string"
+        },
+        "InputInfo": {
+          "additionalProperties": false,
+          "description": "Who last typed into a terminal.",
+          "properties": {
+            "at": {
+              "description": "Unix ms.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "bytes": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "principal": {
+              "description": "`user:<id>` or another principal.",
+              "type": "string"
+            },
+            "via": {
+              "description": "`viewer`, from an attached viewer, or `automation`, from `terminals.write`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "principal",
+            "at",
+            "via",
+            "bytes"
+          ],
+          "type": "object"
+        },
+        "TermSize": {
+          "additionalProperties": false,
+          "properties": {
+            "cols": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rows": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "cols",
+            "rows"
+          ],
+          "type": "object"
+        },
+        "TerminalInfo": {
+          "additionalProperties": false,
+          "properties": {
+            "command": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "createdAt": {
+              "description": "RFC 3339.",
+              "type": "string"
+            },
+            "cwd": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "env": {
+              "description": "`env://<name>`.",
+              "type": "string"
+            },
+            "exitCode": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "lastInput": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/InputInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "level": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Grant"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The caller's level on it: `use` for one's own, `manage` for another's on a host one\nmanages."
+            },
+            "offset": {
+              "description": "Output bytes so far, as far as the server has seen.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "owner": {
+              "description": "The owner's user id.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "recording": {
+              "description": "Recordings come later; always false.",
+              "type": "boolean"
+            },
+            "sessionId": {
+              "description": "The session's id on the host.",
+              "type": "string"
+            },
+            "size": {
+              "$ref": "#/$defs/TermSize"
+            },
+            "state": {
+              "$ref": "#/$defs/TerminalState"
+            },
+            "title": {
+              "type": "string"
+            },
+            "uri": {
+              "description": "`terminal://<id>`.",
+              "type": "string"
+            },
+            "user": {
+              "$ref": "#/$defs/EnvUser"
+            },
+            "viewers": {
+              "description": "Viewers attached now.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "uri",
+            "env",
+            "title",
+            "command",
+            "user",
+            "state",
+            "size",
+            "viewers",
+            "offset",
+            "createdAt",
+            "sessionId",
+            "recording"
+          ],
+          "type": "object"
+        },
+        "TerminalState": {
+          "oneOf": [
+            {
+              "enum": [
+                "running",
+                "exited"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "lost",
+              "description": "Its session ended with the host or its controller, not by itself.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "terminals": {
+          "items": {
+            "$ref": "#/$defs/TerminalInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "terminals"
+      ],
+      "title": "TerminalList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "terminals.open",
+    "summary": "Opens a terminal on a host, as the agent account with use, or as operator or root with manage. It is the caller's own.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$defs": {
+        "EnvUser": {
+          "description": "The account a terminal runs as. Anything but `agent` needs manage on the host.",
+          "enum": [
+            "agent",
+            "operator",
+            "root"
+          ],
+          "type": "string"
+        },
+        "TermSize": {
+          "additionalProperties": false,
+          "properties": {
+            "cols": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rows": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "cols",
+            "rows"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`terminals.open`: a terminal on a host, at its default shell when there is no command.",
+      "properties": {
+        "command": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "env": {
+          "type": "string"
+        },
+        "size": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TermSize"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "user": {
+          "$ref": "#/$defs/EnvUser",
+          "default": "agent",
+          "description": "`agent` when absent; `operator` and `root` need manage on the host."
+        },
+        "vars": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Environment variables for the command.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "env"
+      ],
+      "title": "TerminalOpen",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "EnvUser": {
+          "description": "The account a terminal runs as. Anything but `agent` needs manage on the host.",
+          "enum": [
+            "agent",
+            "operator",
+            "root"
+          ],
+          "type": "string"
+        },
+        "Grant": {
+          "description": "A level on a resource. Each includes those before it.",
+          "enum": [
+            "view",
+            "use",
+            "manage"
+          ],
+          "type": "string"
+        },
+        "InputInfo": {
+          "additionalProperties": false,
+          "description": "Who last typed into a terminal.",
+          "properties": {
+            "at": {
+              "description": "Unix ms.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "bytes": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "principal": {
+              "description": "`user:<id>` or another principal.",
+              "type": "string"
+            },
+            "via": {
+              "description": "`viewer`, from an attached viewer, or `automation`, from `terminals.write`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "principal",
+            "at",
+            "via",
+            "bytes"
+          ],
+          "type": "object"
+        },
+        "TermSize": {
+          "additionalProperties": false,
+          "properties": {
+            "cols": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rows": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "cols",
+            "rows"
+          ],
+          "type": "object"
+        },
+        "TerminalState": {
+          "oneOf": [
+            {
+              "enum": [
+                "running",
+                "exited"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "lost",
+              "description": "Its session ended with the host or its controller, not by itself.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "createdAt": {
+          "description": "RFC 3339.",
+          "type": "string"
+        },
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "env": {
+          "description": "`env://<name>`.",
+          "type": "string"
+        },
+        "exitCode": {
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "lastInput": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Grant"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The caller's level on it: `use` for one's own, `manage` for another's on a host one\nmanages."
+        },
+        "offset": {
+          "description": "Output bytes so far, as far as the server has seen.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "owner": {
+          "description": "The owner's user id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recording": {
+          "description": "Recordings come later; always false.",
+          "type": "boolean"
+        },
+        "sessionId": {
+          "description": "The session's id on the host.",
+          "type": "string"
+        },
+        "size": {
+          "$ref": "#/$defs/TermSize"
+        },
+        "state": {
+          "$ref": "#/$defs/TerminalState"
+        },
+        "title": {
+          "type": "string"
+        },
+        "uri": {
+          "description": "`terminal://<id>`.",
+          "type": "string"
+        },
+        "user": {
+          "$ref": "#/$defs/EnvUser"
+        },
+        "viewers": {
+          "description": "Viewers attached now.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "uri",
+        "env",
+        "title",
+        "command",
+        "user",
+        "state",
+        "size",
+        "viewers",
+        "offset",
+        "createdAt",
+        "sessionId",
+        "recording"
+      ],
+      "title": "TerminalInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "terminals.rename",
+    "summary": "Gives a terminal another title.",
+    "level": {
+      "kind": "resource",
+      "param": "id",
+      "grant": "use",
+      "scheme": "terminal"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`terminals.rename`.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ],
+      "title": "TerminalRename",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "terminals.resize",
+    "summary": "Gives a terminal a size, as an active viewer would.",
+    "level": {
+      "kind": "resource",
+      "param": "id",
+      "grant": "use",
+      "scheme": "terminal"
+    },
+    "params": {
+      "$defs": {
+        "TermSize": {
+          "additionalProperties": false,
+          "properties": {
+            "cols": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rows": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "cols",
+            "rows"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`terminals.resize`: the size, as an active viewer would set it.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "size": {
+          "$ref": "#/$defs/TermSize"
+        }
+      },
+      "required": [
+        "id",
+        "size"
+      ],
+      "title": "TerminalResize",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "terminals.screen",
+    "summary": "A terminal's screen as the host keeps it: its lines and cursor, with history the scrollback above it, with ansi as escape sequences.",
+    "level": {
+      "kind": "resource",
+      "param": "id",
+      "grant": "use",
+      "scheme": "terminal"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`terminals.screen`.",
+      "properties": {
+        "ansi": {
+          "default": false,
+          "description": "The screen as escape sequences in `ansi`.",
+          "type": "boolean"
+        },
+        "history": {
+          "description": "Up to this many lines of scrollback before the screen.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "ScreenQuery",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "CursorInfo": {
+          "additionalProperties": false,
+          "properties": {
+            "col": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "row": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "row",
+            "col"
+          ],
+          "type": "object"
+        },
+        "TermSize": {
+          "additionalProperties": false,
+          "properties": {
+            "cols": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rows": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "cols",
+            "rows"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "The result of `terminals.screen`: the screen as the host keeps it.",
+      "properties": {
+        "ansi": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cursor": {
+          "$ref": "#/$defs/CursorInfo"
+        },
+        "lines": {
+          "description": "One string per row; with `history`, the scrollback lines come first.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "offset": {
+          "description": "The output offset the server had seen when it asked.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "size": {
+          "$ref": "#/$defs/TermSize"
+        }
+      },
+      "required": [
+        "size",
+        "lines",
+        "cursor",
+        "offset"
+      ],
+      "title": "ScreenInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "terminals.sessions",
+    "summary": "The sessions on a host, each with the terminal it is when the caller may see that one. Previews of a screen are for the host's managers and a terminal's owner.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "view",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`terminals.sessions`.",
+      "properties": {
+        "env": {
+          "type": "string"
+        },
+        "preview": {
+          "default": false,
+          "description": "The last lines of each session's screen, for one the caller may adopt.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "env"
+      ],
+      "title": "EnvSessionQuery",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "EnvSession": {
+          "additionalProperties": false,
+          "description": "A session on a host.",
+          "properties": {
+            "adopted": {
+              "description": "Whether it is already a terminal, the caller's or not.",
+              "type": "boolean"
+            },
+            "command": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "ended": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "exitCode": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "description": "`terminal` or `process`.",
+              "type": "string"
+            },
+            "lost": {
+              "type": "boolean"
+            },
+            "preview": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "started": {
+              "type": "string"
+            },
+            "terminal": {
+              "description": "The terminal it is, when it is one the caller may see.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            },
+            "user": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title",
+            "command",
+            "user",
+            "started",
+            "lost",
+            "adopted"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "sessions": {
+          "items": {
+            "$ref": "#/$defs/EnvSession"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "sessions"
+      ],
+      "title": "EnvSessionList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "terminals.signal",
+    "summary": "Sends a signal to a terminal's process: INT, TERM, HUP or KILL.",
+    "level": {
+      "kind": "resource",
+      "param": "id",
+      "grant": "use",
+      "scheme": "terminal"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`terminals.signal`: `INT`, `TERM`, `HUP` or `KILL`.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "signal": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "signal"
+      ],
+      "title": "TerminalSignal",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "terminals.write",
+    "summary": "Types into a terminal, as text or bytes in base64, for automation.",
+    "level": {
+      "kind": "resource",
+      "param": "id",
+      "grant": "use",
+      "scheme": "terminal"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`terminals.write`: input for a terminal, as text or as bytes in base64.",
+      "properties": {
+        "base64": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "TerminalWrite",
       "type": "object"
     },
     "result": {

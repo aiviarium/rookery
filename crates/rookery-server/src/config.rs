@@ -31,6 +31,10 @@ pub struct ServerConfig {
     pub outbound_allow: Vec<rookery_kernel::outbound::AddrRange>,
     /// `ROOKERY_SHELL_DIR`: a built shell, served at `/`.
     pub shell_dir: Option<PathBuf>,
+    /// `ROOKERY_PORTS_URL`: where hosts' ports are served, each on a name of its own before it, such
+    /// as `https://ports.rookery.example` for `https://3000-HOSTID.ports.rookery.example`. Without
+    /// it, a server on the loopback serves them under `localhost`, and any other refuses them.
+    pub ports_url: Option<String>,
     /// The Unix socket of the CLI on this machine: `ROOKERY_SOCKET`, or `server.sock` in rookery's
     /// runtime folder.
     pub socket: Option<PathBuf>,
@@ -181,6 +185,11 @@ impl ServerConfig {
             }
             Some(other) => return fail(format!("ROOKERY_AUTH is local or oidc, not {other}")),
         };
+        let ports_url = get("ROOKERY_PORTS_URL");
+        if let Some(url) = &ports_url {
+            rookery_hosts::proxy::Ports::parse(url)
+                .map_err(|e| ConfigError(format!("ROOKERY_PORTS_URL: {e}")))?;
+        }
         if auth == AuthMode::Local && oidc.is_some() && get("ROOKERY_AUTH").is_some() {
             return fail("ROOKERY_AUTH=local and ROOKERY_OIDC_ISSUER do not go together");
         }
@@ -196,6 +205,7 @@ impl ServerConfig {
             admins,
             outbound_allow,
             shell_dir: get("ROOKERY_SHELL_DIR").map(PathBuf::from),
+            ports_url,
             socket: default_socket(var),
             paths: None,
             provision: Default::default,
