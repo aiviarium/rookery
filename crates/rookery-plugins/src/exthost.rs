@@ -442,6 +442,23 @@ impl ExtHost {
         key: &str,
         params: Value,
     ) -> Result<Value, RpcError> {
+        self.invoke_until(call, plugins, plugin, kind, key, params, None)
+            .await
+    }
+
+    /// [`ExtHost::invoke`], which `cancel` also ends, as a job's cancel does. Only an `rpc` handler
+    /// says a level: the server itself calls the others, such as a job's.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn invoke_until(
+        &self,
+        call: &Call,
+        plugins: &Arc<crate::Plugins>,
+        plugin: &str,
+        kind: &str,
+        key: &str,
+        params: Value,
+        cancel: Option<tokio_util::sync::CancellationToken>,
+    ) -> Result<Value, RpcError> {
         let Some(link) = self.active_link(plugin) else {
             return Err(RpcError::unavailable(format!(
                 "the host half of {plugin} does not run"
@@ -455,6 +472,7 @@ impl ExtHost {
             return Err(RpcError::not_found(format!("{plugin} has no {kind} {key}")));
         };
         match registration.level.as_deref() {
+            _ if kind != "rpc" => {}
             // A person signed in, or the server's own machine; not another plugin.
             Some("own") if !matches!(call.caller, Caller::Plugin(_)) => {}
             Some("own") => {
@@ -498,27 +516,39 @@ impl ExtHost {
         tokio::spawn(async move {
             let mut request = Box::pin(link.request("plugins.invoke", invoke));
             let left = deadline.saturating_duration_since(Instant::now());
-            match tokio::time::timeout(left, &mut request).await {
-                Ok(done) => {
+            let cancelled = async {
+                match &cancel {
+                    Some(cancel) => cancel.cancelled().await,
+                    None => std::future::pending().await,
+                }
+            };
+            let reason = tokio::select! {
+                done = &mut request => {
                     let _ = tx.send(done);
+                    return;
                 }
-                Err(_) => {
-                    // The handler has its grace past the call's deadline, and then its host half ends.
-                    link.notify("plugins.cancel", json!({"plugin": id, "callId": call_id}));
-                    let _ = tx.send(Err(RpcError::timeout(format!(
-                        "{id} did not answer {kind} {key} before the call's deadline"
-                    ))));
-                    if tokio::time::timeout(CANCEL_GRACE, request).await.is_err() {
-                        let error = ErrorBody {
-                            code: ErrorCode::Timeout,
-                            message: format!(
-                                "{id} did not stop a call {CANCEL_GRACE:?} past its deadline"
-                            ),
-                            details: None,
-                        };
-                        crashed(&kernel, &plugins, &id, generation, Some(error));
-                    }
-                }
+                _ = tokio::time::sleep(left) => "timeout",
+                _ = cancelled => "cancelled",
+            };
+            // The handler has its grace past the end of the call, and then its host half ends.
+            link.notify(
+                "plugins.cancel",
+                json!({"plugin": id, "callId": call_id, "reason": reason}),
+            );
+            let _ = tx.send(Err(if reason == "cancelled" {
+                RpcError::unavailable(format!("{kind} {key} of {id} was cancelled"))
+            } else {
+                RpcError::timeout(format!(
+                    "{id} did not answer {kind} {key} before the call's deadline"
+                ))
+            }));
+            if tokio::time::timeout(CANCEL_GRACE, request).await.is_err() {
+                let error = ErrorBody {
+                    code: ErrorCode::Timeout,
+                    message: format!("{id} did not stop a call {CANCEL_GRACE:?} past its deadline"),
+                    details: None,
+                };
+                crashed(&kernel, &plugins, &id, generation, Some(error));
             }
         });
         rx.await

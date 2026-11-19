@@ -195,6 +195,12 @@ Each method it registers with `rookery.rpc.handle` says who may call it through 
 | `own` | A person who is signed in, or the server's own machine. Not another plugin. The handler checks the rest, with `ctx.user` |
 | `admin` | An admin |
 
+A job the manifest declares under `contributes.jobs`, such as `{"id": "echo.build", "title": "Build"}`, is a kind of job of the server's, `echo/build`. The host half runs it with `rookery.jobs.handle("echo.build", { run })`. The job's `enqueue` says who may start one besides an admin. With `own`, the default, anyone signed in and the plugin itself may. With `plugin`, the plugin alone may. With `admin`, admins alone may.
+
+A host half hears events with `rookery.events.subscribe`. A name without a `/` is its plugin's own, and a full name is another's, such as the server's `rookery/hosts.changed`, `rookery/resources.changed` and `rookery/jobs.changed`.
+
+A plugin offers others what it names in `provides.services`. Its host half serves a service with `rookery.services.provide("greeter", { hello })`, and others call it with `services.call`. Or one of the plugin's app services in `services` does, when its `provides` names the service. An admin places an app service at a URL with `services.setExternal`, and the server calls it there with JSON-RPC over `POST URL/rpc`, with its secret as a bearer token. A method of `contributes.rpc` with a `handler` is a method of an app service. A plugin's `extensionPoints` take contributions from other plugins under `contributes.extensions`, which `extensions.list` gives when they match the point's schema.
+
 A host half is ended, and counted as a crash, when its process ends or when a handler keeps running past its call's deadline. So is one whose process holds more memory than `ROOKERY_EXTHOST_MEMORY_MB` (512 MiB unless set). After five crashes in a minute it's failed. Then only an admin starts it again, also as a dependency of another plugin.
 
 ### Client halves

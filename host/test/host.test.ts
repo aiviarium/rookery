@@ -51,17 +51,27 @@ describe("the extension host", () => {
       manifest: manifest("echo"),
     })
     expect(activated.registrations.map((r: any) => `${r.kind}:${r.key}`).sort()).toEqual([
+      "job:echo.build",
+      "job:echo.wait",
+      "job:echo.wipe",
+      "rpc:ask",
+      "rpc:contributions",
       "rpc:crash",
       "rpc:env",
       "rpc:forge",
       "rpc:greet",
+      "rpc:heard",
       "rpc:hog",
+      "rpc:listen",
+      "rpc:move",
       "rpc:peek",
+      "rpc:ping",
       "rpc:remember",
       "rpc:reset",
       "rpc:setting",
       "rpc:slow",
       "rpc:stuck",
+      "service:greeter",
     ])
     expect(activated.registrations.find((r: any) => r.key === "greet").params.properties.name.type).toBe(
       "string",

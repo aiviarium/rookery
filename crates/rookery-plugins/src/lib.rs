@@ -15,9 +15,11 @@
 pub mod client;
 pub mod data;
 pub mod exthost;
+pub mod jobs;
 pub mod loaded;
 pub mod methods;
 pub mod record;
+pub mod services;
 pub mod wire;
 
 use std::collections::BTreeMap;
@@ -55,6 +57,8 @@ pub struct Plugins {
     rows: RwLock<BTreeMap<String, record::Row>>,
     /// Plugins recorded as installed that the folder does not have, as the last read found.
     missing: RwLock<Vec<String>>,
+    /// The jobs the plugins declare, by kind.
+    jobs: RwLock<BTreeMap<String, jobs::DeclaredJob>>,
     /// One change of the plugin folder at a time.
     changing: tokio::sync::Mutex<()>,
     pub(crate) host: exthost::ExtHost,
@@ -73,6 +77,7 @@ impl Plugins {
             loaded: RwLock::default(),
             rows: RwLock::default(),
             missing: RwLock::default(),
+            jobs: RwLock::default(),
             changing: tokio::sync::Mutex::new(()),
             started: AtomicBool::new(false),
             ready: std::sync::OnceLock::new(),
@@ -251,6 +256,15 @@ impl Plugins {
             .collect();
         let old = std::mem::replace(&mut *self.loaded.write().unwrap(), new.clone());
         *self.rows.write().unwrap() = rows;
+        let declared: BTreeMap<String, jobs::DeclaredJob> = new
+            .values()
+            .flat_map(|plugin| jobs::declared(plugin))
+            .map(|job| (job.kind.clone(), job))
+            .collect();
+        let before: Vec<jobs::DeclaredJob> = self.jobs.read().unwrap().values().cloned().collect();
+        let now: Vec<jobs::DeclaredJob> = declared.values().cloned().collect();
+        jobs::sync(kernel, self, &before, &now);
+        *self.jobs.write().unwrap() = declared;
         let mut changed = vec![];
         for (id, before) in &old {
             match new.get(id) {
@@ -404,6 +418,12 @@ impl Plugins {
         method: &str,
         params: serde_json::Value,
     ) -> Result<serde_json::Value, RpcError> {
+        // A method `contributes.rpc` binds to an app service is that service's.
+        if let Some(loaded) = self.get(plugin)
+            && let Some((service, bound, stream)) = services::rpc_handler(&loaded, method)
+        {
+            return services::call_bound(call, plugin, &service, &bound, stream, params).await;
+        }
         self.activate_as(&call.kernel, plugin, call.is_admin())
             .await?;
         self.host
@@ -433,6 +453,15 @@ impl Plugins {
             self.ready().await?;
             return Ok(());
         }
+        let plugins = Arc::downgrade(self);
+        rookery_jobs::set_enqueue_policy(
+            kernel,
+            Arc::new(move |call, kind| {
+                let plugins = plugins.upgrade()?;
+                let jobs = plugins.jobs.read().unwrap();
+                jobs::may_enqueue(&jobs, call, kind)
+            }),
+        );
         let done = async {
             Self::folder_ready(kernel).await;
             // The folder is read under the change lock, before anything else may use the plugins.

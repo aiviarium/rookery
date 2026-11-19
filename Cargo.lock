@@ -3275,6 +3275,7 @@ dependencies = [
  "futures-util",
  "hatchery",
  "http-body-util",
+ "jsonschema",
  "libc",
  "rookery-api",
  "rookery-core",
@@ -3294,6 +3295,7 @@ dependencies = [
  "tokio-util",
  "tower",
  "tracing",
+ "ureq",
  "uuid",
 ]
 

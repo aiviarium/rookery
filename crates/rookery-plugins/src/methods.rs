@@ -43,6 +43,7 @@ fn listing(plugins: &Plugins, admin: bool) -> PluginList {
 /// `plugins.rpc`. When the server leads it reads the plugin folder, records it in
 /// `rookery.plugins` and starts the host halves that start with it, if a [`crate::Setup`] was set.
 pub fn register(methods: &mut Methods) {
+    crate::services::register(methods);
     methods.on_started(|kernel| {
         let Some(setup) = kernel.get_facility::<crate::Setup>() else {
             return;

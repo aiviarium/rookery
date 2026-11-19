@@ -143,8 +143,9 @@ export interface Events {
 
 /**
  * The notifications of the server a plugin may hear, by name and typed from the wire. The server
- * sends `events.event`, `events.dropped` and `notify.new` today; `jobs.changed` and `notify.changed`
- * are declared for the server code that will send them.
+ * sends `events.event`, `events.dropped` and `notify.new` today; `notify.changed` is declared for the
+ * server code that will send it. Changes of hosts, resources and jobs are events of the server
+ * (`ServerEvents`), which `events.subscribe` takes by their names, such as `rookery/jobs.changed`.
  */
 export interface Notifications {
   on<M extends NotificationMethod>(method: M, fn: (params: NotificationParams<M>) => void): Disposable

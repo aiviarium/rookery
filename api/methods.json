@@ -2686,6 +2686,73 @@
     }
   },
   {
+    "name": "extensions.list",
+    "summary": "The contributions of the installed plugins to an extension point, each matching its schema.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`extensions.list`.",
+      "properties": {
+        "point": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "point"
+      ],
+      "title": "ExtensionQuery",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "ExtensionContribution": {
+          "description": "A contribution to an extension point.",
+          "properties": {
+            "plugin": {
+              "description": "The contributing plugin.",
+              "type": "string"
+            },
+            "service": {
+              "description": "The service of the contributor the contribution names in its `service` field, when the\ncontributor provides it: the owner of the point calls it with `services.call`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "value": {
+              "description": "The contribution as declared; it matches the point's schema."
+            }
+          },
+          "required": [
+            "plugin",
+            "value"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "contributions": {
+          "items": {
+            "$ref": "#/$defs/ExtensionContribution"
+          },
+          "type": "array"
+        },
+        "point": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "point",
+        "contributions"
+      ],
+      "title": "ExtensionList",
+      "type": "object"
+    }
+  },
+  {
     "name": "hosts.act",
     "summary": "Runs an action of a host: one that changes something as a job, one that only looks at once. Each action names the role it needs on the host.",
     "level": {
@@ -7343,9 +7410,9 @@
   },
   {
     "name": "jobs.enqueue",
-    "summary": "Enqueues a job of a kind a handler in the server runs.",
+    "summary": "Enqueues a job of a kind a handler in the server runs. Admins enqueue any; the kinds plugins declare, whoever their manifests allow, as the caller.",
     "level": {
-      "kind": "admin"
+      "kind": "self"
     },
     "params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -24886,6 +24953,268 @@
       "additionalProperties": false,
       "description": "Params or a result with nothing in it: `{}`.",
       "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "services.call",
+    "summary": "Calls a method of a service a plugin provides, as the caller: its host half's, or its app service's.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`services.call`: a service a plugin provides, by its plugin and name.",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "params": {
+          "default": {}
+        },
+        "plugin": {
+          "type": "string"
+        },
+        "service": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin",
+        "service",
+        "method"
+      ],
+      "title": "ServiceCall",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "AnyValue"
+    }
+  },
+  {
+    "name": "services.list",
+    "summary": "The app services the plugins declare, and where each is placed.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`services.list`: the app services of one plugin, or of all.",
+      "properties": {
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "ServicesOf",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "AppServiceInfo": {
+          "properties": {
+            "optional": {
+              "type": "boolean"
+            },
+            "plugin": {
+              "type": "string"
+            },
+            "pluginName": {
+              "type": "string"
+            },
+            "provides": {
+              "description": "The service of `provides.services` it implements, if one.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "service": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/$defs/AppServiceStatus"
+            },
+            "title": {
+              "type": "string"
+            },
+            "url": {
+              "description": "Where the server sends its calls, never its secret. Admins alone see it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "plugin",
+            "pluginName",
+            "service",
+            "title",
+            "optional",
+            "provides",
+            "status"
+          ],
+          "type": "object"
+        },
+        "AppServiceStatus": {
+          "description": "Where an app service is, and whether it can be called.",
+          "properties": {
+            "detail": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "placement": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "state": {
+              "description": "`ready` when it is placed at a URL; `absent` when it is placed nowhere yet.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "services": {
+          "items": {
+            "$ref": "#/$defs/AppServiceInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "services"
+      ],
+      "title": "AppServiceList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "services.setExternal",
+    "summary": "Places an app service of a plugin at a URL, with the secret the server calls it with.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`services.setExternal`: an admin places an app service at a URL, with the secret it is called with.\nWithout `secret` the one kept stays; an empty `url` takes the placement away.",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "secret": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "service": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin",
+        "service",
+        "url"
+      ],
+      "title": "AppServiceSetExternal",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "Where an app service is, and whether it can be called.",
+      "properties": {
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "placement": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "description": "`ready` when it is placed at a URL; `absent` when it is placed nowhere yet.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "AppServiceStatus",
+      "type": "object"
+    }
+  },
+  {
+    "name": "services.status",
+    "summary": "Where one app service is placed, and whether it can be called.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`services.status` and `services.setExternal`.",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        },
+        "service": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin",
+        "service"
+      ],
+      "title": "AppServiceRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "Where an app service is, and whether it can be called.",
+      "properties": {
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "placement": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "description": "`ready` when it is placed at a URL; `absent` when it is placed nowhere yet.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "AppServiceStatus",
       "type": "object"
     }
   },
