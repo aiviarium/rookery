@@ -63,6 +63,7 @@ describe("the extension host", () => {
       "rpc:heard",
       "rpc:hog",
       "rpc:listen",
+      "rpc:move",
       "rpc:peek",
       "rpc:ping",
       "rpc:remember",

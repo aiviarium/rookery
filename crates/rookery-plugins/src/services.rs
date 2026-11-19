@@ -217,10 +217,15 @@ fn app_services(plugin: &Loaded) -> Vec<(String, String, bool, Vec<String>)> {
         .collect()
 }
 
-/// Where an app service was placed, and its secret: kept in the plugin's storage and secrets under
-/// names Rookery keeps for it, which the server alone reads.
-fn placement_key(service: &str) -> String {
-    format!("rookery.app-service.{service}")
+/// Rookery's own plugin id, which no installed plugin may have, so that what is kept under it is the
+/// server's alone.
+const ROOKERY: &str = "rookery";
+
+/// Where an app service was placed, and its secret: kept in Rookery's own storage and secrets, not the
+/// plugin's, which the plugin reads and writes itself. So a plugin cannot move a service an admin
+/// placed, nor read the secret the server calls it with.
+fn placement_key(plugin: &str, service: &str) -> String {
+    format!("app-service.{plugin}.{service}")
 }
 
 async fn server_call(kernel: &Kernel, method: &str, params: Value) -> Result<Value, RpcError> {
@@ -232,7 +237,7 @@ async fn placement(kernel: &Kernel, plugin: &str, service: &str) -> Option<Strin
     let found = server_call(
         kernel,
         "storage.get",
-        json!({"plugin": plugin, "key": placement_key(service)}),
+        json!({"plugin": ROOKERY, "key": placement_key(plugin, service)}),
     )
     .await
     .ok()?;
@@ -246,7 +251,7 @@ async fn secret(kernel: &Kernel, plugin: &str, service: &str) -> Option<String> 
     let found = server_call(
         kernel,
         "secrets.get",
-        json!({"plugin": plugin, "name": placement_key(service)}),
+        json!({"plugin": ROOKERY, "name": placement_key(plugin, service)}),
     )
     .await
     .ok()?;
@@ -495,14 +500,14 @@ pub fn register(methods: &mut Methods) {
                 server_call(
                     &call.kernel,
                     "storage.set",
-                    json!({"plugin": p.plugin, "key": placement_key(&p.service), "value": {"url": p.url}}),
+                    json!({"plugin": ROOKERY, "key": placement_key(&p.plugin, &p.service), "value": {"url": p.url}}),
                 )
                 .await?;
                 if let Some(secret) = &p.secret {
                     server_call(
                         &call.kernel,
                         "secrets.set",
-                        json!({"plugin": p.plugin, "name": placement_key(&p.service), "value": secret}),
+                        json!({"plugin": ROOKERY, "name": placement_key(&p.plugin, &p.service), "value": secret}),
                     )
                     .await?;
                 }

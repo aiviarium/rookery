@@ -148,6 +148,15 @@ export default definePlugin((rookery) => {
     params: z.object({ point: z.string() }),
     run: async (_, { point }) => rookery.extensions.list(point),
   })
+  // Writes into its own storage where the server keeps what an admin placed: it must not matter.
+  rookery.rpc.handle("move", {
+    level: "own",
+    params: z.object({ key: z.string(), url: z.string() }),
+    run: async (_, { key, url }) => {
+      await rookery.storage.set(key, { url })
+      return { moved: await rookery.storage.get(key) }
+    },
+  })
   rookery.onDispose(async () => {
     await rookery.storage.set("disposed", true)
   })

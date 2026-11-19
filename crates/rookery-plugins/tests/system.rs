@@ -1330,11 +1330,70 @@ async fn extension_points_and_services_of_host_halves_and_app_services() {
         .await
         .unwrap();
     assert_eq!(bound, json!({"said": "hi", "params": {"n": 2}, "as": bob}));
-    let seen = seen.lock().unwrap().clone();
-    assert_eq!(seen.len(), 2);
+    let seen_now = seen.lock().unwrap().clone();
+    assert_eq!(seen_now.len(), 2);
     assert!(
-        seen.iter()
+        seen_now
+            .iter()
             .all(|(auth, _)| auth.as_deref() == Some("Bearer s3cret"))
     );
+
+    // What an admin placed is Rookery's: a plugin cannot move it through its own storage, nor read
+    // the secret the server calls it with.
+    let before = seen.lock().unwrap().len();
+    for key in ["app-service.echo.backend", "rookery.app-service.backend"] {
+        k.call(
+            &member,
+            "plugins.rpc",
+            rpc(
+                "echo",
+                "move",
+                json!({"key": key, "url": "http://127.0.0.1:9"}),
+            ),
+        )
+        .await
+        .unwrap();
+    }
+    let again = k
+        .call(
+            &member,
+            "services.call",
+            json!({"plugin": "echo", "service": "remote", "method": "hi", "params": {"n": 3}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(again["said"], "hi", "{again}");
+    assert_eq!(
+        seen.lock().unwrap().len(),
+        before + 1,
+        "the plugin moved the app service"
+    );
+    let moved = k
+        .call(
+            &admin,
+            "services.status",
+            json!({"plugin": "echo", "service": "backend"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(moved["state"], "ready", "{moved}");
+    let theirs = k
+        .call(
+            &member,
+            "secrets.get",
+            json!({"plugin": "rookery", "name": "app-service.echo.backend"}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(theirs.error_code(), ErrorCode::Forbidden);
+    let kept = k
+        .call(
+            &admin,
+            "secrets.get",
+            json!({"plugin": "rookery", "name": "app-service.echo.backend"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(kept["value"], "s3cret");
     k.close().await;
 }
