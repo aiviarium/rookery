@@ -60,6 +60,33 @@ On macOS and Windows Rookery is the client alone. Check that it still builds the
 
 Development and test builds embed quick builds of rookeryd and box (the `host-dev` profile). Only `--release` embeds the release builds. The Python tests skip their YAML checks without PyYAML, so install `provision/requirements.txt` in a virtual environment to run them all.
 
+### Fast local loop
+
+Run Rust tests locally with [cargo-nextest](https://nexte.st), which runs test binaries in parallel (~14s warm vs ~41s with `cargo test`). For one crate that depends on `rookery-api`, pass `-E 'package(<crate>)'` rather than `-p`. Passing `-p` resolves `rookery-api` features differently and triggers a rebuild of roughly 20s:
+
+```bash
+cargo nextest run --locked -p rookery-api
+cargo nextest run --locked -E 'package(rookery-core)'
+TMPDIR=/tmp BOX_DESKTOP_ENV=1 cargo nextest run --locked --no-fail-fast
+```
+
+Set `TMPDIR=/tmp` when your checkout sits under a deep path so Unix domain sockets in `simulate` stay below Linux's 108-byte `SUN_LEN` limit. Set `BOX_DESKTOP_ENV=1` inside an `agent-env` container so `crates/box/tests/desktop.rs` uses the test `PATH` instead of re-executing `/usr/local/bin/agent-env`.
+
+Local builds keep Cargo's incremental compilation enabled and emit line tables for Rookery's crates (`debug = "line-tables-only"` in `Cargo.toml`). CI turns incremental builds off (`CARGO_INCREMENTAL=0`) and sets `CARGO_PROFILE_DEV_DEBUG=0` to skip debug information. Store tests in `on_postgres` skip locally unless `ROOKERY_TEST_POSTGRES` points at a PostgreSQL database (CI runs them against a `postgres:17-alpine` service container).
+
+Measured on an 8-core Linux laptop with a warm `target/` directory:
+
+| Check | Time |
+| --- | --- |
+| Single leaf crate (`-p rookery-api`) | ~0.5s |
+| Single library crate (`-E 'package(rookery-core)'`) | ~3.6s |
+| Full Rust `nextest` suite | ~14s |
+| Full Rust `cargo test` suite | ~41s |
+| Incremental `cargo clippy --all-targets` | ~0.3s |
+| Formatting and plugin check (`fmt`, `plugin-check`) | ~1.2s |
+| Python unit tests (`ci/checks.sh python-tests`) | ~13s |
+| Shell syntax (`ci/checks.sh shell-syntax`) | <0.1s |
+
 ### In containers
 
 With only Docker or Podman, `ci/run.sh` runs the same checks in an image that has the toolchain. CI uses it too.
@@ -102,7 +129,7 @@ CI runs the checks on the runner itself, each in a job of its own, and the end-t
 
 The Rust jobs restore the target directory from main's cache. `ci/mtimes.py` sets the files that did not change since that build to a time long past, so cargo builds only what changed. Only main saves the caches. Started by hand, CI runs everything.
 
-`ci/run.sh boot` boots Rookery's cloud seed and its USB installer in QEMU, lets the first boot set the host up, and then runs `tests/e2e/boot_*.py` and part of the container suite against it. Each takes 10 to 15 minutes on a machine with KVM, so run it when a change touches provisioning, the role or first boot. CI boots only the cloud image for such a change. The installer is booted once a week and when the Boot workflow is started by hand. CI runs both for changes to provisioning (the Boot workflow, on a hosted runner with KVM). Logs, timings and disk use are in `build/boot/`.
+`ci/run.sh boot` boots Rookery's cloud seed and its USB installer in QEMU, lets the first boot set the host up, and then runs `tests/e2e/boot_*.py` and part of the container suite against it. Each takes 25 to 50 minutes on GitHub's runners, so Boot runs on a nightly schedule (cloud nightly, installer weekly on Mondays) and by hand rather than gating pull requests or pushes to `main`. Run it locally when a change touches provisioning, the role or first boot. Logs, timings and disk use are in `build/boot/`.
 
 ## API changes
 
