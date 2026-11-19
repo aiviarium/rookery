@@ -95,22 +95,11 @@ A host of the type `ssh` has no controller, and works for a terminal and command
 
 ## Commands and checkouts
 
-`env.exec` runs a command on a host to its end and answers its output: the words of a program, the
-folder in it, variables, text for its input, and a deadline of at most an hour (60 seconds by
-default). The output comes back when the command ends, at most 8 MiB of each stream. A command runs
-as the host's agent account; `operator` and `root` need `manage` on the host, and the host must be
-able to run one.
+`env.exec` runs a command on a host to its end and answers its output. It takes the words of a program, the folder in it, variables, text for its input, and a deadline of at most an hour (60 seconds by default). The output comes back when the command ends, at most 8 MiB of each stream. A command runs as the host's agent account; `operator` and `root` need `manage` on the host, and the host must be able to run one.
 
-A *checkout* is a clone of a repository, or a git worktree of one, in the host's checkouts folder.
-That is `/srv/agent/workspaces` on a host Rookery set up, because it is the first root with a
-`workspaces` folder there; `workspaces` in `/etc/rookery/rookeryd.json` fixes another. `env.checkouts`
-lists what the folder holds, each with its branch, HEAD and remote. `env.clone` clones an address
-into it, `env.worktree` makes a worktree on a new branch, and `env.removeCheckout` removes one, which
-is a `CONFLICT` while it has changes unless `force` says otherwise.
+A *checkout* is a clone of a repository, or a git worktree of one, in the host's checkouts folder. That is `/srv/agent/workspaces` on a host Rookery set up, as that is the first root with a `workspaces` folder; `workspaces` in `/etc/rookery/rookeryd.json` fixes another. `env.checkouts` lists what the folder holds, each with its branch, HEAD and remote. `env.clone` clones an address into it, `env.worktree` makes a worktree on a new branch, and `env.removeCheckout` removes one, which is a `CONFLICT` while it has changes unless `force` says otherwise.
 
-A path a method takes, such as a command's folder or a checkout, is resolved by the host and stays
-inside its roots: `..` and a symlink that lead out are refused. The command and its session end when
-the call does, whether that is its own end, its deadline, or a revoked grant.
+A path a method takes, such as a command's folder or a checkout, is resolved by the host and stays inside its roots: `..` and a symlink that lead out are refused. The command and its session end when the call does, whether that is its own end, its deadline, or a revoked grant.
 
 A host is added by its address, with `rookery host add`, or described and installed with `rookery host create` ([The command line](/docs/use/cli#hosts)). Over the API, `hosts.save` takes the profile, and `hosts.remove` forgets it.
 
@@ -190,7 +179,7 @@ A host belongs to the account that added it. Its owner and the admins hold `mana
 | Level | May |
 | --- | --- |
 | `view` | See the host, its state, jobs, its checkouts and output, and a thumbnail of its desktop |
-| `use` | Open terminals, sessions, files, ports and the desktop on it, run commands, clone and remove checkouts, and reach one's own `agent` terminals |
+| `use` | Open terminals, sessions, files, ports and the desktop on it. Run commands, clone and remove checkouts, and reach one's own `agent` terminals |
 | `manage` | Change its profile, apply it, rename it, run its actions and its controller's, and reach any terminal |
 
 Each action says the role it needs, which `hosts.act` checks: `operate` is `manage` on the host, and `admin` an admin of the server, as removing a host's machine, a roll-out or a new key for Rookery need. Revoking a grant or disabling an account closes its open streams on that host. Keys, secrets, registries, settings, provisioners and plugins need an admin.
