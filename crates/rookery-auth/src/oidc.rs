@@ -182,6 +182,31 @@ impl OidcState {
     }
 }
 
+/// What "Sign in with …" names: the issuer's host.
+pub fn display_name(config: &Oidc) -> String {
+    let rest = config
+        .issuer
+        .split_once("://")
+        .map_or(config.issuer.as_str(), |(_, rest)| rest);
+    rest.split('/').next().unwrap_or(rest).to_owned()
+}
+
+/// Whether the provider's metadata and keys can be had.
+pub async fn ready(kernel: &Kernel) -> bool {
+    match configured(kernel) {
+        Some(config) => kernel
+            .facility::<OidcState>()
+            .known(config, false)
+            .await
+            .is_ok(),
+        None => false,
+    }
+}
+
+pub fn configured(kernel: &Kernel) -> Option<&Oidc> {
+    config(kernel)
+}
+
 fn config(kernel: &Kernel) -> Option<&Oidc> {
     match kernel.config.auth {
         AuthMode::Oidc => kernel.config.oidc.as_ref(),
@@ -203,7 +228,7 @@ fn safe_path(path: Option<&str>) -> String {
 
 #[derive(Debug, Deserialize)]
 pub struct LoginQuery {
-    #[serde(default, rename = "return")]
+    #[serde(default, rename = "return_to", alias = "return")]
     back_to: Option<String>,
 }
 

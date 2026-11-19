@@ -39,7 +39,7 @@ pub async fn handle(
     };
     let Some(caller) = caller_of(&kernel, via, &headers, false).await else {
         let refused =
-            RpcError::forbidden("sign in first: Authorization: Bearer and an access token");
+            RpcError::unauthenticated("sign in first: Authorization: Bearer and an access token");
         return json(StatusCode::UNAUTHORIZED, &RpcResponse::err(id, refused));
     };
     let call = Call::new(kernel.clone(), caller, None);

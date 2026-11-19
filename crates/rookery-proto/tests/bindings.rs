@@ -1,5 +1,8 @@
 //! The TypeScript types of the wire, in `client/src/generated/`. The test fails while they are stale;
 //! `ROOKERY_UPDATE_DOCS=1 cargo test -p rookery-proto --features ts --test bindings` writes them.
+//!
+//! The folder also holds types ported from the prototype that have no Rust type here yet. This test
+//! owns only the files it writes, and `index.ts`, which exports every file in the folder.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -72,25 +75,46 @@ fn typescript_bindings() {
         auth::LinkCreated,
         auth::LinkList,
         auth::SignedOut,
+        auth::Sso,
     );
-    let mut made = files(&scratch);
-    let index: String = made
-        .keys()
-        .map(|name| format!("export * from \"./{}\";\n", name.trim_end_matches(".ts")))
-        .collect();
-    made.insert("index.ts".into(), index);
+    let made = files(&scratch);
     let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../client/src/generated");
-    if std::env::var_os("ROOKERY_UPDATE_DOCS").is_some() {
-        let _ = std::fs::remove_dir_all(&target);
+    let update = std::env::var_os("ROOKERY_UPDATE_DOCS").is_some();
+    if update {
         std::fs::create_dir_all(&target).unwrap();
         for (name, text) in &made {
             std::fs::write(target.join(name), text).unwrap();
         }
-    } else {
-        assert!(
-            files(&target) == made,
-            "client/src/generated is stale: ROOKERY_UPDATE_DOCS=1 cargo test -p rookery-proto --features ts --test bindings"
-        );
     }
+    let kept = files(&target);
+    let index = index(kept.keys().chain(made.keys()));
+    if update {
+        std::fs::write(target.join("index.ts"), &index).unwrap();
+    }
+    let kept = files(&target);
+    let stale: Vec<&String> = made
+        .iter()
+        .filter(|(name, text)| kept.get(*name) != Some(text))
+        .map(|(name, _)| name)
+        .collect();
+    assert!(
+        stale.is_empty() && kept.get("index.ts") == Some(&index),
+        "client/src/generated is stale ({stale:?}): ROOKERY_UPDATE_DOCS=1 cargo test -p rookery-proto --features ts --test bindings"
+    );
     let _ = std::fs::remove_dir_all(&scratch);
+}
+
+/// `index.ts`: every type file of the folder, once, in order.
+fn index<'a>(names: impl Iterator<Item = &'a String>) -> String {
+    let names: std::collections::BTreeSet<&str> = names
+        .map(|n| n.trim_end_matches(".ts"))
+        .filter(|n| *n != "index")
+        .collect();
+    let mut out = String::from(
+        "// The wire types of rookery serve, written by crates/rookery-proto/tests/bindings.rs.\n",
+    );
+    for name in names {
+        out.push_str(&format!("export type * from \"./{name}\"\n"));
+    }
+    out
 }

@@ -10,7 +10,7 @@ use serde_json::Value;
 pub enum ErrorCode {
     /// The params fail the schema, or the request is wrong.
     Invalid,
-    /// The caller lacks the level on the resource, or is not signed in.
+    /// The caller lacks the level on the resource.
     Forbidden,
     /// No such method, row or thing.
     NotFound,
@@ -22,6 +22,8 @@ pub enum ErrorCode {
     Timeout,
     /// A bug.
     Internal,
+    /// The request has no session or token that works: sign in again.
+    Unauthenticated,
 }
 
 /// JSON-RPC's own numbers for problems with the envelope.
@@ -30,7 +32,7 @@ pub const INVALID_REQUEST: i64 = -32600;
 pub const METHOD_NOT_FOUND: i64 = -32601;
 
 impl ErrorCode {
-    pub const ALL: [ErrorCode; 7] = [
+    pub const ALL: [ErrorCode; 8] = [
         ErrorCode::Invalid,
         ErrorCode::Forbidden,
         ErrorCode::NotFound,
@@ -38,6 +40,7 @@ impl ErrorCode {
         ErrorCode::Unavailable,
         ErrorCode::Timeout,
         ErrorCode::Internal,
+        ErrorCode::Unauthenticated,
     ];
 
     /// The JSON-RPC number of the code.
@@ -50,6 +53,7 @@ impl ErrorCode {
             ErrorCode::Unavailable => -32004,
             ErrorCode::Timeout => -32005,
             ErrorCode::Internal => -32603,
+            ErrorCode::Unauthenticated => -32000,
         }
     }
 
@@ -62,6 +66,7 @@ impl ErrorCode {
             -32003 => ErrorCode::Conflict,
             -32004 => ErrorCode::Unavailable,
             -32005 => ErrorCode::Timeout,
+            -32000 => ErrorCode::Unauthenticated,
             _ => ErrorCode::Internal,
         }
     }
@@ -75,6 +80,7 @@ impl ErrorCode {
             ErrorCode::Unavailable => "UNAVAILABLE",
             ErrorCode::Timeout => "TIMEOUT",
             ErrorCode::Internal => "INTERNAL",
+            ErrorCode::Unauthenticated => "UNAUTHENTICATED",
         }
     }
 
@@ -88,6 +94,7 @@ impl ErrorCode {
             ErrorCode::Unavailable => 503,
             ErrorCode::Timeout => 504,
             ErrorCode::Internal => 500,
+            ErrorCode::Unauthenticated => 401,
         }
     }
 }
@@ -180,6 +187,9 @@ impl RpcError {
     }
     pub fn internal(message: impl Into<String>) -> Self {
         Self::new(ErrorCode::Internal, message)
+    }
+    pub fn unauthenticated(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::Unauthenticated, message)
     }
 
     fn standard(number: i64, code: ErrorCode, message: String) -> Self {

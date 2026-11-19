@@ -142,14 +142,25 @@ async fn a_person_signs_in_through_the_provider() {
     });
     let (status, body, _) = http("GET", &format!("{}/auth/session", served.url), &[], None).await;
     assert_eq!(status, 401);
+    let signed_out: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(
-        serde_json::from_str::<Value>(&body).unwrap(),
-        json!({"auth": "oidc", "loginUrl": "/auth/login"})
+        (
+            signed_out["error"]["code"].as_str(),
+            signed_out["local"].as_bool()
+        ),
+        (Some("UNAUTHENTICATED"), Some(false))
+    );
+    assert_eq!(signed_out["sso"]["ready"], true);
+    assert!(
+        signed_out["sso"]["name"]
+            .as_str()
+            .unwrap()
+            .starts_with("127.0.0.1:")
     );
 
     let (status, _, headers) = http(
         "GET",
-        &format!("{}/auth/login?return=/hosts/studio", served.url),
+        &format!("{}/auth/login?return_to=/hosts/studio", served.url),
         &[],
         None,
     )

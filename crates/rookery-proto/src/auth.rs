@@ -155,12 +155,27 @@ pub struct LinkList {
     pub links: Vec<LinkInfo>,
 }
 
-/// What `GET /auth/session` answers a browser that is not signed in: how it can sign in.
+/// What `GET /auth/session` answers when nobody is signed in: why, and how one can sign in.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SignedOut {
+    pub error: crate::error::ErrorBody,
     pub auth: AuthMode,
-    /// Where to send the browser to sign in with the identity provider.
-    pub login_url: Option<String>,
+    /// A development sign-in. Never on this server.
+    pub dev_login: bool,
+    /// Local accounts: a person signs in by a link from `rookery server setup-key` or an admin.
+    pub local: bool,
+    /// The identity provider: `GET /auth/login` signs in through it.
+    pub sso: Option<Sso>,
+}
+
+/// An identity provider to sign in with.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct Sso {
+    /// What "Sign in with …" names: the issuer's host.
+    pub name: String,
+    /// Whether the server has the provider's metadata. Without it `/auth/login` fails.
+    pub ready: bool,
 }

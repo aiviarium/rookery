@@ -741,7 +741,7 @@
             },
             {
               "const": "FORBIDDEN",
-              "description": "The caller lacks the level on the resource, or is not signed in.",
+              "description": "The caller lacks the level on the resource.",
               "type": "string"
             },
             {
@@ -767,6 +767,11 @@
             {
               "const": "INTERNAL",
               "description": "A bug.",
+              "type": "string"
+            },
+            {
+              "const": "UNAUTHENTICATED",
+              "description": "The request has no session or token that works: sign in again.",
               "type": "string"
             }
           ]

@@ -7,7 +7,7 @@ use axum::response::{IntoResponse, Response};
 use chrono::Utc;
 use rookery_kernel::auth::{SESSION_COOKIE, authenticate, bearer, cookie, wire_user};
 use rookery_kernel::{Caller, Kernel, RpcError};
-use rookery_proto::auth::{AuthMode, SignedOut};
+use rookery_proto::auth::{AuthMode, SignedOut, Sso};
 use rookery_store::users::{Login, User};
 use uuid::Uuid;
 
@@ -175,15 +175,21 @@ pub async fn current(State(kernel): State<Kernel>, headers: HeaderMap) -> Respon
     {
         return Json(serde_json::json!({ "user": user })).into_response();
     }
-    let login_url = (kernel.config.auth == AuthMode::Oidc).then(|| "/auth/login".to_owned());
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(SignedOut {
-            auth: kernel.config.auth,
-            login_url,
+    let sso = match crate::oidc::configured(&kernel) {
+        Some(config) => Some(Sso {
+            name: crate::oidc::display_name(config),
+            ready: crate::oidc::ready(&kernel).await,
         }),
-    )
-        .into_response()
+        None => None,
+    };
+    let signed_out = SignedOut {
+        error: RpcError::unauthenticated("sign in first").body(),
+        auth: kernel.config.auth,
+        dev_login: false,
+        local: kernel.config.auth == AuthMode::Local,
+        sso,
+    };
+    (StatusCode::UNAUTHORIZED, Json(signed_out)).into_response()
 }
 
 /// `POST /auth/logout`: ends the session and clears the cookie.

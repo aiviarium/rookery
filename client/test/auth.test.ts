@@ -162,7 +162,7 @@ describe("@rookery/client auth helpers", () => {
 
     conn.connect()
     await waitFor(() => store.me() !== null)
-    expect(store.me()?.user.name).toBe("Dev User")
+    expect(store.me()?.user?.name).toBe("Dev User")
     expect(store.signedOut()).toBe(false)
   })
 })
