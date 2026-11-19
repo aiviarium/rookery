@@ -39,16 +39,26 @@ pub struct Access<'a> {
     pub(crate) pool: &'a PgPool,
 }
 
-/// A principal a grant may name: `user:<uuid>`, `group:<uuid>` or `everyone`.
+/// A principal a grant may name: `user:<uuid>`, `group:<uuid>`, `plugin:<id>` or `everyone`.
 pub fn check_principal(principal: &str) -> Result<()> {
     principal_name(principal).map(|_| ())
 }
 
-/// A principal as grants keep it, with its id in the one spelling the callers' principals have, so that
-/// `user:<UUID>` in capitals or without hyphens names the same person.
+/// A principal as grants keep it, with a user or group's id in the one spelling the callers'
+/// principals have, so that `user:<UUID>` in capitals or without hyphens names the same person. A
+/// plugin's id is kept as it is: a package's id, and none Rookery keeps for itself.
 pub fn principal_name(principal: &str) -> Result<String> {
     if principal == "everyone" {
         return Ok(principal.to_owned());
+    }
+    if let Some(id) = principal.strip_prefix("plugin:") {
+        return if rookery_api::plugin_ids::valid_plugin_id(id) {
+            Ok(format!("plugin:{id}"))
+        } else {
+            Err(Error::Invalid(format!(
+                "{principal:?} does not name a plugin after plugin:"
+            )))
+        };
     }
     let named = ["user:", "group:"].iter().find_map(|kind| {
         let id = principal.strip_prefix(kind)?;
@@ -56,7 +66,7 @@ pub fn principal_name(principal: &str) -> Result<String> {
     });
     named.ok_or_else(|| {
         Error::Invalid(format!(
-            "{principal:?} is not user:<id>, group:<id> or everyone"
+            "{principal:?} is not user:<id>, group:<id>, plugin:<id> or everyone"
         ))
     })
 }
@@ -80,7 +90,10 @@ pub fn check_resource(resource: &str) -> Result<()> {
     }
 }
 
-const PRINCIPALS: &str = "SELECT unnest(ARRAY[$2::text, 'everyone'] || CASE WHEN $3::uuid IS NULL THEN '{}'::text[] ELSE ARRAY['user:' || $3::text] END
+/// The principals a level counts, by the caller's own principal: `everyone` reaches a person, and
+/// never a plugin, which needs a grant of its own on the host.
+const PRINCIPALS: &str = "SELECT unnest(CASE WHEN $2::text LIKE 'plugin:%' THEN ARRAY[$2::text] ELSE ARRAY[$2::text, 'everyone'] END
+    || CASE WHEN $3::uuid IS NULL THEN '{}'::text[] ELSE ARRAY['user:' || $3::text] END
     || coalesce((SELECT array_agg('group:' || m.group_id::text) FROM rookery.group_members m WHERE m.user_id = $3), '{}'::text[]))";
 
 impl Access<'_> {
@@ -126,6 +139,20 @@ impl Access<'_> {
         .bind(resource)
         .fetch_all(self.pool)
         .await?)
+    }
+
+    /// Takes every grant a principal holds away, and answers the resources it held one on, so that a
+    /// plugin removed leaves nothing for a package that later takes its id.
+    pub async fn forget_principal(&self, principal: &str) -> Result<Vec<String>> {
+        let principal = &principal_name(principal)?;
+        Ok(
+            sqlx::query_scalar(
+                "DELETE FROM rookery.grants WHERE principal = $1 RETURNING resource",
+            )
+            .bind(principal)
+            .fetch_all(self.pool)
+            .await?,
+        )
     }
 
     /// Moves the grants and the owner of a resource to another, as when a host is renamed.

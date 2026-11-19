@@ -74,7 +74,7 @@ pub fn register(methods: &mut Methods) {
             })
         })
         .summary(
-            "Grants a principal (user:ID, group:ID or everyone) view, use or manage on a resource.",
+            "Grants a principal (user:ID, group:ID, plugin:ID or everyone) view, use or manage on a resource.",
         )
         .level(manage());
     methods

@@ -197,11 +197,47 @@ Each method it registers with `rookery.rpc.handle` says who may call it through 
 
 A job declared in `contributes.jobs` has an ID such as `echo.build`. The host half registers it with `rookery.jobs.handle("echo.build", { run })`, and callers enqueue it as `echo/build`. Use `job.log` and `job.progress` to record output for the current attempt. Return the result from `run`. On cancellation, `job.signal` aborts and its reason identifies the cancellation. Stop any work when that happens. The server renews the claim until the handler stops or the process exits. Set `idempotent: true` only if repeating an interrupted job is safe. The queue can then retry up to `maxAttempts`. Other jobs have one automatic attempt. The declaration's `timeoutSecs` limits each attempt.
 
+A job runs for the server rather than a person. An env call in it names `job.ctx`, and has what the plugin was granted.
+
 The job's `enqueue` sets who may start it. With `own`, the default, signed-in users and the declaring plugin may enqueue it. With `plugin`, only the declaring plugin and admins may enqueue it. With `admin`, only admins may enqueue it.
 
 Use `rookery.connections.list({ type })` and `rookery.connections.get(id)` to read metadata for connections of types your plugin declares. Omit `type` to list all of your plugin's types. `rookery.connections.resolve(id)` also opens the sealed credential and returns it to the declaring plugin's process. Host halves use global connections. The server identifies the plugin from its process, so the host half gives no plugin or user ID. Keep credentials out of logs, service responses and job results.
 
 A host half hears events with `rookery.events.subscribe`. A name without a `/` is its plugin's own, and a full name is another's, such as the server's `rookery/hosts.changed`, `rookery/resources.changed` and `rookery/jobs.changed`.
+
+#### Hosts, files and commands
+
+A host half works with a host through `rookery.env`. Each call takes the context of the handler it serves:
+
+```ts title="host.ts"
+rookery.services.provide("notes", {
+  read: (ctx, { path }) => rookery.env.readFile(ctx, "studio", path),
+})
+```
+
+The server runs an env call for the person whose call the handler serves. It checks the call with that person's level on `env://NAME`. Some handlers run on the server's behalf: a job and a service call another plugin made. A service call from the server's own machine does too. Their calls have the plugin's own grants.
+
+A plugin gets a level on a host through a grant on the host, which takes manage on `env://NAME` to make. The principal is `plugin:<id>`: `{"resource": "env://studio", "principal": "plugin:notes", "level": "use"}`. Without a grant of its own, a plugin's call is refused: an `everyone` grant does not reach a plugin. Removing a plugin takes its grants away, so a package that later takes its id starts with none.
+
+| Method | What it does | Level |
+| --- | --- | --- |
+| `list(ctx)` | The hosts the person may see, as environments | view |
+| `get(ctx, env)` | One host, with the person's level | view |
+| `presence(ctx, env)` | Who has terminals on a host | view |
+| `exec(ctx, env, command, opts)` | Runs a command to its end, with `cwd`, `env`, `stdin` and `timeoutMs`, within the handler's call: 120 s by default, at most 300 s. Its output is at most one message | use |
+| `checkouts(ctx, env)` | The git checkouts and worktrees under the host's checkouts folder | use |
+| `clone(ctx, env, repository, opts)` | Clones into the host's checkouts folder, with `name` and `branch` | use |
+| `worktree(ctx, env, checkout, branch, opts)` | A worktree of a checkout, on a new branch, in the same folder | use |
+| `removeCheckout(ctx, env, path, opts)` | A checkout, or a worktree through `git worktree remove`, with `force` for one with changes | use |
+| `readFile(ctx, env, path)` | A file inside the host's roots, in base64 with its SHA-256, up to 8 MiB | use |
+| `writeFile(ctx, env, path, content, opts)` | Text or bytes, with `ifMatch` and `overwrite` as for a client half | use |
+| `deleteFile(ctx, env, path, opts)` | A file, or a folder with `recursive` | use |
+| `listDir(ctx, env, path)` | The entries of a folder | use |
+| `stat(ctx, env, path)` | The kind, size and modification time of a path, or no entry | use |
+
+On the host, commands and files are the agent account's. A host half cannot choose the operator account or root. A call that asks for one is refused. Files are inside the host's roots, a write is at most 8 MiB, and a checkout stays in the host's checkouts folder.
+
+A host half has no `connect` or `portUrl`: a byte stream or a browser address belongs to a client half's own connection.
 
 #### Host services
 

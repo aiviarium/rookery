@@ -160,7 +160,7 @@ Installing, updating, removing and the registries need an admin. `plugins.list` 
 
 A plugin's host half runs on the server, in a Bun process of its own. Rookery starts the extension host's entry, `host/dist/main.js` of its provisioning source unless `ROOKERY_EXTHOST` names another, with the Bun program of `ROOKERY_BUN`. The host half runs in a worker of that process, and the process talks JSON-RPC 2.0 with the server over its standard input and output, one message a line.
 
-The pipes are the plugin's identity. A process speaks for its plugin alone, and what it says of another plugin is ignored.
+The pipes are the plugin's identity. A process speaks for its plugin alone, and what it says of another plugin is ignored. Its calls of the server's methods run as the plugin. An `env` call names the invocation it serves, and runs for that person with their level on the host, or as the plugin when it serves none ([Hosts, files and commands](/docs/extend/writing-plugins#hosts-files-and-commands)).
 
 A host half gets none of the server's environment but `PATH`, `HOME`, `LANG`, `LC_ALL` and `TZ`, with `NODE_PATH` for the extension host's own packages and `ROOKERY_EXTHOST_PROTOCOL`. It does not get the database's address or the server's key. The server and each host make themselves non-dumpable, which keeps one host from opening another's pipes, or reading another's or the server's memory and environment through `/proc`.
 

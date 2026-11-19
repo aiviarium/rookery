@@ -15,9 +15,12 @@
 //! The server asks the process `plugins.activate`, `plugins.invoke`, `plugins.deactivate` and
 //! `plugins.transform` (a migration's transform step, see [`crate::data`]), and tells it
 //! `plugins.cancel` and `plugins.notify`, which carries what the kernel sent to the plugin's
-//! connection, such as `events.event`. The process asks `host.hello` first, then calls the server's
-//! methods, which run as the plugin on a connection of its own. It tells the server
-//! `plugins.registered`, `plugins.unregistered`, `plugins.exited` and `plugins.log`.
+//! connection, such as `events.event`. The process asks `host.hello` first. Then it asks the methods
+//! a host half may call ([`HOST_REQUESTS`]), which run as the plugin on a connection of its own, and
+//! anything else is refused. Its `host.env` asks for one of an invocation's env methods, which runs
+//! for that invocation's person, or as the plugin when it serves none; no `env.*` is called any other
+//! way. It tells the server `plugins.registered`, `plugins.unregistered`, `plugins.exited` and
+//! `plugins.log`.
 //!
 //! A host half that ends, whether its worker or its whole process, that does not stop a call past
 //! its deadline, or whose process uses more memory than [`HostOptions::memory_mb`] (read from
@@ -36,7 +39,7 @@ use std::time::{Duration, Instant};
 use rookery_jobs::JobRun;
 use rookery_kernel::conn::{ConnHandle, Outbound};
 use rookery_kernel::{Call, Caller, Kernel};
-use rookery_proto::{ErrorBody, ErrorCode, RpcError};
+use rookery_proto::{ErrorBody, ErrorCode, RpcError, User};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -67,6 +70,72 @@ const MAX_CALLS: usize = 64;
 const MAX_STREAMS: usize = 32;
 
 const KEPT_ENV: &[&str] = &["PATH", "HOME", "LANG", "LC_ALL", "TZ"];
+
+/// The env methods a host half reaches a host with, through `host.env`. A host half has no
+/// `env.connect` or `env.portUrl`: a stream and a browser address belong to a client half's connection.
+const HOST_ENV: &[&str] = &[
+    "env.list",
+    "env.get",
+    "env.presence",
+    "env.exec",
+    "env.checkouts",
+    "env.clone",
+    "env.worktree",
+    "env.removeCheckout",
+    "env.readFile",
+    "env.writeFile",
+    "env.deleteFile",
+    "env.listDir",
+    "env.stat",
+];
+
+/// Everything a host half may ask on its pipe: its own `host.*` requests, and the server's methods
+/// its runtime calls. Anything else is refused, and no `env.*` is here: a host half reaches a host
+/// through `host.env`, which knows the invocation it serves.
+const HOST_REQUESTS: &[&str] = &[
+    "host.env",
+    "host.stream.item",
+    "host.job.log",
+    "host.job.progress",
+    "host.services.open",
+    "host.services.next",
+    "host.services.close",
+    "settings.get",
+    "settings.set",
+    "settings.reset",
+    "storage.get",
+    "storage.set",
+    "storage.list",
+    "storage.delete",
+    "secrets.get",
+    "secrets.set",
+    "secrets.list",
+    "secrets.delete",
+    "secrets.rename",
+    "events.publish",
+    "events.subscribe",
+    "events.unsubscribe",
+    "leases.acquire",
+    "leases.renew",
+    "leases.release",
+    "topics.publish",
+    "notify.send",
+    "jobs.enqueue",
+    "jobs.get",
+    "jobs.cancel",
+    "services.call",
+    "services.list",
+    "extensions.list",
+    "connections.list",
+    "connections.get",
+    "connections.resolve",
+    // A migration's transform step, which runs in this process and reads and writes its transaction.
+    "data.txRows",
+    "data.txLegacy",
+    "data.txInsert",
+    "data.txUpdate",
+    "data.txDelete",
+];
 
 /// How the server starts the extension host.
 #[derive(Debug, Clone)]
@@ -136,6 +205,26 @@ impl Drop for InvocationGuard {
         {
             cancelled.cancel();
         }
+    }
+}
+
+/// Who a host half's own calls run as while it serves one invocation, and until when.
+#[derive(Clone)]
+struct Acting {
+    /// The person the invocation is for, or none when the plugin acts on its own, as in a job.
+    user: Option<User>,
+    /// The invocation's deadline, which the calls it makes do not outlive.
+    deadline: Instant,
+}
+
+struct ActingGuard {
+    link: Link,
+    id: String,
+}
+
+impl Drop for ActingGuard {
+    fn drop(&mut self) {
+        self.link.0.acting.lock().unwrap().remove(&self.id);
     }
 }
 
@@ -375,6 +464,7 @@ impl ExtHost {
                 out,
                 pending: Mutex::default(),
                 invocations: Mutex::default(),
+                acting: Mutex::default(),
                 streams: Mutex::default(),
                 next: AtomicI64::new(1),
                 stop: CancellationToken::new(),
@@ -664,11 +754,25 @@ impl ExtHost {
                 id: call_id.clone(),
             }
         });
+        // Until this invocation ends, the host half's own calls run for the person it serves, or as
+        // the plugin when there is none.
+        link.0.acting.lock().unwrap().insert(
+            call_id.clone(),
+            Acting {
+                user: call.user().cloned(),
+                deadline: call.deadline,
+            },
+        );
+        let acting = ActingGuard {
+            link: link.clone(),
+            id: call_id.clone(),
+        };
         let request = link.request("plugins.invoke", invoke);
         let deadline = call.deadline;
         let (mut tx, rx) = oneshot::channel();
         tokio::spawn(async move {
             let _permits = permits;
+            let _acting = acting;
             let mut request = Box::pin(request);
             let cancelled = async {
                 match &job {
@@ -862,6 +966,7 @@ struct LinkInner {
     out: mpsc::UnboundedSender<String>,
     pending: Pending,
     invocations: Mutex<HashMap<String, Invocation>>,
+    acting: Mutex<HashMap<String, Acting>>,
     streams: Mutex<HashMap<String, Arc<HostStream>>>,
     next: AtomicI64,
     stop: CancellationToken,
@@ -1378,6 +1483,11 @@ async fn host_request(
     method: &str,
     params: Value,
 ) -> Result<Value, RpcError> {
+    if !HOST_REQUESTS.contains(&method) {
+        return Err(RpcError::forbidden(format!(
+            "{method} is not one a host half may call"
+        )));
+    }
     let text = |key: &str| {
         params
             .get(key)
@@ -1426,6 +1536,47 @@ async fn host_request(
         "jobs.log" | "jobs.progress" => Err(RpcError::forbidden(
             "a host half writes through its running job handler",
         )),
+        // An env method on behalf of the invocation a call belongs to: the person's own level decides,
+        // or the plugin's when the invocation has no person, as a service call from a plugin or a job.
+        "host.env" => {
+            let call_id = text("callId")?.to_owned();
+            let env_method = text("method")?.to_owned();
+            if !HOST_ENV.contains(&env_method.as_str()) {
+                return Err(RpcError::forbidden(format!(
+                    "{env_method} is not an env method a host half has"
+                )));
+            }
+            let params = params.get("params").cloned().unwrap_or_else(|| json!({}));
+            // A host half reaches a host as its agent account alone: the account a command runs as is
+            // not its to choose, even when the person it acts for holds manage on the host.
+            if env_method == "env.exec" && params.get("user").is_some() {
+                return Err(RpcError::forbidden(
+                    "a host half runs a command as the host's agent account",
+                ));
+            }
+            let acting = link.0.acting.lock().unwrap().get(&call_id).cloned();
+            let Some(acting) = acting else {
+                return Err(RpcError::not_found(
+                    "the call this env method is for has ended",
+                ));
+            };
+            let mut call = call.clone();
+            call.deadline = acting.deadline;
+            call.host_env = true;
+            if let Some(user) = acting.user {
+                // The audit log names the person whose level ran the call, and the plugin that did it.
+                if let Caller::Plugin(plugin) = &call.caller {
+                    call.on_behalf = Some(plugin.clone());
+                }
+                call.caller = Caller::User {
+                    user,
+                    session: None,
+                    token: None,
+                };
+            }
+            let methods = call.kernel.methods.clone();
+            methods.dispatch(call, &env_method, params).await
+        }
         "host.services.open" => {
             let capacity = Arc::new(reserve(&link.0.capacity.streams)?);
             let asked = serde_json::from_value(params)
