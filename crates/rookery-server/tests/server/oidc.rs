@@ -158,6 +158,20 @@ async fn a_person_signs_in_through_the_provider() {
             .starts_with("127.0.0.1:")
     );
 
+    let platform = served
+        .db
+        .store
+        .access()
+        .create_group("Platform", Some("platform"))
+        .await
+        .unwrap();
+    let other = served
+        .db
+        .store
+        .access()
+        .create_group("Other", Some("other"))
+        .await
+        .unwrap();
     let (status, _, headers) = http(
         "GET",
         &format!("{}/auth/login?return_to=/hosts/studio", served.url),
@@ -197,6 +211,22 @@ async fn a_person_signs_in_through_the_provider() {
             user["admin"].as_bool()
         ),
         (Some("Maria"), Some("maria@example.test"), Some(true))
+    );
+    // The groups bound to the provider's claims have the person, and only those it names.
+    let id: uuid::Uuid = user["id"].as_str().unwrap().parse().unwrap();
+    assert_eq!(
+        served.db.store.access().members(platform.id).await.unwrap(),
+        [id]
+    );
+    assert!(
+        served
+            .db
+            .store
+            .access()
+            .members(other.id)
+            .await
+            .unwrap()
+            .is_empty()
     );
     // The code was for one sign-in.
     let (status, _, _) = http("GET", &callback, &[("cookie", &state)], None).await;

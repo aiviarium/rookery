@@ -478,6 +478,15 @@ pub async fn callback(
     };
     match sign_in(&kernel, login, &Device::from_headers(&headers)).await {
         Ok(signed) => {
+            // Groups bound to a claim have the members the provider names now.
+            if let Err(e) = kernel
+                .store
+                .access()
+                .sync_claims(signed.user.id, &groups)
+                .await
+            {
+                tracing::warn!(error = %e, "taking in the groups of a sign-in failed");
+            }
             let cleared = format!("{STATE_COOKIE}=; Path=/auth; HttpOnly; SameSite=Lax; Max-Age=0");
             let cookies = [
                 (header::SET_COOKIE, session_cookie(&kernel, &signed.token)),
