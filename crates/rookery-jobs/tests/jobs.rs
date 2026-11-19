@@ -1109,3 +1109,23 @@ async fn a_burst_of_events_drops_what_does_not_fit_and_keeps_the_connection() {
     );
     k.close().await;
 }
+
+#[tokio::test]
+async fn no_plugin_acts_as_rookery() {
+    let k: TestKernel = test_kernel!(messaging());
+    for id in ["rookery", "rookery.hosts"] {
+        let posing = Caller::Plugin(id.into());
+        assert_eq!(
+            code(
+                k.call(
+                    &posing,
+                    "leases.acquire",
+                    json!({"name": "locks/studio", "ttlMs": 30000, "worker": "w1"}),
+                )
+                .await
+            ),
+            "FORBIDDEN",
+            "{id}"
+        );
+    }
+}

@@ -159,6 +159,12 @@ fn schema_problems(manifest: &Value) -> Vec<Problem> {
 /// Rookery versions it works with, and that target's files. It is packed
 /// the way Hatchery packs it, without a build, so what passes here installs.
 /// A `package.kdl` that cannot be read is the one problem.
+/// The ids no plugin may have: `sign-in:NAME` are Rookery's own sign-ins, and `rookery` is the
+/// server, whose secrets, settings and leases are kept under that id.
+pub fn reserved(id: &str) -> bool {
+    id == "sign-in" || id == "rookery" || id.starts_with("rookery.")
+}
+
 pub fn check_dir(dir: &Path) -> Vec<String> {
     let manifest = match hatchery::Manifest::load(dir) {
         Ok(manifest) => manifest,
@@ -169,9 +175,9 @@ pub fn check_dir(dir: &Path) -> Vec<String> {
         return vec![format!("{} has no {TARGET} target", manifest.name())];
     };
     let id = &manifest.package.id;
-    if !valid_name(id) || id == "sign-in" {
+    if !valid_name(id) || reserved(id) {
         problems.push(format!(
-            "package.kdl: {id} is no plugin id: lower-case letters, digits, - and _, starting with a letter, and not sign-in"
+            "package.kdl: {id} is no plugin id: lower-case letters, digits, - and _, starting with a letter, and not sign-in or rookery"
         ));
     }
     if target
