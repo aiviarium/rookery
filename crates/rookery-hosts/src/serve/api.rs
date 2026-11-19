@@ -375,7 +375,13 @@ pub(crate) async fn pass(
             .as_str()
             .unwrap_or("internal")
             .to_owned();
-        return Err(Fail(answer.status, kind, message, None));
+        // The host's own failure is the host's: 502 for the caller, which says UNAVAILABLE, with
+        // the host's status beside it.
+        let (status, data) = match answer.status {
+            500 => (502, Some(json!({"host_status": 500}))),
+            status => (status, None),
+        };
+        return Err(Fail(status, kind, message, data));
     }
     let content_type = answer
         .headers

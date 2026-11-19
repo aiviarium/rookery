@@ -262,7 +262,11 @@ impl Remote {
             Ok(Err(error)) => Err(error.to_string()),
             Err(_) => Err("no answer in time".into()),
         };
-        *self.seen.lock().unwrap() = Some((Instant::now(), answer.clone()));
+        // A host without rookeryd is asked again each time: what stops a login there, such as a host
+        // key that changed, is told as soon as it is so.
+        if !matches!(&answer, Err(error) if error.starts_with(NO_ROOKERYD)) {
+            *self.seen.lock().unwrap() = Some((Instant::now(), answer.clone()));
+        }
         answer
     }
 }
