@@ -1,15 +1,18 @@
 """rookery serve over TCP: its methods over /rpc and /ws with their streams, grants
-on a host for people who are not admins, setting the server up through the API,
-and applying as a job.
+on a host for people who are not admins, terminals, files, ports and the desktop
+of a host, setting the server up through the API, and applying as a job.
 
 All but ApplyJob use rookery serve as harness.served() starts it. ApplyJob
 looks at the job of the server's own shared state (harness.served_extended())."""
 import base64
+import http.client
 import json
+import struct
 import unittest
+import urllib.parse
 
-from harness import (AGENT, HOST, needs_e2e, provisioned, random_text, served, served_extended, unb64,
-                     wait_for)
+from harness import (AGENT, HOST, WebSocket, needs_e2e, provisioned, random_text, served, served_extended,
+                     unb64, wait_for)
 
 
 def text_of(started):
@@ -172,6 +175,113 @@ class Grants(unittest.TestCase):
         # Removing a host is an admin's; managing it is not enough. The refusal runs nothing.
         self.assertEqual(self.serve.refused('hosts.act', {'host': HOST, 'action': 'remove'},
                                             token=self.people['manage']), 'FORBIDDEN')
+
+
+@needs_e2e
+class Connect(unittest.TestCase):
+    """A host's terminals, files, ports and desktop through the server, for the levels on it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.serve = served()
+        cls.people = {}
+        for level in ('view', 'use'):
+            token = cls.serve.make_token(f'cleo-{level}')
+            user = cls.serve.call('auth.me', token=token)['user']['id']
+            cls.serve.call('access.grant', {'resource': f'env://{HOST}', 'principal': f'user:{user}',
+                                            'level': level})
+            cls.people[level] = token
+
+    def test_a_terminal_is_its_owners(self):
+        use, view = self.people['use'], self.people['view']
+        self.assertEqual(self.serve.refused('terminals.open', {'env': f'env://{HOST}'}, token=view), 'FORBIDDEN')
+        opened = self.serve.call('terminals.open', {'env': f'env://{HOST}', 'command': ['cat']}, token=use)
+        self.assertEqual(opened['level'], 'use')
+        self.assertEqual(self.serve.refused('terminals.get', {'id': opened['id']}, token=view), 'FORBIDDEN')
+        self.assertEqual(self.serve.refused('terminals.get', {'id': opened['id']}), None)
+        marker = random_text('typed')
+        socket = self.serve.socket(token=use)
+        try:
+            attached = socket.result('terminals.attach', {'id': opened['id'], 'size': {'cols': 100, 'rows': 30}})
+            self.assertEqual(attached['mode'], 'snapshot')
+            socket.send(attached['stream'], b'\x00' + marker.encode() + b'\n')
+            tag = struct.pack('!I', attached['stream'])
+            seen = b''
+
+            def output(frame):
+                return isinstance(frame, bytes) and frame[:4] == tag
+
+            while marker.encode() not in seen:
+                frame = socket._take(output, 30)
+                if frame[4] == 0:
+                    seen += frame[5:]
+        finally:
+            socket.ws.close()
+        presence = self.serve.call('env.presence', {'env': HOST}, token=view)['users']
+        self.assertEqual([user['name'] for user in presence], ['cleo-use'])
+        self.serve.call('terminals.close', {'id': opened['id']}, token=use)
+
+    def test_files_and_ports_need_use(self):
+        use, view = self.people['use'], self.people['view']
+        path = f'/home/{AGENT}/{random_text("connect")}.txt'
+        written = self.serve.call('env.writeFile', {'env': HOST, 'path': path,
+                                                    'base64': base64.b64encode(b'one').decode()}, token=use)
+        read = self.serve.call('env.readFile', {'env': HOST, 'path': path}, token=use)
+        self.assertEqual((base64.b64decode(read['base64']), read['sha256']), (b'one', written['sha256']))
+        self.assertEqual(self.serve.refused('env.readFile', {'env': HOST, 'path': path}, token=view), 'FORBIDDEN')
+        self.serve.call('env.deleteFile', {'env': HOST, 'path': path}, token=use)
+        # A web server of the agent's on the host's loopback, opened in a browser on its own origin.
+        port = 18765
+        self.serve.call('hosts.sessions.open', {'host': HOST, 'kind': 'process', 'user': 'agent', 'command': [
+            'python3', '-m', 'http.server', str(port), '--bind', '127.0.0.1', '--directory', '/tmp']})
+
+        def get(path, headers):
+            connection = http.client.HTTPConnection('127.0.0.1', self.serve.port, timeout=60)
+            try:
+                connection.request('GET', path, headers=headers)
+                answer = connection.getresponse()
+                return answer.status, dict(answer.getheaders()), answer.read()
+            finally:
+                connection.close()
+
+        status, _, _ = get(f'/env/{HOST}/port/{port}/', {'Authorization': f'Bearer {view}'})
+        self.assertEqual(status, 403)
+
+        def redirected():
+            status, headers, _ = get(f'/env/{HOST}/port/{port}/', {'Authorization': f'Bearer {use}'})
+            return headers['Location'] if status in (302, 303, 307) else None
+        location = urllib.parse.urlsplit(wait_for('the port\'s address', redirected))
+        claimed, headers, _ = get(f'{location.path}?{location.query}', {'Host': location.netloc})
+        self.assertIn(claimed, (302, 303, 307))
+        cookie = headers['Set-Cookie'].split(';')[0]
+
+        def page():
+            status, _, body = get('/', {'Host': location.netloc, 'Cookie': cookie})
+            return body if status == 200 else None
+        self.assertIn(b'Directory listing', wait_for('the port\'s page', page))
+        status, _, _ = get('/', {'Host': location.netloc})
+        self.assertEqual(status, 401)
+
+    def test_the_desktop_is_for_use(self):
+        use, view = self.people['use'], self.people['view']
+        with self.assertRaises(PermissionError):
+            WebSocket(self.serve.port, f'/env/{HOST}/desktop', protocols=['binary'],
+                      headers={'Authorization': f'Bearer {view}'})
+        desktop = WebSocket(self.serve.port, f'/env/{HOST}/desktop', protocols=['binary'],
+                            headers={'Authorization': f'Bearer {use}'})
+        try:
+            # The server answered the VNC password itself; the viewer is offered no security.
+            self.assertEqual(desktop.recv(), b'RFB 003.008\n')
+            desktop.send(b'RFB 003.008\n')
+            self.assertEqual(desktop.recv(), bytes([1, 1]))
+            desktop.send(bytes([1]))
+            self.assertEqual(desktop.recv(), bytes(4))
+            desktop.send(bytes([1]))
+            init = desktop.recv()
+            width, height = struct.unpack('!HH', init[:4])
+            self.assertGreater(width * height, 0)
+        finally:
+            desktop.close()
 
 
 @needs_e2e

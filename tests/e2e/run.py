@@ -63,6 +63,7 @@ HOSTS = {
         'e2e_serve.Methods',
         'e2e_serve.Streams',
         'e2e_serve.Grants',
+        'e2e_serve.Connect',
         'e2e_serve.SetUp',
         'e2e_client.Client',
         'e2e_client.AccessToken',
@@ -90,7 +91,8 @@ HOSTS = {
 # is given (its SEAM) on a pull request.
 SHARDS = {
     'studio': ['e2e_apply.Apply', 'e2e_host', 'e2e_secrets', 'e2e_local', 'e2e_controller.OnAWorkstation',
-               'e2e_serve.Methods', 'e2e_serve.Streams', 'e2e_serve.Grants', 'e2e_serve.SetUp',
+               'e2e_serve.Methods', 'e2e_serve.Streams', 'e2e_serve.Grants', 'e2e_serve.Connect',
+               'e2e_serve.SetUp',
                'e2e_client.Client', 'e2e_client.AccessToken'],
     # A server of its own, restored from a dump of its database: two minutes on its own host.
     'restore': ['e2e_restore'],
