@@ -16,6 +16,7 @@ rookery-kernel.workspace = true
 rookery-auth.workspace = true
 rookery-facilities.workspace = true
 rookery-data.workspace = true
+rookery-documents.workspace = true
 rookery-jobs.workspace = true
 rookery-hosts.workspace = true
 rookery-plugins.workspace = true

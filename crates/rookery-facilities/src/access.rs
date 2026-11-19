@@ -6,7 +6,7 @@ use crate::time;
 use rookery_kernel::{Call, Caller, Empty, Grant, Level, Methods, RpcError};
 use rookery_proto::access::{
     AccessFilter, AccessGrant, AccessRequire, AccessRevoke, GrantInfo, GrantList, LevelHeld,
-    LevelOf, ResourceRef, Resources,
+    LevelOf, Person, PersonList, ResourceRef, Resources, UserSearch,
 };
 use rookery_store::access::Who;
 use uuid::Uuid;
@@ -135,9 +135,13 @@ pub fn register(methods: &mut Methods) {
     methods
         .add("access.levelOf", |call: Call, p: LevelOf| async move {
             let principal = rookery_store::access::principal_name(&p.principal)?;
-            let user = principal
+            let Some(user) = principal
                 .strip_prefix("user:")
-                .and_then(|id| Uuid::parse_str(id).ok());
+                .and_then(|id| Uuid::parse_str(id).ok())
+            else {
+                return Err(RpcError::invalid("principal is one person: user:<id>"));
+            };
+            let user = Some(user);
             if let Some(user) = user
                 && call
                     .store()
@@ -165,8 +169,32 @@ pub fn register(methods: &mut Methods) {
                 level: Grant::from_number(held),
             })
         })
-        .summary("The level another principal holds on a resource.")
-        .level(Level::Admin);
+        .summary("The level a person holds on a resource, for a plugin about to tell them of it.")
+        .level(Level::Plugin);
+    methods
+        .add("users.search", |call: Call, p: UserSearch| async move {
+            let text = p.text.trim();
+            if text.is_empty() || text.len() > 200 {
+                return Err(RpcError::invalid("search for 1 to 200 bytes of a name or email"));
+            }
+            let people = call
+                .store()
+                .users()
+                .search(text, p.limit.unwrap_or(20).clamp(1, 50))
+                .await?;
+            Ok(PersonList {
+                people: people
+                    .into_iter()
+                    .map(|u| Person {
+                        id: u.id.to_string(),
+                        name: u.name,
+                        email: u.email,
+                    })
+                    .collect(),
+            })
+        })
+        .summary("People whose name or email starts with some words, for someone who holds manage on the resource they share.")
+        .level(manage());
     methods
         .add(
             "access.require",

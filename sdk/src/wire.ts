@@ -5,6 +5,8 @@
 // in `rookery-proto` fails `bun run check` at the call site. A method outside it is one the server
 // does not have yet, which `sdk/test/wire.test.ts` keeps honest against `api/methods.json`.
 import type {
+  ActivityList,
+  ActivityQuery,
   AppServiceList,
   AppServiceStatus,
   BacklinkList,
@@ -44,7 +46,33 @@ import type {
   Deleted,
   Delivered,
   DirListing,
+  DocumentContent,
+  DocumentConvert,
+  DocumentConverted,
+  DocumentCreate,
+  DocumentEdit,
+  DocumentEdited,
+  DocumentInfo,
+  DocumentList,
+  DocumentListQuery,
+  DocumentOpen,
+  DocumentOpened,
+  DocumentRead,
+  DocumentRef,
+  DocumentRestore,
+  DocumentSaveVersion,
+  DocumentVersion,
+  DocumentVersions,
   Empty,
+  EntityAlias,
+  EntityInfo,
+  EntityList,
+  EntityRef,
+  EntityRefs,
+  EntityRegister,
+  EntitySearch,
+  EntityTextList,
+  EntityTextQuery,
   EnvChanged,
   EnvFileWrite,
   EnvInfo,
@@ -77,6 +105,8 @@ import type {
   JobList,
   JobQuery,
   JobRef,
+  LevelHeld,
+  LevelOf,
   LiveQuery,
   LiveStarted,
   LogItems,
@@ -91,21 +121,42 @@ import type {
   NotifyRead,
   NotifySend,
   NotifySent,
+  PersonList,
+  PinAdd,
+  PinInfo,
+  PinList,
+  PinRemove,
+  PinRemoved,
+  PinsChanged,
+  PinsQuery,
   PluginInfo,
   PluginList,
   PortRef,
   PortUrl,
+  RecentForget,
+  RecentsList,
+  RecentsQuery,
+  RecentTouch,
+  RecentTouched,
   ReferenceList,
   RefsOf,
   Revision,
   ScreenInfo,
   ScreenQuery,
+  SearchParams,
+  SearchResult,
   SettingList,
   SettingRef,
   SettingReset,
   SettingSet,
   SettingsOf,
   SettingValue,
+  SpaceCreate,
+  SpaceInfo,
+  SpaceKindList,
+  SpaceList,
+  SpaceRef,
+  SpaceRename,
   StorageEntries,
   StorageList,
   StorageRef,
@@ -129,6 +180,7 @@ import type {
   TerminalResize,
   TerminalSignal,
   TerminalWrite,
+  UserSearch,
   WorktreeCreate,
 } from "./generated"
 
@@ -143,6 +195,8 @@ export interface WireCall<P, R> {
  * are empty at runtime: this is a table of types that a test and `wireCall` read the names from.
  */
 export const WIRE = {
+  "access.levelOf": {} as WireCall<LevelOf, LevelHeld>,
+  "activity.recent": {} as WireCall<ActivityQuery, ActivityList>,
   "auth.me": {} as WireCall<Empty, Me>,
   "blobs.get": {} as WireCall<BlobRef, BlobInfo>,
   "connections.create": {} as WireCall<ConnectionCreate, ConnectionInfo>,
@@ -172,6 +226,25 @@ export const WIRE = {
   "data.unlive": {} as WireCall<SubscriptionRef, Empty>,
   "data.update": {} as WireCall<DataUpdate, DataRow>,
   "data.upsert": {} as WireCall<DataUpsert, DataRow>,
+  "documents.convert": {} as WireCall<DocumentConvert, DocumentConverted>,
+  "documents.create": {} as WireCall<DocumentCreate, DocumentInfo>,
+  "documents.delete": {} as WireCall<DocumentRef, null>,
+  "documents.edit": {} as WireCall<DocumentEdit, DocumentEdited>,
+  "documents.flush": {} as WireCall<DocumentRef, null>,
+  "documents.get": {} as WireCall<DocumentRef, DocumentInfo>,
+  "documents.history": {} as WireCall<DocumentRef, DocumentVersions>,
+  "documents.list": {} as WireCall<DocumentListQuery, DocumentList>,
+  "documents.open": {} as WireCall<DocumentOpen, DocumentOpened>,
+  "documents.read": {} as WireCall<DocumentRead, DocumentContent>,
+  "documents.restore": {} as WireCall<DocumentRestore, DocumentVersion>,
+  "documents.saveVersion": {} as WireCall<DocumentSaveVersion, DocumentVersion>,
+  "entities.alias": {} as WireCall<EntityAlias, Empty>,
+  "entities.register": {} as WireCall<EntityRegister, EntityInfo>,
+  "entities.remove": {} as WireCall<EntityRef, Empty>,
+  "entities.resolve": {} as WireCall<EntityRef, EntityInfo | null>,
+  "entities.resolveMany": {} as WireCall<EntityRefs, EntityList>,
+  "entities.search": {} as WireCall<EntitySearch, EntityList>,
+  "entities.text": {} as WireCall<EntityTextQuery, EntityTextList>,
   "env.checkouts": {} as WireCall<EnvRef, CheckoutList>,
   "env.clone": {} as WireCall<CheckoutCreate, Checkout>,
   "env.connect": {} as WireCall<Connect, StreamOpened>,
@@ -203,12 +276,19 @@ export const WIRE = {
   "notify.send": {} as WireCall<NotifySend, NotifySent>,
   "notify.setPref": {} as WireCall<NotifyPref, Empty>,
   "extensions.list": {} as WireCall<{ point: string }, ExtensionList>,
+  "pins.add": {} as WireCall<PinAdd, PinInfo>,
+  "pins.list": {} as WireCall<PinsQuery, PinList>,
+  "pins.remove": {} as WireCall<PinRemove, PinRemoved>,
   "plugins.activate": {} as WireCall<{ id: string }, PluginInfo>,
   "plugins.list": {} as WireCall<Empty, PluginList>,
   "plugins.rpc": {} as WireCall<
     { plugin: string; method: string; params?: Record<string, unknown> },
     unknown
   >,
+  "recents.forget": {} as WireCall<RecentForget, Empty>,
+  "recents.list": {} as WireCall<RecentsQuery, RecentsList>,
+  "recents.touch": {} as WireCall<RecentTouch, RecentTouched>,
+  "search.query": {} as WireCall<SearchParams, SearchResult>,
   "services.call": {} as WireCall<
     { plugin: string; service: string; method: string; params?: Record<string, unknown> },
     unknown
@@ -223,6 +303,12 @@ export const WIRE = {
   "settings.list": {} as WireCall<SettingsOf, SettingList>,
   "settings.reset": {} as WireCall<SettingReset, Empty>,
   "settings.set": {} as WireCall<SettingSet, Empty>,
+  "spaces.create": {} as WireCall<SpaceCreate, SpaceInfo>,
+  "spaces.enter": {} as WireCall<SpaceRef, SpaceInfo>,
+  "spaces.get": {} as WireCall<SpaceRef, SpaceInfo>,
+  "spaces.kinds": {} as WireCall<Empty, SpaceKindList>,
+  "spaces.list": {} as WireCall<Empty, SpaceList>,
+  "spaces.rename": {} as WireCall<SpaceRename, SpaceInfo>,
   "storage.delete": {} as WireCall<StorageRef, Deleted>,
   "storage.get": {} as WireCall<StorageRef, StorageValue>,
   "storage.list": {} as WireCall<StorageList, StorageEntries>,
@@ -242,6 +328,7 @@ export const WIRE = {
   "terminals.sessions": {} as WireCall<EnvSessionQuery, EnvSessionList>,
   "terminals.signal": {} as WireCall<TerminalSignal, Empty>,
   "terminals.write": {} as WireCall<TerminalWrite, Empty>,
+  "users.search": {} as WireCall<UserSearch, PersonList>,
 }
 
 /** The name of a method `rookery serve` has and the client calls. */
@@ -274,6 +361,7 @@ export function wireCall<M extends WireMethod>(
  */
 export interface WireNotifications {
   "data.changed": DataChanged
+  "pins.changed": PinsChanged
   "events.event": EventNotice
   "events.dropped": EventsDropped
   "notify.new": NotifyNew
@@ -313,6 +401,7 @@ export type ServerEventName = keyof ServerEvents
  */
 export const NOTIFICATIONS = [
   "data.changed",
+  "pins.changed",
   "events.event",
   "events.dropped",
   "notify.new",
@@ -331,7 +420,7 @@ export type NotificationParams<M extends NotificationMethod> = WireNotifications
  * appears in `api/methods.json`, so that it moves into `WIRE` instead of staying untyped.
  */
 export const NOT_ON_SERVER = [
-  // The plugin system and the extension host.
+  // Commands in the extension host.
   "commands.list",
   "commands.run",
   // Stream channels a client opens for itself.

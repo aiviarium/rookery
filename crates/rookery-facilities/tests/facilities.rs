@@ -939,3 +939,65 @@ async fn layouts_are_a_persons_own() {
     );
     k.close().await;
 }
+
+#[tokio::test]
+async fn a_plugin_asks_what_one_person_holds_and_a_manager_finds_people_to_share_with() {
+    let k: TestKernel = test_kernel!(methods());
+    let admin = k.person("Maria", true).await;
+    let ops = k.person("Ops", false).await;
+    let eve = k.person("Eve", false).await;
+    let fleet = Caller::Plugin("fleet".into());
+    k.call(
+        &admin,
+        "access.grant",
+        json!({"resource": "env://studio", "principal": format!("user:{}", id(&ops)), "level": "manage"}),
+    )
+    .await
+    .unwrap();
+    let asked = |principal: String| json!({"resource": "env://studio", "principal": principal});
+    assert_eq!(
+        k.call(
+            &fleet,
+            "access.levelOf",
+            asked(format!("user:{}", id(&ops)))
+        )
+        .await
+        .unwrap(),
+        json!({"level": "manage"})
+    );
+    assert_eq!(
+        k.call(
+            &fleet,
+            "access.levelOf",
+            asked(format!("user:{}", id(&eve)))
+        )
+        .await
+        .unwrap(),
+        json!({"level": null})
+    );
+    // One person at a time; a person asks nothing of others.
+    assert_eq!(
+        code(
+            k.call(&fleet, "access.levelOf", asked("everyone".into()))
+                .await
+        ),
+        "INVALID"
+    );
+    assert_eq!(
+        code(
+            k.call(&eve, "access.levelOf", asked(format!("user:{}", id(&ops))))
+                .await
+        ),
+        "FORBIDDEN"
+    );
+    // Someone who holds manage finds people by a part of their name; someone who does not, nobody.
+    let search = json!({"resource": "env://studio", "text": "ev"});
+    let found = k.call(&ops, "users.search", search.clone()).await.unwrap();
+    assert_eq!(found["people"][0]["name"], "Eve");
+    assert_eq!(found["people"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        code(k.call(&eve, "users.search", search).await),
+        "FORBIDDEN"
+    );
+    k.close().await;
+}

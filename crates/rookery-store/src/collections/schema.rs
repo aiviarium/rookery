@@ -113,6 +113,10 @@ pub struct EntityDef {
     /// A `boolean` field; rows with it set are private and do not inherit grants.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub private: Option<String>,
+    /// The text `entities.text` makes of a row: `false` for none, `{ "fields": [..] }` for those fields
+    /// alone. Without it, every field but the title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<serde_json::Value>,
 }
 
 /// The permission level reading and writing need, on the row (entity collections) or on the

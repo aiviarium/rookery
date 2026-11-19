@@ -5,6 +5,79 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+// ── spaces ───────────────────────────────────────────────────────────────────────────────────────
+
+/// A space as the caller sees it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct SpaceInfo {
+    pub id: String,
+    /// `personal`, or a kind a plugin contributes (`<plugin>.<name>`).
+    pub kind: String,
+    pub name: String,
+    /// The URL segment: `/<slug>/<plugin>/<view>`. `~` is always the caller's own personal space.
+    pub slug: String,
+    pub personal: bool,
+    /// The caller's level on the space.
+    pub level: Option<crate::methods::Grant>,
+    pub owner: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SpaceList {
+    pub spaces: Vec<SpaceInfo>,
+}
+
+/// `spaces.get`, `spaces.enter`, `spaces.members`: a space by id or slug; `~` is the personal space.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SpaceRef {
+    pub space: String,
+}
+
+/// `spaces.create`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SpaceCreate {
+    /// A kind from some plugin's `spaceKinds`.
+    pub kind: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub slug: Option<String>,
+}
+
+/// `spaces.rename`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SpaceRename {
+    pub space: String,
+    pub name: String,
+}
+
+/// A space kind with the plugin that contributes it (`spaces.kinds`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SpaceKindInfo {
+    pub id: String,
+    pub plugin: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub icon: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SpaceKindList {
+    pub kinds: Vec<SpaceKindInfo>,
+}
+
 // ── entities and references ──────────────────────────────────────────────────────────────────────
 
 /// An entry of the entity index: enough to render a chip without asking the owning plugin.
@@ -857,4 +930,86 @@ pub struct DataTailResult {
     pub rows: Vec<Value>,
     #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub seq: i64,
+}
+
+// ── entity text ──────────────────────────────────────────────────────────────────────────────────────
+
+/// The longest text of one entity `entities.text` returns, whatever `max_chars` says.
+pub const ENTITY_TEXT_MAX_CHARS: u32 = 200_000;
+/// What `entities.text` cuts an entity's text to when the caller does not say.
+pub const ENTITY_TEXT_DEFAULT_CHARS: u32 = 20_000;
+/// The most entities one `entities.text` call takes.
+pub const ENTITY_TEXT_MAX_URIS: usize = 50;
+
+/// How a text is written.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum EntityTextFormat {
+    /// Text with no markup.
+    #[default]
+    Plain,
+    /// Markdown: headings and lists the reader may render or read as they are.
+    Markdown,
+}
+
+/// `entities.text` (rookery.v1's `Entities.Text`): entities as text, to read, search or hand to a model. Each is
+/// turned into text by the plugin that owns it (the handler `entities.text:<scheme>`, which `rookery.entities.text`
+/// registers or an entity type's `textHandler` binds to a service method), or, for a row of an entity collection,
+/// generated from its fields, and only if the caller may read it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct EntityTextQuery {
+    pub uris: Vec<String>,
+    /// Per entity; longer text is cut (`truncated`). Default 20000 characters, at most 200000.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub max_chars: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct EntityText {
+    pub uri: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub title: Option<String>,
+    pub text: String,
+    /// How `text` is written.
+    pub format: EntityTextFormat,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct EntityTextList {
+    pub texts: Vec<EntityText>,
+    /// URIs that do not exist, that the caller may not read, or whose owner gives no text.
+    pub missing: Vec<String>,
+}
+
+/// The params of `entities.text:<scheme>` in the owning plugin. The kernel has checked access.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct EntityTextCall {
+    pub uri: String,
+    pub scheme: String,
+    pub id: String,
+}
+
+/// What the owner of an entity type answers to `entities.text:<scheme>`, or null for no text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct EntityTextResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub title: Option<String>,
+    pub text: String,
+    /// Plain when missing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub format: Option<EntityTextFormat>,
 }

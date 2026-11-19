@@ -12,6 +12,8 @@ import {
 } from "../data"
 import { RookeryError } from "../errors"
 import type {
+  ActivityItem,
+  ActivityQuery,
   AppServiceInfo,
   AppServiceList,
   AppServiceStatus,
@@ -30,7 +32,18 @@ import type {
   ConnectionUpdate,
   Delivered,
   DirListing,
+  DocumentContent,
+  DocumentCreate,
+  DocumentEdit,
+  DocumentEdited,
+  DocumentFormat,
+  DocumentInfo,
+  DocumentOpened,
+  DocumentVersion,
+  EntityInfo,
+  EntityTextList,
   EnvInfo,
+  EnvList,
   EnvPresence,
   EnvSession,
   ExecResult,
@@ -49,14 +62,22 @@ import type {
   NotificationList,
   NotifySend,
   NotifySent,
+  PinAdd,
+  PinInfo,
+  PinsChanged,
   PortUrl,
+  RecentKind,
+  RecentsList,
   Revision,
   Scope,
   ScreenInfo,
   ScreenQuery,
+  SearchParams,
+  SearchResult,
   Setting,
   SettingScope,
   SpaceInfo,
+  SpaceKindInfo,
   SpaceList,
   StorageEntry,
   TerminalAttach,
@@ -335,10 +356,53 @@ export interface Connections {
 export interface Spaces {
   current(): SpaceInfo | null
   list(): Promise<SpaceInfo[]>
-  get(id: string): Promise<SpaceInfo>
-  create(params: { kind: string; name: string }): Promise<SpaceInfo>
-  rename(id: string, name: string): Promise<SpaceInfo>
-  enter(id: string): Promise<void>
+  /** A space by id, slug or `~`, the caller's own personal space. */
+  get(space: string): Promise<SpaceInfo>
+  kinds(): Promise<SpaceKindInfo[]>
+  create(params: { kind: string; name: string; slug?: string }): Promise<SpaceInfo>
+  rename(space: string, name: string): Promise<SpaceInfo>
+  enter(space: string): Promise<void>
+}
+
+/** The index of everything with a URI, as far as the caller may see. */
+export interface Entities {
+  resolve(uri: string): Promise<EntityInfo | null>
+  resolveMany(uris: string[]): Promise<EntityInfo[]>
+  search(text: string, opts?: { schemes?: string[]; space?: string; limit?: number }): Promise<EntityInfo[]>
+  /** Their text, to read or hand to a model: Markdown for rows of entity collections. */
+  text(uris: string[], opts?: { maxChars?: number }): Promise<EntityTextList>
+}
+
+/** Documents people edit together, attached to an entity whose access they inherit. */
+export interface Documents {
+  create(params: DocumentCreate): Promise<DocumentInfo>
+  get(id: string): Promise<DocumentInfo>
+  list(parent: string): Promise<DocumentInfo[]>
+  delete(id: string): Promise<void>
+  read(id: string, format?: DocumentFormat): Promise<DocumentContent>
+  edit(params: DocumentEdit): Promise<DocumentEdited>
+  history(id: string): Promise<DocumentVersion[]>
+  saveVersion(id: string, name: string): Promise<DocumentVersion>
+  restore(id: string, version: string): Promise<DocumentVersion>
+  /** Opens a document for live editing: y-protocols messages on the stream it opens. */
+  open(id: string): Promise<ClientStream & { document: DocumentInfo; readOnly: boolean }>
+}
+
+/** Entities and views kept in the sidebar: the caller's own, or a space's shared ones. */
+export interface Pins {
+  list(space?: string): Promise<PinInfo[]>
+  add(params: PinAdd): Promise<PinInfo>
+  remove(id: string): Promise<boolean>
+  /** Called when the pins change, with the space of shared ones. */
+  onChange(fn: (spaceId: string | null) => void): Disposable
+}
+
+/** What the caller opened and ran last. */
+export interface Recents {
+  touch(kind: RecentKind, key: string): Promise<boolean>
+  entities(opts?: { schemes?: string[]; space?: string; limit?: number }): Promise<RecentsList["entities"]>
+  commands(limit?: number): Promise<RecentsList["commands"]>
+  forget(kind: RecentKind, key?: string): Promise<void>
 }
 
 export interface Contexts {
@@ -416,6 +480,14 @@ export interface ClientRookery {
   readonly terminals: ClientTerminals
   readonly connections: Connections
   readonly spaces: Spaces
+  readonly entities: Entities
+  readonly documents: Documents
+  readonly pins: Pins
+  readonly recents: Recents
+  /** Search over the entities the caller may see; with no text, what they opened and what changed. */
+  search(params: SearchParams): Promise<SearchResult>
+  /** What changed lately in the caller's spaces. */
+  activity(params?: ActivityQuery): Promise<ActivityItem[]>
   readonly contexts: Contexts
   readonly blobs: Blobs
   readonly extensions: Extensions
@@ -758,14 +830,57 @@ export function createClientRookery(s: ClientScope): ClientRookery {
     },
     spaces: {
       current: () => s.rt.space?.() ?? null,
-      list: async () => ((await s.rt.call("spaces.list", {})) as SpaceList).spaces,
-      get: (id) => s.rt.call("spaces.get", { id }) as Promise<SpaceInfo>,
-      create: (params) => s.rt.call("spaces.create", params) as Promise<SpaceInfo>,
-      rename: (id, name) => s.rt.call("spaces.rename", { id, name }) as Promise<SpaceInfo>,
-      enter: async (id) => {
-        await s.rt.call("spaces.enter", { id })
+      list: async () => (await call("spaces.list", {})).spaces,
+      get: (space) => call("spaces.get", { space }),
+      kinds: async () => (await call("spaces.kinds", {})).kinds,
+      create: (params) => call("spaces.create", params),
+      rename: (space, name) => call("spaces.rename", { space, name }),
+      enter: async (space) => {
+        await call("spaces.enter", { space })
       },
     },
+    entities: {
+      resolve: (uri) => call("entities.resolve", { uri }),
+      resolveMany: async (uris) => (await call("entities.resolveMany", { uris })).entities,
+      search: async (text, opts = {}) => (await call("entities.search", { text, ...opts })).entities,
+      text: (uris, opts = {}) => call("entities.text", { uris, ...opts }),
+    },
+    documents: {
+      create: (params) => call("documents.create", params),
+      get: (id) => call("documents.get", { id }),
+      list: async (parent) => (await call("documents.list", { parent })).documents,
+      delete: async (id) => {
+        await call("documents.delete", { id })
+      },
+      read: (id, format) => call("documents.read", { id, ...(format ? { format } : {}) }),
+      edit: (params) => call("documents.edit", params),
+      history: async (id) => (await call("documents.history", { id })).versions,
+      saveVersion: (id, name) => call("documents.saveVersion", { id, name }),
+      restore: (id, version) => call("documents.restore", { id, version }),
+      open: async (id) => {
+        const stream = await s.rt.stream("documents.open", { id })
+        const opened = stream.result as DocumentOpened
+        return Object.assign(stream, { document: opened.document, readOnly: opened.readOnly })
+      },
+    },
+    pins: {
+      list: async (space) => (await call("pins.list", space ? { space } : {})).pins,
+      add: (params) => call("pins.add", params),
+      remove: async (id) => (await call("pins.remove", { id })).removed,
+      onChange: (fn) =>
+        s.track(s.rt.onNotification("pins.changed", (p) => fn((p as PinsChanged).spaceId ?? null))),
+    },
+    recents: {
+      touch: async (kind, key) => (await call("recents.touch", { kind, key })).recorded,
+      entities: async (opts = {}) => (await call("recents.list", { kind: "entity", ...opts })).entities,
+      commands: async (limit) =>
+        (await call("recents.list", { kind: "command", ...(limit !== undefined ? { limit } : {}) })).commands,
+      forget: async (kind, key) => {
+        await call("recents.forget", { kind, ...(key !== undefined ? { key } : {}) })
+      },
+    },
+    search: (params) => call("search.query", params),
+    activity: async (params = {}) => (await call("activity.recent", params)).items,
     contexts: {
       provide: (id, provider) => (s.rt.provideContext ? s.track(s.rt.provideContext(id, provider)) : noop()),
       value: (id) => s.rt.contextValue?.(id),

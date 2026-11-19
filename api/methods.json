@@ -277,15 +277,21 @@
   },
   {
     "name": "access.levelOf",
-    "summary": "The level another principal holds on a resource.",
+    "summary": "The level a person holds on a resource, for a plugin about to tell them of it.",
     "level": {
-      "kind": "admin"
+      "kind": "plugin"
     },
     "params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "`access.levelOf`: the level of another principal.",
+      "description": "`access.levelOf`: the level of a person, `user:<id>`, such as one a plugin is about to tell of a\nresource. An admin names the plugin it asks for.",
       "properties": {
+        "plugin": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "principal": {
           "type": "string"
         },
@@ -407,6 +413,174 @@
       "additionalProperties": false,
       "description": "Params or a result with nothing in it: `{}`.",
       "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "activity.recent",
+    "summary": "What changed lately in the spaces the caller is in, runs of edits taken together.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`activity.recent`.",
+      "properties": {
+        "limit": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "space": {
+          "description": "Only this space (an id); every space the caller is in when missing.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "ActivityQuery",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "ActivityItem": {
+          "properties": {
+            "actorId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "actorName": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "at": {
+              "type": "string"
+            },
+            "changes": {
+              "description": "How many changes the entry stands for: a run of edits by one person is one entry.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "entity": {
+              "$ref": "#/$defs/EntityInfo"
+            },
+            "fields": {
+              "description": "The fields changed, where the collection keeps history.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "op": {
+              "description": "`insert`, `update`, `delete` or `restore`.",
+              "type": "string"
+            },
+            "seq": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "seq",
+            "at",
+            "op",
+            "entity",
+            "fields",
+            "changes"
+          ],
+          "type": "object"
+        },
+        "EntityInfo": {
+          "description": "An entry of the entity index: enough to render a chip without asking the owning plugin.",
+          "properties": {
+            "deletedAt": {
+              "description": "Set when the entity is in the trash.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "icon": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "parent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "plugin": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "private": {
+              "type": "boolean"
+            },
+            "scheme": {
+              "type": "string"
+            },
+            "spaceId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "subtitle": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            },
+            "uri": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "uri",
+            "scheme",
+            "id",
+            "title",
+            "private",
+            "updatedAt"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/ActivityItem"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "ActivityList",
       "type": "object"
     }
   },
@@ -4918,6 +5092,1727 @@
     }
   },
   {
+    "name": "documents.convert",
+    "summary": "Converts between Markdown and ProseMirror JSON, with no document.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`documents.convert`: Markdown to ProseMirror JSON in the shared editor's schema, or JSON to Markdown, with\nthe same converters documents use (`markdown` in, `content` out, or the other way). No document is needed:\nfor rich-text fields that sync with Markdown elsewhere (a comment from GitHub).",
+      "properties": {
+        "content": true,
+        "markdown": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "DocumentConvert",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "content": true,
+        "markdown": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "DocumentConverted",
+      "type": "object"
+    }
+  },
+  {
+    "name": "documents.create",
+    "summary": "Makes a document attached to an entity, whose access it inherits: view reads, use edits.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`documents.create`. The caller needs `use` on `parent`; without a parent the document belongs to the\ncaller alone (they own it, and share it like any entity).",
+      "properties": {
+        "content": {
+          "description": "Initial content as ProseMirror JSON (a `doc` node, or a list of block nodes)."
+        },
+        "markdown": {
+          "description": "Initial content as Markdown, when `content` is not given.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parent": {
+          "description": "The entity the document is attached to (`note://…`, `issue://…`). Permissions inherit from it, and\nmentions in the document are references from it (see `DocumentInfo.source`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "space": {
+          "description": "The space it belongs to (an id). Defaults to the parent's space, then the caller's current space.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "The entity title until the document has text of its own (its first block names it after that).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "DocumentCreate",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "A document as `documents.get`, `create` and `list` describe it.",
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "createdBy": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "level": {
+          "description": "The caller's level: `view` (read only), `use` (edit) or `manage`.",
+          "type": "string"
+        },
+        "parent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "plugin": {
+          "description": "The plugin that created it, if a plugin did.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "description": "The URI mentions in the document are indexed from: the parent entity, or the document itself when\nit has no parent or its parent is a space or a plugin.",
+          "type": "string"
+        },
+        "spaceId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "The entity index title: the first block's text, or the title given at creation while it is empty.",
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        },
+        "uri": {
+          "description": "`document://<id>`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "uri",
+        "source",
+        "title",
+        "createdAt",
+        "updatedAt",
+        "level"
+      ],
+      "title": "DocumentInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "documents.delete",
+    "summary": "Deletes a document. Needs manage on it.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`documents.get`, `documents.delete`, `documents.history`.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "DocumentRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "null",
+      "type": "null"
+    }
+  },
+  {
+    "name": "documents.edit",
+    "summary": "Edits a document on the server: replace, append, insert or set a section.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$defs": {
+        "DocumentAuthor": {
+          "description": "Who a server-side edit shows as to the people in the document (their awareness entry).",
+          "properties": {
+            "color": {
+              "description": "A CSS colour for the author's presence; one is picked from the name when absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "DocumentEditOp": {
+          "description": "One server-side edit. Blocks are the document's top-level nodes, counted from 0. Content is ProseMirror\nJSON (a node, a list of nodes, or a `doc`) or Markdown.",
+          "oneOf": [
+            {
+              "description": "Inserts blocks before block `at` (at the end when `at` is absent or past the end).",
+              "properties": {
+                "at": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "content": true,
+                "markdown": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "op": {
+                  "const": "insert",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Replaces blocks `from` up to (not including) `to` with the content.",
+              "properties": {
+                "content": true,
+                "from": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "markdown": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "op": {
+                  "const": "replaceBlocks",
+                  "type": "string"
+                },
+                "to": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "op",
+                "from",
+                "to"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Deletes blocks `from` up to (not including) `to`.",
+              "properties": {
+                "from": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "op": {
+                  "const": "deleteBlocks",
+                  "type": "string"
+                },
+                "to": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "op",
+                "from",
+                "to"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Replaces characters `from`..`to` of a text block (a paragraph, heading or code block; offsets in\nUTF-16 code units, an inline node such as a mention counts as one) with plain text, which takes the\nmarks of the character before it. Concurrent typing elsewhere in the block is kept.",
+              "properties": {
+                "block": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "from": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "op": {
+                  "const": "replaceText",
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "to": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "op",
+                "block",
+                "from",
+                "to",
+                "text"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Appends Markdown at the end of the document.",
+              "properties": {
+                "markdown": {
+                  "type": "string"
+                },
+                "op": {
+                  "const": "appendMarkdown",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "op",
+                "markdown"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Replaces the whole document.",
+              "properties": {
+                "content": true,
+                "markdown": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "op": {
+                  "const": "setContent",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`documents.edit`: applies the operations in order, in one Yjs transaction, as a participant of its own\n(the caller's principal), so the people in the document see the author's presence and the edit merges\nwith theirs. Needs `use`.",
+      "properties": {
+        "author": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DocumentAuthor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "ops": {
+          "items": {
+            "$ref": "#/$defs/DocumentEditOp"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "ops"
+      ],
+      "title": "DocumentEdit",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "blocks": {
+          "description": "Top-level blocks after the edit.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "blocks"
+      ],
+      "title": "DocumentEdited",
+      "type": "object"
+    }
+  },
+  {
+    "name": "documents.flush",
+    "summary": "Writes a live document's state and indexes now.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`documents.get`, `documents.delete`, `documents.history`.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "DocumentRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "null",
+      "type": "null"
+    }
+  },
+  {
+    "name": "documents.get",
+    "summary": "A document's record and the caller's level on it.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`documents.get`, `documents.delete`, `documents.history`.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "DocumentRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "A document as `documents.get`, `create` and `list` describe it.",
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "createdBy": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "level": {
+          "description": "The caller's level: `view` (read only), `use` (edit) or `manage`.",
+          "type": "string"
+        },
+        "parent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "plugin": {
+          "description": "The plugin that created it, if a plugin did.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "description": "The URI mentions in the document are indexed from: the parent entity, or the document itself when\nit has no parent or its parent is a space or a plugin.",
+          "type": "string"
+        },
+        "spaceId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "The entity index title: the first block's text, or the title given at creation while it is empty.",
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        },
+        "uri": {
+          "description": "`document://<id>`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "uri",
+        "source",
+        "title",
+        "createdAt",
+        "updatedAt",
+        "level"
+      ],
+      "title": "DocumentInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "documents.history",
+    "summary": "A document's saved versions, newest first.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`documents.get`, `documents.delete`, `documents.history`.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "DocumentRef",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "DocumentVersion": {
+          "description": "A saved state of a document.",
+          "properties": {
+            "createdAt": {
+              "type": "string"
+            },
+            "createdBy": {
+              "description": "The principal that made it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "documentId": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "description": "`named` (someone saved it), `auto` (periodic, and when an editing session ends) or `restore` (the\nstate just before a restore).",
+              "type": "string"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "size": {
+              "description": "Bytes of the stored state.",
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "documentId",
+            "kind",
+            "createdAt",
+            "size"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "versions": {
+          "items": {
+            "$ref": "#/$defs/DocumentVersion"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "versions"
+      ],
+      "title": "DocumentVersions",
+      "type": "object"
+    }
+  },
+  {
+    "name": "documents.list",
+    "summary": "The documents attached to an entity.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`documents.list`: the documents attached to an entity that the caller may view.",
+      "properties": {
+        "parent": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "parent"
+      ],
+      "title": "DocumentListQuery",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "DocumentInfo": {
+          "description": "A document as `documents.get`, `create` and `list` describe it.",
+          "properties": {
+            "createdAt": {
+              "type": "string"
+            },
+            "createdBy": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "level": {
+              "description": "The caller's level: `view` (read only), `use` (edit) or `manage`.",
+              "type": "string"
+            },
+            "parent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "plugin": {
+              "description": "The plugin that created it, if a plugin did.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "description": "The URI mentions in the document are indexed from: the parent entity, or the document itself when\nit has no parent or its parent is a space or a plugin.",
+              "type": "string"
+            },
+            "spaceId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "description": "The entity index title: the first block's text, or the title given at creation while it is empty.",
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            },
+            "uri": {
+              "description": "`document://<id>`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "uri",
+            "source",
+            "title",
+            "createdAt",
+            "updatedAt",
+            "level"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "documents": {
+          "items": {
+            "$ref": "#/$defs/DocumentInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "documents"
+      ],
+      "title": "DocumentList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "documents.open",
+    "summary": "Opens a document for live editing: Yjs sync messages on a stream.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`documents.open` (clients on `/ws`): opens a stream carrying y-protocols messages, each framed as a\nvaruint length followed by the message (`[0, step, …]` sync, `[1, …]` awareness). The kernel starts\nwith its sync step 1 and the awareness of everyone present; the client answers with its own step 1,\nwhich is how edits made offline reach the kernel on reconnect.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "DocumentOpen",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "DocumentInfo": {
+          "description": "A document as `documents.get`, `create` and `list` describe it.",
+          "properties": {
+            "createdAt": {
+              "type": "string"
+            },
+            "createdBy": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "level": {
+              "description": "The caller's level: `view` (read only), `use` (edit) or `manage`.",
+              "type": "string"
+            },
+            "parent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "plugin": {
+              "description": "The plugin that created it, if a plugin did.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "source": {
+              "description": "The URI mentions in the document are indexed from: the parent entity, or the document itself when\nit has no parent or its parent is a space or a plugin.",
+              "type": "string"
+            },
+            "spaceId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "description": "The entity index title: the first block's text, or the title given at creation while it is empty.",
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            },
+            "uri": {
+              "description": "`document://<id>`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "uri",
+            "source",
+            "title",
+            "createdAt",
+            "updatedAt",
+            "level"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "document": {
+          "$ref": "#/$defs/DocumentInfo"
+        },
+        "readOnly": {
+          "description": "The caller may only view: updates it sends are refused with an auth message and dropped.",
+          "type": "boolean"
+        },
+        "stream": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stream",
+        "document",
+        "readOnly"
+      ],
+      "title": "DocumentOpened",
+      "type": "object"
+    }
+  },
+  {
+    "name": "documents.read",
+    "summary": "A document's content as ProseMirror JSON, Markdown or text.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$defs": {
+        "DocumentFormat": {
+          "description": "What `documents.read` returns.",
+          "oneOf": [
+            {
+              "enum": [
+                "markdown"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "json",
+              "description": "ProseMirror JSON.",
+              "type": "string"
+            },
+            {
+              "const": "text",
+              "description": "Plain text, as indexed for search.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`documents.read`: the current content, or a version's (`version`).",
+      "properties": {
+        "format": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DocumentFormat"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "DocumentRead",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "blocks": {
+          "description": "How many top-level blocks the document has; block indexes in edits count these.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "content": {
+          "description": "ProseMirror JSON (`format: \"json\"`)."
+        },
+        "id": {
+          "type": "string"
+        },
+        "markdown": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "blocks"
+      ],
+      "title": "DocumentContent",
+      "type": "object"
+    }
+  },
+  {
+    "name": "documents.restore",
+    "summary": "Makes a saved version the document's state again, keeping the state before it as a version.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`documents.restore`: makes the document what it was in a version. The current state is saved as a\n`restore` version first; the change reaches everyone in the document as an ordinary edit. Needs `use`.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ],
+      "title": "DocumentRestore",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "A saved state of a document.",
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "createdBy": {
+          "description": "The principal that made it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "description": "`named` (someone saved it), `auto` (periodic, and when an editing session ends) or `restore` (the\nstate just before a restore).",
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "size": {
+          "description": "Bytes of the stored state.",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "documentId",
+        "kind",
+        "createdAt",
+        "size"
+      ],
+      "title": "DocumentVersion",
+      "type": "object"
+    }
+  },
+  {
+    "name": "documents.saveVersion",
+    "summary": "Saves the document's state now as a named version.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`documents.saveVersion`: a named version of the current state. Needs `use`.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "DocumentSaveVersion",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "A saved state of a document.",
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "createdBy": {
+          "description": "The principal that made it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "description": "`named` (someone saved it), `auto` (periodic, and when an editing session ends) or `restore` (the\nstate just before a restore).",
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "size": {
+          "description": "Bytes of the stored state.",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "documentId",
+        "kind",
+        "createdAt",
+        "size"
+      ],
+      "title": "DocumentVersion",
+      "type": "object"
+    }
+  },
+  {
+    "name": "entities.alias",
+    "summary": "Makes a URI of the plugin's name another entity, which it then resolves to.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`entities.alias` (plugins): `uri`, in a scheme of the plugin, now names the entity `target`. Resolving it\ngives the target, access to it is the target's, and references to it are the target's backlinks.",
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "uri": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "uri",
+        "target"
+      ],
+      "title": "EntityAlias",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "entities.register",
+    "summary": "Registers or updates an entity of a scheme the plugin declares.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`entities.register` (plugins): an entity that is not a collection row, in a scheme the plugin\ndeclares in `entityTypes`.",
+      "properties": {
+        "icon": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "private": {
+          "default": false,
+          "type": "boolean"
+        },
+        "refs": {
+          "description": "Outgoing references, for backlinks.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "searchText": {
+          "description": "More text to search.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "space": {
+          "description": "A space id; the entity inherits the space's grants unless it has a parent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subtitle": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "uri": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "uri",
+        "title"
+      ],
+      "title": "EntityRegister",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "An entry of the entity index: enough to render a chip without asking the owning plugin.",
+      "properties": {
+        "deletedAt": {
+          "description": "Set when the entity is in the trash.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "icon": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "parent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "plugin": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "private": {
+          "type": "boolean"
+        },
+        "scheme": {
+          "type": "string"
+        },
+        "spaceId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subtitle": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        },
+        "uri": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "uri",
+        "scheme",
+        "id",
+        "title",
+        "private",
+        "updatedAt"
+      ],
+      "title": "EntityInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "entities.remove",
+    "summary": "Removes an entity of a scheme the plugin declares.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`entities.resolve`.",
+      "properties": {
+        "uri": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "uri"
+      ],
+      "title": "EntityRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "entities.resolve",
+    "summary": "An entity by its URI, or null when there is none the caller may see.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`entities.resolve`.",
+      "properties": {
+        "uri": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "uri"
+      ],
+      "title": "EntityRef",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "EntityInfo": {
+          "description": "An entry of the entity index: enough to render a chip without asking the owning plugin.",
+          "properties": {
+            "deletedAt": {
+              "description": "Set when the entity is in the trash.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "icon": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "parent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "plugin": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "private": {
+              "type": "boolean"
+            },
+            "scheme": {
+              "type": "string"
+            },
+            "spaceId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "subtitle": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            },
+            "uri": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "uri",
+            "scheme",
+            "id",
+            "title",
+            "private",
+            "updatedAt"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EntityInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Nullable_EntityInfo"
+    }
+  },
+  {
+    "name": "entities.resolveMany",
+    "summary": "The entities of some URIs that the caller may see.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`entities.resolveMany`.",
+      "properties": {
+        "uris": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "uris"
+      ],
+      "title": "EntityRefs",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "EntityInfo": {
+          "description": "An entry of the entity index: enough to render a chip without asking the owning plugin.",
+          "properties": {
+            "deletedAt": {
+              "description": "Set when the entity is in the trash.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "icon": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "parent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "plugin": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "private": {
+              "type": "boolean"
+            },
+            "scheme": {
+              "type": "string"
+            },
+            "spaceId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "subtitle": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            },
+            "uri": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "uri",
+            "scheme",
+            "id",
+            "title",
+            "private",
+            "updatedAt"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "entities": {
+          "items": {
+            "$ref": "#/$defs/EntityInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entities"
+      ],
+      "title": "EntityList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "entities.search",
+    "summary": "Entities whose titles and text match words, of some schemes and in a space, as far as the caller may see.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`entities.search`: the mention picker and global search. Only what the caller may view.",
+      "properties": {
+        "limit": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "schemes": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "space": {
+          "description": "Only entities in this space (id).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "EntitySearch",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "EntityInfo": {
+          "description": "An entry of the entity index: enough to render a chip without asking the owning plugin.",
+          "properties": {
+            "deletedAt": {
+              "description": "Set when the entity is in the trash.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "icon": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "parent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "plugin": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "private": {
+              "type": "boolean"
+            },
+            "scheme": {
+              "type": "string"
+            },
+            "spaceId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "subtitle": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            },
+            "uri": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "uri",
+            "scheme",
+            "id",
+            "title",
+            "private",
+            "updatedAt"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "entities": {
+          "items": {
+            "$ref": "#/$defs/EntityInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entities"
+      ],
+      "title": "EntityList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "entities.text",
+    "summary": "The text of entities the caller may read, to read, search or give a model.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`entities.text` (rookery.v1's `Entities.Text`): entities as text, to read, search or hand to a model. Each is\nturned into text by the plugin that owns it (the handler `entities.text:<scheme>`, which `rookery.entities.text`\nregisters or an entity type's `textHandler` binds to a service method), or, for a row of an entity collection,\ngenerated from its fields, and only if the caller may read it.",
+      "properties": {
+        "maxChars": {
+          "description": "Per entity; longer text is cut (`truncated`). Default 20000 characters, at most 200000.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "uris": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "uris"
+      ],
+      "title": "EntityTextQuery",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "EntityText": {
+          "properties": {
+            "format": {
+              "$ref": "#/$defs/EntityTextFormat",
+              "description": "How `text` is written."
+            },
+            "text": {
+              "type": "string"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "truncated": {
+              "type": "boolean"
+            },
+            "uri": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "uri",
+            "text",
+            "format",
+            "truncated"
+          ],
+          "type": "object"
+        },
+        "EntityTextFormat": {
+          "description": "How a text is written.",
+          "oneOf": [
+            {
+              "const": "plain",
+              "description": "Text with no markup.",
+              "type": "string"
+            },
+            {
+              "const": "markdown",
+              "description": "Markdown: headings and lists the reader may render or read as they are.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "missing": {
+          "description": "URIs that do not exist, that the caller may not read, or whose owner gives no text.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "texts": {
+          "items": {
+            "$ref": "#/$defs/EntityText"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "texts",
+        "missing"
+      ],
+      "title": "EntityTextList",
+      "type": "object"
+    }
+  },
+  {
     "name": "events.publish",
     "summary": "Sends an event of the plugin to the connections subscribed now, at most once: a connection too slow for it loses it, and later hears events.dropped.",
     "level": {
@@ -7007,6 +8902,898 @@
     }
   },
   {
+    "name": "pins.add",
+    "summary": "Pins an entity or a view, for the caller or shared in a space they hold use on.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$defs": {
+        "PinKind": {
+          "enum": [
+            "entity",
+            "view"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`pins.add`. Pinning the same thing twice returns the first pin.",
+      "properties": {
+        "icon": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/PinKind"
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sharedIn": {
+          "description": "Share the pin with this space's members (an id) instead of keeping it personal. Needs `use` on it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target": {
+          "type": "string"
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "viewSpace": {
+          "description": "The space a pinned view opens in (an id).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "target"
+      ],
+      "title": "PinAdd",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "EntityInfo": {
+          "description": "An entry of the entity index: enough to render a chip without asking the owning plugin.",
+          "properties": {
+            "deletedAt": {
+              "description": "Set when the entity is in the trash.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "icon": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "parent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "plugin": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "private": {
+              "type": "boolean"
+            },
+            "scheme": {
+              "type": "string"
+            },
+            "spaceId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "subtitle": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            },
+            "uri": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "uri",
+            "scheme",
+            "id",
+            "title",
+            "private",
+            "updatedAt"
+          ],
+          "type": "object"
+        },
+        "PinKind": {
+          "enum": [
+            "entity",
+            "view"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "entity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EntityInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The pinned entity as the index knows it now."
+        },
+        "icon": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/PinKind"
+        },
+        "path": {
+          "type": "string"
+        },
+        "spaceId": {
+          "description": "The space it is shared in; missing for a personal pin.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target": {
+          "description": "An entity's URI, or a view's id.",
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "viewSpace": {
+          "description": "The space a pinned view opens in.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "target",
+        "path",
+        "title"
+      ],
+      "title": "PinInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "pins.list",
+    "summary": "The caller's own pins, and a space's shared ones.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`pins.list`: the caller's pins and a space's shared ones (every space they can view when none is named).",
+      "properties": {
+        "space": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "PinsQuery",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "EntityInfo": {
+          "description": "An entry of the entity index: enough to render a chip without asking the owning plugin.",
+          "properties": {
+            "deletedAt": {
+              "description": "Set when the entity is in the trash.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "icon": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "parent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "plugin": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "private": {
+              "type": "boolean"
+            },
+            "scheme": {
+              "type": "string"
+            },
+            "spaceId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "subtitle": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            },
+            "uri": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "uri",
+            "scheme",
+            "id",
+            "title",
+            "private",
+            "updatedAt"
+          ],
+          "type": "object"
+        },
+        "PinInfo": {
+          "properties": {
+            "entity": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/EntityInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The pinned entity as the index knows it now."
+            },
+            "icon": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "$ref": "#/$defs/PinKind"
+            },
+            "path": {
+              "type": "string"
+            },
+            "spaceId": {
+              "description": "The space it is shared in; missing for a personal pin.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "target": {
+              "description": "An entity's URI, or a view's id.",
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "viewSpace": {
+              "description": "The space a pinned view opens in.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "target",
+            "path",
+            "title"
+          ],
+          "type": "object"
+        },
+        "PinKind": {
+          "enum": [
+            "entity",
+            "view"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "pins": {
+          "items": {
+            "$ref": "#/$defs/PinInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "pins"
+      ],
+      "title": "PinList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "pins.remove",
+    "summary": "Removes a pin.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "PinRemove",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "removed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "removed"
+      ],
+      "title": "PinRemoved",
+      "type": "object"
+    }
+  },
+  {
+    "name": "recents.forget",
+    "summary": "Forgets one recent item, or all of a kind.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$defs": {
+        "RecentKind": {
+          "enum": [
+            "entity",
+            "command"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`recents.forget`: one entry, or every entry of the kind.",
+      "properties": {
+        "key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/RecentKind"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "RecentForget",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "recents.list",
+    "summary": "What the caller opened or ran last, newest first.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$defs": {
+        "RecentKind": {
+          "enum": [
+            "entity",
+            "command"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`recents.list`: the entities or the commands, newest first.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/RecentKind"
+        },
+        "limit": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "schemes": {
+          "description": "Entities only: these schemes.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "space": {
+          "description": "Entities only: this space (an id).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "RecentsQuery",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "EntityInfo": {
+          "description": "An entry of the entity index: enough to render a chip without asking the owning plugin.",
+          "properties": {
+            "deletedAt": {
+              "description": "Set when the entity is in the trash.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "icon": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "parent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "plugin": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "private": {
+              "type": "boolean"
+            },
+            "scheme": {
+              "type": "string"
+            },
+            "spaceId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "subtitle": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            },
+            "uri": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "uri",
+            "scheme",
+            "id",
+            "title",
+            "private",
+            "updatedAt"
+          ],
+          "type": "object"
+        },
+        "RecentCommand": {
+          "properties": {
+            "count": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "id": {
+              "type": "string"
+            },
+            "openedAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "openedAt",
+            "count"
+          ],
+          "type": "object"
+        },
+        "RecentEntity": {
+          "properties": {
+            "entity": {
+              "$ref": "#/$defs/EntityInfo"
+            },
+            "openedAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "entity",
+            "openedAt"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/RecentCommand"
+          },
+          "type": "array"
+        },
+        "entities": {
+          "items": {
+            "$ref": "#/$defs/RecentEntity"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entities",
+        "commands"
+      ],
+      "title": "RecentsList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "recents.touch",
+    "summary": "Records that the caller opened an entity or ran a command.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$defs": {
+        "RecentKind": {
+          "enum": [
+            "entity",
+            "command"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`recents.touch`: the user opened an entity (`key` is its URI) or ran a command (`key` is its id).",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/RecentKind"
+        }
+      },
+      "required": [
+        "kind",
+        "key"
+      ],
+      "title": "RecentTouch",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of `recents.touch`. An entity the user may not view is not recorded.",
+      "properties": {
+        "recorded": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "recorded"
+      ],
+      "title": "RecentTouched",
+      "type": "object"
+    }
+  },
+  {
+    "name": "search.query",
+    "summary": "Entities the caller may see that match words, best first, with counts per scheme; with no words, what they opened and what changed last.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`search.query`: ranked matches in titles and indexed text of what the caller may view. With no text,\nwhat the caller opened last, then what changed last.",
+      "properties": {
+        "facets": {
+          "description": "Also count the matches per scheme, ignoring `schemes`, for a type filter.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "offset": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "schemes": {
+          "description": "Only these schemes.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "spaces": {
+          "description": "Only entities in these spaces (ids).",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "SearchParams",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "EntityInfo": {
+          "description": "An entry of the entity index: enough to render a chip without asking the owning plugin.",
+          "properties": {
+            "deletedAt": {
+              "description": "Set when the entity is in the trash.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "icon": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "parent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "plugin": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "private": {
+              "type": "boolean"
+            },
+            "scheme": {
+              "type": "string"
+            },
+            "spaceId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "subtitle": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            },
+            "uri": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "uri",
+            "scheme",
+            "id",
+            "title",
+            "private",
+            "updatedAt"
+          ],
+          "type": "object"
+        },
+        "SearchFacet": {
+          "properties": {
+            "count": {
+              "description": "At most 1000: a count of that many means \"at least\".",
+              "format": "int64",
+              "type": "integer"
+            },
+            "scheme": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scheme",
+            "count"
+          ],
+          "type": "object"
+        },
+        "SearchHit": {
+          "properties": {
+            "entity": {
+              "$ref": "#/$defs/EntityInfo"
+            },
+            "rank": {
+              "format": "float",
+              "type": "number"
+            },
+            "recent": {
+              "description": "The caller opened it lately.",
+              "type": "boolean"
+            },
+            "titleMatch": {
+              "description": "The title matched; otherwise the text indexed with the entity did.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "entity",
+            "rank",
+            "titleMatch",
+            "recent"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "facets": {
+          "items": {
+            "$ref": "#/$defs/SearchFacet"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "hits": {
+          "items": {
+            "$ref": "#/$defs/SearchHit"
+          },
+          "type": "array"
+        },
+        "more": {
+          "description": "More matches follow this page.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "hits",
+        "more"
+      ],
+      "title": "SearchResult",
+      "type": "object"
+    }
+  },
+  {
     "name": "secrets.delete",
     "summary": "Removes a secret.",
     "level": {
@@ -7597,6 +10384,497 @@
       "additionalProperties": false,
       "description": "Params or a result with nothing in it: `{}`.",
       "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "spaces.create",
+    "summary": "Makes a space of a kind a plugin contributes, owned by the caller.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`spaces.create`.",
+      "properties": {
+        "kind": {
+          "description": "A kind from some plugin's `spaceKinds`.",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "slug": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "title": "SpaceCreate",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "Grant": {
+          "description": "A level on a resource. Each includes those before it.",
+          "enum": [
+            "view",
+            "use",
+            "manage"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "A space as the caller sees it.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "description": "`personal`, or a kind a plugin contributes (`<plugin>.<name>`).",
+          "type": "string"
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Grant"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The caller's level on the space."
+        },
+        "name": {
+          "type": "string"
+        },
+        "owner": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "personal": {
+          "type": "boolean"
+        },
+        "slug": {
+          "description": "The URL segment: `/<slug>/<plugin>/<view>`. `~` is always the caller's own personal space.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "slug",
+        "personal"
+      ],
+      "title": "SpaceInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "spaces.enter",
+    "summary": "Makes a space the connection's current one, which calls that name none are in.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`spaces.get`, `spaces.enter`, `spaces.members`: a space by id or slug; `~` is the personal space.",
+      "properties": {
+        "space": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "space"
+      ],
+      "title": "SpaceRef",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "Grant": {
+          "description": "A level on a resource. Each includes those before it.",
+          "enum": [
+            "view",
+            "use",
+            "manage"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "A space as the caller sees it.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "description": "`personal`, or a kind a plugin contributes (`<plugin>.<name>`).",
+          "type": "string"
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Grant"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The caller's level on the space."
+        },
+        "name": {
+          "type": "string"
+        },
+        "owner": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "personal": {
+          "type": "boolean"
+        },
+        "slug": {
+          "description": "The URL segment: `/<slug>/<plugin>/<view>`. `~` is always the caller's own personal space.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "slug",
+        "personal"
+      ],
+      "title": "SpaceInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "spaces.get",
+    "summary": "A space by id, slug or ~, with the caller's level on it.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`spaces.get`, `spaces.enter`, `spaces.members`: a space by id or slug; `~` is the personal space.",
+      "properties": {
+        "space": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "space"
+      ],
+      "title": "SpaceRef",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "Grant": {
+          "description": "A level on a resource. Each includes those before it.",
+          "enum": [
+            "view",
+            "use",
+            "manage"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "A space as the caller sees it.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "description": "`personal`, or a kind a plugin contributes (`<plugin>.<name>`).",
+          "type": "string"
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Grant"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The caller's level on the space."
+        },
+        "name": {
+          "type": "string"
+        },
+        "owner": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "personal": {
+          "type": "boolean"
+        },
+        "slug": {
+          "description": "The URL segment: `/<slug>/<plugin>/<view>`. `~` is always the caller's own personal space.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "slug",
+        "personal"
+      ],
+      "title": "SpaceInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "spaces.kinds",
+    "summary": "The kinds of space plugins contribute.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "SpaceKindInfo": {
+          "description": "A space kind with the plugin that contributes it (`spaces.kinds`).",
+          "properties": {
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "icon": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "plugin": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "plugin",
+            "title"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "kinds": {
+          "items": {
+            "$ref": "#/$defs/SpaceKindInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "kinds"
+      ],
+      "title": "SpaceKindList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "spaces.list",
+    "summary": "The spaces the caller may view: their personal space first.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "Grant": {
+          "description": "A level on a resource. Each includes those before it.",
+          "enum": [
+            "view",
+            "use",
+            "manage"
+          ],
+          "type": "string"
+        },
+        "SpaceInfo": {
+          "description": "A space as the caller sees it.",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "description": "`personal`, or a kind a plugin contributes (`<plugin>.<name>`).",
+              "type": "string"
+            },
+            "level": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Grant"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The caller's level on the space."
+            },
+            "name": {
+              "type": "string"
+            },
+            "owner": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "personal": {
+              "type": "boolean"
+            },
+            "slug": {
+              "description": "The URL segment: `/<slug>/<plugin>/<view>`. `~` is always the caller's own personal space.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "name",
+            "slug",
+            "personal"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "spaces": {
+          "items": {
+            "$ref": "#/$defs/SpaceInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "spaces"
+      ],
+      "title": "SpaceList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "spaces.rename",
+    "summary": "Renames a space. Needs manage on it.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`spaces.rename`.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "space": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "space",
+        "name"
+      ],
+      "title": "SpaceRename",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "Grant": {
+          "description": "A level on a resource. Each includes those before it.",
+          "enum": [
+            "view",
+            "use",
+            "manage"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "A space as the caller sees it.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "description": "`personal`, or a kind a plugin contributes (`<plugin>.<name>`).",
+          "type": "string"
+        },
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Grant"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The caller's level on the space."
+        },
+        "name": {
+          "type": "string"
+        },
+        "owner": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "personal": {
+          "type": "boolean"
+        },
+        "slug": {
+          "description": "The URL segment: `/<slug>/<plugin>/<view>`. `~` is always the caller's own personal space.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "slug",
+        "personal"
+      ],
+      "title": "SpaceInfo",
       "type": "object"
     }
   },
@@ -8671,6 +11949,85 @@
         "stream"
       ],
       "title": "StreamOpened",
+      "type": "object"
+    }
+  },
+  {
+    "name": "users.search",
+    "summary": "People whose name or email starts with some words, for someone who holds manage on the resource they share.",
+    "level": {
+      "kind": "resource",
+      "param": "resource",
+      "grant": "manage"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`users.search`: people whose name or email starts with words, to share a resource with.",
+      "properties": {
+        "limit": {
+          "default": null,
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "resource": {
+          "description": "The resource the caller shares, which they hold manage on.",
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource",
+        "text"
+      ],
+      "title": "UserSearch",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "Person": {
+          "additionalProperties": false,
+          "description": "A person as someone sharing a resource sees them.",
+          "properties": {
+            "email": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "people": {
+          "items": {
+            "$ref": "#/$defs/Person"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "people"
+      ],
+      "title": "PersonList",
       "type": "object"
     }
   }

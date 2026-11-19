@@ -134,6 +134,26 @@ impl Users<'_> {
         .await?)
     }
 
+    /// The people who are not disabled whose name, a word of it, or email starts with `text`.
+    pub async fn search(&self, text: &str, limit: i64) -> Result<Vec<User>> {
+        let pattern = format!(
+            "{}%",
+            text.to_lowercase()
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_")
+        );
+        Ok(sqlx::query_as(AssertSqlSafe(format!(
+            "SELECT {COLS} FROM rookery.users
+             WHERE disabled_at IS NULL AND (lower(name) LIKE $1 OR lower(name) LIKE '% ' || $1 OR lower(email) LIKE $1)
+             ORDER BY lower(name), id LIMIT $2"
+        )))
+        .bind(pattern)
+        .bind(limit)
+        .fetch_all(self.pool)
+        .await?)
+    }
+
     pub async fn any(&self) -> Result<bool> {
         Ok(
             sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM rookery.users)")

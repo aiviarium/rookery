@@ -9,8 +9,11 @@
 //! the plugin `rookery`, which no plugin may write through `data.*`.
 
 pub mod data;
+pub mod entities;
+pub mod home;
 pub mod live;
 pub mod plugins;
+pub mod spaces;
 
 use rookery_kernel::{Call, Caller, Methods, RpcError};
 use rookery_proto::data::DataTarget;
@@ -20,15 +23,18 @@ use uuid::Uuid;
 
 pub fn register(methods: &mut Methods) {
     data::register(methods);
+    entities::register(methods);
+    home::register(methods);
     live::register(methods);
     plugins::register(methods);
+    spaces::register(methods);
 }
 
 pub(crate) fn parse_id(what: &str, id: &str) -> Result<Uuid, RpcError> {
     Uuid::parse_str(id).map_err(|_| RpcError::invalid(format!("{what}: {id:?} is not an id")))
 }
 
-/// The store's caller for a call, in `space` when it names one.
+/// The store's caller for a call, in `space` when it names one, else in the space its connection entered.
 pub fn store_caller(call: &Call, space: Option<&str>) -> Result<StoreCaller, RpcError> {
     let caller = match &call.caller {
         Caller::User { user, .. } => {
@@ -45,7 +51,7 @@ pub fn store_caller(call: &Call, space: Option<&str>) -> Result<StoreCaller, Rpc
     };
     Ok(match space {
         Some(s) => caller.in_space(parse_id("space", s)?),
-        None => caller,
+        None => caller.with_space(spaces::current(call)),
     })
 }
 
