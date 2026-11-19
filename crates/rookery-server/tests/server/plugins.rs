@@ -56,27 +56,29 @@ async fn call(socket: &mut Socket, id: i64, method: &str, params: Value) -> Valu
 }
 
 /// The egg of a package with a host half, a client half and a shell.
-fn egg(scratch: &Path) -> Vec<u8> {
-    let dir = scratch.join("echo");
+fn egg(scratch: &Path, id: &str, sql: bool) -> Vec<u8> {
+    let dir = scratch.join(id);
     let target = dir.join("rookery");
     fs::create_dir_all(target.join("client")).unwrap();
     fs::create_dir_all(target.join("shell")).unwrap();
     fs::create_dir_all(target.join("migrations")).unwrap();
     fs::write(
         dir.join("package.kdl"),
-        "format 1\npackage {\n  group example\n  id echo\n  version \"1.0.0\"\n}\ntargets {\n  rookery {\n    requires {\n      rookery \">=0.6\"\n    }\n  }\n}\n",
+        format!("format 1\npackage {{\n  group example\n  id {id}\n  version \"1.0.0\"\n}}\ntargets {{\n  rookery {{\n    requires {{\n      rookery \">=0.6\"\n    }}\n  }}\n}}\n"),
     )
     .unwrap();
-    fs::write(
-        target.join("plugin.json"),
-        r#"{"apiVersion": "1", "name": "Echo", "host": "host.ts", "client": "client/index.js",
-            "contributes": {
-                "shell": {"entry": "shell/index.html"},
-                "collections": [{"name": "notes", "scope": "global",
-                    "fields": [{"name": "text", "type": "text"}]}]
-            }}"#,
-    )
-    .unwrap();
+    let mut manifest = json!({
+        "apiVersion": "1", "name": "Echo", "host": "host.ts", "client": "client/index.js",
+        "contributes": {
+            "shell": {"entry": "shell/index.html"},
+            "collections": [{"name": "notes", "scope": "global",
+                "fields": [{"name": "text", "type": "text"}]}]
+        }
+    });
+    if sql {
+        manifest["database"] = json!({"sql": true});
+    }
+    fs::write(target.join("plugin.json"), manifest.to_string()).unwrap();
     fs::write(
         target.join("migrations/0001.json"),
         r#"{"onInstall": true, "steps": [{"op": "transform", "name": "seed"}]}"#,
@@ -146,7 +148,7 @@ async fn a_plugin_installed_over_ws_runs_its_host_half_and_serves_its_halves() {
     let member = served.member(&admin, "Bob").await;
 
     let mut ws = connect(&served, &admin).await;
-    let upload = json!({"base64": rookery_api::b64(&egg(scratch.path()))});
+    let upload = json!({"base64": rookery_api::b64(&egg(scratch.path(), "echo", false))});
     let added = call(&mut ws, 1, "plugins.upload", upload).await;
     assert!(
         added["result"]["lines"][0]
@@ -207,6 +209,17 @@ async fn a_plugin_installed_over_ws_runs_its_host_half_and_serves_its_halves() {
     let (status, body, _) = http("GET", &format!("{}/hosts/studio", served.url), &[], None).await;
     assert_eq!(status, 200);
     assert!(body.contains("Echo shell"), "{body}");
+
+    // Installing a raw SQL plugin grants its role, and removing it revokes the role.
+    let mut admin_ws = connect(&served, &admin).await;
+    let upload = json!({"base64": rookery_api::b64(&egg(scratch.path(), "query", true))});
+    let added_sql = call(&mut admin_ws, 6, "plugins.upload", upload).await;
+    assert!(added_sql.get("result").is_some(), "{added_sql}");
+    assert_eq!(served.db.store.sql().plugins().await.unwrap(), ["query"]);
+    let removed = call(&mut admin_ws, 7, "plugins.remove", json!({"id": "query"})).await;
+    assert!(removed.get("result").is_some(), "{removed}");
+    assert!(served.db.store.sql().plugins().await.unwrap().is_empty());
+    drop(admin_ws);
 
     // Stopping the server runs the host half's cleanups while the store is open.
     let db = served.db;

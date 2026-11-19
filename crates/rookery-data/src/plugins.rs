@@ -3,8 +3,8 @@
 //!
 //! The plugin system calls [`apply`] when a plugin loads, with what it read from the plugin's package
 //! and a [`Transforms`] that runs TypeScript steps in the extension host. `apply` runs the migrations
-//! newer than the plugin's schema version, each in a transaction of its own, then reconciles the
-//! manifest's collections: additive changes are made as they are, anything else fails with the list of
+//! newer than the plugin's schema version, each in a transaction of its own, reconciles the manifest's
+//! collections, and then makes its raw SQL what `database` says ([`crate::sql`]). Collections: additive changes are made as they are, anything else fails with the list of
 //! differences (`INVALID`, `details.differences`), so the plugin does not activate.
 //!
 //! On a first install the migrations are skipped: the plugin starts at the newest, since its manifest
@@ -43,6 +43,10 @@ pub struct PluginData {
     pub admin_only: Vec<String>,
     /// Its numbered migrations, from [`read_migrations`].
     pub migrations: Vec<PluginMigration>,
+    /// What its manifest says of raw SQL (`database`).
+    pub database: crate::sql::Database,
+    /// Its SQL migrations, from [`crate::sql::read_sql_migrations`].
+    pub sql_migrations: Vec<rookery_store::sql::migrations::SqlMigration>,
 }
 
 /// Runs a plugin's `transform` steps: the extension host's half of a migration.
@@ -136,15 +140,16 @@ pub async fn apply(
             tracing::info!(plugin = %plugin, versions = ?applied.migrated, "migrations ran");
         }
     }
-    if defs.is_empty() && collections.list(plugin).is_empty() {
-        return Ok(applied);
+    if !defs.is_empty() || !collections.list(plugin).is_empty() {
+        let report = collections
+            .apply(plugin, &defs)
+            .await
+            .map_err(|e| context(e, "its collections cannot be applied"))?;
+        applied.created = report.created;
+        applied.altered = report.altered;
     }
-    let report = collections
-        .apply(plugin, &defs)
-        .await
-        .map_err(|e| context(e, "its collections cannot be applied"))?;
-    applied.created = report.created;
-    applied.altered = report.altered;
+    // Raw SQL last: its views are over the collections as they are now.
+    crate::sql::sync(kernel, plugin, &data.database, &data.sql_migrations).await?;
     Ok(applied)
 }
 

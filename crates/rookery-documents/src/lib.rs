@@ -1,5 +1,4 @@
-//! Collaborative documents (`docs/data.md`, "Rich text and documents"; `docs/implementation.md`,
-//! "Collaborative documents").
+//! Collaborative documents.
 //!
 //! A document is a Yjs document with an entity `document://<id>` whose parent is the entity it is
 //! attached to, so permissions inherit from it: `view` reads, `use` edits. Clients sync with the

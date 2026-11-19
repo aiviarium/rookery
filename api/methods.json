@@ -32957,6 +32957,525 @@
     }
   },
   {
+    "name": "sql.begin",
+    "summary": "A transaction of the plugin's, at most four open; with a lease, it commits only while the caller holds it.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$defs": {
+        "SqlLease": {
+          "description": "A lease as a transaction's condition: the plugin's key and the token its grant returned. The holder is the\ncaller.",
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "token": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "key",
+            "token"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`sql.begin`: the options of a transaction. With `lease`, it commits only while the caller still holds that\nlease with that token; otherwise it is\nrolled back and the commit is `CONFLICT` with `details.condition` `lease`, as a fenced batch gives.",
+      "properties": {
+        "lease": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SqlLease"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "title": "SqlBegin",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of `sql.begin`.",
+      "properties": {
+        "tx": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tx"
+      ],
+      "title": "SqlTx",
+      "type": "object"
+    }
+  },
+  {
+    "name": "sql.commit",
+    "summary": "Commits a transaction.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`sql.commit` and `sql.rollback`.",
+      "properties": {
+        "tx": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tx"
+      ],
+      "title": "SqlTxRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "sql.credential",
+    "summary": "The connection string of a plugin with direct connections, for a service the server does not start.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The credential of a plugin with direct connections, for an admin placing a service somewhere the kernel\ndoes not start it (`sql.credential`).",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin"
+      ],
+      "title": "SqlCredentialRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of `sql.credential` and `sql.rotateCredential`: the connection URL (it holds the password).",
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "role"
+      ],
+      "title": "SqlCredential",
+      "type": "object"
+    }
+  },
+  {
+    "name": "sql.execute",
+    "summary": "Runs a statement in the plugin's own schema: the number of rows it touched.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`sql.execute` and the statement of `sql.txExecute` and `sql.txQuery`.",
+      "properties": {
+        "params": {
+          "default": [],
+          "items": true,
+          "type": "array"
+        },
+        "sql": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sql"
+      ],
+      "title": "SqlStatement",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of `sql.execute` and `sql.txExecute`.",
+      "properties": {
+        "rows": {
+          "description": "Rows affected.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rows"
+      ],
+      "title": "SqlExecuted",
+      "type": "object"
+    }
+  },
+  {
+    "name": "sql.query",
+    "summary": "Rows of a statement in the plugin's own schema or over its views, at most 10,000.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`sql.query` and `sql.queryStream`. Raw SQL runs on the primary.",
+      "properties": {
+        "params": {
+          "default": [],
+          "items": true,
+          "type": "array"
+        },
+        "sql": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sql"
+      ],
+      "title": "SqlQuery",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "SqlColumn": {
+          "description": "A result column: its name and the Postgres type name (`int4`, `text`, `bytea`, `vector`, ...).",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "type"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of `sql.query`.",
+      "properties": {
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/SqlColumn"
+          },
+          "type": "array"
+        },
+        "rows": {
+          "items": true,
+          "type": "array"
+        }
+      },
+      "required": [
+        "columns",
+        "rows"
+      ],
+      "title": "SqlRows",
+      "type": "object"
+    }
+  },
+  {
+    "name": "sql.queryStream",
+    "summary": "The rows of a statement as lines of JSON on a stream.",
+    "level": {
+      "kind": "plugin"
+    },
+    "stream": true,
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`sql.query` and `sql.queryStream`. Raw SQL runs on the primary.",
+      "properties": {
+        "params": {
+          "default": [],
+          "items": true,
+          "type": "array"
+        },
+        "sql": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sql"
+      ],
+      "title": "SqlQuery",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "SqlColumn": {
+          "description": "A result column: its name and the Postgres type name (`int4`, `text`, `bytea`, `vector`, ...).",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "type"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of `sql.queryStream`: the stream the rows arrive on, one JSON object per line, after which the\nstream ends.",
+      "properties": {
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/SqlColumn"
+          },
+          "type": "array"
+        },
+        "stream": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stream",
+        "columns"
+      ],
+      "title": "SqlStreamed",
+      "type": "object"
+    }
+  },
+  {
+    "name": "sql.rollback",
+    "summary": "Rolls a transaction back.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`sql.commit` and `sql.rollback`.",
+      "properties": {
+        "tx": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tx"
+      ],
+      "title": "SqlTxRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "sql.rotateCredential",
+    "summary": "Gives a plugin's role a new password, which ends its sessions, and returns the new connection string.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The credential of a plugin with direct connections, for an admin placing a service somewhere the kernel\ndoes not start it (`sql.credential`).",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin"
+      ],
+      "title": "SqlCredentialRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of `sql.credential` and `sql.rotateCredential`: the connection URL (it holds the password).",
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "role"
+      ],
+      "title": "SqlCredential",
+      "type": "object"
+    }
+  },
+  {
+    "name": "sql.txExecute",
+    "summary": "Runs a statement in a transaction.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`sql.txQuery` and `sql.txExecute`.",
+      "properties": {
+        "params": {
+          "default": [],
+          "items": true,
+          "type": "array"
+        },
+        "sql": {
+          "type": "string"
+        },
+        "tx": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tx",
+        "sql"
+      ],
+      "title": "SqlTxStatement",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of `sql.execute` and `sql.txExecute`.",
+      "properties": {
+        "rows": {
+          "description": "Rows affected.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rows"
+      ],
+      "title": "SqlExecuted",
+      "type": "object"
+    }
+  },
+  {
+    "name": "sql.txPublish",
+    "summary": "A message of the plugin's topic, published if and only if the transaction commits.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`sql.txPublish`: a topic message in a transaction.\nThe topic must be one the plugin declares and the payload must satisfy its schema when this call is made; the\nmessage is written and numbered when the transaction commits, and not at all when it rolls back.",
+      "properties": {
+        "payload": true,
+        "topic": {
+          "type": "string"
+        },
+        "tx": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tx",
+        "topic",
+        "payload"
+      ],
+      "title": "SqlTxPublish",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of `sql.txPublish` and the answer to a transaction stream's `publish`.",
+      "title": "SqlPublished",
+      "type": "object"
+    }
+  },
+  {
+    "name": "sql.txQuery",
+    "summary": "Rows of a statement in a transaction.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`sql.txQuery` and `sql.txExecute`.",
+      "properties": {
+        "params": {
+          "default": [],
+          "items": true,
+          "type": "array"
+        },
+        "sql": {
+          "type": "string"
+        },
+        "tx": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tx",
+        "sql"
+      ],
+      "title": "SqlTxStatement",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "SqlColumn": {
+          "description": "A result column: its name and the Postgres type name (`int4`, `text`, `bytea`, `vector`, ...).",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "type"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of `sql.query`.",
+      "properties": {
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/SqlColumn"
+          },
+          "type": "array"
+        },
+        "rows": {
+          "items": true,
+          "type": "array"
+        }
+      },
+      "required": [
+        "columns",
+        "rows"
+      ],
+      "title": "SqlRows",
+      "type": "object"
+    }
+  },
+  {
     "name": "storage.delete",
     "summary": "Removes a stored value; with revision, only at it.",
     "level": {

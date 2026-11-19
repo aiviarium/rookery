@@ -65,14 +65,34 @@ pub async fn rekey(
     let lock = leader::Lock::try_acquire(&config.lock_url).await?.ok_or(
         "a rookery serve runs on this database: stop it first, and start it again with the new key",
     )?;
-    let store = rookery_store::Store::open(rookery_store::StoreOptions::new(&config.database_url))
+    let mut options = rookery_store::StoreOptions::new(&config.database_url);
+    options.sql_role_tag = config.sql_role_tag.clone();
+    let store = rookery_store::Store::open(options)
         .await
         .map_err(|e| format!("opening the database: {e}"))?;
-    let done = store
+    let mut done = store
         .secrets()
         .rekey(&old, new)
         .await
         .map_err(|e| e.to_string());
+    // The roles' passwords were sealed under the old key, which may have leaked: each gets a new one.
+    if done.is_ok() {
+        let rekeyed = store.with_key(Some(new.clone()));
+        let sql = rekeyed.sql();
+        match sql.plugins().await {
+            Ok(plugins) => {
+                for plugin in plugins {
+                    if let Err(e) = sql.rotate(&plugin).await {
+                        done = Err(format!(
+                            "the secrets are sealed under the new key, but the raw SQL role of {plugin} kept its password: {e}; run rookery server secrets rekey again"
+                        ));
+                        break;
+                    }
+                }
+            }
+            Err(e) => done = Err(e.to_string()),
+        }
+    }
     store.close().await;
     drop(lock);
     done
@@ -123,6 +143,8 @@ async fn open_store(config: &ServerConfig) -> Result<rookery_store::Store, Strin
     options.blobs = config.blobs.clone();
     // The tables of hosts are collections of Rookery's too, read through `data.*` and the change log.
     options.system_tables = rookery_hosts::backend::system_tables();
+    options.sql_role_tag = config.sql_role_tag.clone();
+    options.service_database_url = config.service_database_url.clone();
     if config.secret_key.is_none() {
         tracing::warn!(
             "no secret key is set: secrets and the credentials of connections are refused until ROOKERY_SECRET_KEY or ROOKERY_SECRET_KEY_FILE is"

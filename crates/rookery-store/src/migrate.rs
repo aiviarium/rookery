@@ -51,6 +51,11 @@ pub(crate) static MIGRATIONS: &[Migration] = &[
         name: "data",
         sql: include_str!("../migrations/0007_data.sql"),
     },
+    Migration {
+        version: 8,
+        name: "sql",
+        sql: include_str!("../migrations/0008_sql.sql"),
+    },
 ];
 
 /// Any number taken by no other advisory lock of the server.
