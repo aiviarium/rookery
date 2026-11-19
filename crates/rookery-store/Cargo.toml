@@ -14,6 +14,8 @@ doctest = false
 testing = []
 
 [dependencies]
+# A plugin's id, which a grant on a host may name.
+rookery-api.workspace = true
 rookery-proto.workspace = true
 sqlx.workspace = true
 tokio.workspace = true

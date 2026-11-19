@@ -91,6 +91,15 @@ async fn levels_come_from_grants_groups_and_owners() {
             .is_err()
     );
     // A plugin is a principal of its own: its grant is its own and no person's.
+    let other_plugin = Who {
+        principal: "plugin:other",
+        user: None,
+    };
+    // `everyone` reaches a person and not a plugin, which is refused until it has a grant of its own.
+    assert_eq!(
+        access.level("env://studio", &other_plugin).await.unwrap(),
+        0
+    );
     access
         .grant("env://studio", "plugin:fleet", 2, "user:x")
         .await
@@ -112,6 +121,25 @@ async fn levels_come_from_grants_groups_and_owners() {
             .grant("env://studio", "plugin:rookery", 1, "x")
             .await
             .is_err()
+    );
+    assert!(
+        access
+            .grant("env://studio", "plugin:sign-in", 1, "x")
+            .await
+            .is_err()
+    );
+    // Removing a plugin takes every grant it holds, and says which resources it held one on.
+    assert_eq!(
+        access.forget_principal("plugin:fleet").await.unwrap(),
+        ["env://studio"]
+    );
+    assert_eq!(access.level("env://studio", &as_plugin).await.unwrap(), 0);
+    assert!(
+        access
+            .forget_principal("plugin:fleet")
+            .await
+            .unwrap()
+            .is_empty()
     );
     db.close().await;
 }

@@ -41,12 +41,11 @@ export default definePlugin((rookery) => {
       await rookery.env.writeFile(ctx, "studio", path, content),
     stat: async (ctx, { path }) => await rookery.env.stat(ctx, "studio", path),
     run: async (ctx, { command }) => await rookery.env.exec(ctx, "studio", command),
-    root: async (ctx) =>
-      await rawCall("host.env", {
-        callId: ctx.callId,
-        method: "env.exec",
-        params: { env: "studio", command: ["id", "-un"], user: "root" },
-      }),
+    // Raw requests on the pipe, for what the SDK does not make.
+    id: async (ctx) => ctx.callId,
+    env: async (ctx, { callId, method, params }) =>
+      await rawCall("host.env", { callId: callId ?? ctx.callId, method, params }),
+    pipe: async (_ctx, { method, params }) => await rawCall(method, params),
     checkouts: async (ctx) => await rookery.env.checkouts(ctx, "studio"),
     clone: async (ctx, { repository }) => await rookery.env.clone(ctx, "studio", repository),
     worktree: async (ctx, { checkout, branch }) =>
@@ -365,8 +364,7 @@ async fn env_calls_serve_the_person_and_never_reach_beyond_them() {
         .unwrap_err();
     assert_eq!(refused.error_code(), ErrorCode::Forbidden, "{refused}");
 
-    // A command runs on the host as the person, and never as an account the plugin asks for, even
-    // when that person holds manage.
+    // A command runs on the host as the person, inside the handler's call.
     let me = whoami();
     let ran = k
         .call(
@@ -376,20 +374,15 @@ async fn env_calls_serve_the_person_and_never_reach_beyond_them() {
         )
         .await
         .unwrap();
-    assert_eq!(
-        ran["stdout"].as_str().unwrap_or_default().trim(),
-        me,
-        "{ran}"
-    );
-    let root = k
-        .call(&admin, "services.call", service("root", json!({})))
-        .await
-        .unwrap();
-    assert_eq!(
-        root["stdout"].as_str().unwrap_or_default().trim(),
-        me,
-        "{root}"
-    );
+    assert_eq!(ran["exitCode"], 0, "{ran}");
+    if me != "root" {
+        // A suite that runs as root cannot tell the agent account from root by its name.
+        assert_eq!(
+            ran["stdout"].as_str().unwrap_or_default().trim(),
+            me,
+            "{ran}"
+        );
+    }
 
     // Checkouts are the host's own folder, cloned, worked on and removed through the pipe.
     repository(Path::new(&host.file("source-repo")));
@@ -439,7 +432,81 @@ async fn env_calls_serve_the_person_and_never_reach_beyond_them() {
         .unwrap();
     assert_eq!(left.as_array().map(Vec::len), Some(1), "{left}");
 
-    // A host half on its own has what the plugin was granted, and nothing by default.
+    // A raw host.env for a call that never was, and for one that has ended.
+    let ended = k
+        .call(&member, "services.call", service("id", json!({})))
+        .await
+        .unwrap();
+    for call_id in [json!("call-nowhere"), ended] {
+        let refused = k
+            .call(
+                &member,
+                "services.call",
+                service(
+                    "env",
+                    json!({
+                        "callId": call_id,
+                        "method": "env.readFile",
+                        "params": {"env": "studio", "path": file},
+                    }),
+                ),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(refused.error_code(), ErrorCode::NotFound, "{refused}");
+    }
+
+    // What a host half has no path to, through host.env and straight on the pipe.
+    for (method, params) in [
+        ("env.connect", json!({"env": "studio", "port": 80})),
+        ("env.portUrl", json!({"env": "studio", "port": 80})),
+        (
+            "env.exec",
+            json!({"env": "studio", "command": ["id", "-un"], "user": "root"}),
+        ),
+    ] {
+        let through = k
+            .call(
+                &member,
+                "services.call",
+                service("env", json!({"method": method, "params": params})),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(
+            through.error_code(),
+            ErrorCode::Forbidden,
+            "{method} through host.env: {through}"
+        );
+        let direct = k
+            .call(
+                &member,
+                "services.call",
+                service("pipe", json!({"method": method, "params": params})),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(
+            direct.error_code(),
+            ErrorCode::Forbidden,
+            "{method} directly: {direct}"
+        );
+    }
+    // A server method a host half has no business calling is refused as well.
+    let outside = k
+        .call(
+            &member,
+            "services.call",
+            service(
+                "pipe",
+                json!({"method": "plugins.remove", "params": {"id": "sample"}}),
+            ),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(outside.error_code(), ErrorCode::Forbidden, "{outside}");
+
+    // A plugin's own env call, made straight at the kernel, is refused too.
     let sample = Caller::Plugin("sample".into());
     let alone = k
         .call(
@@ -451,7 +518,14 @@ async fn env_calls_serve_the_person_and_never_reach_beyond_them() {
         .unwrap_err();
     assert_eq!(alone.error_code(), ErrorCode::Forbidden, "{alone}");
 
-    // A job serves no person: its env call has only what the plugin was granted.
+    // An `everyone` grant does not reach a plugin: its job still has no level on the host.
+    k.call(
+        &admin,
+        "access.grant",
+        json!({"resource": "env://studio", "principal": "everyone", "level": "use"}),
+    )
+    .await
+    .unwrap();
     let failed = check_job(&k, &admin, &file).await;
     assert_eq!(failed["state"], "failed", "{failed}");
     assert!(
@@ -461,6 +535,7 @@ async fn env_calls_serve_the_person_and_never_reach_beyond_them() {
         "{failed}"
     );
 
+    // With a grant of its own, the job reads on the plugin's level.
     k.call(
         &admin,
         "access.grant",
@@ -468,30 +543,45 @@ async fn env_calls_serve_the_person_and_never_reach_beyond_them() {
     )
     .await
     .unwrap();
-    let granted = k
-        .call(
-            &sample,
-            "env.readFile",
-            json!({"env": "studio", "path": file}),
-        )
-        .await
-        .unwrap();
-    assert_eq!(granted["base64"], rookery_api::b64(b"one\n"));
     let done = check_job(&k, &admin, &file).await;
     assert_eq!(done["state"], "succeeded", "{done}");
     assert_eq!(done["result"]["size"], 4, "{done}");
 
-    // An admin's own grant does not reach a person who has none.
-    assert_eq!(
-        k.call(
-            &stranger,
-            "services.call",
-            service("read", json!({"path": file}))
+    // A file the person wrote through the plugin is audited for the person and the plugin.
+    let audit = k
+        .call(
+            &admin,
+            "audit.list",
+            json!({"action": "env.writeFile", "resource": "env://studio"}),
         )
         .await
-        .unwrap_err()
-        .error_code(),
-        ErrorCode::Forbidden
+        .unwrap();
+    let entry = audit["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["principal"] == format!("user:{member_id} via plugin:sample"))
+        .unwrap_or_else(|| panic!("no such audit entry: {audit}"));
+    assert_eq!(entry["action"], "env.writeFile", "{entry}");
+
+    // Removing the plugin takes its grants, so a package that takes its id again starts with none.
+    k.call(&admin, "plugins.remove", json!({"id": "sample"}))
+        .await
+        .unwrap();
+    let grants = k
+        .call(&admin, "access.grants", json!({"resource": "env://studio"}))
+        .await
+        .unwrap();
+    assert!(
+        !grants["grants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|grant| grant["principal"] == "plugin:sample"),
+        "{grants}"
     );
+    install(&k, &plugins, scratch.path()).await;
+    let again = check_job(&k, &admin, &file).await;
+    assert_eq!(again["state"], "failed", "{again}");
     k.close().await;
 }

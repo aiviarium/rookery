@@ -15,11 +15,12 @@
 //! The server asks the process `plugins.activate`, `plugins.invoke`, `plugins.deactivate` and
 //! `plugins.transform` (a migration's transform step, see [`crate::data`]), and tells it
 //! `plugins.cancel` and `plugins.notify`, which carries what the kernel sent to the plugin's
-//! connection, such as `events.event`. The process asks `host.hello` first, then calls the server's
-//! methods, which run as the plugin on a connection of its own. Its `host.env` asks for an env method
-//! on behalf of the invocation it names, which runs for that invocation's person, or as the plugin when
-//! it serves none. It tells the server `plugins.registered`, `plugins.unregistered`, `plugins.exited`
-//! and `plugins.log`.
+//! connection, such as `events.event`. The process asks `host.hello` first. Then it asks the methods
+//! a host half may call ([`HOST_REQUESTS`]), which run as the plugin on a connection of its own, and
+//! anything else is refused. Its `host.env` asks for one of an invocation's env methods, which runs
+//! for that invocation's person, or as the plugin when it serves none; no `env.*` is called any other
+//! way. It tells the server `plugins.registered`, `plugins.unregistered`, `plugins.exited` and
+//! `plugins.log`.
 //!
 //! A host half that ends, whether its worker or its whole process, that does not stop a call past
 //! its deadline, or whose process uses more memory than [`HostOptions::memory_mb`] (read from
@@ -86,6 +87,54 @@ const HOST_ENV: &[&str] = &[
     "env.deleteFile",
     "env.listDir",
     "env.stat",
+];
+
+/// Everything a host half may ask on its pipe: its own `host.*` requests, and the server's methods
+/// its runtime calls. Anything else is refused, and no `env.*` is here: a host half reaches a host
+/// through `host.env`, which knows the invocation it serves.
+const HOST_REQUESTS: &[&str] = &[
+    "host.env",
+    "host.stream.item",
+    "host.job.log",
+    "host.job.progress",
+    "host.services.open",
+    "host.services.next",
+    "host.services.close",
+    "settings.get",
+    "settings.set",
+    "settings.reset",
+    "storage.get",
+    "storage.set",
+    "storage.list",
+    "storage.delete",
+    "secrets.get",
+    "secrets.set",
+    "secrets.list",
+    "secrets.delete",
+    "secrets.rename",
+    "events.publish",
+    "events.subscribe",
+    "events.unsubscribe",
+    "leases.acquire",
+    "leases.renew",
+    "leases.release",
+    "topics.publish",
+    "notify.send",
+    "jobs.enqueue",
+    "jobs.get",
+    "jobs.cancel",
+    "services.call",
+    "services.list",
+    "extensions.list",
+    "connections.list",
+    "connections.get",
+    "connections.resolve",
+    // A migration's transform step, which runs in this process and reads and writes its transaction.
+    "data.txRows",
+    "data.txLegacy",
+    "data.txInsert",
+    "data.txUpdate",
+    "data.txDelete",
 ];
 
 /// How the server starts the extension host.
@@ -1434,6 +1483,11 @@ async fn host_request(
     method: &str,
     params: Value,
 ) -> Result<Value, RpcError> {
+    if !HOST_REQUESTS.contains(&method) {
+        return Err(RpcError::forbidden(format!(
+            "{method} is not one a host half may call"
+        )));
+    }
     let text = |key: &str| {
         params
             .get(key)
@@ -1492,6 +1546,14 @@ async fn host_request(
                     "{env_method} is not an env method a host half has"
                 )));
             }
+            let params = params.get("params").cloned().unwrap_or_else(|| json!({}));
+            // A host half reaches a host as its agent account alone: the account a command runs as is
+            // not its to choose, even when the person it acts for holds manage on the host.
+            if env_method == "env.exec" && params.get("user").is_some() {
+                return Err(RpcError::forbidden(
+                    "a host half runs a command as the host's agent account",
+                ));
+            }
             let acting = link.0.acting.lock().unwrap().get(&call_id).cloned();
             let Some(acting) = acting else {
                 return Err(RpcError::not_found(
@@ -1500,19 +1562,17 @@ async fn host_request(
             };
             let mut call = call.clone();
             call.deadline = acting.deadline;
+            call.host_env = true;
             if let Some(user) = acting.user {
+                // The audit log names the person whose level ran the call, and the plugin that did it.
+                if let Caller::Plugin(plugin) = &call.caller {
+                    call.on_behalf = Some(plugin.clone());
+                }
                 call.caller = Caller::User {
                     user,
                     session: None,
                     token: None,
                 };
-            }
-            // A host half reaches a host as its agent account alone: the account a command runs as is
-            // not its to choose, even when the person it acts for holds manage on the host.
-            let mut params = params.get("params").cloned().unwrap_or_else(|| json!({}));
-            if let Value::Object(fields) = &mut params {
-                fields.remove("user");
-                fields.remove("account");
             }
             let methods = call.kernel.methods.clone();
             methods.dispatch(call, &env_method, params).await

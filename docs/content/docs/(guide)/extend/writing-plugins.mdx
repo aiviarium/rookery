@@ -215,16 +215,16 @@ rookery.services.provide("notes", {
 })
 ```
 
-The server runs an env call for the person whose call the handler serves. It checks the call with that person's level on `env://NAME`. Some handlers run on the server's behalf: a job, and a service call another plugin made. Their calls have the plugin's own grants.
+The server runs an env call for the person whose call the handler serves. It checks the call with that person's level on `env://NAME`. Some handlers run on the server's behalf: a job and a service call another plugin made. A service call from the server's own machine does too. Their calls have the plugin's own grants.
 
-Only an admin's grant gives a plugin a level on a host. The principal is `plugin:<id>`: `{"resource": "env://studio", "principal": "plugin:notes", "level": "use"}`. Without a grant, and with none for `everyone`, the call is refused.
+A plugin gets a level on a host through a grant on the host, which takes manage on `env://NAME` to make. The principal is `plugin:<id>`: `{"resource": "env://studio", "principal": "plugin:notes", "level": "use"}`. Without a grant of its own, a plugin's call is refused: an `everyone` grant does not reach a plugin. Removing a plugin takes its grants away, so a package that later takes its id starts with none.
 
 | Method | What it does | Level |
 | --- | --- | --- |
 | `list(ctx)` | The hosts the person may see, as environments | view |
 | `get(ctx, env)` | One host, with the person's level | view |
 | `presence(ctx, env)` | Who has terminals on a host | view |
-| `exec(ctx, env, command, opts)` | Runs a command to its end, with `cwd`, `env`, `stdin` and `timeoutMs`. It takes at most an hour, and its output at most one message | use |
+| `exec(ctx, env, command, opts)` | Runs a command to its end, with `cwd`, `env`, `stdin` and `timeoutMs`, within the handler's call: 120 s by default, at most 300 s. Its output is at most one message | use |
 | `checkouts(ctx, env)` | The git checkouts and worktrees under the host's checkouts folder | use |
 | `clone(ctx, env, repository, opts)` | Clones into the host's checkouts folder, with `name` and `branch` | use |
 | `worktree(ctx, env, checkout, branch, opts)` | A worktree of a checkout, on a new branch, in the same folder | use |
@@ -235,7 +235,7 @@ Only an admin's grant gives a plugin a level on a host. The principal is `plugin
 | `listDir(ctx, env, path)` | The entries of a folder | use |
 | `stat(ctx, env, path)` | The kind, size and modification time of a path, or no entry | use |
 
-On the host, commands and files are the agent account's. A host half cannot choose the operator account or root. Files are inside the host's roots, a write is at most 8 MiB, and a checkout stays in the host's checkouts folder.
+On the host, commands and files are the agent account's. A host half cannot choose the operator account or root. A call that asks for one is refused. Files are inside the host's roots, a write is at most 8 MiB, and a checkout stays in the host's checkouts folder.
 
 A host half has no `connect` or `portUrl`: a byte stream or a browser address belongs to a client half's own connection.
 

@@ -87,6 +87,12 @@ pub struct Call {
     /// The `/ws` connection or the socket's; `None` for `POST /rpc` and calls from inside the server.
     pub conn: Option<ConnHandle>,
     pub deadline: Instant,
+    /// The plugin that makes this call for its caller: a host half's env call runs as a person, and
+    /// the audit log names both.
+    pub on_behalf: Option<String>,
+    /// The call is one a host half made through its `host.env` for an invocation. A plugin's `env.*`
+    /// calls are refused unless it is set, so env reaches a host only that way.
+    pub host_env: bool,
 }
 
 impl Call {
@@ -97,6 +103,8 @@ impl Call {
             caller,
             conn,
             deadline,
+            on_behalf: None,
+            host_env: false,
         }
     }
 
@@ -164,9 +172,13 @@ impl Call {
         }
     }
 
-    /// How the audit log names the caller.
+    /// How the audit log names the caller, and the plugin that made the call for them.
     pub fn audit_name(&self) -> String {
-        self.principal().uri()
+        let principal = self.principal().uri();
+        match &self.on_behalf {
+            Some(plugin) => format!("{principal} via plugin:{plugin}"),
+            None => principal,
+        }
     }
 
     /// Adds an entry to the audit log. A failure is logged and does not fail the call.
@@ -403,6 +415,15 @@ impl Methods {
                 RpcError::internal(format!("{method} has no level, so nobody may call it"));
             return Box::pin(async move { Err(refused) });
         };
+        // A host's methods are a host half's, through the extension host's `host.env`, which knows the
+        // invocation it serves. A plugin caller has no level on a host of its own.
+        if matches!(call.caller, Caller::Plugin(_)) && method.starts_with("env.") && !call.host_env
+        {
+            let refused = RpcError::forbidden(format!(
+                "{method} is a host's: a host half reaches a host through host.env, for an invocation"
+            ));
+            return Box::pin(async move { Err(refused) });
+        }
         let handler = def.handler.clone();
         let access = self.access.clone();
         let deadline = tokio::time::Instant::from_std(

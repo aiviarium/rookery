@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use rookery_kernel::auth::{AccessChange, AccessEvents};
 use rookery_kernel::{Call, Caller, Empty, Kernel, Level, Methods, RpcError};
 use serde_json::json;
 
@@ -120,15 +121,36 @@ pub fn register(methods: &mut Methods) {
     methods
         .add("plugins.remove", |call: Call, p: PluginRef| async move {
             let plugins = plugins(&call.kernel)?;
+            // Its id, which may be named by a package, for the grants it holds.
+            let grant_holder = plugins
+                .all()
+                .iter()
+                .find(|plugin| plugin.id == p.id || plugin.package == p.id)
+                .map(|plugin| plugin.id.clone())
+                .or_else(|| rookery_api::plugin_ids::valid_plugin_id(&p.id).then(|| p.id.clone()));
             let id = p.id.clone();
             let done = plugins
                 .change(&call.kernel, move |manager| manager.remove(&id))
                 .await?;
+            // A grant made before an install does not reach a package that later takes its id.
+            if let Some(id) = grant_holder {
+                let resources = call
+                    .store()
+                    .access()
+                    .forget_principal(&format!("plugin:{id}"))
+                    .await?;
+                let events = AccessEvents::of(&call.kernel);
+                for resource in resources {
+                    events.publish(AccessChange::Resource(resource));
+                }
+            }
             call.audit("plugin.remove", None, json!({"plugin": p.id}))
                 .await;
             report(&plugins, done)
         })
-        .summary("Removes a plugin, by its id or package. Its host half stops first.")
+        .summary(
+            "Removes a plugin, by its id or package, and its grants. Its host half stops first.",
+        )
         .level(Level::Admin);
     methods
         .add("plugins.check", |call: Call, _: Empty| async move {

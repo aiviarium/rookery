@@ -176,6 +176,8 @@ A host belongs to the account that added it. Its owner and the admins hold `mana
   "params": { "resource": "env://studio", "principal": "user:ada", "level": "use" } }
 ```
 
+A plugin's grant is its own. `everyone` does not reach a plugin, and a level on a host comes only through `plugin:<id>`. Removing the plugin takes its grants away, so a package that later takes its id starts with none.
+
 | Level | May |
 | --- | --- |
 | `view` | See the host, its state, jobs, output and a thumbnail of its desktop |
