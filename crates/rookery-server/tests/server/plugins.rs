@@ -61,6 +61,7 @@ fn egg(scratch: &Path) -> Vec<u8> {
     let target = dir.join("rookery");
     fs::create_dir_all(target.join("client")).unwrap();
     fs::create_dir_all(target.join("shell")).unwrap();
+    fs::create_dir_all(target.join("migrations")).unwrap();
     fs::write(
         dir.join("package.kdl"),
         "format 1\npackage {\n  group example\n  id echo\n  version \"1.0.0\"\n}\ntargets {\n  rookery {\n    requires {\n      rookery \">=0.6\"\n    }\n  }\n}\n",
@@ -69,7 +70,23 @@ fn egg(scratch: &Path) -> Vec<u8> {
     fs::write(
         target.join("plugin.json"),
         r#"{"apiVersion": "1", "name": "Echo", "host": "host.ts", "client": "client/index.js",
-            "contributes": {"shell": {"entry": "shell/index.html"}}}"#,
+            "contributes": {
+                "shell": {"entry": "shell/index.html"},
+                "collections": [{"name": "notes", "scope": "global",
+                    "fields": [{"name": "text", "type": "text"}]}]
+            }}"#,
+    )
+    .unwrap();
+    fs::write(
+        target.join("migrations/0001.json"),
+        r#"{"onInstall": true, "steps": [{"op": "transform", "name": "seed"}]}"#,
+    )
+    .unwrap();
+    fs::write(
+        target.join("migrations/seed.ts"),
+        r#"export default async (tx) => {
+            await tx.insert("notes", { text: "from the extension host" });
+        }"#,
     )
     .unwrap();
     fs::copy(
@@ -136,6 +153,18 @@ async fn a_plugin_installed_over_ws_runs_its_host_half_and_serves_its_halves() {
             .as_str()
             .is_some_and(|l| l.starts_with('✓')),
         "{added}"
+    );
+
+    let notes = call(
+        &mut ws,
+        5,
+        "data.find",
+        json!({"plugin": "echo", "collection": "notes"}),
+    )
+    .await;
+    assert_eq!(
+        notes["result"]["rows"][0]["text"], "from the extension host",
+        "{notes}"
     );
 
     // A member calls a method of its host half, which starts for it.

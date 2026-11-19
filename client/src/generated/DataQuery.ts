@@ -2,7 +2,7 @@
 import type { NearestQuery } from "./NearestQuery";
 
 /**
- * A structured query (`docs/data.md`, the filter in `packages/rookery-filter/FILTER.md`).
+ * A structured query (the filter is in `crates/rookery-filter/FILTER.md`).
  */
 export type DataQuery = { where?: Record<string, unknown>, 
 /**

@@ -325,16 +325,32 @@ CREATE UNIQUE INDEX settings_id ON rookery.settings (id);
 -- The level reading an entity of a collection's row needs, from the collection's access: 1 view, 2 use,
 -- 3 manage, 4 for admins only. The entity index and everything that reads through it (search, activity,
 -- recents, mentions) hold rows to it, as data.* does.
-CREATE FUNCTION rookery.collection_need(p_plugin text, p_collection text) RETURNS smallint
+CREATE FUNCTION rookery.collection_need(p_plugin text, p_collection text, p_write boolean DEFAULT false) RETURNS smallint
 LANGUAGE sql STABLE AS $$
     SELECT coalesce((
         SELECT CASE WHEN coalesce((c -> 'access' ->> 'admin')::boolean, false) THEN 4
-                    WHEN c -> 'access' ->> 'read' = 'manage' THEN 3
-                    WHEN c -> 'access' ->> 'read' = 'use' THEN 2
+                    WHEN c -> 'access' ->> (CASE WHEN p_write THEN 'write' ELSE 'read' END) = 'manage' THEN 3
+                    WHEN coalesce(c -> 'access' ->> (CASE WHEN p_write THEN 'write' ELSE 'read' END),
+                                  CASE WHEN p_write THEN 'use' ELSE 'view' END) = 'use' THEN 2
                     ELSE 1 END
         FROM rookery.plugin_schemas s, jsonb_array_elements(s.collections) c
         WHERE s.plugin = p_plugin AND c ->> 'name' = p_collection
-    ), 1)::smallint
+    ), CASE WHEN p_write THEN 2 ELSE 1 END)::smallint
+$$;
+
+-- The nearest collection at or above a resource, with the same depth limit as access inheritance.
+CREATE FUNCTION rookery.entity_collection(p_uri text, p_depth int DEFAULT 16)
+RETURNS TABLE (uri text, plugin text, collection text)
+LANGUAGE sql STABLE AS $$
+    WITH RECURSIVE chain (uri, plugin, collection, parent, depth) AS (
+        SELECT e.uri, e.plugin, e.collection, e.parent, 0
+        FROM rookery.entities e WHERE e.uri = p_uri
+        UNION ALL
+        SELECT e.uri, e.plugin, e.collection, e.parent, c.depth + 1
+        FROM chain c JOIN rookery.entities e ON e.uri = c.parent
+        WHERE c.collection IS NULL AND c.depth < p_depth
+    )
+    SELECT c.uri, c.plugin, c.collection FROM chain c WHERE c.collection IS NOT NULL
 $$;
 
 -- An entity uses its own collection's read rule, or the nearest ancestor collection's.
@@ -343,16 +359,8 @@ LANGUAGE sql STABLE AS $$
     SELECT CASE WHEN p_collection IS NOT NULL THEN rookery.collection_need(p_plugin, p_collection)
         WHEN p_parent IS NULL THEN 1::smallint
         ELSE coalesce((
-            WITH RECURSIVE chain (plugin, collection, parent, depth) AS (
-                SELECT e.plugin, e.collection, e.parent, 1
-                FROM rookery.entities e WHERE e.uri = p_parent
-                UNION ALL
-                SELECT e.plugin, e.collection, e.parent, c.depth + 1
-                FROM chain c JOIN rookery.entities e ON e.uri = c.parent
-                WHERE c.collection IS NULL AND c.depth < 16
-            )
-            SELECT rookery.collection_need(plugin, collection)
-            FROM chain WHERE collection IS NOT NULL
+            SELECT rookery.collection_need(c.plugin, c.collection)
+            FROM rookery.entity_collection(p_parent, 15) c
         ), 1::smallint)
     END
 $$;

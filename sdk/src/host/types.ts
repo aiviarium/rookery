@@ -2,7 +2,6 @@
 // `runtime.ts` is what the extension host runs them with.
 import type { CollectionsOf, Refs, Row } from "../data"
 import type {
-  AccessLevel,
   AppServiceInfo,
   AuditEntry,
   BlobInfo,
@@ -12,6 +11,17 @@ import type {
   ConnectionInfo,
   ConnectionResolved,
   DirListing,
+  DocumentContent,
+  DocumentConvert,
+  DocumentConverted,
+  DocumentCreate,
+  DocumentEdit,
+  DocumentEdited,
+  DocumentFormat,
+  DocumentInfo,
+  EntityInfo,
+  EntityRegister,
+  EntityTextList,
   EnvInfo,
   EnvPresence,
   ExecResult,
@@ -19,11 +29,14 @@ import type {
   FileData,
   FileStat,
   FileWritten,
+  Grant,
+  GrantList,
   JobContext,
   JobDetail,
   JobInfo,
   LeaseGrant,
   Manifest,
+  Person,
   Principal,
   ScheduleInfo,
   ScreenInfo,
@@ -68,12 +81,49 @@ export interface Ctx {
 }
 
 export interface Access {
-  check(resource: string, level: AccessLevel): Promise<boolean>
-  require(resource: string, level: AccessLevel): Promise<void>
-  level(resource: string): Promise<AccessLevel | null>
-  filter(resources: string[], level: AccessLevel): Promise<string[]>
-  grant(resource: string, subject: string, level: AccessLevel): Promise<void>
+  check(resource: string, level: Grant): Promise<boolean>
+  require(resource: string, level: Grant): Promise<void>
+  level(resource: string): Promise<Grant | null>
+  /** The level one person holds, such as one the plugin is about to tell of the resource. */
+  levelOf(resource: string, user: string): Promise<Grant | null>
+  filter(resources: string[], level: Grant): Promise<string[]>
+  grant(resource: string, subject: string, level: Grant): Promise<void>
   revoke(resource: string, subject: string): Promise<void>
+  /** Who holds what on a resource, such as the members of `space://ID`. */
+  grants(resource: string): Promise<GrantList>
+}
+
+/** The index of everything with a URI. A plugin registers entities of the schemes it declares. */
+export interface Entities {
+  lookup(ctx: Ctx, uri: string): Promise<EntityInfo | null>
+  lookupMany(ctx: Ctx, uris: string[]): Promise<EntityInfo[]>
+  search(
+    ctx: Ctx,
+    text: string,
+    opts?: { schemes?: string[]; space?: string; limit?: number },
+  ): Promise<EntityInfo[]>
+  /** The text of entities the caller may read. */
+  text(ctx: Ctx, uris: string[], opts?: { maxChars?: number }): Promise<EntityTextList>
+  register(entity: EntityRegister): Promise<EntityInfo>
+  remove(uri: string): Promise<void>
+  alias(uri: string, target: string): Promise<void>
+}
+
+/** Documents people edit together, read and edited on the server. */
+export interface Documents {
+  list(ctx: Ctx, parent: string): Promise<DocumentInfo[]>
+  create(ctx: Ctx, params: DocumentCreate): Promise<DocumentInfo>
+  edit(ctx: Ctx, params: DocumentEdit): Promise<DocumentEdited>
+  delete(ctx: Ctx, id: string): Promise<void>
+  /** A document's content, as JSON, Markdown or text. */
+  read(ctx: Ctx, id: string, format?: DocumentFormat): Promise<DocumentContent>
+  /** Converts Markdown to the documents' JSON and back, with no document. */
+  convert(params: DocumentConvert): Promise<DocumentConverted>
+}
+
+/** People, for whoever holds manage on what they share with them. */
+export interface Users {
+  search(ctx: Ctx, resource: string, text: string, limit?: number): Promise<Person[]>
 }
 
 export interface HostCommandDef<P = any, R = unknown> {
@@ -375,8 +425,10 @@ export interface Audit {
 
 export interface Spaces {
   list(ctx: Ctx): Promise<SpaceInfo[]>
-  get(ctx: Ctx, id: string): Promise<SpaceInfo>
-  create(ctx: Ctx, params: { kind: string; name: string }): Promise<SpaceInfo>
+  /** A space by id, slug or `~`. */
+  get(ctx: Ctx, space: string): Promise<SpaceInfo>
+  create(ctx: Ctx, params: { kind: string; name: string; slug?: string }): Promise<SpaceInfo>
+  rename(ctx: Ctx, space: string, name: string): Promise<SpaceInfo>
 }
 
 export interface AppServices {
@@ -397,6 +449,9 @@ export interface Rookery {
   readonly settings: Settings
   readonly data: ServiceData
   readonly spaces: Spaces
+  readonly entities: Entities
+  readonly documents: Documents
+  readonly users: Users
   readonly storage: Storage
   readonly secrets: Secrets
   readonly connections: Connections

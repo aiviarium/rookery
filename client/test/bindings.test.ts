@@ -178,6 +178,37 @@ describe("@rookery/client SolidJS bindings", () => {
     await waitFor(() => live().length === 1)
     expect(live().map((r) => r.id)).toEqual(["r2"])
 
+    // The server ends the subscription: the rows stay, the reason is told, and nothing more applies.
+    const ended: string[] = []
+    live.onEnded((e) => ended.push(e.code))
+    notify("data.changed", {
+      subscription: "sub-1",
+      changes: [],
+      ended: true,
+      error: { code: "FORBIDDEN", message: "view on space://s is no longer held" },
+    })
+    await waitFor(() => live.ended)
+    expect(ended).toEqual(["FORBIDDEN"])
+    expect(live.error?.code).toBe("FORBIDDEN")
+    expect(live().map((r) => r.id)).toEqual(["r2"])
+    notify("data.changed", {
+      subscription: "sub-1",
+      changes: [
+        {
+          seq: 15,
+          collection: "tasks",
+          id: "r3",
+          op: "insert",
+          rev: 1,
+          spaceId: null,
+          at: "2026-01-01T00:00:04Z",
+          row: { id: "r3", status: "open", order: 3, title: "After" },
+        },
+      ],
+    })
+    await Bun.sleep(50)
+    expect(live().map((r) => r.id)).toEqual(["r2"])
+
     disposeRoot()
     await waitFor(() => unlived.includes("sub-1"))
   })

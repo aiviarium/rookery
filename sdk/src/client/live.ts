@@ -22,6 +22,13 @@ export interface Live<T> {
   readonly error: RookeryError | undefined
   readonly hasMore: boolean
   readonly included: Record<string, Row>
+  /**
+   * The server ended the subscription, such as when the caller lost access to the space it follows: the
+   * rows stay as they were, `error` says why, and no more changes come until `refetch` starts again.
+   */
+  readonly ended: boolean
+  /** Calls `fn` with the reason when the server ends the subscription. */
+  onEnded(fn: (error: RookeryError) => void): Disposable
   refetch(): void
   dispose(): void
 }
@@ -82,10 +89,17 @@ export function createLive<T extends Row>(
   const key = JSON.stringify([target.plugin, target.collection, target.space ?? null, query])
   const before = lastRows(key)
   const [rows, setRowsRaw] = createSignal<T[]>((before?.rows as T[]) ?? [], { equals: false })
-  const [state, setState] = createStore<{ loading: boolean; error?: RookeryError; hasMore: boolean }>({
+  const [state, setState] = createStore<{
+    loading: boolean
+    error?: RookeryError
+    hasMore: boolean
+    ended: boolean
+  }>({
     loading: !before,
     hasMore: before?.hasMore ?? false,
+    ended: false,
   })
+  const endedListeners = new Set<(error: RookeryError) => void>()
   let fresh = false
   const setRows = (f: () => T[]) => {
     const next = setRowsRaw(f)
@@ -197,7 +211,16 @@ export function createLive<T extends Row>(
   }
 
   const handle = (n: DataChanged) => {
-    if (n.subscription !== sub) return
+    if (n.subscription !== sub || state.ended) return
+    if (n.ended) {
+      // The server sends nothing more on this subscription; nothing is undone of what is shown.
+      const error = n.error
+        ? new RookeryError(n.error.code, n.error.message, n.error.details)
+        : new RookeryError("UNAVAILABLE", "the live query ended")
+      setState({ ended: true, error, loading: false })
+      for (const fn of endedListeners) fn(error)
+      return
+    }
     if (n.reset !== undefined) {
       void refetch()
       return
@@ -242,7 +265,7 @@ export function createLive<T extends Row>(
         setIncluded((r.included as Record<string, Row> | undefined) ?? {})
         const next = sameRows(rows(), all.rows)
         batch(() => {
-          setState({ loading: false, error: undefined, hasMore: !!all.next })
+          setState({ loading: false, error: undefined, hasMore: !!all.next, ended: false })
           if (next !== rows()) setRows(() => next)
           else keepRows(key, next, state.hasMore)
         })
@@ -261,7 +284,7 @@ export function createLive<T extends Row>(
   const refetch = () => start(false)
 
   const offReconnect = opts.onReconnect(() => {
-    if (disposed) return
+    if (disposed || state.ended) return
     sub = undefined
     void start(fresh)
   })
@@ -272,6 +295,7 @@ export function createLive<T extends Row>(
     off.dispose()
     offReconnect.dispose()
     if (timer) clearTimeout(timer)
+    endedListeners.clear()
     if (sub) opts.call("data.unlive", { subscription: sub }).catch(() => {})
   }
   if (getOwner()) onCleanup(dispose)
@@ -284,7 +308,12 @@ export function createLive<T extends Row>(
     error: { get: () => state.error },
     hasMore: { get: () => state.hasMore },
     included: { get: () => included() },
+    ended: { get: () => state.ended },
   })
+  ;(live as any).onEnded = (fn: (error: RookeryError) => void): Disposable => {
+    endedListeners.add(fn)
+    return { dispose: () => void endedListeners.delete(fn) }
+  }
   ;(live as any).refetch = () => void refetch()
   ;(live as any).dispose = dispose
   return live

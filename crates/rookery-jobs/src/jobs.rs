@@ -158,6 +158,11 @@ impl Signals {
     }
 }
 
+/// Wakes the worker, after code elsewhere in the server enqueued jobs, such as a batch of writes.
+pub fn wake(kernel: &Kernel) {
+    signals(kernel).wake.notify_one();
+}
+
 fn signals(kernel: &Kernel) -> Arc<Signals> {
     kernel.facility::<Signals>()
 }

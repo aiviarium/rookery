@@ -1,0 +1,31 @@
+[package]
+name = "rookery-documents"
+description = "Documents people edit together in rookery serve: Yjs documents with their entities, versions, Markdown and edits."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+rookery-proto.workspace = true
+rookery-store.workspace = true
+rookery-kernel.workspace = true
+rookery-data.workspace = true
+rookery-jobs.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+yrs = { version = "0.28", features = ["sync"] }
+pulldown-cmark = { version = "0.13", default-features = false }
+
+[dev-dependencies]
+rookery-facilities.workspace = true
+rookery-auth.workspace = true
+rookery-kernel = { workspace = true, features = ["testing"] }
+rookery-store = { workspace = true, features = ["testing"] }

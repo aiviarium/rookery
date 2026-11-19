@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use crate::time;
 
+/// A notification as the wire has it.
 pub fn info(n: Notification) -> NotificationInfo {
     let actions = n
         .actions
