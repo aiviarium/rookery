@@ -104,10 +104,10 @@ This page is about the agent's data on a host. On the machine that runs Rookery,
 
 | What | Where |
 | --- | --- |
-| The store. It has the hosts with their passwords and machines, the registries, secrets and most settings. It also has Rookery's own SSH key, the server's token and your own plugins | `~/.local/share/rookery/rookery.db`, or the PostgreSQL database the `store` setting names |
-| The key file, when the store is encrypted | `~/.config/rookery/store.key`. Keep it apart from the database |
+| The server's database. It has the hosts with their passwords and machines, the registries, secrets, settings, jobs and accounts. It also has Rookery's own SSH key and your own plugins | The PostgreSQL database of `ROOKERY_DATABASE_URL` |
+| The server's secret key | The file of `ROOKERY_SECRET_KEY_FILE`. Keep it apart from the database |
 | The settings of this machine | `~/.config/rookery/config.json` |
 
-With these, an installation can be [restored on another machine](/docs/use/store#restore-on-a-new-machine). `rookery host export HOST` prints one host's profile, for a copy of that alone.
+With these, an installation can be [restored on another machine](/docs/use/store#back-it-up-and-restore-it). `rookery host export HOST` prints one host's profile, for a copy of that alone.
 
-Copy a SQLite store with `sqlite3 rookery.db ".backup copy.db"`, which takes a consistent copy while Rookery is running.
+Back the database up with `pg_dump`, which takes a consistent copy while the server runs.

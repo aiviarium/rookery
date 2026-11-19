@@ -3,5 +3,5 @@
   "description": "rookeryd and rookery serve",
   "icon": "Plug",
   "root": true,
-  "pages": ["index", "portal", "testing", "host", "serve"]
+  "pages": ["index", "server", "portal", "host"]
 }

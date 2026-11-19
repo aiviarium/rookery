@@ -94,7 +94,7 @@ A host that Rookery reaches through `access.link`, such as a container, doesn't 
 
 ### Keys
 
-Rookery keeps SSH keys in its store, by name, sealed when the [store is encrypted](/docs/use/store#encrypt-it). The key `rookery` always exists. Rookery writes a private half to `keys/NAME` in its data directory when ssh or Ansible needs it, and `rookery host inventory` names that file. Private halves never leave through the API or a command.
+Rookery keeps SSH keys in the server's database, by name, sealed with its [secret key](/docs/use/store#the-secret-key). The key `rookery` always exists. Rookery writes a private half to `keys/NAME` in its data directory when ssh or Ansible needs it, and `rookery host inventory` names that file. Private halves never leave through the API or a command.
 
 ```bash
 rookery key list                            # the keys, the hosts that use each, and what is pending

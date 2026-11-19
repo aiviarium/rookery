@@ -303,19 +303,9 @@ Deleting needs the provisioner's plugin and its required secrets. `rookery host 
 
 ## With a Rookery server
 
-With a [Rookery server](/docs/use/server) set, the server creates the machines. Its commands and the set-up tabs go to the server, and the provisioner runs on the server's machine with the server's plugins, secrets and provisioner settings. Creating and deleting a machine are jobs there of the subject `resource:ID`, named `create` and `remove`, and their output follows as for an apply. An action of a provisioner that changes something is a job there too, of the subject `provisioner:NAME`.
+With a [Rookery server](/docs/use/server) set, the server creates the machines. Its commands and the set-up tabs go to the server, and the provisioner runs on the server's machine with the server's plugins, secrets and provisioner settings. Creating and deleting a machine are jobs there of the subject `resource://ID`, named `create` and `remove`, and their output follows as for an apply. An action of a provisioner that changes something is a job there too, of the subject `provisioner://ID`.
 
-| What | Role |
-| --- | --- |
-| The list, the types, a provisioner's page and its actions | `view` |
-| Registering and removing a provisioner | `admin` |
-| An action of a provisioner | Its own: `admin` for one that changes something, `view` for one that only reads, unless the plugin says otherwise |
-| Looking at what it made | `view` |
-| Creating, changing, starting, stopping and deleting what it made | `admin` |
-
-[Resources](/docs/deploy/resources#with-a-rookery-server) lists the operations with their roles.
-
-A server with `serve_setup off` does not take set-up over the network, only on its own socket ([Closing set-up](/docs/extend/serve#closing-set-up)).
+Provisioners and what they made need an admin of the server, for looking at them as for changing them. [Resources](/docs/deploy/resources#with-a-rookery-server) lists the methods.
 
 ## Credentials stay where Rookery runs
 

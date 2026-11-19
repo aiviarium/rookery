@@ -61,11 +61,11 @@ Any other command goes after the image name, such as `ls`:
 docker run --rm -it -v rookery-config:/config -v rookery-data:/data ghcr.io/aiviarium/rookery ls
 ```
 
-See [`rookery serve`](/docs/extend/serve#in-a-container) for the volumes and the token. A Rookery installed on your machine, as a client, uses the container's hosts once it has logged in with a setup key made there:
+See [`rookery serve`](/docs/extend/serve#in-a-container) for the volumes and the database. A Rookery installed on your machine, as a client, uses the container's hosts once it has signed in with a link made there:
 
 ```bash
-docker exec rookery rookery server setup-key
-rookery login http://127.0.0.1:7777
+docker exec rookery rookery server setup-key   # prints a sign-in link
+rookery login http://127.0.0.1:7777/auth/link/CODE
 rookery ls
 ```
 
@@ -101,28 +101,26 @@ python3 -m venv .venv && .venv/bin/pip install -r provision/requirements.txt
 | What | Where |
 | --- | --- |
 | Settings of this machine, listed below | `~/.config/rookery/config.json` |
-| The other settings, registries, secret values and registry passwords | Rookery's store, by default `~/.local/share/rookery/rookery.db` |
-| One profile per host, its generated passwords and the record of a machine Rookery created for it | Rookery's store too. `rookery host export HOST` prints a profile and `rookery host credentials HOST` the passwords |
-| Rookery's SSH keys, and the token and setup key of `rookery serve` | Rookery's store. A key is written to `~/.local/share/rookery/keys/NAME` when ssh needs it, and the token to `serve.token` |
-| The key file of an encrypted store | `~/.config/rookery/store.key` (setting `store_key`) |
-| Locks held while Rookery creates or changes a host's machine | `~/.local/share/rookery/locks/` |
-| Your own plugins | `~/.config/rookery/plugins/`, and in Rookery's store what reinstalls them |
+| The other settings, registries, secret values and registry passwords | The server's [database](/docs/use/store) |
+| One profile per host, its generated passwords and the record of a machine Rookery created for it | The server's database too. `rookery host export HOST` prints a profile and `rookery host credentials HOST` the passwords |
+| Rookery's SSH keys | The server's database. A key is written to `~/.local/share/rookery/keys/NAME` of the server's machine when ssh needs it |
+| The server's secret key | The file of `ROOKERY_SECRET_KEY_FILE` |
+| Your own plugins | `~/.config/rookery/plugins/`, and in the server's database what reinstalls them |
 | Provisioning source, unpacked from the program | `~/.local/share/rookery/source/` |
 | Build output such as the release archive, seeds and installer images | `~/.local/share/rookery/build/` |
 | Downloaded Ubuntu installer ISOs | `~/.local/share/rookery/iso/` (setting `iso_dir`) |
 
-`XDG_CONFIG_HOME` and `XDG_DATA_HOME` are honoured. `rookery config list` prints the paths and settings, and `rookery config set KEY VALUE` changes one, in the file or in the store. `rookery server store status` says where the store is and whether it is encrypted. See [The store](/docs/use/store), which also says how to restore an installation from it.
+`XDG_CONFIG_HOME` and `XDG_DATA_HOME` are honoured. `rookery config list` prints the paths and settings, and `rookery config set KEY VALUE` changes one, in the file or on the server. See [The database](/docs/use/store), which also says how to restore an installation.
 
-These settings stay in `config.json`, as they belong to this machine or are needed to open the store:
+These settings stay in `config.json`, as they belong to this machine:
 
 | Settings | What they are for |
 | --- | --- |
-| `store`, `store_key`, `store_ca` | Where the store is and how it is opened |
 | `server`, `server_token` | The Rookery server this machine uses, kept by `rookery login` |
 | `source`, `iso_dir` | Folders on this machine |
 
 <Callout type="warn">
-  Profiles hold Wi-Fi passwords, and the store holds generated passwords and the tailnet's API key. They are in clear text unless the store is encrypted, see [The store](/docs/use/store#encrypt-it). Keep the store and its key file private, and keep files that `rookery host export` writes out of version control.
+  Profiles hold Wi-Fi passwords, and the database holds generated passwords and the tailnet's API key, sealed with the server's [secret key](/docs/use/store#the-secret-key). Keep the database and its key file private, and keep files that `rookery host export` writes out of version control.
 </Callout>
 
 ## The provisioning source

@@ -66,7 +66,7 @@ The documentation is at [rookery.helight.dev](https://rookery.helight.dev/). The
 - [Using Rookery](docs/content/docs/%28guide%29/use/index.mdx) has the commands, sign-ins, secrets and updates.
 - [Extending](docs/content/docs/%28guide%29/extend/index.mdx) covers plugins, services and `rookery serve`.
 - [Reference](docs/content/docs/%28guide%29/reference/index.mdx) has the tools, `box`, the profile fields, building and releasing.
-- The API reference of rookeryd and `rookery serve`, generated from [`docs/openapi/`](docs/openapi).
+- The API reference of `rookery serve`, generated from [`api/methods.json`](api/methods.json), and of rookeryd, from [`docs/openapi/`](docs/openapi).
 
 ## Contributing and security
 

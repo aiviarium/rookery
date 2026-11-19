@@ -57,7 +57,7 @@ ANSIBLE_CONFIG=provision/ansible.cfg .venv/bin/ansible-playbook -i localhost, pr
 vale README.md docs/content/docs
 ```
 
-Two of the Rust tests compare the API that rookeryd and `rookery serve` describe with the committed documents in `docs/openapi/`. After changing a route, regenerate them. `ROOKERY_UPDATE_DOCS=1 cargo test` writes them.
+Two of the Rust tests compare the API that rookeryd and `rookery serve` describe with the committed documents: rookeryd's in `docs/openapi/`, and the server's methods in `api/methods.json`. After changing a route or a method, regenerate them. `ROOKERY_UPDATE_DOCS=1 cargo test` writes them.
 
 ## In containers
 
@@ -113,7 +113,7 @@ npm run dev         # http://localhost:3000
 npm run build       # static site in docs/out
 ```
 
-The guide pages are MDX files in `docs/content/docs/(guide)`. The API reference is generated before every build from `docs/openapi/` by `docs/scripts/gather.mjs`. Set `DOCS_BASE_PATH` when the site is served from a folder, such as `/rookery` on GitHub Pages.
+The guide pages are MDX files in `docs/content/docs/(guide)`. The API reference is generated before every build from `docs/openapi/` and `api/methods.json` by `docs/scripts/gather.mjs`. Set `DOCS_BASE_PATH` when the site is served from a folder, such as `/rookery` on GitHub Pages.
 
 ## Releases
 

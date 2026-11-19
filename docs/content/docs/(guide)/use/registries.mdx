@@ -15,7 +15,7 @@ A registry is a server with one address and one login. Hosts get npm and Docker 
 
 A registry with a user name logs in with user name and password. Without a user name, what is stored is used as a token: `_authToken` for npm, a bearer token for uploads.
 
-Registries, with their addresses and user names, are kept in Rookery's store. Passwords and tokens are kept there as secrets, sealed when the store is encrypted. `rookery server store status` says where the store is.
+Registries, with their addresses and user names, are kept in the server's database. Passwords and tokens are kept there as secrets, sealed with the server's key.
 
 ## Adding registries
 
