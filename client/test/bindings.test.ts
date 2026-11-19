@@ -321,6 +321,8 @@ describe("@rookery/client route matching", () => {
             { path: "", view: "fleet.home" },
             { path: "hosts/:name", view: "fleet.host" },
             { path: "files/*rel", view: "fleet.files" },
+            { path: "admin", view: "fleet.admin" },
+            { path: "admin/:section", view: "fleet.admin" },
           ],
         },
       },
@@ -347,5 +349,10 @@ describe("@rookery/client route matching", () => {
     )
     expect(viewUrl(table, "fleet.host", { path: "box-3" })).toBe("/fleet/hosts/box-3")
     expect(viewUrl(table, "fleet.files", { path: "dir/file.txt" })).toBe("/fleet/files/dir/file.txt")
+
+    // A view with a route without a parameter and one with it: the table matches `/fleet/admin/:section`
+    // first, and the URL is the one the caller has the values for.
+    expect(viewUrl(table, "fleet.admin")).toBe("/fleet/admin")
+    expect(viewUrl(table, "fleet.admin", { path: "plugins" })).toBe("/fleet/admin/plugins")
   })
 })
