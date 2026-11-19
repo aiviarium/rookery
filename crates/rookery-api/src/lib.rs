@@ -9,6 +9,7 @@ pub mod ids;
 pub mod ops;
 #[cfg(feature = "plugins")]
 pub mod plugin_contract;
+pub mod plugin_ids;
 #[cfg(feature = "client")]
 pub mod portal;
 pub mod profile;

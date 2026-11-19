@@ -116,23 +116,7 @@ pub fn read_dir(dir: &Path) -> Result<Read, Problem> {
     read(|name| std::fs::read(dir.join(name)).ok())
 }
 
-/// The plugin ids Rookery keeps for itself: `rookery`, under which its own settings, secrets and
-/// data are kept, and `sign-in`, whose actions are its own.
-pub const RESERVED_IDS: &[&str] = &["rookery", "sign-in"];
-
-/// Whether a plugin id is one a package may have.
-pub fn valid_plugin_id(id: &str) -> bool {
-    valid_name(id) && !RESERVED_IDS.contains(&id)
-}
-
-/// A name that is safe as a directory name and inside a remote command,
-/// such as the id of a plugin or of one of its features.
-pub fn valid_name(name: &str) -> bool {
-    name.starts_with(|ch: char| ch.is_ascii_lowercase())
-        && name
-            .chars()
-            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-' || ch == '_')
-}
+pub use crate::plugin_ids::{RESERVED_IDS, valid_name, valid_plugin_id};
 
 /// What Rookery tells Hatchery about itself: it installs the `rookery`
 /// target, answers `rookery` with its version, and checks the target's

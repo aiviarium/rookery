@@ -11,7 +11,7 @@ use rookery_store::secrets::Scope;
 use crate::{own_user, time};
 
 fn scope(call: &Call, plugin: &str, scope: WireScope) -> Result<Scope, RpcError> {
-    rookery_kernel::methods::plugin_id(plugin)?;
+    rookery_kernel::methods::named_plugin(call, plugin)?;
     match scope {
         WireScope::Global => {
             call.plugin(Some(plugin))?;
