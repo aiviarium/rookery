@@ -2,6 +2,6 @@
 import type { LinkInfo } from "./LinkInfo";
 
 /**
- * The result of `auth.createLink`. `url` is shown once; only a hash of its code is kept.
+ * The result of `auth.createLink`: the link, shown this once.
  */
 export type LinkCreated = { url: string, info: LinkInfo, };

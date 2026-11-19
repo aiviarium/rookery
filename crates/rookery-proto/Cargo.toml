@@ -1,0 +1,24 @@
+[package]
+name = "rookery-proto"
+description = "The wire types of rookery serve: the JSON-RPC envelope, errors, stream channels and every method's params and results."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+doctest = false
+
+[features]
+# The TypeScript bindings in client/src/generated, written by the test `bindings`.
+ts = ["dep:ts-rs"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+ts-rs = { workspace = true, optional = true }
+
+[[test]]
+name = "bindings"
+required-features = ["ts"]
