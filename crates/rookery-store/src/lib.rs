@@ -34,6 +34,7 @@ pub mod search;
 pub mod secrets;
 pub mod settings;
 pub mod spaces;
+pub mod sql;
 pub mod state;
 pub mod terminals;
 #[cfg(feature = "testing")]
@@ -65,6 +66,16 @@ pub struct StoreOptions {
     pub secret_key: Option<seal::Key>,
     /// `ROOKERY_BLOBS`: the folder of the blobs' files.
     pub blobs: Option<PathBuf>,
+    /// `ROOKERY_DATABASE_ROLE_TAG`: puts this deployment's raw SQL roles in a namespace of their own, as
+    /// Postgres roles are shared by every database of a server.
+    pub sql_role_tag: Option<String>,
+    /// `ROOKERY_DATABASE_READ_URL`: a read replica `sql.query` with `replica` runs on.
+    pub database_read_url: Option<String>,
+    /// `ROOKERY_SERVICE_DATABASE_URL`: the host and port plugins' services reach Postgres at, when they are
+    /// not the server's.
+    pub service_database_url: Option<String>,
+    /// The time limits of raw SQL; the defaults unless a test shortens them.
+    pub sql_limits: Option<sql::exec::Limits>,
     /// Typed tables of other crates, such as those of hosts, that are collections of Rookery's too.
     pub system_tables: Vec<collections::system::SystemTable>,
     /// How many changes the change feed keeps in memory for each subscriber before one that lags reads
@@ -81,6 +92,10 @@ impl StoreOptions {
             blobs: None,
             feed_capacity: 4096,
             system_tables: Vec::new(),
+            sql_role_tag: None,
+            database_read_url: None,
+            service_database_url: None,
+            sql_limits: None,
         }
     }
 }
@@ -105,6 +120,8 @@ pub(crate) struct DataState {
     /// table before another plugin's apply committed cannot write its older view over a newer one.
     pub reload_lock: tokio::sync::Mutex<()>,
     pub feed: feed::FeedState,
+    /// Raw SQL: the plugins' pools, their open transactions and the deployment's settings for it.
+    pub sql: sql::State,
     /// Rookery's typed tables registered as collections, which a reload keeps.
     pub system: std::sync::RwLock<
         Vec<(
@@ -118,12 +135,19 @@ pub(crate) struct DataState {
 }
 
 impl DataState {
-    fn new(feed_capacity: usize) -> Arc<DataState> {
+    fn new(options: &StoreOptions) -> Arc<DataState> {
+        let feed_capacity = options.feed_capacity;
         Arc::new(DataState {
             registry: Default::default(),
             reload_lock: tokio::sync::Mutex::new(()),
             feed: feed::FeedState::new(feed_capacity),
             system: Default::default(),
+            sql: sql::State::new(
+                options.sql_role_tag.clone(),
+                options.database_read_url.clone(),
+                options.service_database_url.clone(),
+                options.sql_limits.clone().unwrap_or_default(),
+            ),
             log_partitions: Default::default(),
         })
     }
@@ -177,12 +201,13 @@ impl Store {
     }
 
     fn from_parts(pool: PgPool, options: StoreOptions) -> Store {
+        let data = DataState::new(&options);
         Store {
             pool,
             key: options.secret_key.map(Arc::new),
             blobs: options.blobs.map(Arc::new),
             fence: None,
-            data: DataState::new(options.feed_capacity),
+            data,
         }
     }
 
@@ -324,6 +349,10 @@ impl Store {
     }
     pub fn search(&self) -> search::Search<'_> {
         search::Search { store: self }
+    }
+    /// Raw SQL: plugins' roles, views and raw schemas, and running their statements.
+    pub fn sql(&self) -> sql::Sql<'_> {
+        sql::Sql { store: self }
     }
     pub fn spaces(&self) -> spaces::Spaces<'_> {
         spaces::Spaces { store: self }

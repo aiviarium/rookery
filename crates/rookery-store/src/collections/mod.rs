@@ -370,6 +370,15 @@ impl<'a> Collections<'a> {
         if stored.as_slice() == defs {
             return Ok(report);
         }
+        // A view depends on its table's columns: a plugin with raw SQL has its views dropped here and made
+        // again from the new definitions before the transaction commits.
+        let views_of = if crate::sql::views::is_enabled(&mut tx, plugin).await? {
+            let names = self.store.sql().names(plugin)?;
+            crate::sql::views::drop_all(&mut tx, &names).await?;
+            Some(names)
+        } else {
+            None
+        };
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "CREATE SCHEMA IF NOT EXISTS {}",
             quote_ident(&plugin_schema(plugin))
@@ -447,6 +456,9 @@ impl<'a> Collections<'a> {
             }
         }
         save_stored(&mut tx, plugin, defs).await?;
+        if let Some(names) = &views_of {
+            crate::sql::views::sync(&mut tx, names, defs).await?;
+        }
         tx.commit().await?;
         self.reload().await?;
         Ok(report)
