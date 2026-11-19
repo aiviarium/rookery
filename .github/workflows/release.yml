@@ -175,7 +175,7 @@ jobs:
         run: |
           mkdir -p build/image
           tar -xzf rookery-x86_64-linux.tar.gz -C build/image rookery
-          cp provision/requirements.txt build/image/
+          cp provision/requirements.txt container/rookery-container.sh build/image/
           version=${ROOKERY_BUILD_VERSION:-$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)}
           echo "ROOKERY_IMAGE_VERSION=$version" >> "$GITHUB_ENV"
           echo "ROOKERY_IMAGE_SHA256=$(sha256sum build/image/rookery | cut -d' ' -f1)" >> "$GITHUB_ENV"
