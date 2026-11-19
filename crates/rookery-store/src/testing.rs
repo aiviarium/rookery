@@ -52,6 +52,7 @@ pub struct TestDb {
     pub url: String,
     name: String,
     server: String,
+    blobs: std::path::PathBuf,
 }
 
 fn now() -> u64 {
@@ -93,6 +94,9 @@ impl TestDb {
         let url = url_for(&server, &name);
         let mut options = StoreOptions::new(&url);
         options.max_connections = 8;
+        options.secret_key = Some(crate::seal::Key::generate());
+        let blobs = std::env::temp_dir().join(&name);
+        options.blobs = Some(blobs.clone());
         let store = Store::open(options)
             .await
             .expect("opening the test database");
@@ -101,12 +105,14 @@ impl TestDb {
             url,
             name,
             server,
+            blobs,
         })
     }
 
     /// Closes the pool and drops the database.
     pub async fn close(self) {
         self.store.close().await;
+        let _ = std::fs::remove_dir_all(&self.blobs);
         if let Ok(mut admin) = PgConnection::connect(&self.server).await {
             let _ = sqlx::raw_sql(AssertSqlSafe(format!(
                 "DROP DATABASE IF EXISTS {} WITH (FORCE)",
