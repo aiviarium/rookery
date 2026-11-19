@@ -125,43 +125,61 @@ impl Locks for LeaseLocks {
         };
         let db = self.renewals.clone();
         std::thread::spawn(move || {
-            // Renewed in time, the lease lasts TTL from then. A renewal that fails is tried again
-            // until the lease would end; then the work that holds it stops.
+            // Renewed in time, the lease lasts TTL from then. A renewal that fails, or does not
+            // answer before the lease would end, is tried again; after TTL/2 of failing the work
+            // that holds it stops, while the lease still holds.
             let mut until = std::time::Instant::now() + TTL;
+            let mut failing: Option<std::time::Instant> = None;
             let mut wait = RENEW;
             loop {
                 match stopped.recv_timeout(wait) {
                     Err(mpsc::RecvTimeoutError::Timeout) => {
                         let (lease, holder) = (name.clone(), holder.clone());
                         let asked = std::time::Instant::now();
+                        let left = until.saturating_duration_since(asked);
                         let renewed = db.run(move |pool: PgPool| {
                             Box::pin(async move {
-                                store(pool, epoch)
-                                    .leases()
-                                    .renew(&lease, &holder, fence, TTL)
-                                    .await
+                                match tokio::time::timeout(
+                                    left,
+                                    store(pool, epoch)
+                                        .leases()
+                                        .renew(&lease, &holder, fence, TTL),
+                                )
+                                .await
+                                {
+                                    Ok(done) => done.map(|_| ()).map_err(Some),
+                                    Err(_) => Err(None),
+                                }
                             })
                         });
                         match renewed {
-                            Ok(_) => {
+                            Ok(()) => {
                                 until = asked + TTL;
+                                failing = None;
                                 wait = RENEW;
                             }
                             // Another holds it now: it is gone at once.
-                            Err(rookery_store::Error::Conflict(_)) => {
+                            Err(Some(rookery_store::Error::Conflict(_))) => {
                                 tracing::warn!(lease = %name, "a lease was lost while it was held");
                                 lapse.lost(&format!("losing the lease {name}"));
                                 return;
                             }
-                            Err(e) if std::time::Instant::now() + RETRY >= until => {
-                                tracing::warn!(lease = %name, error = %e, "a lease lapsed while it was held");
-                                lapse.lost(&format!(
-                                    "the lease {name}, which could not be renewed: {e}"
-                                ));
-                                return;
-                            }
                             Err(e) => {
-                                tracing::warn!(lease = %name, error = %e, "renewing a lease failed: trying again");
+                                let why = match e {
+                                    Some(e) => e.to_string(),
+                                    None => "the database did not answer in time".to_owned(),
+                                };
+                                let since = *failing.get_or_insert(asked);
+                                if since.elapsed() >= TTL / 2
+                                    || std::time::Instant::now() + RETRY >= until
+                                {
+                                    tracing::warn!(lease = %name, error = %why, "a lease could not be renewed: its work stops");
+                                    lapse.lost(&format!(
+                                        "the lease {name}, which could not be renewed: {why}"
+                                    ));
+                                    return;
+                                }
+                                tracing::warn!(lease = %name, error = %why, "renewing a lease failed: trying again");
                                 wait = RETRY;
                             }
                         }

@@ -336,12 +336,26 @@ impl Ticket {
                 let _ = kernel.store.jobs().set_session(job.id, session, 0).await;
             }
             // A new leader that follows the job on masks the same values.
-            if !hidden_kept.is_empty()
-                && let Ok(key) = kernel.store.key()
-            {
-                let plain = serde_json::to_vec(&hidden_kept).unwrap_or_default();
-                if let Ok(sealed) = key.seal(&rookery_store::seal::row("jobs", job.id), &plain) {
-                    let _ = kernel.store.jobs().set_hidden(job.id, &sealed).await;
+            // A new leader that follows the job on masks the same values. Without them kept, the
+            // job does not run: its work is dropped, and the job fails when it is claimed.
+            if !hidden_kept.is_empty() {
+                let kept = async {
+                    let key = kernel.store.key().map_err(|e| e.to_string())?;
+                    let plain = serde_json::to_vec(&hidden_kept).map_err(|e| e.to_string())?;
+                    let sealed = key
+                        .seal(&rookery_store::seal::row("jobs", job.id), &plain)
+                        .map_err(|e| e.to_string())?;
+                    kernel
+                        .store
+                        .jobs()
+                        .set_hidden(job.id, &sealed)
+                        .await
+                        .map_err(|e| e.to_string())
+                };
+                if let Err(e) = kept.await {
+                    let pending = runner.0.pending.lock().unwrap().remove(&ticket);
+                    drop_off_runtime(pending);
+                    return Err(format!("keeping what the job's output masks: {e}"));
                 }
             }
         }
@@ -843,6 +857,35 @@ mod tests {
         assert_eq!(marks.first(), Some(&4));
         assert!(marks.contains(&14), "{marks:?}");
         assert_eq!(marks.last(), Some(&24));
+    }
+
+    #[test]
+    fn a_prompt_goes_on_before_the_offset_after_it() {
+        // A prompt waits for its answer: the session is quiet, and the prompt goes on with the
+        // offset after it, so a resumed run starts after what the log has.
+        let controller = Pieces {
+            pieces: vec!["one\nPassword: ", "", "secret-made-up\n"],
+            at: 0,
+            offset: 0,
+        };
+        let marks = Mutex::new(Vec::new());
+        let mut written = Vec::new();
+        {
+            let mut out = Output::new(&mut written, vec!["secret-made-up".into()]);
+            follow(
+                Box::new(controller),
+                "s1",
+                &mut out,
+                0,
+                &|offset| marks.lock().unwrap().push(offset),
+                &AtomicBool::new(false),
+            );
+        }
+        let marks = marks.into_inner().unwrap();
+        assert_eq!(&marks[..2], [4, 14], "{marks:?}");
+        let text = String::from_utf8(written).unwrap();
+        assert!(text.starts_with("one\nPassword: "), "{text}");
+        assert!(!text.contains("secret-made-up"), "{text}");
     }
 
     #[test]
