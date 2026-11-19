@@ -230,6 +230,7 @@ fn typescript_bindings() {
         hosts::HostMessage,
         hosts::MessageQuery,
         hosts::NamedValue,
+        hosts::AgentConnect,
         hosts::EndpointConnect,
         hosts::PortConnect,
         hosts::FileWrite,

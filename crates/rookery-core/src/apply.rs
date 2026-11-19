@@ -57,12 +57,14 @@ pub fn ansible_vars(config: &Value, plugin_vars: &Value, own: &[String]) -> Valu
     if !vars.is_object() {
         vars = json!({});
     }
-    // How the host joins the tailnet is rookery's to say, not the profile's:
-    // the key command runs on this machine.
+    // How the host joins the tailnet and which Parrot release it runs are
+    // rookery's to say, not the profile's: the key command runs on this
+    // machine, and the release is the one the server staged.
     if let Some(vars) = vars.as_object_mut() {
         for name in crate::tailnet::ROLE_VARS {
             vars.remove(*name);
         }
+        vars.remove(crate::parrot::VAR);
         // Ansible's own variables would say how and where commands run, which
         // rookery says from `access`; a profile saved before this was checked
         // may still hold them.
@@ -185,7 +187,9 @@ pub fn prepare(paths: &Paths, host: &Host, become_password: Option<&str>) -> Res
     let store = crate::registry::Store::own(crate::store::shared(paths)?);
     vars["rookery_client_certificates"] =
         crate::node::client_certificates(&plugins, &store, &host.config)?;
+    let parrot_files = crate::parrot::stage(paths, &host.config, &plugins, &mut vars)?;
     let mut prepared = run(paths, host, layout::PLAYBOOK, vars, become_password)?;
+    prepared.files.extend(parrot_files);
     let left = rookery_api::profile::left_out(&host.config);
     if !left.is_empty() {
         prepared.notes.push(format!(
@@ -598,6 +602,22 @@ mod tests {
         assert!(vars.get("rookery_tailscale_key_command").is_none());
         assert!(vars.get("rookery_tailscale_auth_key").is_none());
         assert!(vars.get("rookery_tailscale_login_server").is_none());
+    }
+
+    #[test]
+    fn a_profile_cannot_hand_the_role_its_own_parrot_release() {
+        // Whoever saved the profile, a Parrot variable in it is not handed to
+        // the playbook: the apply stages the release, and it must be that one.
+        let config = json!({
+            "target": "cloud",
+            "ansible_vars": {"rookery_parrot": {
+                "release": "00",
+                "runtime": "/bin/sh",
+                "eggs": [{"source": "/etc/passwd", "file": "made-up.egg", "sha256": "00"}],
+            }},
+        });
+        let vars = ansible_vars(&config, &json!({}), &[]);
+        assert!(vars.get("rookery_parrot").is_none(), "{vars}");
     }
 
     #[test]

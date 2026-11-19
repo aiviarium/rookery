@@ -1,6 +1,29 @@
 {
   "asyncapi": "3.0.0",
   "channels": {
+    "agents": {
+      "address": "/v1/agents/connect",
+      "bindings": {
+        "ws": {
+          "query": {
+            "properties": {},
+            "type": "object"
+          }
+        }
+      },
+      "description": "A byte stream to the host's Parrot broker.",
+      "messages": {
+        "agents.bytes": {
+          "$ref": "#/components/messages/agents.bytes"
+        },
+        "agents.eof": {
+          "$ref": "#/components/messages/agents.eof"
+        }
+      },
+      "parameters": {},
+      "x-rookery-level": "host",
+      "x-rookery-resumable": false
+    },
     "channel": {
       "address": "/v1/channel",
       "bindings": {
@@ -199,6 +222,30 @@
   },
   "components": {
     "messages": {
+      "agents.bytes": {
+        "contentType": "application/octet-stream",
+        "name": "bytes",
+        "payload": {
+          "format": "binary",
+          "type": "string"
+        },
+        "summary": "UTF-8 JSON lines for Parrot."
+      },
+      "agents.eof": {
+        "contentType": "application/json",
+        "examples": [
+          {
+            "payload": {
+              "eof": true
+            }
+          }
+        ],
+        "name": "eof",
+        "payload": {
+          "type": "object"
+        },
+        "summary": "The caller will send no more bytes."
+      },
       "channel.message": {
         "contentType": "application/json",
         "examples": [
@@ -477,6 +524,34 @@
     "version": "0.6.0"
   },
   "operations": {
+    "agents.receive": {
+      "action": "receive",
+      "channel": {
+        "$ref": "#/channels/agents"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/agents/messages/agents.bytes"
+        },
+        {
+          "$ref": "#/channels/agents/messages/agents.eof"
+        }
+      ]
+    },
+    "agents.send": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/agents"
+      },
+      "messages": [
+        {
+          "$ref": "#/channels/agents/messages/agents.bytes"
+        },
+        {
+          "$ref": "#/channels/agents/messages/agents.eof"
+        }
+      ]
+    },
     "channel.receive": {
       "action": "receive",
       "channel": {

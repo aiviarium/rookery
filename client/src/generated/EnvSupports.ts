@@ -3,7 +3,7 @@
 /**
  * What an environment can do.
  */
-export type EnvSupports = { terminal: boolean, process: boolean, files: boolean, connect: boolean, checkouts: boolean, 
+export type EnvSupports = { terminal: boolean, process: boolean, files: boolean, connect: boolean, agents?: boolean, checkouts: boolean, 
 /**
  * A desktop on a virtual display (VNC on the environment's loopback).
  */

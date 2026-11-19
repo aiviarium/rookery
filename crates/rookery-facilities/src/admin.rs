@@ -8,6 +8,7 @@ use rookery_proto::access::{
 };
 use rookery_store::users::User;
 
+use crate::access::{Change, Changes};
 use crate::{parse_id, time};
 
 fn user_info(u: User) -> UserInfo {
@@ -117,6 +118,7 @@ pub fn register(methods: &mut Methods) {
                 serde_json::json!({}),
             )
             .await;
+            call.kernel.facility::<Changes>().send(Change::Membership);
             Ok(Empty {})
         })
         .summary("Removes a group and its grants.")
@@ -131,6 +133,7 @@ pub fn register(methods: &mut Methods) {
                 serde_json::json!({ "user": user }),
             )
             .await;
+            call.kernel.facility::<Changes>().send(Change::Membership);
             Ok(Empty {})
         })
         .summary("Puts a person in a group.")
@@ -147,6 +150,7 @@ pub fn register(methods: &mut Methods) {
                     serde_json::json!({ "user": user }),
                 )
                 .await;
+                call.kernel.facility::<Changes>().send(Change::Membership);
                 Ok(Empty {})
             },
         )

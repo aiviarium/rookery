@@ -1513,6 +1513,10 @@
       },
       "Version": {
         "properties": {
+          "agents": {
+            "description": "Whether the host's Parrot broker socket is configured.",
+            "type": "boolean"
+          },
           "api": {
             "format": "int32",
             "minimum": 0,
@@ -2820,6 +2824,54 @@
         }
       ],
       "summary": "A TCP connection to a port on the host's loopback, 127.0.0.1. The port is dialled first, so one that nothing listens on is an error and not a stream."
+    },
+    {
+      "args": [],
+      "group": "agents",
+      "http": {
+        "method": "GET",
+        "path": "/v1/agents/connect"
+      },
+      "http_only": "rookery serve opens it after checking access to the host",
+      "kind": "stream",
+      "level": "Host level only.",
+      "name": "agents.connect",
+      "portal": false,
+      "receives": [
+        {
+          "binary": true,
+          "description": "UTF-8 JSON lines from Parrot.",
+          "example": null,
+          "name": "bytes"
+        },
+        {
+          "binary": false,
+          "description": "Parrot will send no more bytes.",
+          "example": {
+            "eof": true
+          },
+          "name": "eof"
+        }
+      ],
+      "resumable": false,
+      "role": "operate",
+      "sends": [
+        {
+          "binary": true,
+          "description": "UTF-8 JSON lines for Parrot.",
+          "example": null,
+          "name": "bytes"
+        },
+        {
+          "binary": false,
+          "description": "The caller will send no more bytes.",
+          "example": {
+            "eof": true
+          },
+          "name": "eof"
+        }
+      ],
+      "summary": "A byte stream to the host's Parrot broker."
     },
     {
       "args": [

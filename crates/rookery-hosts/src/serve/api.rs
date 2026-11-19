@@ -239,6 +239,7 @@ pub(crate) async fn info(remote: Arc<Remote>, compare: Compare, known: Known) ->
         name: remote.name.clone(),
         address: remote.address.clone(),
         reachable,
+        agents: seen.as_ref().is_ok_and(|version| version.agents),
         version: seen.as_ref().ok().map(|version| version.version.clone()),
         api: seen.as_ref().ok().map(|version| version.api),
         error: seen.err(),

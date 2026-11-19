@@ -941,6 +941,56 @@
     }
   },
   {
+    "name": "agents.connect",
+    "summary": "A byte stream to Parrot on a host.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "stream": true,
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A host as an environment, named by `env://NAME` or its bare name.",
+      "properties": {
+        "env": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "env"
+      ],
+      "title": "AgentConnect",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of a method that opens a stream. A source that can be resumed says where it starts.",
+      "properties": {
+        "offset": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stream": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stream"
+      ],
+      "title": "StreamOpened",
+      "type": "object"
+    }
+  },
+  {
     "name": "audit.list",
     "summary": "The audit log, newest first: who did what to which resource.",
     "level": {
@@ -3913,6 +3963,11 @@
           "description": "Its SSH address.",
           "type": "string"
         },
+        "agents": {
+          "default": false,
+          "description": "Whether the host advertises a Parrot broker.",
+          "type": "boolean"
+        },
         "api": {
           "format": "uint32",
           "minimum": 0,
@@ -4103,6 +4158,11 @@
             "address": {
               "description": "Its SSH address.",
               "type": "string"
+            },
+            "agents": {
+              "default": false,
+              "description": "Whether the host advertises a Parrot broker.",
+              "type": "boolean"
             },
             "api": {
               "format": "uint32",
@@ -5329,6 +5389,11 @@
             "address": {
               "description": "Its SSH address.",
               "type": "string"
+            },
+            "agents": {
+              "default": false,
+              "description": "Whether the host advertises a Parrot broker.",
+              "type": "boolean"
             },
             "api": {
               "format": "uint32",

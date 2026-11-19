@@ -254,6 +254,11 @@ impl Client {
     }
 
     /// Calls a method that opens a stream, and gives the stream.
+    pub async fn connect_agents(&self, env: &str) -> Result<Stream> {
+        self.open("agents.connect", json!({ "env": env })).await
+    }
+
+    /// Opens a method that returns a binary stream.
     pub async fn open(&self, method: &str, params: Value) -> Result<Stream> {
         let opened = self.call(method, params).await?;
         let id = opened["stream"]

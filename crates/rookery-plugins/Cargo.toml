@@ -17,6 +17,7 @@ testing = []
 rookery-api = { workspace = true, features = ["plugins", "schema"] }
 # After a change of the plugins, the hosts read them again.
 rookery-hosts.workspace = true
+rookery-facilities.workspace = true
 rookery-jobs.workspace = true
 rookery-core.workspace = true
 rookery-proto.workspace = true
@@ -42,7 +43,6 @@ jsonschema = { version = "0.61", default-features = false }
 
 [dev-dependencies]
 rookery-kernel = { workspace = true, features = ["testing"] }
-rookery-facilities.workspace = true
 tempfile.workspace = true
 tower = { version = "0.5", default-features = false, features = ["util"] }
 http-body-util.workspace = true

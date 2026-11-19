@@ -254,6 +254,13 @@ impl Plugins {
             .into_iter()
             .map(|plugin| (plugin.id.clone(), Arc::new(plugin)))
             .collect();
+        kernel.set_facility(
+            rookery_facilities::connections::PluginKinds::from_manifests(
+                new.values()
+                    .filter(|plugin| plugin.valid())
+                    .filter_map(|plugin| Some((plugin.id.as_str(), plugin.manifest.as_ref()?))),
+            ),
+        );
         let old = std::mem::replace(&mut *self.loaded.write().unwrap(), new.clone());
         *self.rows.write().unwrap() = rows;
         let declared: BTreeMap<String, jobs::DeclaredJob> = new

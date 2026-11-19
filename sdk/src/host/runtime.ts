@@ -3,11 +3,21 @@
 // proxy over the server's methods, called as the plugin.
 //
 // What this version of Rookery serves to host halves: rpc, commands, events, settings, storage,
-// secrets, jobs (handle, enqueue, get, cancel), leases, topics.publish, notify, services (provide and
-// call), extensions and app services. The rest of the `Rookery` handle answers UNAVAILABLE.
+// secrets, connections, jobs (handle, enqueue, get, list, cancel, progress and log), leases,
+// topics.publish, notify, services (provide and call), extensions and app services. The rest of
+// the `Rookery` handle answers UNAVAILABLE.
 import { z } from "zod"
 import { RookeryError } from "../errors"
-import type { AppServiceInfo, ExtensionContribution, Manifest, Principal, User } from "../generated"
+import type {
+  AppServiceInfo,
+  ConnectionInfo,
+  ConnectionList,
+  ConnectionResolved,
+  ExtensionContribution,
+  Manifest,
+  Principal,
+  User,
+} from "../generated"
 import { type Disposable, disposable } from "../types"
 import type {
   Ctx,
@@ -484,7 +494,16 @@ function createApi(rt: HostRuntime): Rookery {
     },
     data: unavailable("data"),
     spaces: unavailable("spaces"),
-    connections: unavailable("connections"),
+    connections: {
+      list: async (opts = {}) => {
+        if (opts.space !== undefined) {
+          throw new RookeryError("UNAVAILABLE", "space-scoped connections are unavailable")
+        }
+        return (await rt.call<ConnectionList>("connections.list", { type: opts.type })).connections
+      },
+      get: (id) => rt.call<ConnectionInfo>("connections.get", { id }),
+      resolve: (id) => rt.call<ConnectionResolved>("connections.resolve", { plugin, id }),
+    },
     blobs: unavailable("blobs"),
     audit: unavailable("audit"),
     schedules: unavailable("schedules"),

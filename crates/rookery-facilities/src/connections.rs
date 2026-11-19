@@ -1,6 +1,8 @@
 //! `connections.*`: credentials of outside services. A connection has a type, a plain config and a
 //! sealed credential. Rookery's own types are here; plugins will declare more.
 
+use std::collections::BTreeMap;
+
 use rookery_kernel::outbound::{self, AddrRange};
 use rookery_kernel::{Call, Caller, Empty, Level, Methods, RpcError};
 use rookery_proto::IdRef;
@@ -40,11 +42,152 @@ const KINDS: [Kind; 2] = [
     },
 ];
 
-fn kind(id: &str) -> Result<&'static Kind, RpcError> {
-    KINDS
-        .iter()
-        .find(|k| k.id == id)
-        .ok_or_else(|| RpcError::invalid(format!("there is no type of connection {id}")))
+fn kind(id: &str) -> Option<&'static Kind> {
+    KINDS.iter().find(|k| k.id == id)
+}
+
+struct PluginKind {
+    plugin: String,
+    wire: ConnectionType,
+    validator: jsonschema::Validator,
+    credential_required: bool,
+    scopes: Vec<String>,
+}
+
+/// Connection types declared by the active plugin manifests. A type can hold one sealed credential.
+#[derive(Default)]
+pub struct PluginKinds(BTreeMap<String, PluginKind>);
+
+impl PluginKinds {
+    pub fn from_manifests<'a>(manifests: impl IntoIterator<Item = (&'a str, &'a Value)>) -> Self {
+        let mut kinds = BTreeMap::new();
+        for (plugin, manifest) in manifests {
+            for value in manifest
+                .pointer("/contributes/connectionTypes")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                if let Some(entry) = PluginKind::read(plugin, value) {
+                    kinds.insert(entry.wire.id.clone(), entry);
+                } else {
+                    tracing::warn!(plugin, "ignoring an unsupported connection type");
+                }
+            }
+        }
+        Self(kinds)
+    }
+}
+
+impl PluginKind {
+    fn read(plugin: &str, value: &Value) -> Option<Self> {
+        let id = value["id"].as_str()?;
+        // A declaration cannot claim another plugin's credentials.
+        if !id
+            .strip_prefix(plugin)
+            .is_some_and(|suffix| suffix.starts_with('.'))
+        {
+            return None;
+        }
+        let mut config = value.get("fields")?.clone();
+        if config["type"] != "object" {
+            return None;
+        }
+        let mut credential_required = false;
+        // One sealed credential at most: a list of one field's name, or none.
+        // Any other JSON type would leave the secret in the plain config.
+        let credential = match value.get("secret") {
+            None | Some(Value::Null) => None,
+            Some(Value::Array(fields)) => match fields.as_slice() {
+                [] => None,
+                [field] => {
+                    let name = field.as_str()?;
+                    config
+                        .get_mut("properties")?
+                        .as_object_mut()?
+                        .remove(name)?;
+                    if let Some(required) = config.get_mut("required").and_then(Value::as_array_mut)
+                    {
+                        credential_required =
+                            required.iter().any(|field| field.as_str() == Some(name));
+                        required.retain(|field| field.as_str() != Some(name));
+                    }
+                    Some(name.to_owned())
+                }
+                _ => return None,
+            },
+            Some(_) => return None,
+        };
+        config["additionalProperties"] = Value::Bool(false);
+        let validator = jsonschema::validator_for(&config).ok()?;
+        let scopes = value["scopes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect();
+        Some(Self {
+            plugin: plugin.to_owned(),
+            wire: ConnectionType {
+                id: id.to_owned(),
+                label: value["title"].as_str()?.to_owned(),
+                config,
+                credential,
+                testable: false,
+            },
+            validator,
+            credential_required,
+            scopes,
+        })
+    }
+}
+
+fn check_connection(
+    call: &Call,
+    id: &str,
+    scope: WireScope,
+    config: &Value,
+    has_credential: bool,
+) -> Result<(), RpcError> {
+    if let Some(builtin) = kind(id) {
+        return check_config(builtin, config);
+    }
+    let kinds = call.kernel.get_facility::<PluginKinds>();
+    let kind = kinds
+        .as_ref()
+        .and_then(|kinds| kinds.0.get(id))
+        .ok_or_else(|| RpcError::invalid(format!("there is no type of connection {id}")))?;
+    let scope = match scope {
+        WireScope::Global => "global",
+        WireScope::User => "user",
+    };
+    if !kind.scopes.is_empty() && !kind.scopes.iter().any(|s| s == scope) {
+        return Err(RpcError::invalid(format!(
+            "{id} cannot be used with {scope} scope"
+        )));
+    }
+    if let Some(secret) = &kind.wire.credential
+        && config.get(secret).is_some()
+    {
+        return Err(RpcError::invalid("send the secret field as the credential"));
+    }
+    if !kind.validator.is_valid(config) {
+        return Err(RpcError::invalid(format!(
+            "the configuration does not match the schema of {id}"
+        )));
+    }
+    if kind.credential_required && !has_credential {
+        return Err(RpcError::invalid(
+            "this type of connection needs a credential",
+        ));
+    }
+    if kind.wire.credential.is_none() && has_credential {
+        return Err(RpcError::invalid(
+            "this type of connection has no credential",
+        ));
+    }
+    Ok(())
 }
 
 fn config_schema(kind: &Kind) -> Value {
@@ -206,8 +349,8 @@ async fn probe(
 
 pub fn register(methods: &mut Methods) {
     methods
-        .add("connections.types", |_: Call, _: Empty| async move {
-            let types = KINDS
+        .add("connections.types", |call: Call, _: Empty| async move {
+            let mut types: Vec<_> = KINDS
                 .iter()
                 .map(|k| ConnectionType {
                     id: k.id.into(),
@@ -217,6 +360,9 @@ pub fn register(methods: &mut Methods) {
                     testable: true,
                 })
                 .collect();
+            if let Some(kinds) = call.kernel.get_facility::<PluginKinds>() {
+                types.extend(kinds.0.values().map(|kind| kind.wire.clone()));
+            }
             Ok(ConnectionTypes { types })
         })
         .summary("The types of connection and what each holds.")
@@ -257,8 +403,11 @@ pub fn register(methods: &mut Methods) {
         .add(
             "connections.create",
             |call: Call, p: ConnectionCreate| async move {
-                let kind = kind(&p.kind)?;
-                check_config(kind, &p.config)?;
+                let mut credential = p.credential.as_deref();
+                if kind(&p.kind).is_none() {
+                    credential = credential.filter(|s| !s.is_empty());
+                }
+                check_connection(&call, &p.kind, p.scope, &p.config, credential.is_some())?;
                 let scope = match p.scope {
                     WireScope::Global => {
                         call.require_admin()?;
@@ -270,18 +419,18 @@ pub fn register(methods: &mut Methods) {
                     .store()
                     .connections()
                     .create(
-                        kind.id,
+                        &p.kind,
                         p.name.trim(),
                         scope,
                         &p.config,
-                        p.credential.as_deref().map(str::as_bytes),
+                        credential.map(str::as_bytes),
                         &call.audit_name(),
                     )
                     .await?;
                 call.audit(
                     "connection.create",
                     Some(&format!("connection://{}", made.id)),
-                    json!({ "type": kind.id, "name": made.name }),
+                    json!({ "type": p.kind, "name": made.name }),
                 )
                 .await;
                 Ok(info(made))
@@ -294,9 +443,6 @@ pub fn register(methods: &mut Methods) {
             "connections.update",
             |call: Call, p: ConnectionUpdate| async move {
                 let found = changeable(&call, &p.id).await?;
-                if let Some(config) = &p.config {
-                    check_config(kind(&found.kind)?, config)?;
-                }
                 let credential = p.credential.as_deref().map(|c| {
                     if c.is_empty() {
                         None
@@ -304,6 +450,19 @@ pub fn register(methods: &mut Methods) {
                         Some(c.as_bytes())
                     }
                 });
+                if p.config.is_some() || (credential.is_some() && kind(&found.kind).is_none()) {
+                    check_connection(
+                        &call,
+                        &found.kind,
+                        if found.user_id.is_some() {
+                            WireScope::User
+                        } else {
+                            WireScope::Global
+                        },
+                        p.config.as_ref().unwrap_or(&found.config),
+                        credential.map_or(found.sealed, |value| value.is_some()),
+                    )?;
+                }
                 let change = Change {
                     name: p.name.as_deref().map(str::trim),
                     config: p.config.as_ref(),
@@ -338,7 +497,7 @@ pub fn register(methods: &mut Methods) {
     methods
         .add("connections.test", |call: Call, p: IdRef| async move {
             let found = changeable(&call, &p.id).await?;
-            let kind = kind(&found.kind)?;
+            let kind = kind(&found.kind).ok_or_else(|| RpcError::unavailable("this connection type has no test"))?;
             let credential = call.store().connections().credential(found.id).await?;
             let credential = credential.map(|c| String::from_utf8_lossy(&c).into_owned());
             let url = format!(
@@ -368,7 +527,7 @@ pub fn register(methods: &mut Methods) {
         .add(
             "connections.resolve",
             |call: Call, p: ConnectionResolve| async move {
-                call.plugin(p.plugin.as_deref())?;
+                let plugin = call.plugin(p.plugin.as_deref())?;
                 let user = match &call.caller {
                     Caller::User { user, .. } => uuid::Uuid::parse_str(&user.id).ok(),
                     _ => None,
@@ -387,6 +546,28 @@ pub fn register(methods: &mut Methods) {
                     }
                 };
                 let found = found.ok_or_else(|| RpcError::not_found("no such connection"))?;
+                // Rookery's own types are for people, the shell and the server, never a plugin: a
+                // plugin declares its own type and reads only that one.
+                if kind(&found.kind).is_some() {
+                    if matches!(call.caller, Caller::Plugin(_)) {
+                        return Err(RpcError::forbidden(
+                            "a plugin resolves only the connection types it declares",
+                        ));
+                    }
+                } else if !call
+                    .kernel
+                    .get_facility::<PluginKinds>()
+                    .is_some_and(|kinds| {
+                        kinds
+                            .0
+                            .get(&found.kind)
+                            .is_some_and(|kind| kind.plugin == plugin)
+                    })
+                {
+                    return Err(RpcError::forbidden(
+                        "only the declaring plugin can resolve this connection",
+                    ));
+                }
                 let credential = connections.credential(found.id).await?;
                 let credential = credential
                     .map(|c| {

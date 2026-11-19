@@ -1,0 +1,174 @@
+---
+- name: Find the installed Parrot socket unit
+  ansible.builtin.stat:
+    path: /etc/systemd/system/rookery-parrot.socket
+  register: rookery_parrot_installed
+
+- name: Remove the broker from a host without Parrot features
+  when:
+    - rookery_parrot is not defined
+    - rookery_parrot_installed.stat.exists
+  block:
+    - name: Stop the broker socket
+      ansible.builtin.systemd_service:
+        name: rookery-parrot.socket
+        enabled: false
+        state: stopped
+      when: rookery_start_services
+    - name: Stop the Parrot runtime
+      ansible.builtin.systemd_service:
+        name: rookery-parrot.service
+        state: stopped
+      when: rookery_start_services
+    - name: Remove Parrot units
+      ansible.builtin.file:
+        path: "/etc/systemd/system/rookery-parrot.{{ item }}"
+        state: absent
+      loop: [socket, service]
+    - name: Reload systemd after removing the broker
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      when: rookery_start_services
+
+- name: Configure the Parrot broker
+  when: rookery_parrot is defined
+  vars:
+    rookery_parrot_dir: "/opt/rookery/parrot/{{ rookery_parrot.release }}"
+  block:
+    - name: Read the Parrot agent account
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ rookery_user }}"
+    - name: Require systemd and an unprivileged agent account
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.service_mgr == 'systemd'
+          - ansible_facts.getent_passwd[rookery_user][1] | int > 0
+        fail_msg: >-
+          the Parrot broker needs systemd and an account that is not root
+    - name: Require the platform the staged driver is built for
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.architecture == 'x86_64'
+        fail_msg: >-
+          the staged Parrot driver is for Linux x86_64, and this host is
+          {{ ansible_facts.architecture }}
+    - name: Require a host of its own for the broker socket
+      ansible.builtin.assert:
+        that:
+          - rookery_profile != 'container'
+        fail_msg: >-
+          a container's /run/rookery belongs to its image, so the controller
+          cannot vouch for the broker socket there
+    - name: Require the release the server staged
+      ansible.builtin.assert:
+        that:
+          - rookery_parrot.release is string
+          - rookery_parrot.release is match('^[0-9a-f]{64}$')
+        fail_msg: >-
+          rookery_parrot.release must be a SHA-256 of the staged files, and
+          it is {{ rookery_parrot.release | default('<unset>') }}
+    - name: Require the egg names the server staged
+      ansible.builtin.assert:
+        that:
+          - item.file is string
+          - item.file is match('^[A-Za-z0-9._+-]+\.egg$')
+        fail_msg: >-
+          {{ item.file | default('<unset>') }} is not an egg name the role
+          takes
+      loop: "{{ rookery_parrot.eggs }}"
+      loop_control:
+        label: "{{ item.file | default('<unset>') }}"
+    - name: Create the pinned release directory
+      ansible.builtin.file:
+        path: "{{ rookery_parrot_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+    - name: Copy the Parrot runtime from the server
+      ansible.builtin.copy:
+        src: "{{ rookery_parrot.runtime }}"
+        dest: "{{ rookery_parrot_dir }}/parrot"
+        owner: root
+        group: root
+        mode: '0755'
+    - name: Read the checksum of the runtime received
+      ansible.builtin.stat:
+        path: "{{ rookery_parrot_dir }}/parrot"
+        checksum_algorithm: sha256
+      register: rookery_parrot_runtime
+    - name: Require the runtime the server checksummed
+      ansible.builtin.assert:
+        that:
+          - rookery_parrot.runtime_sha256 is string
+          - rookery_parrot.runtime_sha256 is match('^[0-9a-f]{64}$')
+          - rookery_parrot_runtime.stat.checksum == rookery_parrot.runtime_sha256
+        fail_msg: >-
+          the Parrot runtime received is not the one the server staged
+    - name: Use only the eggs supplied by the server
+      ansible.builtin.copy:
+        content: ""
+        dest: "{{ rookery_parrot_dir }}/hatchery.kdl"
+        mode: '0644'
+    - name: Copy the pinned driver eggs from the server
+      ansible.builtin.copy:
+        src: "{{ item.source }}"
+        dest: "{{ rookery_parrot_dir }}/{{ item.file }}"
+        owner: root
+        group: root
+        mode: '0644'
+      loop: "{{ rookery_parrot.eggs }}"
+      loop_control:
+        label: "{{ item.file }}"
+    - name: Verify the received egg checksums
+      ansible.builtin.stat:
+        path: "{{ rookery_parrot_dir }}/{{ item.file }}"
+        checksum_algorithm: sha256
+      loop: "{{ rookery_parrot.eggs }}"
+      loop_control:
+        label: "{{ item.file }}"
+      register: rookery_parrot_checks
+    - name: Require each supplied pin to match the file received
+      ansible.builtin.assert:
+        that: item.stat.checksum == item.item.sha256
+      loop: "{{ rookery_parrot_checks.results }}"
+      loop_control:
+        label: "{{ item.item.file }}"
+    - name: Install the pinned driver set for this host
+      ansible.builtin.command:
+        argv: "{{ [rookery_parrot_dir ~ '/parrot', 'eggs', 'install', '--state-dir', rookery_parrot_dir] + (rookery_parrot.eggs | map(attribute='file') | map('regex_replace', '^', rookery_parrot_dir ~ '/') | list) }}"
+        creates: "{{ rookery_parrot_dir }}/ready"
+    - name: Mark the installed release
+      ansible.builtin.copy:
+        content: ""
+        dest: "{{ rookery_parrot_dir }}/ready"
+        mode: '0644'
+    - name: Select the installed release
+      ansible.builtin.file:
+        src: "{{ rookery_parrot_dir }}"
+        path: /opt/rookery/parrot/current
+        state: link
+      register: rookery_parrot_selected
+    - name: Install the Parrot socket and service units
+      ansible.builtin.template:
+        src: "rookery-parrot.{{ item }}.j2"
+        dest: "/etc/systemd/system/rookery-parrot.{{ item }}"
+        mode: '0644'
+      loop: [socket, service]
+      register: rookery_parrot_units
+    - name: Restart a running Parrot after an update
+      ansible.builtin.systemd_service:
+        name: rookery-parrot.service
+        daemon_reload: true
+        state: stopped
+      when:
+        - rookery_start_services
+        - rookery_parrot_selected.changed or rookery_parrot_units.changed
+    - name: Enable the socket that starts Parrot on demand
+      ansible.builtin.systemd_service:
+        name: rookery-parrot.socket
+        enabled: true
+        daemon_reload: true
+        state: started
+      when: rookery_start_services

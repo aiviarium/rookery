@@ -2,6 +2,7 @@
 //! services, over unix sockets.
 
 mod actions;
+mod agents;
 mod channel;
 pub mod endpoints;
 mod error;

@@ -22,6 +22,9 @@ pub struct HostInfo {
     /// Its SSH address.
     pub address: String,
     pub reachable: bool,
+    /// Whether the host advertises a Parrot broker.
+    #[serde(default)]
+    pub agents: bool,
     /// The version of its rookeryd.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
@@ -54,6 +57,13 @@ pub struct HostInfo {
     /// The machine a provisioner made for it, or one planned for it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub machine: Option<HostMachine>,
+}
+
+crate::facilities::wire! {
+    /// A host as an environment, named by `env://NAME` or its bare name.
+    pub struct AgentConnect {
+        pub env: String,
+    }
 }
 
 /// The machine of a host, as rookery's record of the resource has it.
