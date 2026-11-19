@@ -166,6 +166,71 @@ struct Registry {
     options: Options,
 }
 
+impl Registry {
+    /// The handler of a kind: one given to [`register`], or one added while the server runs.
+    fn handler(&self, kernel: &Kernel, kind: &str) -> Option<Arc<dyn JobHandler>> {
+        self.handlers.get(kind).cloned().or_else(|| {
+            let added = kernel.facility::<Added>();
+            let added = added.0.read().unwrap();
+            added.get(kind).cloned()
+        })
+    }
+
+    /// Every kind a handler runs, and those of them that get one attempt.
+    fn kinds(&self, kernel: &Kernel) -> (Vec<String>, Vec<String>) {
+        let added = kernel.facility::<Added>();
+        let added = added.0.read().unwrap();
+        let all = self
+            .handlers
+            .iter()
+            .map(|(kind, h)| (kind.to_string(), h.clone()))
+            .chain(added.iter().map(|(kind, h)| (kind.clone(), h.clone())));
+        let mut kinds = vec![];
+        let mut once = vec![];
+        for (kind, handler) in all {
+            if !handler.repeatable() {
+                once.push(kind.clone());
+            }
+            kinds.push(kind);
+        }
+        (kinds, once)
+    }
+}
+
+/// Handlers added while the server runs, by kind, such as those of the jobs plugins declare.
+#[derive(Default)]
+struct Added(std::sync::RwLock<HashMap<String, Arc<dyn JobHandler>>>);
+
+/// Adds the handler of a kind while the server runs, in place of one added before. The worker picks
+/// up its queued jobs at once.
+pub fn add_handler(kernel: &Kernel, kind: &str, handler: Arc<dyn JobHandler>) {
+    kernel
+        .facility::<Added>()
+        .0
+        .write()
+        .unwrap()
+        .insert(kind.to_owned(), handler);
+    signals(kernel).wake.notify_one();
+}
+
+/// Takes away a handler [`add_handler`] added. Jobs of its kind wait, queued, for another.
+pub fn remove_handler(kernel: &Kernel, kind: &str) {
+    kernel.facility::<Added>().0.write().unwrap().remove(kind);
+}
+
+/// Who besides an admin may enqueue a job of a kind, which the plugin system says for the kinds plugins
+/// declare. `None`: the kind is not one it knows, and only admins enqueue it.
+pub type MayEnqueue = Arc<dyn Fn(&Call, &str) -> Option<Result<(), RpcError>> + Send + Sync>;
+
+/// The facility that holds [`MayEnqueue`].
+#[derive(Default)]
+pub struct EnqueuePolicy(pub std::sync::RwLock<Option<MayEnqueue>>);
+
+/// Sets who besides an admin may enqueue what.
+pub fn set_enqueue_policy(kernel: &Kernel, policy: MayEnqueue) {
+    *kernel.facility::<EnqueuePolicy>().0.write().unwrap() = Some(policy);
+}
+
 fn registry(kernel: &Kernel) -> Result<Arc<Registry>, RpcError> {
     kernel
         .get_facility::<Registry>()
@@ -242,8 +307,7 @@ pub async fn enqueue_with_token(
 ) -> Result<Job, RpcError> {
     let registry = registry(kernel)?;
     let handler = registry
-        .handlers
-        .get(kind)
+        .handler(kernel, kind)
         .ok_or_else(|| RpcError::invalid(format!("no handler runs jobs of the kind {kind}")))?;
     if let Some(subject) = subject {
         rookery_store::access::check_resource(subject)?;
@@ -376,12 +440,29 @@ pub fn register(methods: &mut Methods, handlers: Vec<Arc<dyn JobHandler>>, optio
             handlers: registry.handlers.clone(),
             options: registry.options.clone(),
         });
-        if !registry.handlers.is_empty() {
-            tokio::spawn(work(kernel.clone()));
-        }
+        // Always, as handlers may be added while the server runs.
+        tokio::spawn(work(kernel.clone()));
     });
     methods
         .add("jobs.enqueue", |call: Call, p: JobEnqueue| async move {
+            if !call.is_admin() {
+                let policy = call.kernel.facility::<EnqueuePolicy>().0.read().unwrap().clone();
+                match policy.and_then(|may| may(&call, &p.kind)) {
+                    Some(Ok(())) if p.subject.is_none() => {}
+                    Some(Ok(())) => {
+                        return Err(RpcError::forbidden(
+                            "a job's subject is an admin's to name",
+                        ));
+                    }
+                    Some(Err(refused)) => return Err(refused),
+                    None => {
+                        return Err(RpcError::forbidden(format!(
+                            "a job of the kind {} is enqueued by an admin",
+                            p.kind
+                        )));
+                    }
+                }
+            }
             let job = enqueue(
                 &call.kernel,
                 &p.kind,
@@ -392,8 +473,8 @@ pub fn register(methods: &mut Methods, handlers: Vec<Arc<dyn JobHandler>>, optio
             .await?;
             Ok(info(job))
         })
-        .summary("Enqueues a job of a kind a handler in the server runs.")
-        .level(Level::Admin);
+        .summary("Enqueues a job of a kind a handler in the server runs. Admins enqueue any; the kinds plugins declare, whoever their manifests allow, as the caller.")
+        .level(Level::Own);
     methods
         .add("jobs.get", |call: Call, p: JobRef| async move { Ok(info(visible(&call, &p.id).await?)) })
         .summary("A job: its state, attempts, progress and outcome. The one who enqueued it, or an admin.")
@@ -595,13 +676,7 @@ async fn work(kernel: Kernel) {
         return;
     };
     let worker = format!("server:{}", Uuid::now_v7());
-    let kinds: Vec<String> = registry.handlers.keys().map(|k| k.to_string()).collect();
-    let once: Vec<String> = registry
-        .handlers
-        .values()
-        .filter(|h| !h.repeatable())
-        .map(|h| h.kind().to_string())
-        .collect();
+    let (kinds, once) = registry.kinds(&kernel);
     match kernel.store.jobs().recover(&kinds, &once, &worker).await {
         Ok(recovered) => {
             for job in recovered {
@@ -619,6 +694,8 @@ async fn work(kernel: Kernel) {
     let reclaim_every = registry.options.lease.max(Duration::from_millis(100));
     let mut next_reclaim = tokio::time::Instant::now() + reclaim_every;
     loop {
+        // Handlers added while the server runs count from the next round.
+        let (kinds, once) = registry.kinds(&kernel);
         if tokio::time::Instant::now() >= next_reclaim {
             reclaim(&kernel, &kinds, &once).await;
             next_reclaim = tokio::time::Instant::now() + reclaim_every;
@@ -725,7 +802,7 @@ async fn attempt(
     job: Job,
     _slot: tokio::sync::OwnedSemaphorePermit,
 ) {
-    let Some(handler) = registry.handlers.get(job.kind.as_str()).cloned() else {
+    let Some(handler) = registry.handler(&kernel, &job.kind) else {
         return;
     };
     let cancel = CancellationToken::new();

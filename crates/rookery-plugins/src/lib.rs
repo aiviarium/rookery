@@ -15,6 +15,7 @@
 pub mod client;
 pub mod data;
 pub mod exthost;
+pub mod jobs;
 pub mod loaded;
 pub mod methods;
 pub mod record;
@@ -51,6 +52,8 @@ pub struct Plugins {
     rows: RwLock<BTreeMap<String, record::Row>>,
     /// Plugins recorded as installed that the folder does not have, as the last read found.
     missing: RwLock<Vec<String>>,
+    /// The jobs the plugins declare, by kind.
+    jobs: RwLock<BTreeMap<String, jobs::DeclaredJob>>,
     /// One change of the plugin folder at a time.
     changing: tokio::sync::Mutex<()>,
     pub(crate) host: exthost::ExtHost,
@@ -65,6 +68,7 @@ impl Plugins {
             loaded: RwLock::default(),
             rows: RwLock::default(),
             missing: RwLock::default(),
+            jobs: RwLock::default(),
             changing: tokio::sync::Mutex::new(()),
             started: AtomicBool::new(false),
         }
@@ -192,6 +196,15 @@ impl Plugins {
             .collect();
         let old = std::mem::replace(&mut *self.loaded.write().unwrap(), new.clone());
         *self.rows.write().unwrap() = rows;
+        let declared: BTreeMap<String, jobs::DeclaredJob> = new
+            .values()
+            .flat_map(|plugin| jobs::declared(plugin))
+            .map(|job| (job.kind.clone(), job))
+            .collect();
+        let before: Vec<jobs::DeclaredJob> = self.jobs.read().unwrap().values().cloned().collect();
+        let now: Vec<jobs::DeclaredJob> = declared.values().cloned().collect();
+        jobs::sync(kernel, self, &before, &now);
+        *self.jobs.write().unwrap() = declared;
         let mut changed = vec![];
         for (id, before) in &old {
             match new.get(id) {
@@ -370,6 +383,15 @@ impl Plugins {
             return Ok(());
         }
         Self::folder_ready(kernel).await;
+        let plugins = Arc::downgrade(self);
+        rookery_jobs::set_enqueue_policy(
+            kernel,
+            Arc::new(move |call, kind| {
+                let plugins = plugins.upgrade()?;
+                let jobs = plugins.jobs.read().unwrap();
+                jobs::may_enqueue(&jobs, call, kind)
+            }),
+        );
         self.reload(kernel).await
     }
 
