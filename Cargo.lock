@@ -3267,6 +3267,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "rookery-plugins"
+version = "0.6.0"
+dependencies = [
+ "axum",
+ "chrono",
+ "futures-util",
+ "hatchery",
+ "http-body-util",
+ "libc",
+ "rookery-api",
+ "rookery-core",
+ "rookery-facilities",
+ "rookery-jobs",
+ "rookery-kernel",
+ "rookery-proto",
+ "rookery-store",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tower",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "rookery-proto"
 version = "0.6.0"
 dependencies = [

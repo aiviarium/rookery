@@ -8,4 +8,16 @@ export type PluginInfo = { id: string, state: PluginState, error?: ErrorBody,
 /**
  * Missing when the manifest is invalid.
  */
-manifest?: Manifest, client?: ClientInfo, };
+manifest?: Manifest, client?: ClientInfo, 
+/**
+ * Its package, `GROUP/ID`, and its version, from `package.kdl`.
+ */
+package?: string, version?: string, 
+/**
+ * `shipped`, `registry`, `git` or `file`, and the registry, repository or file it came from.
+ */
+origin?: string, source?: string, 
+/**
+ * It still has a `rookery.json`, read as a `plugin.json` with host features and provisioners.
+ */
+legacy?: boolean, installedAt?: string, updatedAt?: string, };
