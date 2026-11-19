@@ -67,14 +67,20 @@ TS_PATHS = [
     'biome.json', 'tsconfig.base.json',
 ]
 
+# rookery serve on Postgres and its method report. The end-to-end tests do not
+# reach it yet; the Rust tests and clippy do.
+SERVER = ['crates/rookery-proto/', 'crates/rookery-store/', 'crates/rookery-kernel/', 'crates/rookery-auth/',
+          'crates/rookery-server/', 'api/']
+
 # What each kind of unit leaves out, beyond NOWHERE, and what it keeps of that.
 UNITS = {
-    'rust': dict(out=['recipes/', *TS_PATHS], keep=RUST_READS),
-    'python': dict(out=['crates/', 'Cargo.toml', 'Cargo.lock', 'tests/e2e/', *TS_PATHS]),
+    # The Rust tests compare the wire's TypeScript types in client/src/generated.
+    'rust': dict(out=['recipes/', *TS_PATHS], keep=[*RUST_READS, 'client/src/generated/']),
+    'python': dict(out=['crates/', 'Cargo.toml', 'Cargo.lock', 'tests/e2e/', 'api/', *TS_PATHS]),
     # rookery carries the provisioning source, so the end-to-end tests read
     # most of the tree; the Python tests and the recipes are not theirs.
-    'e2e': dict(out=['recipes/', 'tests/test_', 'tests/fixtures/', *TS_PATHS]),
-    'role': dict(out=['recipes/', 'tests/test_', 'tests/fixtures/', 'crates/', *TS_PATHS], keep=SEAM),
+    'e2e': dict(out=['recipes/', 'tests/test_', 'tests/fixtures/', *TS_PATHS, *SERVER]),
+    'role': dict(out=['recipes/', 'tests/test_', 'tests/fixtures/', 'crates/', 'api/', *TS_PATHS], keep=SEAM),
     'ts': dict(only=TS_PATHS),
 }
 

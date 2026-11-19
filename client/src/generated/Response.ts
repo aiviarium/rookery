@@ -7,6 +7,6 @@ import type { RpcError } from "./RpcError";
  */
 export type Response = { jsonrpc: "2.0", 
 /**
- * `null` only when the request could not be parsed far enough to read its id.
+ * `null` only when the request could not be read far enough to find its id.
  */
 id: Id | null, result?: unknown, error?: RpcError, };

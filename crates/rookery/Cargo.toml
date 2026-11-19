@@ -34,6 +34,8 @@ rustls-native-certs = "0.8"
 # set up from.
 [target.'cfg(target_os = "linux")'.dependencies]
 rookery-core.workspace = true
+# rookery serve on Postgres. Linux only, so the client on macOS and Windows has no server code.
+rookery-server.workspace = true
 tower = { version = "0.5", features = ["util"] }
 # For its API document, which rookery serve's includes.
 rookeryd = { path = "../rookeryd" }

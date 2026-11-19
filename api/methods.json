@@ -1,0 +1,918 @@
+[
+  {
+    "name": "auth.createLink",
+    "summary": "Makes a one-time sign-in link: a device link for oneself, an invite or a device link for another as admin, the first admin's setup link on the server's own machine.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$defs": {
+        "LinkKind": {
+          "oneOf": [
+            {
+              "const": "setup",
+              "description": "Makes a new admin: the first one, from `rookery server setup-key`.",
+              "type": "string"
+            },
+            {
+              "const": "invite",
+              "description": "Makes a new user with the name an admin gave.",
+              "type": "string"
+            },
+            {
+              "const": "device",
+              "description": "Signs an existing user in on another device.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`auth.createLink`.",
+      "properties": {
+        "email": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/LinkKind"
+        },
+        "name": {
+          "default": null,
+          "description": "The name of the person an invite makes.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "userId": {
+          "default": null,
+          "description": "For a device link: whose. The caller's own without one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "LinkCreate",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "LinkInfo": {
+          "description": "A link that has not been used.",
+          "properties": {
+            "createdAt": {
+              "type": "string"
+            },
+            "createdByName": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "expiresAt": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "$ref": "#/$defs/LinkKind"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "userName": {
+              "description": "For a device link, the person it signs in.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "createdAt",
+            "expiresAt"
+          ],
+          "type": "object"
+        },
+        "LinkKind": {
+          "oneOf": [
+            {
+              "const": "setup",
+              "description": "Makes a new admin: the first one, from `rookery server setup-key`.",
+              "type": "string"
+            },
+            {
+              "const": "invite",
+              "description": "Makes a new user with the name an admin gave.",
+              "type": "string"
+            },
+            {
+              "const": "device",
+              "description": "Signs an existing user in on another device.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of `auth.createLink`: the link, shown this once.",
+      "properties": {
+        "info": {
+          "$ref": "#/$defs/LinkInfo"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "info"
+      ],
+      "title": "LinkCreated",
+      "type": "object"
+    }
+  },
+  {
+    "name": "auth.createToken",
+    "summary": "Makes an access token for scripts: rookery_pat_…, shown once.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`auth.createToken`.",
+      "properties": {
+        "expiresInDays": {
+          "default": null,
+          "description": "Days until it expires, 1 to 3650; it lasts until revoked without one.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "TokenCreate",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "TokenInfo": {
+          "description": "An access token, without the token.",
+          "properties": {
+            "createdAt": {
+              "type": "string"
+            },
+            "expiresAt": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "hint": {
+              "description": "The last characters of the token, to tell tokens apart.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "lastUsedAt": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "hint",
+            "createdAt"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of `auth.createToken`: the token, shown this once.",
+      "properties": {
+        "info": {
+          "$ref": "#/$defs/TokenInfo"
+        },
+        "token": {
+          "description": "`rookery_pat_…`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "token",
+        "info"
+      ],
+      "title": "TokenCreated",
+      "type": "object"
+    }
+  },
+  {
+    "name": "auth.listDevices",
+    "summary": "The caller's device sessions.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "DeviceInfo": {
+          "description": "One device session of the caller's.",
+          "properties": {
+            "createdAt": {
+              "type": "string"
+            },
+            "current": {
+              "description": "The session this call came with.",
+              "type": "boolean"
+            },
+            "expiresAt": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "lastUsedAt": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "userAgent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "createdAt",
+            "current"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`auth.listDevices`.",
+      "properties": {
+        "devices": {
+          "items": {
+            "$ref": "#/$defs/DeviceInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "devices"
+      ],
+      "title": "DeviceList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "auth.listLinks",
+    "summary": "The sign-in links that still work: all of them for an admin, one's own for others.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "LinkInfo": {
+          "description": "A link that has not been used.",
+          "properties": {
+            "createdAt": {
+              "type": "string"
+            },
+            "createdByName": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "expiresAt": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "$ref": "#/$defs/LinkKind"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "userName": {
+              "description": "For a device link, the person it signs in.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "createdAt",
+            "expiresAt"
+          ],
+          "type": "object"
+        },
+        "LinkKind": {
+          "oneOf": [
+            {
+              "const": "setup",
+              "description": "Makes a new admin: the first one, from `rookery server setup-key`.",
+              "type": "string"
+            },
+            {
+              "const": "invite",
+              "description": "Makes a new user with the name an admin gave.",
+              "type": "string"
+            },
+            {
+              "const": "device",
+              "description": "Signs an existing user in on another device.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`auth.listLinks`.",
+      "properties": {
+        "links": {
+          "items": {
+            "$ref": "#/$defs/LinkInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "links"
+      ],
+      "title": "LinkList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "auth.listTokens",
+    "summary": "The caller's access tokens, without the tokens.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "TokenInfo": {
+          "description": "An access token, without the token.",
+          "properties": {
+            "createdAt": {
+              "type": "string"
+            },
+            "expiresAt": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "hint": {
+              "description": "The last characters of the token, to tell tokens apart.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "lastUsedAt": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "hint",
+            "createdAt"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`auth.listTokens`.",
+      "properties": {
+        "tokens": {
+          "items": {
+            "$ref": "#/$defs/TokenInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "tokens"
+      ],
+      "title": "TokenList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "auth.me",
+    "summary": "Who the caller is, and how this server signs people in.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "AuthMode": {
+          "oneOf": [
+            {
+              "const": "local",
+              "description": "Local accounts, signed in by one-time links.",
+              "type": "string"
+            },
+            {
+              "const": "oidc",
+              "description": "An OpenID Connect identity provider.",
+              "type": "string"
+            }
+          ]
+        },
+        "Principal": {
+          "description": "Who acts.",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "$ref": "#/$defs/PrincipalKind"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "type": "object"
+        },
+        "PrincipalKind": {
+          "oneOf": [
+            {
+              "const": "user",
+              "description": "A person, by a device session or an access token.",
+              "type": "string"
+            },
+            {
+              "const": "local",
+              "description": "The server's own machine, over the Unix socket: an admin with no user.",
+              "type": "string"
+            },
+            {
+              "const": "system",
+              "description": "Code inside the server, such as a job handler.",
+              "type": "string"
+            },
+            {
+              "const": "plugin",
+              "description": "A plugin, acting for itself.",
+              "type": "string"
+            }
+          ]
+        },
+        "User": {
+          "description": "A person known to the server.",
+          "properties": {
+            "admin": {
+              "type": "boolean"
+            },
+            "email": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "admin"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`auth.me`.",
+      "properties": {
+        "admin": {
+          "description": "Whether the caller has the org role admin.",
+          "type": "boolean"
+        },
+        "apiVersion": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "auth": {
+          "$ref": "#/$defs/AuthMode",
+          "description": "How people sign in to this server: `local` or `oidc`."
+        },
+        "principal": {
+          "$ref": "#/$defs/Principal"
+        },
+        "user": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/User"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person; none over the Unix socket."
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "principal",
+        "admin",
+        "auth",
+        "version",
+        "apiVersion"
+      ],
+      "title": "Me",
+      "type": "object"
+    }
+  },
+  {
+    "name": "auth.revokeDevice",
+    "summary": "Ends one of the caller's device sessions, and its connections.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A thing named by its id.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "IdRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "auth.revokeLink",
+    "summary": "Ends a sign-in link that was not used: any as admin, one's own otherwise.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A thing named by its id.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "IdRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "auth.revokeToken",
+    "summary": "Ends one of the caller's access tokens, and its connections.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A thing named by its id.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "IdRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "streams.close",
+    "summary": "Ends a stream in both directions.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$defs": {
+        "ErrorBody": {
+          "description": "An error inside another message: a stream closed with an error, a failed job.",
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/ErrorCode"
+            },
+            "details": true,
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "type": "object"
+        },
+        "ErrorCode": {
+          "oneOf": [
+            {
+              "const": "INVALID",
+              "description": "The params fail the schema, or the request is wrong.",
+              "type": "string"
+            },
+            {
+              "const": "FORBIDDEN",
+              "description": "The caller lacks the level on the resource.",
+              "type": "string"
+            },
+            {
+              "const": "NOT_FOUND",
+              "description": "No such method, row or thing.",
+              "type": "string"
+            },
+            {
+              "const": "CONFLICT",
+              "description": "A revision or compare-and-swap did not match, or a lease is held.",
+              "type": "string"
+            },
+            {
+              "const": "UNAVAILABLE",
+              "description": "Something it needs is not there: a key, a host, or this server is a standby.",
+              "type": "string"
+            },
+            {
+              "const": "TIMEOUT",
+              "description": "The call's deadline passed.",
+              "type": "string"
+            },
+            {
+              "const": "INTERNAL",
+              "description": "A bug.",
+              "type": "string"
+            },
+            {
+              "const": "UNAUTHENTICATED",
+              "description": "The request has no session or token that works: sign in again.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`streams.close`: ends both directions. An error says why.",
+      "properties": {
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorBody"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stream": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stream"
+      ],
+      "title": "StreamClose",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "streams.credit",
+    "summary": "The caller took bytes of a stream, and the server may send that much more.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`streams.credit`: the receiver took `bytes`, and the sender may send that much more.",
+      "properties": {
+        "bytes": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stream": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stream",
+        "bytes"
+      ],
+      "title": "StreamCredit",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "streams.echo",
+    "summary": "A stream that sends back every byte, to check a connection end to end.",
+    "level": {
+      "kind": "self"
+    },
+    "stream": true,
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of a method that opens a stream. A source that can be resumed says where it starts.",
+      "properties": {
+        "offset": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stream": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stream"
+      ],
+      "title": "StreamOpened",
+      "type": "object"
+    }
+  },
+  {
+    "name": "streams.eof",
+    "summary": "The caller sends no more data on a stream.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`streams.eof`: the sender sends no more data. The other direction stays open.",
+      "properties": {
+        "stream": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stream"
+      ],
+      "title": "StreamEof",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  }
+]

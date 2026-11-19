@@ -2,6 +2,6 @@
 import type { PrincipalKind } from "./PrincipalKind";
 
 /**
- * Who is acting: the user, an agent session, an integration, or a plugin's own service principal.
+ * Who acts.
  */
 export type Principal = { kind: PrincipalKind, id: string, };

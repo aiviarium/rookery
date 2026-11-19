@@ -1,0 +1,29 @@
+[package]
+name = "rookery-store"
+description = "The server's tables on Postgres, in the schema rookery, with numbered migrations."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+doctest = false
+
+[features]
+# rookery_store::testing: a fresh database per test on the Postgres of ROOKERY_TEST_POSTGRES.
+testing = []
+
+[dependencies]
+rookery-proto.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+sha2 = "0.11"
+hex = "0.4"
+rand = "0.9"
+
+[dev-dependencies]
+rookery-store = { path = ".", features = ["testing"] }

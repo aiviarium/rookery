@@ -320,7 +320,9 @@ fn run(cli: Cli) -> Result<()> {
         #[cfg(target_os = "linux")]
         Command::Server(command) => crate::local::server_command(command),
         #[cfg(target_os = "linux")]
-        Command::Serve(serve) => crate::local::server_command(args::Server::Run(serve)),
+        Command::Serve(serve) => crate::local::serve(serve),
+        #[cfg(target_os = "linux")]
+        Command::ServeLegacy(serve) => crate::local::server_command(args::Server::Run(serve)),
         Command::Login(login) => login::login(&global, &login),
         Command::Logout => login::logout(),
         Command::Update(update) => crate::update::command(&update),

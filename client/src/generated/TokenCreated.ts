@@ -2,6 +2,10 @@
 import type { TokenInfo } from "./TokenInfo";
 
 /**
- * The result of `auth.createToken`. `token` is shown once; only its hash is kept.
+ * The result of `auth.createToken`: the token, shown this once.
  */
-export type TokenCreated = { token: string, info: TokenInfo, };
+export type TokenCreated = { 
+/**
+ * `rookery_pat_…`.
+ */
+token: string, info: TokenInfo, };

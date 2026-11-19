@@ -241,8 +241,68 @@ pub fn push_image(global: &Global, destination: &str, tag: &str) -> Done<()> {
     Ok(())
 }
 
+/// `rookery serve`: on Postgres when `ROOKERY_DATABASE_URL` is set, else the server of before, as
+/// `rookery server run`.
+pub fn serve(run: args::ServerRun) -> Done<()> {
+    if std::env::var("ROOKERY_DATABASE_URL").map_or(true, |url| url.trim().is_empty()) {
+        return server_command(args::Server::Run(run));
+    }
+    if run.listen.is_some()
+        || run.expose
+        || run.simulate
+        || run.seed.is_some()
+        || run.data.is_some()
+    {
+        return Err(Fail::usage(
+            "rookery serve on Postgres is set up with ROOKERY_* variables, not flags: ROOKERY_LISTEN, ROOKERY_ALLOW_PUBLIC and the rest",
+        ));
+    }
+    let config =
+        rookery_server::ServerConfig::from_env().map_err(|e| Fail::usage(e.to_string()))?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| Fail::failed(e.to_string()))?;
+    runtime
+        .block_on(rookery_server::serve(config))
+        .map_err(Fail::failed)
+}
+
+/// `rookery server setup-key` for rookery serve on Postgres: a sign-in link for the first admin, from
+/// the server's socket. `None` when no such server runs here.
+fn setup_link() -> Done<Option<String>> {
+    let Some(socket) = rookery_server::config::default_socket(&|name| std::env::var(name).ok())
+    else {
+        return Ok(None);
+    };
+    if !socket.exists() {
+        return Ok(None);
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| Fail::failed(e.to_string()))?;
+    let made = runtime
+        .block_on(rookery_server::client::call(
+            &socket,
+            "auth.createLink",
+            json!({"kind": "setup"}),
+        ))
+        .map_err(Fail::failed)?;
+    Ok(made["url"].as_str().map(str::to_owned))
+}
+
 /// `rookery server …`: the server of this machine itself.
 pub fn server_command(command: args::Server) -> Done<()> {
+    if let args::Server::SetupKey { revoke: false } = &command
+        && let Some(url) = setup_link()?
+    {
+        println!("{url}");
+        out::done(
+            "The link signs in the first admin once, within a day. Open it in a browser, or pass it to rookery login.",
+        );
+        return Ok(());
+    }
     // Before rookery's own directories are looked for, which it never uses.
     if let args::Server::Run(run) = &command
         && (run.simulate || serve::simulate::asked())
