@@ -4,7 +4,9 @@ description: Create a profile for a host, install it, and open its desktop.
 icon: Zap
 ---
 
-This walks through a first host with the commands. The example uses an Ubuntu 26.04 server you can already reach over SSH, at `192.0.2.10`. The other ways to install differ only in the method and what it asks for. With no server set, Rookery keeps everything on your machine. No server has to run.
+This walks through a first host with the commands. The example uses an Ubuntu 26.04 server you can already reach over SSH, at `192.0.2.10`. The other ways to install differ only in the method and what it asks for.
+
+Every command calls a [`rookery serve`](/docs/use/server), which keeps the profiles, secrets and jobs. On the server's own machine the command finds it on its socket. From another machine, sign in with `rookery login https://rookery.example.ts.net` first.
 
 <Callout title="Try it without a machine">
   The [container](/docs/deploy/container) runs the same desktop on Docker, and [QEMU](/docs/deploy/qemu) runs a whole host in a VM.
@@ -19,7 +21,7 @@ This walks through a first host with the commands. The example uses an Ubuntu 26
 rookery host create studio
 ```
 
-The name is new, so Rookery makes a profile and puts its questions. The answers are saved in its store under the name `studio`. `rookery host export studio` prints the profile as JSON, and `rookery host create --help` lists every answer as a flag, for the last section.
+The name is new, so Rookery makes a profile and puts its questions. The answers are saved on the server under the name `studio`. `rookery host export studio` prints the profile as JSON, and `rookery host create --help` lists every answer as a flag, for the last section.
 
 </Step>
 <Step>
@@ -48,7 +50,7 @@ Then it asks for the tool categories, browsers, Cockpit and the features of the 
 
 What has a default is asked next. That covers the *operator*, your account on the host, and the *agent* account the coding agents use. An account's SSH public key is given with `rookery host set studio operator_ssh_public_key=ssh-ed25519…`, and each account can take several. The operator also takes [the key of Rookery itself](/docs/reference/profile#the-key-of-rookery-itself), which `rookery key show rookery` prints.
 
-A password hash is not typed: `--generate-passwords` makes the passwords, stores their hashes in the profile, and Rookery keeps the passwords themselves in its store. `rookery host credentials studio` shows them.
+A password hash is not typed: `--generate-passwords` makes the passwords, stores their hashes in the profile, and Rookery keeps the passwords themselves in the server's database. `rookery host credentials studio` shows them.
 
 </Step>
 <Step>
@@ -70,7 +72,7 @@ Once the host answers, `rookery host show studio` says how it is and what it can
 
 ```bash
 rookery run studio status
-rookery run studio access-links             # the address of the desktop
+rookery run studio access                   # the address of the desktop
 ```
 
 `rookery ssh studio` is a shell as the agent, and `rookery exec studio -- uname -a` runs one command.

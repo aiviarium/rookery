@@ -104,11 +104,11 @@ rookery plugin list                           # what is found, and from where
 rookery plugin remove hello                   # by its id, or as example/hello
 ```
 
-`--git` installs one folder of a git repository, which `--path` names. `--ref` is a tag, a branch or a commit. Without it, Rookery takes the default branch.
+`--git` installs one folder of a git repository, which `--path` names. `--ref` is a tag, a branch or a commit. Without it, Rookery takes the default branch. `--allow-young` installs a version that is still inside its registry's minimum release age.
 
 Hatchery checks each package before it installs it. A package is refused when its `package.kdl` doesn't say which Rookery versions it works with, or gives others, and so is one whose `plugin.json` breaks the [plugin contract](/docs/extend/writing-plugins#checking-a-plugin). Installing runs none of the plugin's code. Its Ansible tasks run when a host is applied.
 
-After each change, Rookery writes `hatchery.kdl`, `eggs.lock`, the record of when each version was first seen, and the eggs that were sent to its [store](/docs/use/store). A machine restored from the store gets them back and installs what `eggs.lock` lists, from the same registries.
+After each change, Rookery writes `hatchery.kdl`, `eggs.lock`, `.hatchery/seen.toml` with when each version was first seen, and the eggs that were sent, to its [store](/docs/use/store). A machine restored from the store gets them back and installs what `eggs.lock` lists, from the same registries.
 
 ### Updating a plugin
 
@@ -136,6 +136,69 @@ With a [Rookery server](/docs/use/server) set, `rookery plugin` and `rookery plu
 The server's hosts can have a new plugin's features as soon as it is installed. Its Ansible tasks run on the server when a host is applied, so installing is part of set-up.
 
 A plugin of yours with the same id as one that comes with Rookery replaces it.
+
+### The methods
+
+`rookery plugin` and `rookery plugin registry` call these methods. A shell and a script use them too.
+
+| Method | Does |
+| --- | --- |
+| `plugins.list` | The plugins installed with their manifests, their state and the addresses of their client halves. What a shell loads |
+| `plugins.add` | Installs a package of the registries, an `https` egg, or one folder of a git repository, with `spec`, `git`, `path`, `ref` and `allowYoung` |
+| `plugins.upload` | Installs a plugin from an egg the caller sends, in base64. What `rookery plugin add` uses for a folder or a file of your machine |
+| `plugins.check` | Asks the registries for a newer version of each plugin, which is `rookery plugin update --check` |
+| `plugins.update` | Updates one plugin, or all of them, to the newest version its registry offers |
+| `plugins.remove` | Removes a plugin, by its id or its package. Its host half stops first |
+| `plugins.registry.list`, `add`, `remove` | The registries, in search order, with their keys |
+| `plugins.reload` | Reads the plugin folder again, as after a change made beside the server |
+| `plugins.activate` | Starts a plugin's host half, as using what it contributes does |
+| `plugins.rpc` | Calls a method a plugin's host half registered ([Host halves](/docs/extend/writing-plugins#host-halves)) |
+
+Installing, updating, removing and the registries need an admin. `plugins.list` and `plugins.activate` are open to anyone signed in.
+
+## The extension host
+
+A plugin's host half runs on the server, in a Bun process of its own. Rookery starts the extension host's entry, `host/dist/main.js` of its provisioning source unless `ROOKERY_EXTHOST` names another, with the Bun program of `ROOKERY_BUN`. The host half runs in a worker of that process, and the process talks JSON-RPC 2.0 with the server over its standard input and output, one message a line.
+
+The pipes are the plugin's identity. A process speaks for its plugin alone, and what it says of another plugin is ignored.
+
+A host half gets none of the server's environment but `PATH`, `HOME`, `LANG`, `LC_ALL` and `TZ`, with `NODE_PATH` for the extension host's own packages and `ROOKERY_EXTHOST_PROTOCOL`. It does not get the database's address or the server's key. The server and each host make themselves non-dumpable, which keeps one host from opening another's pipes, or reading another's or the server's memory and environment through `/proc`.
+
+That is a mitigation, not a sandbox. Every host half runs as the server's own user and can read the files that user can, such as the secret key file and the configuration folder. A host half is code an admin installs and trusts: install plugins whose source you trust, as you would any program on the server.
+
+A host half that ends, that does not stop a call past its deadline, or whose process holds more memory than `ROOKERY_EXTHOST_MEMORY_MB` (512 MiB unless set) counts as a crash. The memory is read every two seconds. After five crashes in a minute the plugin is failed, and an admin starts it again, also as a dependency of another plugin.
+
+## Client halves and the shell
+
+A plugin may have a client half: a built module that a shell loads in the browser. `client` in `plugin.json` names its entry, and `styles` a stylesheet loaded with it. Both are paths in the plugin's `rookery/` folder.
+
+The files are served at `/plugins/{id}/{hash}/{path}`, where `hash` is the SHA-256 of the client half's files. A browser keeps a version for good, and a new version has an address of its own. An address with another hash answers `404`. The route needs no sign-in, as a page loads a shell before anyone signs in: put nothing secret in a client half.
+
+`plugins.list` gives each plugin's `client.script` and `client.styles`, which a shell loads. The same answer carries the plugin's `manifest` and its state, and a plugin that failed carries why in `problem`. The server tells every signed-in connection `plugins.changed` when a plugin is installed, updated or removed. A shell reads the plugin again from `plugin`, or drops it when that is null.
+
+A shell is a plugin whose `plugin.json` has `contributes.shell.entry`, the built page. The entry is in a folder of the plugin's target, as the rest of the shell's files are served beside it. One plugin on a server is the shell, and `/` serves its files, with its entry for any path that names no file, so that the shell's own routes load it. `ROOKERY_SHELL_DIR` serves a built shell from a folder instead. Without either, `/` is a page that says that no shell is installed.
+
+## Server events
+
+The server publishes events under its own plugin id, `rookery/NAME`:
+
+| Event | Payload | When |
+| --- | --- | --- |
+| `rookery/hosts.changed` | `host`, `info`, `change`, `from`, `removed` | A host is `added`, `changed`, `renamed` or `removed`. `info` is the host as `hosts.get` gives it |
+| `rookery/resources.changed` | `resource`, `provisioner`, `kind`, `change` | A resource is `created`, `changed` or `removed` |
+| `rookery/jobs.changed` | `job` | A job's state, progress or outcome changed |
+
+A client half subscribes with its plugin's own API, and takes a full name for an event of the server:
+
+```ts
+const off = await rookery.events.subscribe("rookery/hosts.changed", (payload) => {
+  // payload is { host, info, change, from, removed }
+})
+```
+
+A name without a `/` is the plugin's own, so `rookery.events.subscribe("hosts.changed", …)` in the plugin `hello` subscribes to `hello/hosts.changed`. A name with a `/` is taken as it is. Events are at most once: a connection too slow for a burst loses what does not fit, and `onDropped` says how many. A shell then reads again what it shows.
+
+A host's channel message, a notification and a plugin's own events are separate from these: `topics.*` keeps a channel's messages, `notify.*` is a person's inbox, and `events.*` is at most once ([`rookery serve`](/docs/extend/serve#jobs)).
 
 ## Other install methods
 

@@ -1,10 +1,10 @@
 ---
 title: A Rookery server
-description: Run a Rookery server on one machine and use its hosts from Rookery on other machines.
+description: Run a Rookery server on a machine with PostgreSQL, and use its hosts from Rookery on other machines.
 icon: ServerCog
 ---
 
-A server machine keeps the hosts with their profiles and secrets, and runs `rookery serve`. Rookery on another machine, such as your laptop, then uses that server: `rookery ls`, `rookery run` and every other command call the server's API on its [`/ws`](/docs/api#the-servers-methods). On macOS and Windows Rookery is only that: a client of a server.
+A server machine keeps the hosts with their profiles and secrets, and runs `rookery serve`. Rookery on another machine, such as your laptop, then uses that server: `rookery ls`, `rookery apply` and every other command call the server's API on its [`/ws`](/docs/api#the-servers-methods). On macOS and Windows Rookery is only that: a client of a server.
 
 ```text
  your laptop                  the server                       hosts
@@ -15,31 +15,166 @@ A server machine keeps the hosts with their profiles and secrets, and runs `rook
                              └───────────────────────────┘
 ```
 
-## Run the server
+## What the server needs
 
-The server needs SSH access to the hosts. The container image is the shortest way:
+| What | Why |
+| --- | --- |
+| PostgreSQL | The hosts, jobs, secrets, accounts and plugins. A database of its own, or the one the image runs |
+| SSH to each host | An apply, a session and an action reach the host over SSH ([Accounts and sudo](/docs/use/accounts)) |
+| An address people reach | The server speaks plain HTTP. A TLS proxy such as Tailscale Serve or Caddy gives it `https` |
+| A secret key | A file with 64 hex digits, which seals the secrets in the database ([The secret key](/docs/use/store#the-secret-key)) |
 
-```bash title="On the server"
+## Run it with compose
+
+This is the documented path: the server in its container, with a PostgreSQL service of its own. Write this file where you keep the server's settings:
+
+```yaml title="compose.yaml"
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: rookery
+      POSTGRES_PASSWORD: CHANGE_ME_EXAMPLE
+      POSTGRES_DB: rookery
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rookery -d rookery"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  rookery:
+    image: ghcr.io/aiviarium/rookery
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ROOKERY_DATABASE_URL: postgres://rookery:CHANGE_ME_EXAMPLE@db:5432/rookery
+      ROOKERY_PUBLIC_URL: https://rookery.example.ts.net
+      ROOKERY_SECRET_KEY_FILE: /config/rookery/secret.key
+    volumes:
+      - rookery-config:/config
+      - rookery-data:/data
+      - ~/.ssh:/home/rookery/.ssh:ro
+    ports:
+      - "127.0.0.1:7777:7777"
+    stop_grace_period: 30s
+
+volumes:
+  db:
+  rookery-config:
+  rookery-data:
+```
+
+The image runs as user `rookery` (uid 1000) and its `/config` volume is its configuration folder. Make the key in that volume before the first start:
+
+```bash
+docker compose run --rm --entrypoint sh rookery -c \
+  'mkdir -p /config/rookery && (umask 077; od -An -tx1 -N32 /dev/urandom | tr -d " \n" > /config/rookery/secret.key)'
+```
+
+Then start the stack and make the first admin's link:
+
+```bash
+docker compose up -d --wait
+docker compose exec rookery rookery server setup-key
+```
+
+`/` answers with a page that says no shell is installed, until a plugin that contributes a shell is installed, or `ROOKERY_SHELL_DIR` names a built one ([Plugins](/docs/extend/plugins#client-halves-and-the-shell)).
+
+`ROOKERY_PUBLIC_URL` is the address a browser uses, and the address in the sign-in link. A link made with the wrong one opens nowhere. Keep it in step with the published port and the proxy in front. Without a proxy, set it to `http://127.0.0.1:7777` and open the link on the server.
+
+The database is on the compose network alone, with no published port. Its password is in the compose file, so keep that file private. To reach the database by hand, add a `ports` entry on `db` for the time of the work.
+
+## Run it without a database of your own
+
+The image can run a PostgreSQL 17 of its own, in `/data/rookery/postgres`, reached on a socket inside the container. It makes the database and the secret key the first time it starts. Leave `ROOKERY_DATABASE_URL` on the image's own value:
+
+```bash
 docker run -d --name rookery -p 127.0.0.1:7777:7777 \
+  -e ROOKERY_PUBLIC_URL=http://127.0.0.1:7777 \
   -v rookery-config:/config -v rookery-data:/data \
   -v ~/.ssh:/home/rookery/.ssh:ro \
   ghcr.io/aiviarium/rookery
 docker exec rookery rookery server setup-key
 ```
 
-The image runs a PostgreSQL of its own unless `ROOKERY_DATABASE_URL` names one. Without the image, run `rookery serve` where Rookery is installed, with the settings in [`rookery serve`](/docs/extend/serve#its-settings). The last command prints a [sign-in link](#with-a-sign-in-link) for the first admin.
+The link names `127.0.0.1:7777`, so open it on the server, or set `ROOKERY_PUBLIC_URL` to the address a browser elsewhere uses.
 
-[The database](/docs/use/store) says how to back the server up, restore it on another machine and bring in the store of an older Rookery.
+This is the shortest way to try a server. The database is in the `rookery-data` volume, so back up that volume, or move to a database of its own before you depend on it. Give the container 30 seconds to stop both, with `docker stop -t 30`. A data folder of another major version of PostgreSQL is refused: dump it with the image that made it, and restore the dump.
 
-<Callout type="warn" title="Put TLS in front">
-  `rookery serve` speaks plain HTTP, and an admin's sign-in gives full control of every host. Serve it behind a TLS proxy, such as Tailscale Serve or Caddy, and use the `https://` address. Without one, keep the port on loopback or a private network such as your tailnet.
-</Callout>
+## Run it as a program
+
+On Linux, where Rookery is installed, `rookery serve` is the same server without a container. It needs a PostgreSQL database, which it migrates when it starts:
+
+```bash
+export ROOKERY_DATABASE_URL=postgres://rookery:PASSWORD@db.example.org/rookery
+export ROOKERY_SECRET_KEY_FILE=/etc/rookery/secret.key
+export ROOKERY_PUBLIC_URL=https://rookery.example.ts.net
+rookery serve
+```
+
+Give the variables to the server's service manager, not to a shell on someone's terminal. [`rookery serve`](/docs/extend/serve#its-settings) lists every variable it reads. Several servers can run on one database: one leads, and the others stand by.
+
+A machine with Docker also runs the server from an image built from a checkout of Rookery, over SSH:
+
+```bash
+rookery server deploy ops@192.0.2.10
+```
+
+`rookery server deploy` sends the image's context to the machine, builds it there with its Docker engine, and starts the container on `127.0.0.1:7777` of that machine. `--release VERSION` pulls the published image instead, `--port PORT` listens elsewhere and `--container NAME` names the container.
+
+## Put TLS in front
+
+`rookery serve` speaks plain HTTP, and an admin's sign-in gives full control of every host. Serve it behind a TLS proxy and use the `https://` address. Without one, keep the port on loopback or a private network such as your tailnet.
 
 With Tailscale on the server:
 
-```bash title="On the server"
+```bash
 sudo tailscale serve --bg --https=443 http://127.0.0.1:7777
 ```
+
+Then set `ROOKERY_PUBLIC_URL=https://SERVER.TAILNET.ts.net` and restart the server, so the sign-in links and the session cookie name that address.
+
+## The first admin
+
+`rookery server setup-key` asks the server, over its socket, for a one-time sign-in link. It prints the link, which signs in the first admin once, within a day. Whoever installs the server hands the link on and never sees a token.
+
+```bash title="On the server"
+docker compose exec rookery rookery server setup-key    # or: rookery server setup-key
+```
+
+Open the link in a browser. On your own machine, `rookery login` takes it as its address, or on standard input with `--link-stdin`:
+
+```bash
+rookery login https://rookery.example.ts.net/auth/link/CODE
+```
+
+An admin makes a link for another person with `auth.createLink`. `rookery server token --user NAME --admin` makes an access token for an account, and makes the account an admin when it does not exist.
+
+## The key file and rekey
+
+The key file holds the key that seals the secrets, the hosts' passwords and the key ring in the database. Back it up apart from the database: a backup of the database alone gives no secret away, and loses them all without the key.
+
+To seal everything again under a new key, stop every server on the database and run:
+
+```bash
+rookery server secrets rekey --write-new-key /etc/rookery/secret.key.new
+```
+
+In a container, `docker compose run --rm rookery server secrets rekey --write-new-key /config/rookery/secret.key.new` writes the new key into the volume, and `ROOKERY_SECRET_KEY_FILE` then names it. It opens the values with the key of `ROOKERY_SECRET_KEY_FILE` and writes them sealed with the new one, in one transaction. `--new-key-file FILE` takes a key you made instead. Point `ROOKERY_SECRET_KEY_FILE` at the new file and start the server again.
+
+## Bring in an older store
+
+A Rookery before the server kept its state in a store of its own: a SQLite file, or a PostgreSQL database. `rookery server import` brings it into the server's database once, into an empty one:
+
+```bash
+rookery server import --from ~/.local/share/rookery/rookery.db \
+  --key-file ~/.config/rookery/store.key --owner ada
+```
+
+The old store is only read. Stop the server first, and see [The database](/docs/use/store#from-an-older-store) for the options and what the import reports. In a container, put the old store in a folder the container mounts and run the import with `docker compose run --rm rookery server import ...`.
 
 ## Connect to it
 
@@ -48,9 +183,11 @@ sudo tailscale serve --bg --https=443 http://127.0.0.1:7777
 ```bash
 rookery login https://rookery.example.ts.net    # opens the browser to sign in
 rookery ls
-rookery run studio status
-rookery logout                                # back to the rookery of this machine
+rookery apply studio
+rookery logout                                 # back to the rookery of this machine
 ```
+
+`rookery login URL` opens `/auth/desktop` with a loopback redirect and a PKCE challenge, takes the code on the loopback address, and exchanges it for a device session. The session shows in `auth.listDevices`.
 
 Without a browser, `--no-browser` asks for a sign-in link instead. With an access token in a file, `rookery login https://rookery.example.ts.net --token-file token` keeps it. For one command alone, give the server on its command line. That leaves the kept one alone:
 
@@ -62,25 +199,33 @@ rookery --server https://rookery.example.ts.net --token-file token ls
 
 ### With a sign-in link
 
-A sign-in link signs one person in once, without a password. The first admin of a new server signs in this way. Whoever installs the server, such as a coding agent, hands on the link and never sees a token. Make one on the server's machine:
-
-```bash title="On the server"
-docker exec rookery rookery server setup-key       # or: rookery server setup-key
-```
-
-It prints the link. Open it in a browser, or give it to `rookery login` on your own machine, as its address or on standard input with `--link-stdin`:
+A sign-in link signs one person in once, without a password, and works for a day. The first admin's comes from `rookery server setup-key` ([The first admin](#the-first-admin)). An admin makes one for another person with `auth.createLink`, and `auth.revokeLink` ends one that was not used. Until a link is used it is as good as a sign-in, so keep it to yourself. Give it to `rookery login` on your own machine:
 
 ```bash
 rookery login https://rookery.example.ts.net/auth/link/CODE
 ```
 
-The link lasts a day and works once. Until it is used it is as good as a sign-in, so keep it to yourself. An admin invites others with links of their own, and `auth.revokeLink` ends one that was not used.
+The address in it says what it reaches:
 
 | Address | Reaches |
 | --- | --- |
 | `https://HOST[:PORT]` | A server behind a TLS proxy |
 | `http://HOST:PORT` | A server's port directly |
 | `unix:/path/to/server.sock` | A `rookery serve` on this machine, as its admin. Rookery finds the server's own socket by itself |
+
+## Who may use it
+
+An account that added a host owns it, and holds `manage` on `env://NAME`. `access.grant` gives another account or a group `view`, `use` or `manage` on the host, and `access.grants` says who holds what.
+
+The levels are:
+
+| Level | May |
+| --- | --- |
+| `view` | See the host, its state, jobs and output |
+| `use` | Open terminals, sessions, files and ports on it |
+| `manage` | Change its profile, apply it, rename it, and run its actions and its controller's |
+
+Admins hold `manage` on every host, and what belongs to the installation, such as keys, secrets and plugins, needs an admin. [`rookery serve`](/docs/extend/serve#who-gets-in) has the methods, and an example of `access.grant`.
 
 ## On other systems
 

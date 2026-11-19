@@ -1,18 +1,21 @@
 ---
 title: rookery serve
-description: The server that keeps the hosts in PostgreSQL, reaches them, runs their jobs and serves one API for Crow, the command line and scripts.
+description: The server that keeps the hosts in PostgreSQL, reaches them, runs their jobs and serves one API for a shell, the command line and scripts.
 icon: Plug
 ---
 
-`rookery serve` is Rookery's server. It keeps the hosts with their profiles, keys, secrets and jobs in a PostgreSQL database, and holds a link to each host's rookeryd. Crow, the `rookery` command line and scripts all use its one API of methods. Every method is in the [API reference](/docs/api/server).
+`rookery serve` is Rookery's server. It keeps the hosts with their profiles, keys, secrets and jobs in a PostgreSQL database, and holds a link to each host's rookeryd. A shell, the `rookery` command line and scripts all use its one API of methods over `/ws` and `/rpc`. Every method is in the [API reference](/docs/api/server).
 
 ```bash
 export ROOKERY_DATABASE_URL=postgres://rookery:PASSWORD@db.example.org/rookery
 export ROOKERY_SECRET_KEY_FILE=/etc/rookery/secret.key
+export ROOKERY_PUBLIC_URL=https://rookery.example.ts.net
 rookery serve
 ```
 
-It migrates the database, then serves. Several can run on one database: one leads and holds the links to the hosts and runs the jobs, the others stand by and take over when it stops. `/healthz` answers `200` on the leader and `503` on one standing by.
+It migrates the database, then serves. Several servers can run on one database: one leads and holds the links to the hosts and runs the jobs, and the others stand by and take over when it stops. `/healthz` answers `200` on the leader and `503` on a standby.
+
+[Run the server](/docs/use/server) has the compose file that starts this server with a database of its own, and the commands to reach it.
 
 ## Its settings
 
@@ -22,32 +25,69 @@ The server takes its settings from the environment:
 | --- | --- |
 | `ROOKERY_DATABASE_URL` | The PostgreSQL database. Required |
 | `ROOKERY_DATABASE_LOCK_URL` | A direct connection for the leader's lock, when `ROOKERY_DATABASE_URL` goes through a pooler |
-| `ROOKERY_SECRET_KEY_FILE`, `ROOKERY_SECRET_KEY` | The key that seals secrets and the key ring in the database: 64 hex digits, or 32 bytes in base64. Without it the server runs and refuses what is sealed |
-| `ROOKERY_LISTEN` | Where it listens, `127.0.0.1:7777` unless set. An address other machines reach also needs `ROOKERY_ALLOW_PUBLIC=1` |
-| `ROOKERY_PUBLIC_URL` | The address people reach it at, such as `https://rookery.example.ts.net`. Sign-in links name it |
+| `ROOKERY_SECRET_KEY_FILE`, `ROOKERY_SECRET_KEY` | The key that seals secrets, credentials and the key ring in the database: 64 hex digits, or 32 bytes in base64. Give one or the other. Without a key the server runs and refuses what is sealed |
+| `ROOKERY_LISTEN` | Where it listens, `127.0.0.1:7777` unless set |
+| `ROOKERY_ALLOW_PUBLIC` | `1` to listen on an address other machines reach. Without it the server refuses such an address |
+| `ROOKERY_PUBLIC_URL` | The address people reach it at, such as `https://rookery.example.ts.net`, and the address in sign-in links. `http://` and the listen address unless set. An `https` address makes the session cookie secure |
 | `ROOKERY_SOCKET` | The unix socket of the command line on this machine, `server.sock` in Rookery's runtime folder unless set |
-| `ROOKERY_ADMINS` | Accounts that are admins, apart by commas |
-| `ROOKERY_OIDC_ISSUER`, `ROOKERY_OIDC_CLIENT_ID`, `ROOKERY_OIDC_CLIENT_SECRET_FILE` | Sign-in with an OpenID Connect provider instead of local accounts |
-| `ROOKERY_SHELL_DIR` | A built shell, such as Crow's, served at `/`. Unless it's set, the installed plugin that contributes a shell is served there |
+| `ROOKERY_ADMINS` | Accounts that are admins, by email or `group:NAME` of the identity provider, apart by commas |
+| `ROOKERY_AUTH` | `local`, the default, or `oidc`. With `ROOKERY_OIDC_ISSUER` set it is `oidc` unless this says otherwise |
+| `ROOKERY_OIDC_ISSUER`, `ROOKERY_OIDC_CLIENT_ID` | The identity provider and the client that signs people in |
+| `ROOKERY_OIDC_CLIENT_SECRET_FILE` | A private file with the client's secret. `ROOKERY_OIDC_CLIENT_SECRET` gives it in the environment |
+| `ROOKERY_OIDC_AUDIENCES` | Audiences an ID token may name besides the client's id, apart by commas |
+| `ROOKERY_OIDC_GROUPS_CLAIM` | The claim that lists a person's groups, `groups` unless set |
+| `ROOKERY_OUTBOUND_ALLOW` | Internal addresses and ranges the server may reach for a member, such as `10.20.0.0/16`, apart by commas |
+| `ROOKERY_BLOBS` | The folder that holds blobs. Without it `blobs.*` answers `UNAVAILABLE` |
+| `ROOKERY_RETENTION_DAYS` | Days Rookery keeps jobs with their logs, and the hosts' messages. It comes before the setting `retention_days`, and both are 90 unless set |
+| `ROOKERY_SHELL_DIR` | A built shell served at `/`. Unless it's set, the installed plugin that contributes a shell is served there |
 | `ROOKERY_BUN` | The Bun program that runs plugins' host halves, `bun` unless set. Rookery's image has it |
-| `ROOKERY_EXTHOST` | The extension host's entry. Unless it's set, the bundle in Rookery's own provisioning source, `host/dist/main.js` |
+| `ROOKERY_EXTHOST` | The extension host's entry. Unless it's set, `host/dist/main.js` of Rookery's provisioning source. Without one no plugin's host half starts |
 | `ROOKERY_EXTHOST_MEMORY_MB` | The memory a plugin's host process may hold before it's ended, 512 MiB unless set |
 
-The server writes the files the hosts need, such as its key ring and the hosts' known keys, into Rookery's configuration and data folders on the machine it leads on.
+A setting of the installation, such as `retention_days`, is changed with `rookery config set` and kept in the database. The variables above are the machine's, and its service manager gives them.
+
+The server writes the files the hosts need, such as its key ring and the hosts' known keys, into Rookery's configuration and data folders on the machine that leads on.
 
 ## What it serves
 
+| Address | For |
+| --- | --- |
+| `/ws` | A WebSocket for many calls and streams at once. A shell and the command line use it |
+| `/rpc` | One call per request, for scripts, with an access token. It does not read a browser's cookie |
+| `/auth/*` | Signing in: the one-time links, the session, and the OpenID Connect flow |
+| `/healthz` | `200` on the leader and `503` on a standby |
+| `/plugins/{id}/{hash}/{path}` | Plugin client halves, at an address of their own for each version of their files |
+| `/` | The shell, from `ROOKERY_SHELL_DIR` or from the plugin that contributes one |
+| `unix:` socket | `/ws` and `/rpc` on the server's own machine, where the caller is an admin with no token |
+
+`rookery login URL` signs the command line in through the browser. It opens `/auth/desktop` with a loopback redirect and a PKCE challenge, takes the code on the loopback address, and exchanges it at `/auth/desktop/token` for a device session. The session shows in `auth.listDevices`, and `auth.revokeDevice` ends it.
+
+Without a browser, `rookery login URL --no-browser` asks for a sign-in link. An access token from `auth.createToken`, or from `rookery server token` on the server's machine, goes to the command line as `ROOKERY_TOKEN`, `--token-file` or `--token-stdin`.
+
+<Callout type="warn" title="Plain HTTP">
+  The server speaks plain HTTP. Serve it behind a TLS proxy such as Tailscale Serve or Caddy, or keep it on a private network such as your tailnet.
+</Callout>
+
+## The methods
+
 | Methods | For |
 | --- | --- |
-| [`hosts.*`](/docs/api/server/hosts) | The hosts with their profiles, whether each answers and is behind, and the [actions](#actions) of each. A host's services, units, logs, processes and messages are methods of the host too |
-| [`hosts.sessions.*`, `hosts.files.*`, `hosts.ports.connect`](/docs/api/server/hosts) | Commands and terminals on a host, its files, and TCP connections to its ports |
+| [`hosts.*`](/docs/api/server/hosts) | The hosts with their profiles, whether each answers and is behind, and the [actions](#actions) of each. A host's services, units, logs, processes, messages, sessions and files are methods of the host too |
 | [`jobs.*`](/docs/api/server/jobs) | The jobs, one for each run of an action, with their log. `jobs.follow` streams it |
 | [`keys.*`](/docs/api/server/keys) | The key ring Rookery logs in to hosts with |
-| [`installation.*`](/docs/api/server/installation), [`registries.*`](/docs/api/server/registries) | The installation's actions, such as `rollout`, its secrets and settings, and the registries |
+| [`installation.*`](/docs/api/server/installation), [`registries.*`](/docs/api/server/registries), [`secrets.*`](/docs/api/server/secrets), [`settings.*`](/docs/api/server/settings) | The installation's actions, secrets, settings and registries |
 | [`provisioners.*`](/docs/api/server/provisioners), [`resources.*`](/docs/api/server/resources) | What makes machines and deployments, and what it made. Creating, changing and removing a resource are jobs |
 | [`setup.*`](/docs/api/server/setup), [`plugins.*`](/docs/api/server/plugins) | What a new host starts from, and the server's plugins |
 | [`auth.*`](/docs/api/server/auth), [`admin.*`](/docs/api/server/admin), [`access.*`](/docs/api/server/access) | Sign-in, accounts, tokens, and grants on hosts |
 | [`topics.*`](/docs/api/server/topics), [`notify.*`](/docs/api/server/notify), [`storage.*`](/docs/api/server/storage), [`events.*`](/docs/api/server/events) | What the hosts publish on their channels, notifications, small values with revisions, and one stream of what changes |
+
+## Hosts and rookeryd
+
+A host is a profile, a resource named `env://NAME` for grants, and a link to its rookeryd. The leader keeps the link. It logs in over SSH as the host's SSH user and runs the host's controller. The host's channel comes in over that link, and its sessions, files, units, logs, processes and actions are reached through it.
+
+A host of the type `ssh` has no controller, and works for a terminal and commands only ([Host types](/docs/use/types)). `hosts.list` says whether each host answers, and `hosts.get` whether its rookeryd is behind Rookery's version. A host that does not answer is still saved, and its profile can still be changed. `hosts.power` starts or stops a machine its provisioner made.
+
+A host is added by its address, with `rookery host add`, or described and installed with `rookery host create` ([The command line](/docs/use/cli#hosts)). Over the API, `hosts.save` takes the profile, and `hosts.remove` forgets it.
 
 ## Actions
 
@@ -73,42 +113,66 @@ An action that the host's type rules out is listed with `available` false, and i
   "params": { "action": "rollout", "arguments": { "update": "yes" }, "token": "nightly-2026-11-13" } }
 ```
 
-The same token again for the same action answers with the job the first call started, and nothing runs a second time. That lets a caller that lost the answer ask again. While an action changes a host, a second one that changes it is refused with `CONFLICT` until the first has ended, and so is a second roll-out. A job is followed with `jobs.get` and the `jobs.follow` stream, and `jobs.cancel` stops it. A job's log is kept with the job for `retention_days` (90 by default).
+The same token again for the same action answers with the job the first call started, and nothing runs a second time. That lets a caller that lost the answer ask again. While an action changes a host, a second one that changes it is refused with `CONFLICT` until the first has ended, and so is a second roll-out.
 
-## Where it listens
+## Jobs
 
-The server serves `/ws`, `/rpc`, the sign-in pages under `/auth` and `/healthz` at `ROOKERY_LISTEN`. Every request there needs a browser's session or an access token, except sign-in itself.
+A job is one run of something that changes a host, or of an action that makes or removes a resource. The leader runs it and records its state, its attempts, its progress and its log.
 
-On its own machine it also serves a unix socket, readable by its user only. The command line on that machine uses it, and its caller is an admin:
+| Kind | What starts it |
+| --- | --- |
+| `hosts.act` | An action of a host, such as an apply, an install, a rename or the controller's own |
+| `hosts.session` | A command or an action that runs on the host in a session |
+| `provisioners.act` | An action of a provisioner, such as creating a machine |
+| `resources.act` | An action of a resource, such as a deployment |
+| `installation.act` | An action of the installation, such as a roll-out or a key rotation |
 
-```bash
-rookery server setup-key                 # a sign-in link for the first admin
-rookery server token --user ada --admin  # an access token of ada, who is made an admin
-```
+A job is `queued`, `running`, `succeeded`, `failed` or `cancelled`. An attempt that fails runs again while attempts are left, after a wait that doubles. An action that is not safe to repeat, such as an apply, gets one attempt, and one the server stopped in fails for a person to run again. `jobs.retry` runs a failed or cancelled job again with one more attempt.
 
-<Callout type="warn" title="Plain HTTP">
-  The server speaks plain HTTP. Serve it behind a TLS proxy such as Tailscale Serve or Caddy, or keep it on a private network such as your tailnet.
-</Callout>
+| Method | For |
+| --- | --- |
+| `jobs.list` | The jobs, newest first. An admin sees every job, and anyone else those they enqueued. A host the caller sees can be named as the subject |
+| `jobs.get` | One job: its state, attempts, progress and outcome |
+| `jobs.output` | Its log after a cursor, up to 1000 items |
+| `jobs.follow` | Its log as a stream, from a cursor, with the outcome in the last line |
+| `jobs.cancel` | Stops a queued job at once, and a running one by asking its handler to stop |
+| `jobs.retry` | Runs a failed or cancelled job again |
+| `jobs.enqueue` | An admin starts a job of a kind a handler in the server runs |
+
+The command line has these as `rookery job list`, `show`, `logs -f`, `wait` and `stop`. A job's log is kept with the job for `retention_days` ([Its settings](#its-settings)).
+
+A changed job is an event of the server's own plugin id, `rookery/jobs.changed`, with the job in `job`. A host that changes tells `rookery/hosts.changed`, and a resource tells `rookery/resources.changed`. A shell subscribes to them with `events.subscribe`, and a client half with `rookery.events.subscribe("rookery/hosts.changed", …)` ([Server events](/docs/extend/plugins#server-events)).
+
+A message a host keeps on its channel reaches its owner and managers as a notification of the kind `rookery/host.message`, and their connections hear `notify.new`. A plugin sends notifications of its own with `notify.send`. A job sends no notification when it ends: follow `rookery/jobs.changed`, or the job's stream.
 
 ## Who gets in
 
-People sign in with an account of the server, or with an OpenID Connect provider when `ROOKERY_OIDC_ISSUER` is set. The first admin signs in with the link `rookery server setup-key` prints. An admin then invites others with `auth.createLink`.
+People sign in with an account of the server, or with an OpenID Connect provider when `ROOKERY_AUTH=oidc` or `ROOKERY_OIDC_ISSUER` is set. The first admin signs in with the link `rookery server setup-key` prints. An admin then invites others with `auth.createLink`.
 
 A host belongs to the account that added it. Its owner and the admins hold `manage` on it, and `access.grant` gives another account or a group `view`, `use` or `manage` on `env://NAME`:
+
+```json
+{ "jsonrpc": "2.0", "id": 1, "method": "access.grant",
+  "params": { "resource": "env://studio", "principal": "user:ada", "level": "use" } }
+```
 
 | Level | May |
 | --- | --- |
 | `view` | See the host, its state, jobs and output |
-| `use` | Open terminals, files and ports on it |
+| `use` | Open terminals, sessions, files and ports on it |
 | `manage` | Change its profile, apply it, rename it, and run its actions and its controller's |
 
 Each action says the role it needs, which `hosts.act` checks: `operate` is `manage` on the host, and `admin` an admin of the server, as removing a host's machine, a roll-out or a new key for Rookery need. Keys, secrets, registries, settings, provisioners and plugins need an admin.
+
+`access.level` says what the caller holds on a resource, and `access.grants` who holds what.
 
 Scripts and other programs use an access token: `auth.createToken` makes one for oneself, and `rookery server token` on the server's machine one for any account. It goes in `Authorization: Bearer`, or to the command line as `ROOKERY_TOKEN`, `--token-file` or `--token-stdin`. `rookery login URL` keeps it, or signs in through the browser.
 
 ## In a container
 
-The `ghcr.io/aiviarium/rookery` image runs `rookery serve` at port 7777, as user `rookery` (uid 1000). Without `ROOKERY_DATABASE_URL` it runs a PostgreSQL 17 of its own in `/data`, reached on a socket inside the container alone, and makes its secret key in `/config` the first time. The server connects to it as the role `rookery`, which owns its database and is no superuser. Give the container 30 seconds to stop both, with `docker stop -t 30` or `stop_grace_period: 30s`:
+The `ghcr.io/aiviarium/rookery` image runs `rookery serve` at port 7777, as user `rookery` (uid 1000). It sets `ROOKERY_LISTEN=0.0.0.0:7777` and `ROOKERY_ALLOW_PUBLIC=1`, so give `ROOKERY_PUBLIC_URL` the address people use.
+
+Given another `ROOKERY_DATABASE_URL`, it is the server alone, and the key file is yours to make. Left on the image's own database URL, it runs a PostgreSQL 17 of its own in `/data`, reached on a socket inside the container alone, and makes its secret key in `/config` the first time. The server connects to it as the role `rookery`, which owns its database and is no superuser. Give the container 30 seconds to stop both, with `docker stop -t 30` or `stop_grace_period: 30s`:
 
 ```bash
 docker run -d --name rookery -p 127.0.0.1:7777:7777 \
@@ -121,10 +185,10 @@ docker exec rookery rookery server setup-key
 
 | Path | Holds |
 | --- | --- |
-| `/config/rookery/` | `secret.key`, and the folder of the server's own plugins |
-| `/data/rookery/` | The database in `postgres/`, the server's SSH keys and known hosts, written from the database, and builds |
+| `/config/rookery/` | `secret.key`, and `plugins/`, the plugins of this server |
+| `/data/rookery/` | The database in `postgres/`, the server's SSH keys and known hosts, written from the database, `server.sock`, and builds |
 | `/home/rookery/.ssh` | Further SSH keys and configuration for reaching hosts |
 
 A container that ran an older Rookery, with its store in `/data/rookery/rookery.db` or in `ROOKERY_STORE`, brings that store into the database the first time the new image starts, owned by a local admin named `admin` ([The database](/docs/use/store#from-an-older-store)). A data folder of another major version of PostgreSQL is refused: dump it with the image that made it and restore the dump.
 
-The image contains ansible-core, the OpenSSH client and Python, so it can also apply configurations, and git for installing plugins. See [A Rookery server](/docs/use/server) for using it from Rookery on another machine.
+The image contains ansible-core, the OpenSSH client and Python, so it can also apply configurations, and git for installing plugins. See [A Rookery server](/docs/use/server) for a compose file with a database of its own, and for using it from Rookery on another machine.
