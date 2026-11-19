@@ -2,10 +2,11 @@
 //!
 //! A caller's level on a resource is the highest of the grants to its principals (itself, its user,
 //! the user's groups and `everyone`) on the resource or an ancestor, and manage for the owner of the
-//! resource or of an ancestor. Ancestors are found by walking `parent` in the entity index, stopping
-//! after a private entity, so a row of a space inherits the space's members. The walk is the SQL
-//! function `rookery.effective_level`, which reads of collections filter rows with. Levels: 1 view,
-//! 2 use, 3 manage. Admins hold manage on everything.
+//! resource or of an ancestor. A plugin acts as itself alone, never as `everyone`, so it reaches a
+//! resource only through a grant that names it. Ancestors are found by walking `parent` in the entity
+//! index, stopping after a private entity, so a row of a space inherits the space's members. The walk
+//! is the SQL function `rookery.effective_level`, which reads of collections filter rows with. Levels:
+//! 1 view, 2 use, 3 manage. Admins hold manage on everything.
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;

@@ -167,7 +167,8 @@ CREATE INDEX idempotency_expires ON rookery.idempotency (expires_at);
 
 CREATE INDEX owners_user ON rookery.owners (user_id);
 
--- The principals a caller acts as: itself, its user, the user's groups and everyone.
+-- The principals a caller acts as: itself, its user, the user's groups and everyone. A plugin does
+-- not act as everyone: it reaches a resource only through a grant of its own.
 CREATE FUNCTION rookery.principals_of(p_user uuid, p_principal text) RETURNS text[]
 LANGUAGE sql STABLE AS $$
     SELECT array_remove(ARRAY[
