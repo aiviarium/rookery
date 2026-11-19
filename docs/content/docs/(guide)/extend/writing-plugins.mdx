@@ -166,6 +166,16 @@ A plugin written before `plugin.json` has a `rookery.json` with the lists `featu
 }
 ```
 
+### Host halves and what they reach
+
+A plugin's `host` names its host half, a module that runs on the server: `export default definePlugin((rookery) => { ... })` from `@rookery/sdk`. Rookery starts it the first time something of the plugin is used, or with the server when the manifest says `"activate": "startup"`. Each plugin's host half runs in a Bun process of its own, and the server knows which plugin a call is from by that process alone. A host half calls the server's methods as its plugin, so it reaches its own settings, secrets and storage and no other plugin's.
+
+Each method it registers with `rookery.rpc.handle` says who may call it. With `level: "own"` anyone signed in may, and the handler checks the rest. With `level: "admin"` only admins may. A handler that keeps running past its call's deadline is stopped, and so is one that keeps ending: after five times in a minute, only an admin starts it again.
+
+The process gets none of the server's environment but `PATH`, `HOME`, `LANG`, `LC_ALL` and `TZ`. It still runs as the server's own system user, so it can read what that user can, such as the server's key file and configuration folder. A host half is code an admin installs and trusts: install plugins whose source you trust, as you would any program on the server.
+
+The route that serves client halves, `/plugins/ID/HASH/PATH`, doesn't ask anyone to sign in, as a browser loads a shell before anyone signs in. Put nothing secret in a client half.
+
 ## Features
 
 <TypeTable
