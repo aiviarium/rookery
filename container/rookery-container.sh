@@ -33,8 +33,13 @@ if [ -s "$db/PG_VERSION" ]; then
     echo "rookery: dump it with the image that made it (pg_dumpall), and restore the dump into a new folder." >&2
     exit 1
   fi
+elif [ -d "$db" ] && [ -n "$(ls -A "$db")" ]; then
+  echo "rookery: $db holds files that are no PostgreSQL data folder, and they are left as they are." >&2
+  echo "rookery: move them away to let this image make its database there." >&2
+  exit 1
 else
-  rm -rf "$db"
+  # Trust on the socket alone: it is in a folder of mode 0700 inside this container, so only this
+  # container's own user reaches it, and the server's role is no superuser.
   "$bin/initdb" -D "$db" -U postgres -A trust -E UTF8 >/dev/null
 fi
 "$bin/pg_ctl" -D "$db" -l /data/rookery/postgres.log -w -s start \

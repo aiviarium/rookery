@@ -52,6 +52,7 @@ USER rookery
 ENV XDG_CONFIG_HOME=/config XDG_DATA_HOME=/data TERM=xterm-256color \
     ROOKERY_DATABASE_URL=postgres://rookery@localhost/rookery?host=/tmp/rookery-postgres \
     ROOKERY_SECRET_KEY_FILE=/config/rookery/secret.key \
+    ROOKERY_SOCKET=/data/rookery/server.sock \
     ROOKERY_LISTEN=0.0.0.0:7777 ROOKERY_ALLOW_PUBLIC=1
 VOLUME ["/config", "/data"]
 EXPOSE 7777
