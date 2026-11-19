@@ -55,6 +55,14 @@ impl OutTx {
         )
     }
 
+    /// A queue whose receiver is no socket's writer, and gives no room back: stream data is bounded by
+    /// the queue alone.
+    pub(crate) fn detached_channel() -> (Self, mpsc::Receiver<Outbound>) {
+        let (mut out, rx) = Self::channel();
+        out.binary = Arc::new(Semaphore::new(Semaphore::MAX_PERMITS));
+        (out, rx)
+    }
+
     /// A slow peer must reconnect if it cannot keep up with replies or control notifications.
     fn send_text(&self, text: String) {
         if text.len() > MAX_OUTBOUND_MESSAGE || self.tx.try_send(Outbound::Text(text)).is_err() {
@@ -139,7 +147,7 @@ impl ConnHandle {
     /// A connection with no socket: what the server sends on it arrives on the receiver. For tests, and
     /// for code inside the server that calls methods as a client would.
     pub fn detached(kernel: &Kernel, caller: Caller) -> (ConnHandle, mpsc::Receiver<Outbound>) {
-        let (out, rx) = OutTx::channel();
+        let (out, rx) = OutTx::detached_channel();
         let id = kernel.conns.next.fetch_add(1, Ordering::Relaxed) + 1;
         let conn = ConnHandle(Arc::new(ConnInner {
             id,
