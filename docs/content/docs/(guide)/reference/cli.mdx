@@ -84,7 +84,7 @@ rookery exec HOST [--user USER] [--detach] [--keep] -- COMMAND…
 
 ## rookery ssh
 
-A shell on a host over plain SSH, or a command run there. Needs the installation on this machine.
+A shell on a host, or a command run there: plain SSH with the server's key on its machine, a terminal through the server elsewhere.
 
 ```text
 rookery ssh HOST [--agent] [-- COMMAND…]
@@ -93,7 +93,7 @@ rookery ssh HOST [--agent] [-- COMMAND…]
 | Argument | What it is |
 | --- | --- |
 | `HOST` | A host's name. |
-| `--agent` | Log in as the agent account. |
+| `--agent` | As the agent account, rather than the SSH user. |
 | `COMMAND…` | A command to run there, after --. |
 
 ## rookery run
@@ -1509,91 +1509,49 @@ rookery service call HOST SERVICE METHOD [BODY]
 
 ## rookery server
 
-The rookery server of this machine: running it, its setup key, its store and its API documents.
-
-### rookery server run
-
-Serve the API over all hosts on a socket of this user, and over HTTP with --listen.
-
-```text
-rookery server run [--listen ADDRESS:PORT] [--expose] [--simulate] [--seed FILE] [--delay SECONDS] [--data DIR] [--keep]
-```
-
-| Argument | What it is |
-| --- | --- |
-| `--listen ADDRESS:PORT` | Also listen over HTTP, behind a token. |
-| `--expose` | Allow an address other than this machine's own. |
-| `--simulate` | Run a simulated server to test an application against: the real API on a scratch store, with hosts and provisioners that reach no machine. |
-| `--seed FILE` | A JSON file with the hosts, provisioners, secrets and token the simulated server starts with. |
-| `--delay SECONDS` | Seconds a simulated step takes, 2 unless given; 0 for none. |
-| `--data DIR` | Keep the simulated server's state in DIR, an empty one or one of an earlier simulation, instead of a scratch directory. |
-| `--keep` | Leave the scratch directory when the simulated server ends. |
+The rookery server of this machine: its sign-in links and tokens, importing an older store, its secrets and its image.
 
 ### rookery server setup-key
 
-A one-time sign-in link for the first admin of rookery serve on Postgres; without one running here, a key, valid for a day, that lets the first user collect the server's token.
+A one-time sign-in link for the first admin of the rookery serve on this machine, valid for a day.
 
 ```text
-rookery server setup-key [--revoke]
+rookery server setup-key
+```
+
+### rookery server token
+
+An access token of a person for scripts, made over the server's socket; the person is made too when there is none of that name.
+
+```text
+rookery server token --user NAME [--name NAME] [--admin]
 ```
 
 | Argument | What it is |
 | --- | --- |
-| `--revoke` | End the key that is open. |
+| `--user NAME` | The person, by name or email. |
+| `--name NAME` | What the token is for, which its list shows. By default `cli`. |
+| `--admin` | A person made for it is an admin. |
 
-### rookery server store
+### rookery server import
 
-Where the server keeps its state, and sealing it.
-
-#### rookery server store status
-
-Where the store is, and whether it is sealed.
+Bring an existing Rookery store into the server's database, once, into an empty one; the old store is only read.
 
 ```text
-rookery server store status
-```
-
-#### rookery server store encrypt
-
-Seal the store's values with a new key file.
-
-```text
-rookery server store encrypt
-```
-
-#### rookery server store rekey
-
-Seal them with another key.
-
-```text
-rookery server store rekey
-```
-
-#### rookery server store decrypt
-
-Write them plain again.
-
-```text
-rookery server store decrypt
-```
-
-#### rookery server store copy
-
-Copy the store into another SQLite file or PostgreSQL database, and switch to it.
-
-```text
-rookery server store copy [TARGET] [--target-file FILE] [--into-existing]
+rookery server import [--from FILE|URL] [--from-file FILE] [--if-not-imported] [--key-file FILE] [--owner NAME]
 ```
 
 | Argument | What it is |
 | --- | --- |
-| `TARGET` | A file, a PostgreSQL URL, or - to read it from standard input. |
-| `--target-file FILE` | Read the target from FILE. |
-| `--into-existing` | Copy into a database that holds a store already. |
+| `--from FILE|URL` | The store: its SQLite file, or postgres://… of one on PostgreSQL, with its password in PGPASSWORD. |
+| `--from-file FILE` | A file whose first line names the store, as --from does; it may hold the password. |
+| `--if-not-imported` | Succeed without doing anything when this database had its import already. |
+| `--key-file FILE` | The old store's key file, when it is sealed; the server's own key is ROOKERY_SECRET_KEY or ROOKERY_SECRET_KEY_FILE. |
+| `--owner NAME` | The person, by name or email, who owns every imported host, made as an admin when there is none of that name; the server's one admin without it. |
 
 ### rookery server secrets
 
-The secrets of rookery serve on Postgres.
+The secrets of rookery serve.
 
 #### rookery server secrets rekey
 
@@ -1607,34 +1565,6 @@ rookery server secrets rekey [--new-key-file FILE] [--write-new-key FILE]
 | --- | --- |
 | `--new-key-file FILE` | The new key, 64 hex digits, from FILE. |
 | `--write-new-key FILE` | Make a new key and write it to FILE, readable by this user alone. FILE must not exist. |
-
-### rookery server api
-
-The server's API documents.
-
-#### rookery server api openapi
-
-The OpenAPI document.
-
-```text
-rookery server api openapi
-```
-
-#### rookery server api asyncapi
-
-The AsyncAPI document of the streams.
-
-```text
-rookery server api asyncapi
-```
-
-#### rookery server api operations
-
-The operations, with their routes and roles.
-
-```text
-rookery server api operations
-```
 
 ### rookery server image
 
@@ -1665,34 +1595,25 @@ rookery server deploy [USER@]HOST [--container NAME] [--port PORT] [--release VE
 
 ## rookery serve
 
-Run rookery serve: on Postgres when ROOKERY_DATABASE_URL is set, as rookery server run without it.
+Run the rookery server on the Postgres database of ROOKERY_DATABASE_URL.
 
 ```text
-rookery serve [--listen ADDRESS:PORT] [--expose] [--simulate] [--seed FILE] [--delay SECONDS] [--data DIR] [--keep]
+rookery serve
 ```
-
-| Argument | What it is |
-| --- | --- |
-| `--listen ADDRESS:PORT` | Also listen over HTTP, behind a token. |
-| `--expose` | Allow an address other than this machine's own. |
-| `--simulate` | Run a simulated server to test an application against: the real API on a scratch store, with hosts and provisioners that reach no machine. |
-| `--seed FILE` | A JSON file with the hosts, provisioners, secrets and token the simulated server starts with. |
-| `--delay SECONDS` | Seconds a simulated step takes, 2 unless given; 0 for none. |
-| `--data DIR` | Keep the simulated server's state in DIR, an empty one or one of an earlier simulation, instead of a scratch directory. |
-| `--keep` | Leave the scratch directory when the simulated server ends. |
 
 ## rookery login
 
-Use the rookery server at URL, with a setup key made there.
+Use the rookery server at URL: sign in through a browser, with a sign-in link, or with a token.
 
 ```text
-rookery login URL [--setup-key-stdin]
+rookery login URL [--link-stdin] [--no-browser]
 ```
 
 | Argument | What it is |
 | --- | --- |
-| `URL` | https://HOST or http://HOST:PORT. |
-| `--setup-key-stdin` | Read the setup key from standard input. |
+| `URL` | https://HOST or http://HOST:PORT, or a sign-in link of the server. |
+| `--link-stdin` | Read a sign-in link from standard input, as `rookery server setup-key` prints one. |
+| `--no-browser` | Ask for a sign-in link instead of opening a browser. |
 
 ## rookery logout
 

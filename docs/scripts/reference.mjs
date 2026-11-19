@@ -1,7 +1,8 @@
-// The API reference, by operation, from the committed operation documents in
-// docs/openapi (`rookeryd operations`, `rookery server api operations`). One folder per
-// program under content/docs/api, one page per group of operations. The
-// overview and the portal page beside them are written by hand.
+// The API reference: rookeryd's by operation, from the committed operation
+// documents in docs/openapi (`rookeryd operations`), and the server's by method,
+// from api/methods.json (the method report of rookery-server). One folder per
+// program under content/docs/api, one page per group. The overview and the
+// portal page beside them are written by hand.
 // Plain Node, no packages.
 import { copyFileSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -15,14 +16,6 @@ const programs = [
     file: 'rookeryd.operations.json',
     title: 'rookeryd',
     description: 'The operations of rookeryd, on every host.',
-    serve: false,
-  },
-  {
-    dir: 'serve',
-    file: 'rookery.operations.json',
-    title: 'rookery serve',
-    description: 'The operations of rookery serve, on your machine.',
-    serve: true,
   },
 ];
 
@@ -40,21 +33,6 @@ const groups = {
   services: ['Services', 'Programs of plugins that answer calls.'],
   ports: ['Ports', "TCP connections to ports on the host's loopback."],
   endpoints: ['Endpoints', "TCP connections to addresses on the host's own networks, which only rookery serve opens, for a resource's endpoint."],
-  setup_key: ['Setup key', 'Collecting the token with a short-lived key, after an install.'],
-  hosts: ['Hosts', 'The hosts rookery serve knows, their profiles, and what can be done to each.'],
-  installation: ['Installation', 'What can be done to the installation as a whole, such as a roll-out.'],
-  keys: ['Keys', 'The SSH keys rookery logs in to hosts with.'],
-  secrets: ['Secrets', 'Secret values the server keeps and gives to hosts.'],
-  registries: ['Registries', 'Package registries, their logins and their repositories.'],
-  plugins: ['Plugins', 'The plugins the server has, and updating them.'],
-  settings: ['Settings', "The server's settings."],
-  setup: ['Set-up', 'What the set-up of a new host starts from: the starting profile and the features.'],
-  provisioners: ['Provisioners', 'What the plugins can create machines and deployments with, their pages and their actions.'],
-  resources: ['Resources', 'What provisioners made for rookery, a host\'s machine among them: creating, changing, removing, their actions, logs and endpoints.'],
-  jobs: ['Jobs', 'Long-running work of rookery serve, such as an apply: one run of an action.'],
-  inbox: ['Inbox', "Messages taken in from the hosts' channels."],
-  kv: ['Key-value store', 'Small JSON values with revisions, for user interfaces.'],
-  events: ['Events', 'One stream for channel messages, jobs, key-value changes and changes to hosts and resources.'],
 };
 // A group of the same name means something else in each program.
 const hostGroups = {
@@ -243,20 +221,13 @@ function operationSection(op, program, schemas, used) {
   let text = `## \`${op.name}\`\n\n${md(op.summary)}\n\n`;
 
   const facts = [];
-  if (!program.serve && op.level) facts.push(md(op.level));
+  if (op.level) facts.push(md(op.level));
   if (stream) {
     facts.push('A stream, as a subscription on the portal or a WebSocket of its own.');
     facts.push(op.resumable ? 'It resumes from `since`.' : 'It does not resume.');
   }
   if (op.portal === false) facts.push(`Not on the portal${op.http_only ? `, because ${md(op.http_only)}` : ''}.`);
   if (op.key) facts.push(`It takes ${md(op.key)} as the bearer, not the token or a role.`);
-  if (op.role) {
-    facts.push(
-      program.serve
-        ? `Needs the role \`${op.role}\`.`
-        : `Through \`rookery serve\` it needs the role \`${op.role}\`.`,
-    );
-  }
   if (facts.length) text += facts.join(' ') + '\n\n';
 
   if (op.args?.length) {
@@ -353,7 +324,6 @@ function invocation(op, program, schemas) {
 
   const { path, headers } = httpTarget(op, args);
   const tabs = ['Portal', 'HTTP'];
-  if (!program.serve) tabs.push('Through rookery serve');
 
   let text = `<Tabs items={${JSON.stringify(tabs)}}>\n<Tab value="Portal">\n\n`;
   if (op.portal === false) {
@@ -365,36 +335,24 @@ function invocation(op, program, schemas) {
   text += '</Tab>\n<Tab value="HTTP">\n\n';
   text += httpExample(op, program, path, headers, data, stream);
   text += '</Tab>\n';
-  if (!program.serve) {
-    const { id, ...rest } = request;
-    const served = { id, host: 'studio', ...rest };
-    const { path: hostPath } = httpTarget(op, args);
-    text += '<Tab value="Through rookery serve">\n\n';
-    text += `On the portal of \`rookery serve\`, the same frame with the host's name:\n\n\`\`\`json\n${JSON.stringify(served)}\n\`\`\`\n\n`;
-    text += `Over HTTP, under the host: \`${op.http.method} /v1/hosts/studio${hostPath.replace(/^\/v1/, '')}\`${stream ? ' (a WebSocket)' : ''}.\n\n`;
-    text += '</Tab>\n';
-  }
   text += '</Tabs>\n\n';
   return text;
 }
 
 function httpExample(op, program, path, headers, data, stream) {
   if (stream) {
-    const base = program.serve ? 'ws://127.0.0.1:7777' : 'ws+unix:/run/rookery/control.sock';
-    return `A WebSocket of its own: \`GET ${path}\` with the upgrade headers, at \`${base}${path}\`. Its frames are the ones above, without the portal's subscription number.${
-      program.serve ? ' Over TCP the token goes in `Authorization: Bearer`, or as the `Sec-WebSocket-Protocol` value from a browser.' : ''
-    }\n\n`;
+    const base = 'ws+unix:/run/rookery/control.sock';
+    return `A WebSocket of its own: \`GET ${path}\` with the upgrade headers, at \`${base}${path}\`. Its frames are the ones above, without the portal's subscription number.\n\n`;
   }
   const lines = [];
   if (op.key) lines.push(`curl -H "Authorization: Bearer $SETUP_KEY"`);
-  else if (program.serve) lines.push(`curl -H "Authorization: Bearer $TOKEN"`);
   else lines.push('sudo curl --unix-socket /run/rookery/control.sock');
   if (op.http.method !== 'GET') lines.push(`-X ${op.http.method}`);
   for (const header of headers) lines.push(`-H '${header}'`);
   if (op.data?.bytes) lines.push('--data-binary @notes.txt');
   else if (data !== undefined) lines.push(`-H 'Content-Type: application/json' -d '${JSON.stringify(data).replace(/'/g, "'\\''")}'`);
   if (op.result?.bytes) lines.push('-o result.bin');
-  const host = program.serve ? 'http://127.0.0.1:7777' : 'http://rookeryd';
+  const host = 'http://rookeryd';
   lines.push(`'${host}${path}'`);
   return `\`${op.http.method} ${path}\`\n\n\`\`\`bash\n${lines.join(' \\\n  ')}\n\`\`\`\n\n`;
 }
@@ -412,7 +370,7 @@ function typesSection(names, schemas) {
 }
 
 function groupPage(group, ops, program, schemas) {
-  const [title, description] = (program.serve ? undefined : hostGroups[group]) ?? groups[group] ?? [group, ''];
+  const [title, description] = hostGroups[group] ?? groups[group] ?? [group, ''];
   const used = new Set();
   let body = '';
   for (const op of ops) body += operationSection(op, program, schemas, used);
@@ -425,9 +383,6 @@ function groupPage(group, ops, program, schemas) {
 function indexPage(program, root, byGroup) {
   let text = `---\ntitle: ${yaml(program.title)}\ndescription: ${yaml(program.description)}\n---\n\n`;
   text += `${md(root.description)}\n\n`;
-  if (program.serve) {
-    text += 'Every operation of [rookeryd](/docs/api/host) is also an operation here: on the portal with `"host": "NAME"` in the frame, over HTTP under `/v1/hosts/NAME`.\n\n';
-  }
   text += '| Operation | Kind | Summary |\n| --- | --- | --- |\n';
   for (const group of byGroup.keys()) {
     for (const op of byGroup.get(group)) {
@@ -466,4 +421,136 @@ for (const program of programs) {
     JSON.stringify({ title: program.title, defaultOpen: true, pages: order }, null, 2) + '\n',
   );
   console.log(`wrote ${root.operations.length} operations in ${order.length} pages to api/${program.dir}`);
+}
+
+// ---------------------------------------------------------------------------
+// The server's methods, from api/methods.json.
+
+const methodGroups = {
+  access: ['Access', 'What the caller holds, and grants on resources.'],
+  admin: ['Administration', 'Accounts, tokens and what only an admin does.'],
+  audit: ['Audit', 'What was done, by whom.'],
+  auth: ['Sign-in', 'Who the caller is, sign-in links and sessions.'],
+  blobs: ['Blobs', 'Files the server keeps by their hash.'],
+  connections: ['Connections', 'Credentials for other services, of a declared type.'],
+  events: ['Events', 'One stream of what changes, for whoever may see it.'],
+  hosts: ['Hosts', "The hosts, their profiles and actions, their sessions, files and ports, messages and channel."],
+  installation: ['Installation', "The installation's actions, secrets and settings."],
+  jobs: ['Jobs', 'Long-running work, such as an apply, with its log.'],
+  keys: ['Keys', 'The key ring Rookery logs in to hosts with.'],
+  layout: ['Layout', "The shell's navigation."],
+  leases: ['Leases', 'Named locks that end unless renewed.'],
+  notify: ['Notifications', 'Messages to people.'],
+  plugins: ['Plugins', 'The plugins the server has.'],
+  provisioners: ['Provisioners', 'What machines and deployments are made with.'],
+  registries: ['Registries', 'Package registries and their logins.'],
+  resources: ['Resources', 'What provisioners made: creating, changing, removing, actions, logs and endpoints.'],
+  secrets: ['Secrets', "Plugins' secret values."],
+  settings: ['Settings', "Plugins' settings."],
+  setup: ['Set-up', 'What the set-up of a new host starts from.'],
+  storage: ['Storage', 'Small JSON values with revisions.'],
+  streams: ['Streams', 'Ending and crediting the binary streams of `/ws`.'],
+  topics: ['Topics', 'Messages published on topics, and following them.'],
+};
+
+function levelText(level) {
+  switch (level.kind) {
+    case 'public':
+      return 'Anyone, signed in or not';
+    case 'self':
+      return 'Any signed-in caller, for itself';
+    case 'admin':
+      return 'An admin';
+    case 'plugin':
+      return 'A plugin';
+    case 'resource': {
+      const scheme = level.scheme ? ` (\`${level.scheme}://NAME\`, or the bare name)` : '';
+      return `\`${level.grant}\` on the resource in \`${level.param}\`${scheme}`;
+    }
+    default:
+      return level.kind;
+  }
+}
+
+function schemaType(node, defs) {
+  if (!node || node === true) return 'any';
+  if (node.$ref) return `\`${node.$ref.split('/').pop()}\``;
+  if (node.enum) return node.enum.map((v) => `\`${JSON.stringify(v)}\``).join(' \\| ');
+  if (node.const !== undefined) return `\`${JSON.stringify(node.const)}\``;
+  for (const key of ['anyOf', 'oneOf']) {
+    if (node[key]) {
+      const parts = node[key].filter((n) => n.type !== 'null').map((n) => schemaType(n, defs));
+      return parts.join(' or ') + (node[key].some((n) => n.type === 'null') ? ', or null' : '');
+    }
+  }
+  if (node.allOf?.length === 1) return schemaType(node.allOf[0], defs);
+  const type = Array.isArray(node.type) ? node.type.filter((t) => t !== 'null').join(' or ') : node.type;
+  if (type === 'array') return `list of ${schemaType(node.items, defs)}`;
+  if (type === 'object' && node.additionalProperties && node.additionalProperties !== true && !node.properties)
+    return `map of ${schemaType(node.additionalProperties, defs)}`;
+  return type ?? 'any';
+}
+
+function propertyTable(node, defs) {
+  const props = node?.properties;
+  if (!props || !Object.keys(props).length) return '';
+  const required = new Set(node.required ?? []);
+  let text = '| Field | Type | Description |\n| --- | --- | --- |\n';
+  for (const [name, prop] of Object.entries(props)) {
+    text += `| \`${name}\`${required.has(name) ? '' : ' (optional)'} | ${cell(schemaType(prop, defs))} | ${cell(prop.description ?? '')} |\n`;
+  }
+  return text + '\n';
+}
+
+function methodSection(method) {
+  let text = `## \`${method.name}\`\n\n${md(method.summary ?? '')}\n\n`;
+  text += `Who may call: ${levelText(method.level)}.${method.stream ? ' It opens a stream.' : ''}\n\n`;
+  for (const [title, node] of [['Parameters', method.params], ['Result', method.result]]) {
+    if (!node || node === true) continue;
+    const defs = node.$defs ?? {};
+    text += `### ${title} [#${anchor(`${method.name} ${title}`)}]\n\n`;
+    if (node.description) text += `${md(node.description)}\n\n`;
+    const table = propertyTable(node, defs);
+    if (table) text += table;
+    else if (!node.description) text += `${schemaType(node, defs)}\n\n`;
+    if (Object.keys(defs).length) {
+      text += `<details>\n<summary>The schema</summary>\n\n\`\`\`json\n${json(node)}\n\`\`\`\n\n</details>\n\n`;
+    }
+  }
+  return text;
+}
+
+{
+  const methods = JSON.parse(readFileSync(join(docs, '..', 'api', 'methods.json'), 'utf8'));
+  const out = join(docs, 'content/docs/api', 'server');
+  rmSync(out, { recursive: true, force: true });
+  mkdirSync(out, { recursive: true });
+  const byGroup = new Map();
+  for (const method of methods) {
+    const group = method.name.split('.')[0];
+    if (!byGroup.has(group)) byGroup.set(group, []);
+    byGroup.get(group).push(method);
+  }
+  const order = [...byGroup.keys()].sort();
+  let index = '---\ntitle: rookery serve\ndescription: "The methods of the server, on /ws and /rpc."\n---\n\n';
+  index += 'Each method is called as JSON-RPC 2.0 on `/ws` or `POST /rpc`, or on the server\'s Unix socket. See the [overview](/docs/api).\n\n';
+  index += '| Method | Summary |\n| --- | --- |\n';
+  for (const group of order) {
+    const [title, description] = methodGroups[group] ?? [group, ''];
+    let page = `---\ntitle: ${yaml(title)}\ndescription: ${yaml(description)}\n---\n\n`;
+    page += '| Method | Who may call |\n| --- | --- |\n';
+    for (const method of byGroup.get(group)) {
+      page += `| [\`${method.name}\`](#${anchor(method.name)}) | ${cell(levelText(method.level))} |\n`;
+      index += `| [\`${method.name}\`](/docs/api/server/${group}#${anchor(method.name)}) | ${cell(method.summary ?? '')} |\n`;
+    }
+    page += '\n';
+    for (const method of byGroup.get(group)) page += methodSection(method);
+    writeFileSync(join(out, `${group}.mdx`), page);
+  }
+  writeFileSync(join(out, 'index.mdx'), index + '\n');
+  writeFileSync(
+    join(out, 'meta.json'),
+    JSON.stringify({ title: 'rookery serve', defaultOpen: true, pages: order }, null, 2) + '\n',
+  );
+  console.log(`wrote ${methods.length} methods in ${order.length} pages to api/server`);
 }

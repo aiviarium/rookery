@@ -5,7 +5,6 @@ use super::args::{Channel, Inbox, Kv, Service};
 use super::client::Client;
 use super::fail::{Fail, Result};
 use super::out::{self, Table};
-use rookery_api::portal::Piece;
 use serde_json::{Value, json};
 use std::io::Write;
 
@@ -74,7 +73,7 @@ pub fn forward(
     // A host's name comes first; what no host is called may be a resource.
     let host = match resource {
         true => false,
-        false => match client.call("hosts.get", json!({"name": target}), None) {
+        false => match client.call("hosts.get", json!({"host": target})) {
             Ok(_) => true,
             Err(fail) if fail.code == "not_found" => false,
             Err(fail) => return Err(fail),
@@ -93,7 +92,7 @@ pub fn forward(
                     "There is no host or resource {target}. rookery ls and rookery resource list name them"
                 )),
             })?;
-            let found = client.call("resources.get", json!({"id": id}), None)?;
+            let found = client.call("resources.get", json!({"id": id}))?;
             let made: rookery_api::Resource = serde_json::from_value(found)?;
             let pairs: Vec<(u16, String)> = ports
                 .iter()
@@ -106,7 +105,7 @@ pub fn forward(
             (Target::Resource(id), shown, pairs)
         }
     };
-    let portal = client.portal().clone();
+    let portal = client.inner().clone();
     client.wait(async {
         let mut listening = vec![];
         for (local, remote) in &pairs {
@@ -134,7 +133,7 @@ pub fn forward(
             let (portal, target, shown) = (portal.clone(), target.clone(), shown.clone());
             tasks.push(tokio::spawn(async move {
                 loop {
-                    let Ok((mut socket, from)) = listener.accept().await else {
+                    let Ok((socket, from)) = listener.accept().await else {
                         return;
                     };
                     let (portal, target, shown, remote) = (
@@ -146,20 +145,28 @@ pub fn forward(
                     tokio::spawn(async move {
                         let opened = match &target {
                             Target::Host(host) => {
-                                let port = remote.parse().unwrap_or(0);
-                                portal.connect_port(Some(host), port).await
+                                let port: u16 = remote.parse().unwrap_or(0);
+                                portal
+                                    .open(
+                                        "hosts.ports.connect",
+                                        json!({"host": host, "port": port}),
+                                    )
+                                    .await
                             }
-                            Target::Resource(id) => portal.connect_endpoint(id, &remote).await,
+                            Target::Resource(id) => {
+                                portal
+                                    .open(
+                                        "resources.connect",
+                                        json!({"id": id, "endpoint": remote}),
+                                    )
+                                    .await
+                            }
                         };
                         match opened {
-                            Ok(mut tunnel) => {
-                                let _ =
-                                    tokio::io::copy_bidirectional(&mut socket, &mut tunnel).await;
+                            Ok(stream) => tunnel(socket, stream).await,
+                            Err(error) => {
+                                out::warn(format!("{from}: {shown}:{remote} did not open: {error}"))
                             }
-                            Err(error) => out::warn(format!(
-                                "{from}: {shown}:{remote} did not open: {}",
-                                super::net::describe(&error)
-                            )),
                         }
                     });
                 }
@@ -173,6 +180,41 @@ pub fn forward(
     })
 }
 
+/// Bytes both ways between a connection here and a stream of the server, each side's end as the
+/// other's.
+async fn tunnel(socket: tokio::net::TcpStream, mut stream: rookery_client::Stream) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let (mut from, mut to) = socket.into_split();
+    let sender = stream.sender();
+    let upstream = async move {
+        let mut buffer = vec![0; 32 * 1024];
+        loop {
+            match from.read(&mut buffer).await {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    if sender.send(&buffer[..n]).await.is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+        sender.eof();
+        std::future::pending::<()>().await
+    };
+    let downstream = async move {
+        while let Ok(Some(data)) = stream.recv().await {
+            if to.write_all(&data).await.is_err() {
+                return;
+            }
+        }
+        let _ = to.shutdown().await;
+    };
+    tokio::select! {
+        () = upstream => {}
+        () = downstream => {}
+    }
+}
+
 pub fn inbox(client: &Client, command: Inbox) -> Result<()> {
     let (host, topic, all, before) = match command {
         Inbox::List {
@@ -182,12 +224,12 @@ pub fn inbox(client: &Client, command: Inbox) -> Result<()> {
             before,
         } => (host, topic, all, before),
         Inbox::Done { host, id } => {
-            client.call("inbox.done", json!({"host": host, "id": id}), None)?;
+            client.call("hosts.messages.done", json!({"host": host, "id": id}))?;
             out::done(format!("Message {id} of {host} is done"));
             return Ok(());
         }
         Inbox::Reopen { host, id } => {
-            client.call("inbox.reopen", json!({"host": host, "id": id}), None)?;
+            client.call("hosts.messages.reopen", json!({"host": host, "id": id}))?;
             out::done(format!("Message {id} of {host} is open again"));
             return Ok(());
         }
@@ -205,7 +247,7 @@ pub fn inbox(client: &Client, command: Inbox) -> Result<()> {
     if let Some(before) = before {
         args["before"] = json!(before);
     }
-    let found = client.call("inbox.list", args, None)?;
+    let found = client.call("hosts.messages.list", args)?;
     out::data(&found, || {
         let mut table = Table::new(&["", "time", "host", "id", "topic", "body"]);
         let messages = found["messages"].as_array().cloned().unwrap_or_default();
@@ -237,7 +279,7 @@ pub fn inbox(client: &Client, command: Inbox) -> Result<()> {
 pub fn kv(client: &Client, command: Kv) -> Result<()> {
     match command {
         Kv::List { namespace } => {
-            let found = client.call("kv.list", json!({"namespace": namespace}), None)?;
+            let found = client.call("storage.list", json!({"plugin": namespace}))?;
             out::data(&found, || {
                 let mut table = Table::new(&["key", "revision", "value"]);
                 let entries = match &found {
@@ -256,7 +298,7 @@ pub fn kv(client: &Client, command: Kv) -> Result<()> {
             Ok(())
         }
         Kv::Get { namespace, key } => {
-            let found = client.call("kv.get", json!({"namespace": namespace, "key": key}), None)?;
+            let found = client.call("storage.get", json!({"plugin": namespace, "key": key}))?;
             out::data(&found, || println!("{}", found["value"]));
             Ok(())
         }
@@ -268,9 +310,8 @@ pub fn kv(client: &Client, command: Kv) -> Result<()> {
             // Anything that is not JSON is taken as text.
             let value: Value = serde_json::from_str(&value).unwrap_or_else(|_| json!(value));
             let found = client.call(
-                "kv.set",
-                json!({"namespace": namespace, "key": key}),
-                Some(json!({"value": value})),
+                "storage.set",
+                json!({"plugin": namespace, "key": key, "value": value}),
             )?;
             out::data(&found, || {
                 out::done(format!("{key} is at revision {}", found["revision"]));
@@ -278,11 +319,7 @@ pub fn kv(client: &Client, command: Kv) -> Result<()> {
             Ok(())
         }
         Kv::Remove { namespace, key } => {
-            client.call(
-                "kv.delete",
-                json!({"namespace": namespace, "key": key}),
-                None,
-            )?;
+            client.call("storage.delete", json!({"plugin": namespace, "key": key}))?;
             out::done(format!("Removed {key} from {namespace}"));
             Ok(())
         }
@@ -291,17 +328,21 @@ pub fn kv(client: &Client, command: Kv) -> Result<()> {
 
 pub fn channel(client: &Client, command: Channel) -> Result<()> {
     let Channel::Listen { host, topic, since } = command;
-    let mut args = json!({});
+    let mut query = json!({});
     if let Some(since) = since {
-        args["since"] = json!(since);
+        query["since"] = json!(since.to_string());
     }
-    let mut stream = client.stream("channel.listen", Some(&host), args)?;
+    let mut stream = client.stream(
+        "hosts.channel.listen",
+        json!({"host": host, "query": query}),
+    )?;
     client.wait(async {
         let mut stdout = std::io::stdout();
+        let mut buffer = vec![];
         loop {
             tokio::select! {
-                piece = stream.recv() => match piece {
-                    Some(Ok(Piece::Text(message))) => {
+                line = stream.line(&mut buffer) => match line.map_err(Fail::from)? {
+                    Some(message) => {
                         let fits = topic.as_ref().is_none_or(|prefix| {
                             message["topic"].as_str().is_some_and(|topic| topic.starts_with(prefix.as_str()))
                         });
@@ -310,8 +351,6 @@ pub fn channel(client: &Client, command: Channel) -> Result<()> {
                             stdout.flush()?;
                         }
                     }
-                    Some(Ok(Piece::Binary(_))) => {}
-                    Some(Err(error)) => return Err(Fail::from(error)),
                     None => return Ok(()),
                 },
                 _ = tokio::signal::ctrl_c() => return Ok(()),
@@ -335,11 +374,9 @@ pub fn service(client: &Client, command: Service) -> Result<()> {
             .map_err(|error| Fail::usage(format!("The body is no JSON: {error}")))?,
         None => json!({}),
     };
-    let answer = client.on(
-        &host,
-        "services.call",
-        json!({"plugin": plugin, "name": name, "method": method}),
-        Some(body),
+    let answer = client.call(
+        "hosts.services.call",
+        json!({"host": host, "plugin": plugin, "name": name, "method": method, "params": body}),
     )?;
     out::json(&answer);
     Ok(())

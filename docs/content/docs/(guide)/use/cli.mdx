@@ -11,9 +11,8 @@ A command is written `rookery THING ACTION [NAME] [FLAGS]`, such as `rookery hos
 | `rookery ls` | `rookery host list` |
 | `rookery apply HOST` | `rookery host apply HOST` |
 | `rookery exec HOST -- COMMAND…` | Run a command on the host |
-| `rookery ssh HOST` | A shell over plain SSH |
+| `rookery ssh HOST` | A shell: plain SSH on the server's machine, a terminal through the server elsewhere |
 | `rookery run HOST ACTION` | Run one of the host's actions |
-| `rookery serve` | `rookery server run` |
 
 `rookery` alone lists the hosts of the server it uses, as `rookery ls` does. With no server set, it prints a short help and says what is missing. A word Rookery doesn't know stops with status 2 and the command it was likely meant to be.
 
@@ -25,14 +24,13 @@ Each command calls the API of a Rookery server. Rookery picks the first of these
 2. `ROOKERY_SERVER` in the environment.
 3. The server that `rookery login` kept.
 4. The `rookery serve` of this machine, on its socket.
-5. A server inside Rookery itself, with this machine's installation. This one is on Linux alone.
 
 ```bash
-rookery login https://rookery.example.ts.net   # asks for a setup key, then keeps the server and its token
+rookery login https://rookery.example.ts.net   # signs in through the browser, then keeps the server
 rookery logout                               # forgets them again
 ```
 
-The token comes from a [setup key](/docs/use/server#with-a-setup-key), from `--token-file FILE` or from `--token-stdin`. It never goes on the command line, where other users of the machine could read it. A command can also use a server once: `rookery --server URL --token-file FILE ls`.
+`rookery login` also takes a [sign-in link](/docs/use/server#with-a-sign-in-link), or an access token from `--token-file FILE` or `--token-stdin`. A token never goes on the command line, where other users of the machine could read it. A command can also use a server once: `rookery --server URL --token-file FILE ls`.
 
 ## Hosts
 
@@ -173,10 +171,11 @@ See [Secrets](/docs/use/secrets) and [Registries](/docs/use/registries).
 
 | What | Command |
 | --- | --- |
-| Run it | `rookery serve`, with `--listen ADDRESS:PORT [--expose]` for the network ([`rookery serve`](/docs/extend/serve)) |
-| Make a setup key for the first user | `rookery server setup-key` ([A Rookery server](/docs/use/server#with-a-setup-key)) |
-| The store and its key | `rookery server store status`, `encrypt`, `rekey`, `decrypt`, `copy` ([The store](/docs/use/store)) |
-| The API documents | `rookery server api openapi`, `asyncapi`, `operations` ([API](/docs/api#the-documents)) |
+| Run it | `rookery serve`, with its settings in the environment ([`rookery serve`](/docs/extend/serve)) |
+| A sign-in link for the first admin | `rookery server setup-key` ([A Rookery server](/docs/use/server#with-a-sign-in-link)) |
+| An access token of an account | `rookery server token --user NAME` |
+| Bring in an older store | `rookery server import --from FILE\|URL` ([The database](/docs/use/store#from-an-older-store)) |
+| Seal the secrets with a new key | `rookery server secrets rekey` ([The database](/docs/use/store#the-secret-key)) |
 | The server's settings | `rookery config list`, `rookery config set KEY VALUE` |
 | Update Rookery itself | `rookery update` ([Updates](/docs/use/updates#rookery-itself)) |
 

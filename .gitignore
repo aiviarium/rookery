@@ -18,6 +18,8 @@ secrets/
 *.credentials.json
 
 *.log
+# The job output of a store the import tests read.
+!crates/rookery/tests/fixtures/store-0.6/jobs/*.log
 .env.*
 .claude/*
 # The skills are a link to .agents/skills, which every agent reads.

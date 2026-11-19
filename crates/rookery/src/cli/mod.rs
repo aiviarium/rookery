@@ -13,11 +13,11 @@ mod host;
 mod jobs;
 pub mod login;
 mod look;
-pub mod net;
 pub mod out;
 mod pages;
 pub mod settings;
 pub mod setup;
+mod tagged;
 pub mod things;
 mod upgrade;
 
@@ -320,9 +320,7 @@ fn run(cli: Cli) -> Result<()> {
         #[cfg(target_os = "linux")]
         Command::Server(command) => crate::local::server_command(command),
         #[cfg(target_os = "linux")]
-        Command::Serve(serve) => crate::local::serve(serve),
-        #[cfg(target_os = "linux")]
-        Command::ServeLegacy(serve) => crate::local::server_command(args::Server::Run(serve)),
+        Command::Serve => crate::local::serve(),
         Command::Login(login) => login::login(&global, &login),
         Command::Logout => login::logout(),
         Command::Update(update) => crate::update::command(&update),
@@ -337,8 +335,6 @@ fn run(cli: Cli) -> Result<()> {
         )),
         #[cfg(target_os = "linux")]
         Command::TailnetKey { host } => crate::local::tailnet_key(&host),
-        #[cfg(target_os = "linux")]
-        Command::SimulatedProvisioner { verb } => crate::local::simulated_provisioner(&verb),
     }
 }
 

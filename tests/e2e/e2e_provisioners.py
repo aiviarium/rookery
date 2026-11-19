@@ -14,11 +14,10 @@ import json
 import os
 import socket
 import stat
-import struct
 import threading
 import unittest
 
-from harness import SCRATCH, Serve, WebSocket, Workstation, needs_e2e, plugin_package
+from harness import SCRATCH, Serve, Workstation, needs_e2e, plugin_package
 
 # A provisioner that answers from what it is asked: it writes each request,
 # secrets left out, to requests.jsonl of its folder.
@@ -184,40 +183,36 @@ class Provisioners(unittest.TestCase):
         self.rookery('provisioner', 'run', 'box', 'settings', 'place=attic', '--yes')
         serve = Serve(self.station)
         try:
-            page = serve.call('GET', '/v1/provisioners/box')
+            page = serve.call('provisioners.get', {'name': 'box'})
             self.assertEqual((page['state'], page['message']), ('ready', 'The lab at attic answers'))
             self.assertEqual(page['values'], {'shelf': ['top', 'bottom']})
             self.assertEqual([found['id'] for found in page['provisioner']['collections']], ['shelves'])
             self.assertEqual(page['collections']['shelves'][1],
                              {'name': 'bottom', 'key': {'shelf': 'bottom'}, 'columns': {'dust': 'thick'},
                               'unavailable': {'tidy': 'The bottom shelf is out of reach'}})
-            actions = serve.call('GET', '/v1/provisioners/box/actions')
+            actions = serve.call('provisioners.actions', {'name': 'box'})['actions']
             self.assertEqual([action['name'] for action in actions],
                              ['new-deployment', 'settings', 'look', 'sweep', 'tidy', 'adopt', 'rename', 'remove'])
-            looked = serve.call('POST', '/v1/provisioners/box/actions/look')
+            looked = serve.call('provisioners.act', {'name': 'box', 'action': 'look'})
             self.assertEqual(looked['result']['message'], 'Looked around attic')
-            acted = serve.call('POST', '/v1/provisioners/box/actions/sweep',
-                               {'arguments': {'code': 's3cret-code'}, 'token': 'sweep-1'}, expect=202)
-            job = acted['job']
-            self.assertEqual((job['subject_name'], job['action']), ('provisioner:box', 'sweep'))
-            self.assertRegex(job['subject'], r'^provisioner:[0-9a-f]{32}$')
-            portal = serve.portal()
-            texts, data, _ = portal.stream('jobs.follow', {'id': job['id']},
-                                           until=lambda texts, data: any('exited' in t for t in texts if t))
-            output = data.decode(errors='replace')
+            acted = serve.call('provisioners.act', {'name': 'box', 'action': 'sweep',
+                                                    'arguments': {'code': 's3cret-code'}, 'token': 'sweep-1'})
+            job = acted['info']
+            self.assertEqual((job['kind'], job['params']['action']), ('provisioners.act', 'sweep'))
+            self.assertRegex(job['subject'], r'^provisioner://[0-9a-f]{32}$')
+            _, output = serve.wait_job(job['id'])
             self.assertIn('sweeping top with [secret]', output)
             self.assertNotIn('s3cret-code', output)
             # The same token again is the same job, and nothing runs again.
             before = len(requests(self.folder))
-            again = serve.call('POST', '/v1/provisioners/box/actions/sweep',
-                               {'arguments': {'code': 's3cret-code'}, 'token': 'sweep-1'}, expect=202)
-            self.assertEqual(again['job']['id'], job['id'])
+            again = serve.call('provisioners.act', {'name': 'box', 'action': 'sweep',
+                                                    'arguments': {'code': 's3cret-code'}, 'token': 'sweep-1'})
+            self.assertEqual(again['job'], job['id'])
             self.assertEqual(len(requests(self.folder)), before)
             # And from a client of the server.
             client = Workstation('provisioners-client', ssh_key=False, trust=False)
             listed = client.rookery('--server', serve.url, '--token-stdin', 'provisioner', 'list', input=serve.token).stdout
             self.assertRegex(listed, r'(?m)^box\s+lab/box\s')
-            portal.close()
         finally:
             serve.stop()
 
@@ -349,23 +344,19 @@ class Deployments(unittest.TestCase):
         try:
             body = {'provisioner': 'box', 'kind': 'deployment', 'name': 'depot', 'spec': 'depot: 1\n',
                     'secrets': [{'name': 'bench_token', 'env': 'TOKEN'}], 'token': 'depot-1'}
-            created = serve.call('POST', '/v1/resources', body, expect=202)
-            again = serve.call('POST', '/v1/resources', body, expect=202)
+            created = serve.call('resources.create', body)
+            again = serve.call('resources.create', body)
             self.assertEqual((again['resource']['id'], again['job']['id']),
                              (created['resource']['id'], created['job']['id']))
-            portal = serve.portal()
-            texts, data, _ = portal.stream('jobs.follow', {'id': created['job']['id']},
-                                           until=lambda texts, data: any('exited' in t for t in texts if t))
-            self.assertNotIn('b3nch-t0ken', data.decode(errors='replace'))
+            _, output = serve.wait_job(created['job']['id'])
+            self.assertNotIn('b3nch-t0ken', output)
             rid = created['resource']['id']
-            self.assertEqual(serve.call('GET', f'/v1/resources/{rid}')['state'], 'running')
-            listed = serve.call('GET', '/v1/resources?kind=deployment')
+            self.assertEqual(serve.call('resources.get', {'id': rid})['state'], 'running')
+            listed = serve.call('resources.list', {'kind': 'deployment'})
             self.assertEqual(sorted(found['name'] for found in listed), ['bench', 'depot'])
-            removed = serve.call('DELETE', f'/v1/resources/{rid}', expect=202)
-            portal.stream('jobs.follow', {'id': removed['job']['id']},
-                          until=lambda texts, data: any('exited' in t for t in texts if t))
-            serve.call('GET', f'/v1/resources/{rid}', expect=404)
-            portal.close()
+            removed = serve.call('resources.remove', {'id': rid})
+            serve.wait_job(removed['job'])
+            self.assertEqual(serve.refused('resources.get', {'id': rid}), 'NOT_FOUND')
         finally:
             serve.stop()
 
@@ -413,47 +404,22 @@ def echo():
 
 
 def through_endpoint(serve, rid, endpoint, data):
-    """Send `data` to an endpoint of a resource on its own stream, end, and read what comes back
-    until the other side has ended too."""
-    ws = WebSocket(serve.port, f'/v1/resources/{rid}/endpoints/{endpoint}', protocols=[serve.token])
+    """Send `data` to an endpoint of a resource on a stream of /ws, end, and read what comes back
+    until the other side has ended too; the error when it does not open."""
+    socket = serve.socket()
     try:
-        ws.send(data)
-        ws.send({'eof': True})
-        back = b''
-        while True:
-            frame = ws.recv()
-            if frame is None or frame == {'eof': True}:
-                return back
-            back += frame
+        return socket.through('resources.connect', {'id': rid, 'endpoint': endpoint}, data)
     finally:
-        ws.close()
+        socket.close()
 
 
-def through_portal(portal, rid, endpoint, data):
-    """The same over the portal, as a stream of its own number."""
-    opened = portal.result('resources.connect', {'id': rid, 'endpoint': endpoint})
-    assert opened.get('open'), opened
-    number = portal.next - 1
-    tag = struct.pack('!I', number)
-    portal.send(tag + data)
-    portal.send({'sub': number, 'data': {'eof': True}})
-    back = b''
-    while True:
-        frame = portal._take(lambda got: (got[:4] == tag) if isinstance(got, bytes) else got.get('sub') == number,
-                             60)
-        if isinstance(frame, bytes):
-            back += frame[4:]
-        elif frame.get('data') == {'eof': True} or frame.get('end'):
-            portal.send({'sub': number, 'end': True})
-            return back
-
-
-def job_output(portal, job):
+def job_output(serve, job):
     """A job's output and the exit code it ended with."""
-    texts, data, _ = portal.stream('jobs.follow', {'id': job['id']},
-                                   until=lambda texts, data: any('exited' in t for t in texts if t))
-    exited = next(t['exited'] for t in texts if t and 'exited' in t)
-    return data.decode(errors='replace'), exited['exit_code']
+    ended, output = serve.wait_job(job)
+    code = (ended.get('result') or {}).get('exit')
+    if code is None:
+        code = ((ended.get('error') or {}).get('details') or {}).get('exit')
+    return output, code
 
 
 @needs_e2e
@@ -467,39 +433,30 @@ class Endpoints(unittest.TestCase):
         cls.folder = lab(cls.station)
         cls.station.rookery('provisioner', 'set', 'box', 'place=attic')
         cls.serve = Serve(cls.station)
-        cls.portal = cls.serve.portal()
         cls.port = echo()
         body = {'provisioner': 'box', 'kind': 'deployment', 'name': 'db', 'spec': f'listen: {cls.port}\n'}
-        created = cls.serve.call('POST', '/v1/resources', body, expect=202)
+        created = cls.serve.call('resources.create', body)
         cls.rid = created['resource']['id']
-        _, code = job_output(cls.portal, created['job'])
+        _, code = job_output(cls.serve, created['job']['id'])
         assert code == 0, code
 
-    @classmethod
-    def tearDownClass(cls):
-        cls.portal.close()
-        cls.serve.stop()
-
     def test_its_endpoints_are_kept_with_it(self):
-        seen = self.serve.call('GET', f'/v1/resources/{self.rid}')
+        seen = self.serve.call('resources.get', {'id': self.rid})
         self.assertEqual(seen['endpoints'], [{'name': 'bench', 'address': '127.0.0.1', 'port': self.port,
                                               'protocol': 'tcp', 'hint': 'echo', 'local': True}])
 
-    def test_an_endpoint_is_reached_on_its_own_stream_and_over_the_portal(self):
+    def test_an_endpoint_is_reached_on_a_stream(self):
         data = os.urandom(1 << 20)
         self.assertEqual(through_endpoint(self.serve, self.rid, 'bench', b'hello'), b'hello')
         self.assertEqual(through_endpoint(self.serve, self.rid, str(self.port), data), data)
-        self.assertEqual(through_portal(self.portal, self.rid, 'bench', data), data)
         # Only what the provisioner reported is opened.
-        with self.assertRaisesRegex(PermissionError, '^404 '):
-            WebSocket(self.serve.port, f'/v1/resources/{self.rid}/endpoints/22', protocols=[self.serve.token])
-        refused = self.portal.call('resources.connect', {'id': self.rid, 'endpoint': '22'})
-        self.assertEqual(refused['error']['code'], 'not_found')
+        refused = through_endpoint(self.serve, self.rid, '22', b'')
+        self.assertEqual(refused['error']['data']['code'], 'NOT_FOUND')
 
     def test_a_command_runs_in_it_as_a_job_that_ends_as_the_command_did(self):
-        acted = self.serve.call('POST', f'/v1/resources/{self.rid}/actions/exec',
-                                {'arguments': {'command': 'count --all', 'stdin': 'benches'}}, expect=202)
-        output, code = job_output(self.portal, acted['job'])
+        acted = self.serve.call('resources.act', {'id': self.rid, 'action': 'exec',
+                                                  'arguments': {'command': 'count --all', 'stdin': 'benches'}})
+        output, code = job_output(self.serve, acted['job'])
         self.assertEqual(code, 4, output)
         self.assertIn("ran count --all reading 'benches'", output)
         # The output is the command's alone.
@@ -587,29 +544,28 @@ class DockerEngine(unittest.TestCase):
         endpoint = os.environ['ROOKERY_E2E_DOCKER_HOST']
         station.rookery('provisioner', 'add', 'docker', 'docker/container', f'host={endpoint}')
         serve = Serve(station)
-        portal = serve.portal()
         command = "sh -c 'mkdir -p /www && echo hello-from-box > /www/index.html && httpd -f -p 8080 -h /www'"
         body = {'provisioner': 'docker', 'kind': 'instance', 'name': 'rookery-test-web',
                 'arguments': {'image': 'busybox:1.37', 'command': command, 'ports': '8080'}}
-        created = serve.call('POST', '/v1/resources', body, expect=202)
+        created = serve.call('resources.create', body)
         rid = created['resource']['id']
         try:
-            output, code = job_output(portal, created['job'])
+            output, code = job_output(serve, created['job']['id'])
             self.assertEqual(code, 0, output)
             # The engine is elsewhere, so the port Docker chose is at the engine's own name.
-            [published] = serve.call('GET', f'/v1/resources/{rid}')['endpoints']
+            [published] = serve.call('resources.get', {'id': rid})['endpoints']
             host = endpoint.split('://', 1)[1].rsplit(':', 1)[0]
             self.assertEqual((published['address'], published['protocol']), (host, 'tcp'))
             self.assertNotIn('local', published)
             answer = through_endpoint(serve, rid, published['name'], b'GET / HTTP/1.0\r\n\r\n')
             self.assertIn(b'200 OK', answer)
             self.assertIn(b'hello-from-box', answer)
-            answer = through_portal(portal, rid, str(published['port']), b'GET / HTTP/1.0\r\n\r\n')
+            answer = through_endpoint(serve, rid, str(published['port']), b'GET / HTTP/1.0\r\n\r\n')
             self.assertIn(b'hello-from-box', answer)
-            acted = serve.call('POST', f'/v1/resources/{rid}/actions/exec',
-                               {'arguments': {'command': '["sh", "-c", "cat /www/index.html; exit 5"]'}},
-                               expect=202)
-            output, code = job_output(portal, acted['job'])
+            acted = serve.call('resources.act', {
+                'id': rid, 'action': 'exec',
+                'arguments': {'command': '["sh", "-c", "cat /www/index.html; exit 5"]'}})
+            output, code = job_output(serve, acted['job'])
             self.assertEqual(code, 5, output)
             self.assertIn('hello-from-box', output)
             # The same from the command line: its output and its exit status are the command's.
@@ -617,10 +573,8 @@ class DockerEngine(unittest.TestCase):
                                 check=False)
             self.assertEqual((ran.returncode, ran.stdout.strip()), (5, 'hello-from-box'), ran.output)
         finally:
-            removed = serve.call('DELETE', f'/v1/resources/{rid}', expect=202)
-            job_output(portal, removed['job'])
-            portal.close()
-            serve.stop()
+            removed = serve.call('resources.remove', {'id': rid})
+            job_output(serve, removed['job'])
 
 
 if __name__ == '__main__':

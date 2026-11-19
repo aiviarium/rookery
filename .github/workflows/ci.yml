@@ -217,11 +217,13 @@ jobs:
 
   # Each shard of the end-to-end tests (SHARDS of tests/e2e/run.py) on a
   # fresh test host, in a job of its own.
+  # They build the images from the cache that the images job keeps, so they start when rookery is
+  # built and do not wait for that job.
   e2e:
-    needs: [plan, build, images]
+    needs: [plan, build]
     if: needs.plan.outputs.shards != '[]'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 12
     strategy:
       fail-fast: false
       matrix:

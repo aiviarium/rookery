@@ -1,29 +1,23 @@
-//! One way to run an action as a job, wherever it runs. The runner writes
-//! the job's record, keeps its output in a log with secrets masked, says
-//! when it started and ended, and records the exit code. It holds the lock
-//! of the job's subject while an action that changes something runs, so two
-//! of those do not overlap, and a repeated token finds the job it started.
-//!
-//! What a job runs is one of three executors: a function of rookery (applying
+//! What a job of Rookery's is made of, wherever it runs: its subject and
+//! the lock it holds while an action that changes something runs, so two of
+//! those do not overlap; the work, which is a function of rookery (applying
 //! a host's profile, a roll-out, a provisioning), a program (ansible, or a
-//! plugin's provisioner), or an action of a host's controller. An action runs as
-//! a session on the host, and its job copies the session's output while it
-//! runs, so the job stays readable when the host is not and after the host
-//! has forgotten the session.
+//! plugin's provisioner), or an action of a host's controller, which runs as
+//! a session there; how it is stopped; and its output with secrets masked.
+//! rookery-hosts runs it as a job of the server.
 
-use crate::{Result, paths::Paths, profiles::Place, store};
+use crate::{Result, paths::Paths, profiles::Place};
 use rookery_api::ops::Role;
 use serde_json::Value;
 use std::{
     cell::RefCell,
-    collections::HashMap,
     fs,
     io::{Read, Write},
     os::unix::{fs::OpenOptionsExt, process::CommandExt},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 // ── Stopping a job ──────────────────────────────────────────────────────────
@@ -315,6 +309,26 @@ fn each_host(hosts: &str, map: impl Fn(&str) -> String) -> String {
         .map(|host| map(host.trim()))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// What the server reads from its environment that opens its database or its secrets. No program
+/// it starts for a host, a provisioner or an apply is given them: such a program reaches the
+/// server on its socket for what it needs.
+pub const SERVER_ONLY: &[&str] = &[
+    "ROOKERY_DATABASE_URL",
+    "ROOKERY_DATABASE_LOCK_URL",
+    "ROOKERY_SECRET_KEY",
+    "ROOKERY_SECRET_KEY_FILE",
+    "ROOKERY_OIDC_CLIENT_SECRET",
+    "ROOKERY_OIDC_CLIENT_SECRET_FILE",
+];
+
+/// Leaves out of `command`'s environment what only the server reads.
+pub fn without_server_env(command: &mut Command) -> &mut Command {
+    for name in SERVER_ONLY {
+        command.env_remove(name);
+    }
+    command
 }
 
 // ── Locks ───────────────────────────────────────────────────────────────────
@@ -665,31 +679,6 @@ impl Request {
             arguments: vec![],
         }
     }
-
-    /// The lock the work needs: held already, taken now, or none for an
-    /// action that only reads.
-    fn lock(&mut self, paths: &Paths) -> Result<Option<Lock>> {
-        match (self.held.take(), self.changes) {
-            (Some(held), _) => Ok(Some(held)),
-            (None, true) => Ok(Some(lock(paths, &self.subject, &self.action)?)),
-            (None, false) => Ok(None),
-        }
-    }
-}
-
-/// How long a session's output is asked for again while there is no news,
-/// and how long a host may not answer before its job gives up on it.
-const POLL: Duration = Duration::from_millis(500);
-const PATIENCE: Duration = Duration::from_secs(300);
-
-/// Run the work to its end, its output to `out`: the exit code.
-fn execute(work: Work, out: &mut Output) -> Option<i32> {
-    match work {
-        Work::Function(function) => Some(if function(out) { 0 } else { 1 }),
-        Work::Coded(function) => Some(function(out)),
-        Work::Program(program) => run_program(*program, out),
-        Work::Session { controller, id } => follow(controller, &id, out),
-    }
 }
 
 /// Run a program to its end with its output to `out`: its exit code. A
@@ -746,462 +735,17 @@ pub fn run_program(program: Program, out: &mut Output) -> Option<i32> {
     status.and_then(|status| status.code())
 }
 
-/// Copy a session's output as it comes, until it has ended: its exit code.
-fn follow(mut controller: Box<dyn Controller>, id: &str, out: &mut Output) -> Option<i32> {
-    let (mut since, mut answered) = (0u64, Instant::now());
-    let mut ending = false;
-    loop {
-        // A stopped job ends its session on the host, and follows it to its end.
-        if !ending && let Some(by) = stopped() {
-            ending = true;
-            if let Err(error) = controller.stop(id) {
-                let _ = writeln!(
-                    out,
-                    "\n✗ Stopped by {by}, but the host did not end the session {id}: {error}"
-                );
-                return None;
-            }
-        }
-        let asked = controller.get(&format!("/v1/sessions/{id}/output?since={since}"));
-        let output: rookery_api::Output = match asked
-            .and_then(|value| serde_json::from_value(value).map_err(|error| error.to_string()))
-        {
-            Ok(output) => output,
-            Err(_) if answered.elapsed() < PATIENCE => {
-                std::thread::sleep(POLL * 2);
-                continue;
-            }
-            Err(error) => {
-                let _ = writeln!(
-                    out,
-                    "\n✗ The host stopped answering ({error}). The session {id} may still run there"
-                );
-                return None;
-            }
-        };
-        answered = Instant::now();
-        let data = rookery_api::unb64(&output.data_b64).unwrap_or_default();
-        let _ = out.write_all(&data);
-        let _ = out.flush();
-        let moved = output.next_offset > since;
-        since = output.next_offset;
-        if output.ended {
-            let session = controller.get(&format!("/v1/sessions/{id}"));
-            return session
-                .ok()
-                .and_then(|session| session["exit_code"].as_i64().map(|code| code as i32));
-        }
-        if !moved {
-            std::thread::sleep(POLL);
-        }
-    }
-}
-
-// ── The runner ──────────────────────────────────────────────────────────────
-
-/// A running job's stop, with the role that may use it.
-type Stoppable = (Role, Arc<Stop>);
-
-/// Told of a job when it starts and when it ends.
-pub type Notify = Arc<dyn Fn(&store::Job) + Send + Sync>;
-
-/// Runs jobs and keeps their records in a store, their output in files.
-#[derive(Clone)]
-pub struct Runner {
-    paths: Paths,
-    store: Arc<store::Store>,
-    jobs_dir: PathBuf,
-    notify: Notify,
-    /// The jobs this process runs now, which end with it.
-    running: Arc<Mutex<Vec<store::Job>>>,
-    /// What stops each of them, with the role that may.
-    stops: Arc<Mutex<HashMap<String, Stoppable>>>,
-}
-
-/// Where an installation keeps the output of the jobs it runs.
-pub fn jobs_dir(paths: &Paths) -> PathBuf {
-    paths.data_dir.join("jobs")
-}
-
-/// Whether a text can be a job's id, as [`new_id`] makes them.
-pub fn valid_job_id(id: &str) -> bool {
-    id.len() <= 40
-        && id.starts_with('j')
-        && id[1..]
-            .chars()
-            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit())
-}
-
-/// The file of a job's output that a job's row names, when it is one this
-/// machine wrote: `ID.log` in its folder of jobs. A row of a shared store
-/// can name any file, which is then neither read nor removed.
-pub fn output_file(paths: &Paths, output_path: &str) -> Option<PathBuf> {
-    let path = Path::new(output_path);
-    let id = path.file_name()?.to_str()?.strip_suffix(".log")?;
-    (valid_job_id(id) && path.parent()? == jobs_dir(paths)).then(|| path.to_owned())
-}
-
-fn new_id() -> std::io::Result<String> {
-    let mut bytes = [0u8; 12];
-    fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
-    let letters = b"abcdefghijklmnopqrstuvwxyz234567";
-    Ok(format!(
-        "j{}",
-        bytes
-            .iter()
-            .map(|byte| letters[(byte & 31) as usize] as char)
-            .collect::<String>()
-    ))
-}
-
-impl Runner {
-    pub fn new(
-        paths: Paths,
-        store: Arc<store::Store>,
-        jobs_dir: PathBuf,
-        notify: Notify,
-    ) -> Runner {
-        Runner {
-            paths,
-            store,
-            jobs_dir,
-            notify,
-            running: Arc::default(),
-            stops: Arc::default(),
-        }
-    }
-
-    /// The role that may stop a job this process runs.
-    pub fn stop_role(&self, id: &str) -> Option<Role> {
-        self.stops.lock().unwrap().get(id).map(|(role, _)| *role)
-    }
-
-    /// Stop a job this process runs, as `by` asks: its programs end, a
-    /// session of a host ends there, and its record says who stopped it.
-    pub fn stop(&self, id: &str, by: &str) -> Result<Stopping> {
-        // The record is asked first: a job that has just ended is still
-        // known here for a moment.
-        if self.store.job(id)?.is_some_and(|job| job.ended.is_some()) {
-            return Ok(Stopping::Ended);
-        }
-        let found = self.stops.lock().unwrap().get(id).cloned();
-        let Some((_, stop)) = found else {
-            return Ok(Stopping::NotHere);
-        };
-        // A job ends in the store a moment before it leaves the stops.
-        if self.store.job(id)?.is_some_and(|job| job.ended.is_some()) {
-            return Ok(Stopping::Ended);
-        }
-        if let Some(before) = stop.asked() {
-            return Ok(Stopping::AskedBefore(before));
-        }
-        // The record comes first: once its programs are signalled the job
-        // may end, and one that has ended takes no such note.
-        self.store.stop_job(id, by)?;
-        if !stop.request(by) {
-            return Ok(Stopping::AskedBefore(stop.asked().unwrap_or_default()));
-        }
-        Ok(Stopping::Asked)
-    }
-
-    /// The jobs that run in this process now, as they started.
-    pub fn running(&self) -> Vec<store::Job> {
-        self.running.lock().unwrap().clone()
-    }
-
-    /// Start the work as a job, in a thread of its own, and say which job it
-    /// is. A token used before for the same subject and action answers with
-    /// that job, and nothing is started. A refusal, such as a lock that is
-    /// taken, comes before there is a job.
-    pub fn start(&self, request: Request, work: Work) -> Result<store::Job> {
-        match self.reserve(request)? {
-            Reserved::Found(job) => Ok(job),
-            Reserved::New(ticket) => Ok(ticket.run(work)),
-        }
-    }
-
-    /// Write the job's record before anything runs, with its lock taken. Of
-    /// callers with the same token one gets the ticket to run it; the others
-    /// find that job.
-    pub fn reserve(&self, mut request: Request) -> Result<Reserved> {
-        // A job keeps its subject and its hosts by their ids, which a rename leaves as they are.
-        request.subject = request.subject.by_id(&self.paths);
-        request.host = hosts_by_id(&self.paths, &request.host);
-        let (subject, action) = (request.subject.key(), request.action.clone());
-        if let Some(token) = &request.token
-            && let Some(job) = self.store.job_by_token(&subject, &action, token)?
-        {
-            return Ok(Reserved::Found(job));
-        }
-        let lock = request.lock(&self.paths)?;
-        let id = new_id()?;
-        fs::create_dir_all(&self.jobs_dir)?;
-        let path = self.jobs_dir.join(format!("{id}.log"));
-        let asked = store::Job {
-            id: id.clone(),
-            host: request.host.clone(),
-            what: action.clone(),
-            started: rookery_api::now(),
-            ended: None,
-            exit_code: None,
-            output_path: path.to_string_lossy().into_owned(),
-            subject,
-            action,
-            token: request.token.clone(),
-            stopped_by: None,
-            arguments: request
-                .arguments
-                .iter()
-                .filter(|argument| {
-                    !request
-                        .secrets
-                        .iter()
-                        .any(|secret| !secret.is_empty() && argument.contains(secret.as_str()))
-                })
-                .cloned()
-                .collect(),
-        };
-        let job = self.store.add_job(&asked)?;
-        // Another caller with the same token was first.
-        if job.id != id {
-            return Ok(Reserved::Found(job));
-        }
-        let file = match fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .mode(0o600)
-            .open(&path)
-        {
-            Ok(file) => file,
-            Err(error) => {
-                self.store.end_job(&id, None)?;
-                return Err(error.into());
-            }
-        };
-        (self.notify)(&job);
-        Ok(Reserved::New(Ticket {
-            runner: self.clone(),
-            job,
-            lock,
-            file,
-            path,
-            hidden: hidden(request.secrets.iter().map(String::as_str)),
-            role: request.role,
-        }))
-    }
-}
-
-/// What reserving a job came to.
-pub enum Reserved {
-    /// The job a call before with the same token started.
-    Found(store::Job),
-    /// This call's job, to run or to fail.
-    New(Ticket),
-}
-
-/// A job whose record is written and whose lock is held, before its work runs.
-pub struct Ticket {
-    runner: Runner,
-    job: store::Job,
-    lock: Option<Lock>,
-    file: fs::File,
-    path: PathBuf,
-    hidden: Vec<String>,
-    role: Role,
-}
-
-impl Ticket {
-    pub fn job(&self) -> &store::Job {
-        &self.job
-    }
-
-    /// Run the work in a thread of its own: the job as it started.
-    pub fn run(self, work: Work) -> store::Job {
-        let job = self.job.clone();
-        self.runner.running.lock().unwrap().push(job.clone());
-        let stop = Arc::new(Stop::default());
-        self.runner
-            .stops
-            .lock()
-            .unwrap()
-            .insert(job.id.clone(), (self.role, stop.clone()));
-        std::thread::spawn(move || {
-            let Ticket {
-                runner,
-                job,
-                lock,
-                mut file,
-                path,
-                hidden,
-                ..
-            } = self;
-            CURRENT.with(|current| *current.borrow_mut() = Some(stop.clone()));
-            let mut exit_code = {
-                let mut out = Output::new(&mut file, hidden);
-                out.log = Some(path);
-                let code = execute(work, &mut out);
-                // A stopped job says so last, and ends as one that was interrupted.
-                if let Some(by) = stop.asked() {
-                    let _ = writeln!(out, "✗ Stopped by {by}");
-                }
-                code
-            };
-            CURRENT.with(|current| *current.borrow_mut() = None);
-            if stop.asked().is_some() {
-                exit_code = Some(130);
-            }
-            drop(lock);
-            // Ended in the store before it leaves the stops, so that a stop asked between finds one or the other.
-            runner.end(&job.id, exit_code);
-            runner.stops.lock().unwrap().remove(&job.id);
-            runner
-                .running
-                .lock()
-                .unwrap()
-                .retain(|running| running.id != job.id);
-        });
-        job
-    }
-
-    /// End the job as failed without running anything, with the reason in
-    /// its output: the job as it ended.
-    pub fn fail(mut self, reason: &str) -> store::Job {
-        let _ = writeln!(self.file, "✗ {reason}");
-        drop(self.lock.take());
-        self.runner.end(&self.job.id, Some(1));
-        self.runner
-            .store
-            .job(&self.job.id)
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| self.job.clone())
-    }
-}
-
-impl Runner {
-    fn end(&self, id: &str, exit_code: Option<i32>) {
-        let _ = self.store.end_job(id, exit_code);
-        if let Ok(Some(job)) = self.store.job(id) {
-            (self.notify)(&job);
-        }
-    }
-}
-
-/// Run the work here and now, with its output to `out`, for a rookery that
-/// keeps no record of jobs: the exit code. It holds the subject's lock as a
-/// job would. A program with nothing to hide gets the terminal itself, so it
-/// sees one and colours what it writes.
-pub fn here(
-    paths: &Paths,
-    mut request: Request,
-    work: Work,
-    out: &mut dyn Write,
-) -> Result<Option<i32>> {
-    let _lock = request.lock(paths)?;
-    let hidden = hidden(request.secrets.iter().map(String::as_str));
-    let work = match work {
-        Work::Program(program) if hidden.is_empty() => return Ok(inherit(*program)?),
-        work => work,
-    };
-    let mut out = Output::new(out, hidden);
-    Ok(execute(work, &mut out))
-}
-
-/// Run a program with the terminal as its output.
-fn inherit(program: Program) -> std::io::Result<Option<i32>> {
-    let Program {
-        mut command,
-        input,
-        files,
-    } = program;
-    if input.is_some() {
-        command.stdin(Stdio::piped());
-    }
-    let mut child = command.spawn()?;
-    if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
-        let _ = stdin.write_all(&input);
-    }
-    let status = child.wait()?;
-    drop(files);
-    Ok(status.code())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_jobs_output_is_a_file_of_its_folder_of_jobs() {
-        let paths = Paths {
-            config_dir: "/home/ops/.config/rookery".into(),
-            data_dir: "/home/ops/.local/share/rookery".into(),
-        };
-        let id = new_id().unwrap();
-        assert!(valid_job_id(&id), "{id}");
-        let own = jobs_dir(&paths).join(format!("{id}.log"));
-        assert_eq!(output_file(&paths, &own.to_string_lossy()), Some(own));
-        for bad in [
-            "/home/ops/.ssh/authorized_keys",
-            "/home/ops/.local/share/rookery/jobs/../serve.log",
-            "/home/ops/.local/share/rookery/jobs/j1.json",
-            "/home/ops/.local/share/rookery/jobs/sub/j1.log",
-            "/srv/rookery/jobs/j1.log",
-            "jobs/j1.log",
-            "",
-        ] {
-            assert_eq!(output_file(&paths, bad), None, "{bad}");
-        }
-        assert!(!valid_job_id("") && !valid_job_id("j/x") && !valid_job_id("x1"));
-    }
-    use std::sync::{Mutex, mpsc};
-
-    struct World {
-        _dir: tempfile::TempDir,
-        paths: Paths,
-        store: Arc<store::Store>,
-        runner: Runner,
-        told: Arc<Mutex<Vec<store::Job>>>,
-    }
-
-    fn world() -> World {
+    fn paths() -> (tempfile::TempDir, Paths) {
         let dir = tempfile::tempdir().unwrap();
         let paths = Paths {
             config_dir: dir.path().join("config"),
             data_dir: dir.path().join("data"),
         };
-        let store = Arc::new(store::Store::open(&dir.path().join("store.db")).unwrap());
-        let told = Arc::new(Mutex::new(vec![]));
-        let heard = told.clone();
-        let notify: Notify =
-            Arc::new(move |job: &store::Job| heard.lock().unwrap().push(job.clone()));
-        let runner = Runner::new(
-            paths.clone(),
-            store.clone(),
-            paths.data_dir.join("jobs"),
-            notify,
-        );
-        World {
-            _dir: dir,
-            paths,
-            store,
-            runner,
-            told,
-        }
-    }
-
-    fn ended(world: &World, id: &str) -> store::Job {
-        for _ in 0..500 {
-            let job = world.store.job(id).unwrap().unwrap();
-            if job.ended.is_some() {
-                return job;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        panic!("{id} did not end");
-    }
-
-    fn log(job: &store::Job) -> String {
-        fs::read_to_string(&job.output_path).unwrap()
+        (dir, paths)
     }
 
     #[test]
@@ -1239,271 +783,10 @@ mod tests {
     }
 
     #[test]
-    fn a_function_is_a_job_with_its_record_output_and_events() {
-        let world = world();
-        let mut request = Request::new(Subject::Installation, "rollout");
-        request.host = "studio, lab".into();
-        request.secrets = vec!["s3cret-value".into()];
-        // An argument that holds a secret never reaches the record.
-        request.arguments = vec!["only=studio".into(), "key=s3cret-value".into()];
-        let work = Work::Function(Box::new(|out: &mut Output| {
-            writeln!(out, "using s3cret-value").unwrap();
-            assert!(
-                out.log()
-                    .is_some_and(|log| log.extension() == Some("log".as_ref()))
-            );
-            false
-        }));
-        let job = world.runner.start(request, work).unwrap();
-        assert_eq!(
-            (job.subject.as_str(), job.action.as_str()),
-            ("installation", "rollout")
-        );
-        let job = ended(&world, &job.id);
-        assert_eq!(job.exit_code, Some(1));
-        assert_eq!(log(&job), "using [secret]\n");
-        assert_eq!(job.host, "studio, lab");
-        assert_eq!(job.arguments, ["only=studio"]);
-        // Told when it started and when it ended.
-        let told = world.told.lock().unwrap();
-        assert_eq!(told.len(), 2);
-        assert!(told[0].ended.is_none() && told[1].ended.is_some());
-    }
-
-    #[test]
-    fn a_program_is_a_job_with_its_input_and_exit_code() {
-        let world = world();
-        let mut command = Command::new("sh");
-        command.args(["-c", "read line; echo \"got $line\"; echo err >&2; exit 3"]);
-        let work = Work::Program(Box::new(Program {
-            command,
-            input: Some(b"pass-word-1\n".to_vec()),
-            files: vec![],
-        }));
-        let mut request = Request::new(Subject::Resource("r-1".into()), "change");
-        request.secrets = vec!["pass-word-1".into()];
-        let job = world.runner.start(request, work).unwrap();
-        let job = ended(&world, &job.id);
-        assert_eq!(job.exit_code, Some(3));
-        let text = log(&job);
-        assert!(
-            text.contains("got [secret]") && text.contains("err"),
-            "{text}"
-        );
-
-        // One that cannot start says so in its output.
-        let work = Work::Program(Box::new(Program {
-            command: Command::new("/nonexistent/program"),
-            input: None,
-            files: vec![],
-        }));
-        let job = world
-            .runner
-            .start(
-                Request::new(Subject::Resource("r-2".into()), "change"),
-                work,
-            )
-            .unwrap();
-        let job = ended(&world, &job.id);
-        assert_eq!(job.exit_code, None);
-        assert!(log(&job).contains("/nonexistent/program"));
-    }
-
-    #[test]
-    fn a_stopped_job_ends_its_programs_and_says_who_stopped_it() {
-        let world = world();
-        // A program that starts another, which the stop ends as well.
-        let mut command = Command::new("sh");
-        // It takes a moment to end once stopped, as a program that cleans up does.
-        command.args([
-            "-c",
-            "trap 'sleep 0.5; exit 1' TERM; echo started; sleep 30 & wait",
-        ]);
-        let work = Work::Program(Box::new(Program {
-            command,
-            input: None,
-            files: vec![],
-        }));
-        let mut request = Request::new(Subject::Host("studio".into()), "apply");
-        request.role = Role::Operate;
-        let job = world.runner.start(request, work).unwrap();
-        assert_eq!(world.runner.stop_role(&job.id), Some(Role::Operate));
-        for _ in 0..200 {
-            if fs::read_to_string(&job.output_path)
-                .unwrap_or_default()
-                .contains("started")
-            {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let begun = Instant::now();
-        assert_eq!(world.runner.stop(&job.id, "ops").unwrap(), Stopping::Asked);
-        assert_eq!(
-            world.runner.stop(&job.id, "olga").unwrap(),
-            Stopping::AskedBefore("ops".into())
-        );
-        let ended = ended(&world, &job.id);
-        assert!(begun.elapsed() < GRACE, "it waited for the grace");
-        assert_eq!(ended.exit_code, Some(130));
-        assert_eq!(ended.stopped_by.as_deref(), Some("ops"));
-        assert!(log(&ended).contains("✗ Stopped by ops"), "{}", log(&ended));
-        assert_eq!(world.runner.stop(&job.id, "ops").unwrap(), Stopping::Ended);
-        assert_eq!(
-            world.runner.stop("jnothing", "ops").unwrap(),
-            Stopping::NotHere
-        );
-    }
-
-    /// A host's controller that has one session, whose output comes in pieces.
-    struct Fake {
-        pieces: Vec<&'static str>,
-        asked: Arc<Mutex<Vec<String>>>,
-        failures: usize,
-    }
-
-    impl Controller for Fake {
-        fn get(&mut self, path: &str) -> std::result::Result<Value, String> {
-            self.asked.lock().unwrap().push(path.to_owned());
-            if self.failures > 0 {
-                self.failures -= 1;
-                return Err("no route to host".into());
-            }
-            if path == "/v1/sessions/s1" {
-                return Ok(serde_json::json!({"exit_code": 4}));
-            }
-            let since: u64 = path.rsplit('=').next().unwrap().parse().unwrap();
-            let all = self.pieces.concat();
-            let shown: usize = self.pieces.iter().take(2).map(|piece| piece.len()).sum();
-            // The second answer has the rest, and the session has ended then.
-            let to = if since == 0 {
-                shown.min(all.len())
-            } else {
-                all.len()
-            };
-            let to = to.max(since as usize);
-            Ok(serde_json::json!({
-                "data_b64": rookery_api::b64(&all.as_bytes()[since as usize..to]),
-                "offset": since, "next_offset": to, "next_line": 0,
-                "ended": since > 0 && to == all.len(),
-            }))
-        }
-    }
-
-    #[test]
-    fn an_action_of_a_host_is_a_job_that_copies_its_session() {
-        let world = world();
-        let asked = Arc::new(Mutex::new(vec![]));
-        let controller = Box::new(Fake {
-            pieces: vec!["one\n", "two\n", "three\n"],
-            asked: asked.clone(),
-            failures: 1,
-        });
-        let mut request = Request::new(Subject::Host("studio".into()), "status");
-        // An action runs beside the host's other sessions, without the lock.
-        request.changes = false;
-        let work = Work::Session {
-            controller,
-            id: "s1".into(),
-        };
-        let job = world.runner.start(request, work).unwrap();
-        let job = ended(&world, &job.id);
-        assert_eq!(log(&job), "one\ntwo\nthree\n");
-        assert_eq!(job.exit_code, Some(4));
-        let asked = asked.lock().unwrap();
-        // Once more after the host did not answer, then on from where it was.
-        assert_eq!(asked[0], asked[1]);
-        assert!(asked.contains(&"/v1/sessions/s1/output?since=8".to_owned()));
-        assert_eq!(asked.last().unwrap(), "/v1/sessions/s1");
-    }
-
-    #[test]
-    fn a_subject_is_changed_by_one_job_at_a_time() {
-        let world = world();
-        let (go, wait) = mpsc::channel::<()>();
-        let blocked = Work::Function(Box::new(move |_: &mut Output| wait.recv().is_ok()));
-        let first = world
-            .runner
-            .start(Request::new(Subject::Installation, "rollout"), blocked)
-            .unwrap();
-        let again = Work::Function(Box::new(|_: &mut Output| true));
-        let refused = world
-            .runner
-            .start(Request::new(Subject::Installation, "rollout"), again)
-            .unwrap_err();
-        assert!(
-            refused.to_string().contains("this installation"),
-            "{refused}"
-        );
-        // Here too, as a rookery without a record runs it.
-        let here = here(
-            &world.paths,
-            Request::new(Subject::Installation, "rollout"),
-            Work::Function(Box::new(|_: &mut Output| true)),
-            &mut std::io::sink(),
-        );
-        assert!(here.is_err());
-        // What only reads takes no lock, and another subject has its own.
-        let mut reading = Request::new(Subject::Installation, "status");
-        reading.changes = false;
-        let read = world
-            .runner
-            .start(reading, Work::Function(Box::new(|_: &mut Output| true)))
-            .unwrap();
-        assert_eq!(ended(&world, &read.id).exit_code, Some(0));
-        let other = world
-            .runner
-            .start(
-                Request::new(Subject::Resource("r-1".into()), "change"),
-                Work::Function(Box::new(|_: &mut Output| true)),
-            )
-            .unwrap();
-        ended(&world, &other.id);
-        go.send(()).unwrap();
-        assert_eq!(ended(&world, &first.id).exit_code, Some(0));
-        let after = world
-            .runner
-            .start(
-                Request::new(Subject::Installation, "rollout"),
-                Work::Function(Box::new(|_: &mut Output| true)),
-            )
-            .unwrap();
-        ended(&world, &after.id);
-    }
-
-    #[test]
-    fn a_reserved_job_that_cannot_start_fails_once_for_its_token() {
-        let world = world();
-        let request = || {
-            let mut request = Request::new(Subject::Host("studio".into()), "status");
-            request.changes = false;
-            request.token = Some("t-1".into());
-            request
-        };
-        let Reserved::New(ticket) = world.runner.reserve(request()).unwrap() else {
-            panic!("the first caller reserves");
-        };
-        // Another caller with the token meanwhile finds the same job.
-        let Reserved::Found(found) = world.runner.reserve(request()).unwrap() else {
-            panic!("the second caller does not reserve");
-        };
-        assert_eq!(found.id, ticket.job().id);
-        let failed = ticket.fail("The host did not start status: no route to host");
-        assert_eq!(failed.exit_code, Some(1));
-        assert!(log(&failed).contains("✗ The host did not start status"));
-        // Asked again, the failure is the answer, and nothing starts.
-        let Reserved::Found(again) = world.runner.reserve(request()).unwrap() else {
-            panic!("a retry reserves again");
-        };
-        assert_eq!((again.id, again.exit_code), (failed.id, Some(1)));
-        assert_eq!(world.told.lock().unwrap().len(), 2);
-    }
-
-    #[test]
     fn a_refused_lock_says_who_holds_it() {
-        let world = world();
-        let held = lock(&world.paths, &Subject::Installation, "rollout").unwrap();
-        let refused = lock(&world.paths, &Subject::Installation, "rollout")
+        let (_dir, paths) = paths();
+        let held = lock(&paths, &Subject::Installation, "rollout").unwrap();
+        let refused = lock(&paths, &Subject::Installation, "rollout")
             .err()
             .unwrap();
         let said = refused.to_string();
@@ -1512,53 +795,25 @@ mod tests {
             "{said}"
         );
         drop(held);
-        let again = lock(&world.paths, &Subject::Installation, "apply").unwrap();
+        let again = lock(&paths, &Subject::Installation, "apply").unwrap();
         drop(again);
     }
 
     #[test]
-    fn a_repeated_token_finds_the_job_it_started() {
-        let world = world();
-        let runs = Arc::new(Mutex::new(0));
-        let work = |runs: &Arc<Mutex<i32>>| {
-            let runs = runs.clone();
-            Work::Function(Box::new(move |_: &mut Output| {
-                *runs.lock().unwrap() += 1;
-                true
-            }))
+    fn a_program_runs_with_its_input_and_says_its_exit_code() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "read line; echo \"got $line\"; exit 3"]);
+        let program = Program {
+            command,
+            input: Some(b"hunter2\n".to_vec()),
+            files: vec![],
         };
-        let request = |token: &str| {
-            let mut request = Request::new(Subject::Resource("r-1".into()), "change");
-            request.token = Some(token.into());
-            request
+        let mut kept = vec![];
+        let code = {
+            let mut out = Output::new(&mut kept, hidden(["hunter2"]));
+            run_program(program, &mut out)
         };
-        let first = world.runner.start(request("t-1"), work(&runs)).unwrap();
-        ended(&world, &first.id);
-        let again = world.runner.start(request("t-1"), work(&runs)).unwrap();
-        assert_eq!(again.id, first.id);
-        let other = world.runner.start(request("t-2"), work(&runs)).unwrap();
-        assert_ne!(other.id, first.id);
-        ended(&world, &other.id);
-        assert_eq!(*runs.lock().unwrap(), 2);
-    }
-
-    #[test]
-    fn here_runs_with_the_output_given_and_masks_it() {
-        let world = world();
-        let mut request = Request::new(Subject::Installation, "rollout");
-        request.secrets = vec!["s3cret-value".into()];
-        let mut out = vec![];
-        let code = here(
-            &world.paths,
-            request,
-            Work::Function(Box::new(|out: &mut Output| {
-                assert!(out.log().is_none());
-                writeln!(out, "s3cret-value").is_ok()
-            })),
-            &mut out,
-        )
-        .unwrap();
-        assert_eq!((code, out), (Some(0), b"[secret]\n".to_vec()));
-        assert!(world.store.jobs(10).unwrap().is_empty());
+        assert_eq!(code, Some(3));
+        assert_eq!(String::from_utf8(kept).unwrap(), "got [secret]\n");
     }
 }

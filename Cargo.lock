@@ -3070,32 +3070,36 @@ dependencies = [
 name = "rookery"
 version = "0.6.0"
 dependencies = [
- "axum",
+ "base64 0.22.1",
+ "chrono",
  "clap",
  "clap_complete",
  "crossterm",
  "futures-util",
+ "getrandom 0.3.4",
  "hatchery",
- "jsonwebtoken",
  "libc",
+ "postgres",
  "ratatui",
- "ring",
  "rookery-api",
+ "rookery-client",
  "rookery-core",
+ "rookery-hosts",
+ "rookery-proto",
  "rookery-server",
  "rookery-setup",
- "rookeryd",
+ "rookery-store",
+ "rusqlite",
  "rustls",
- "rustls-native-certs",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
  "tempfile",
  "tokio",
- "tokio-rustls",
- "tower",
+ "tokio-postgres-rustls",
  "tui-input",
- "utoipa",
- "utoipa-axum",
+ "uuid",
  "webpki-roots",
 ]
 
@@ -3141,6 +3145,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "rookery-client"
+version = "0.6.0"
+dependencies = [
+ "futures-util",
+ "rookery-api",
+ "rookery-proto",
+ "rustls",
+ "rustls-native-certs",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite 0.30.0",
+ "webpki-roots",
+]
+
+[[package]]
 name = "rookery-core"
 version = "0.6.0"
 dependencies = [
@@ -3150,10 +3171,9 @@ dependencies = [
  "hatchery",
  "hmac 0.12.1",
  "libc",
- "postgres",
  "rcgen",
  "rookery-api",
- "rusqlite",
+ "rookery-core",
  "rustls",
  "serde",
  "serde_json",
@@ -3161,7 +3181,6 @@ dependencies = [
  "sha2 0.11.1",
  "tempfile",
  "tokio",
- "tokio-postgres-rustls",
  "tokio-rustls",
  "toml",
  "webpki-roots",
@@ -3277,8 +3296,8 @@ dependencies = [
  "hyper",
  "hyper-util",
  "jsonwebtoken",
- "libc",
  "ring",
+ "rookery-api",
  "rookery-auth",
  "rookery-core",
  "rookery-facilities",

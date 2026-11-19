@@ -143,6 +143,42 @@ pub async fn create_link(call: &Call, p: LinkCreate) -> Result<LinkCreated, RpcE
 
 pub fn register(methods: &mut Methods) {
     methods
+        .add("admin.createToken", |call: Call, p: rookery_proto::auth::TokenFor| async move {
+            let wanted = p.user.trim();
+            let name = p.name.trim();
+            if wanted.is_empty() || name.is_empty() || name.chars().count() > 100 {
+                return Err(RpcError::invalid("a person and a token name of 1 to 100 characters"));
+            }
+            let users = call.store().users().list().await?;
+            let found = users.into_iter().find(|u| {
+                u.name == wanted || u.email.as_deref().is_some_and(|e| e.eq_ignore_ascii_case(wanted))
+            });
+            let user = match found {
+                Some(user) => user,
+                None => {
+                    let deployment = call.store().state().deployment_id().await?;
+                    let login = rookery_store::users::Login {
+                        issuer: format!("{}{deployment}", crate::links::ISSUER_PREFIX),
+                        subject: rookery_store::util::random_token(""),
+                        name: clean_name(wanted).unwrap_or_else(|| wanted.to_owned()),
+                        email: wanted.contains('@').then(|| wanted.to_owned()),
+                        admin: p.admin,
+                    };
+                    call.store().users().upsert_login(&login).await?.0
+                }
+            };
+            let (token, record) = call.store().auth().create_token(user.id, name, None).await?;
+            call.audit(
+                "token.create",
+                Some(&user_uri(user.id)),
+                serde_json::json!({ "token": record.id, "name": name, "for": user.id }),
+            )
+            .await;
+            Ok(rookery_proto::auth::TokenCreated { token, info: token_info(&record) })
+        })
+        .summary("Makes an access token of a person, by name or email, for scripts; a person of no such name is made as a local account.")
+        .level(Level::Admin);
+    methods
         .add("auth.me", |call: Call, _: Empty| async move {
             Ok(Me {
                 user: call.user().cloned(),

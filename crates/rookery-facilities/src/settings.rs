@@ -53,10 +53,19 @@ fn user_of(call: &Call) -> Option<uuid::Uuid> {
     }
 }
 
+/// The installation's own settings, those of the plugin id `rookery`, are its admins' to read.
+fn installation_admin(call: &Call, plugin: &str) -> Result<(), rookery_kernel::RpcError> {
+    match rookery_kernel::methods::reserved_plugin(plugin) {
+        true => call.require_admin(),
+        false => Ok(()),
+    }
+}
+
 pub fn register(methods: &mut Methods) {
     methods
         .add("settings.get", |call: Call, p: SettingRef| async move {
             rookery_kernel::methods::plugin_id(&p.plugin)?;
+            installation_admin(&call, &p.plugin)?;
             let found = call.store().settings().get(&p.plugin, &p.key, user_of(&call)).await?.map(setting);
             Ok(match found {
                 Some(s) => SettingValue { key: s.key, value: s.value, scope: Some(s.scope) },
@@ -68,6 +77,7 @@ pub fn register(methods: &mut Methods) {
     methods
         .add("settings.list", |call: Call, p: SettingsOf| async move {
             rookery_kernel::methods::plugin_id(&p.plugin)?;
+            installation_admin(&call, &p.plugin)?;
             let all = call
                 .store()
                 .settings()

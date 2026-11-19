@@ -59,16 +59,7 @@ fn fail<T>(message: impl Into<String>) -> Result<T, ConfigError> {
 
 /// Where the CLI finds the server's socket on this machine.
 pub fn default_socket(var: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
-    if let Some(path) = var("ROOKERY_SOCKET").filter(|p| !p.trim().is_empty()) {
-        return Some(PathBuf::from(path));
-    }
-    // SAFETY: geteuid has no preconditions.
-    if unsafe { libc::geteuid() } == 0 {
-        return Some(PathBuf::from("/run/rookery/server.sock"));
-    }
-    var("XDG_RUNTIME_DIR")
-        .filter(|d| !d.is_empty())
-        .map(|dir| PathBuf::from(dir).join("rookery/server.sock"))
+    rookery_api::socket::bound(var)
 }
 
 fn is_public(addr: &SocketAddr) -> bool {

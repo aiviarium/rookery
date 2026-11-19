@@ -30,9 +30,15 @@ fn cpu_of(client: &Client, host: &str) -> Result<String> {
         "kind": "process", "command": ["uname", "-m"], "user": "root",
         "title": "the CPU, for the server's image", "timeout": 20,
     });
-    let started = client.on(host, "sessions.start", json!({"wait": "20s"}), Some(body))?;
+    let started = client.call(
+        "hosts.sessions.open",
+        super::client::merged(json!({"host": host, "wait": "20s"}), body),
+    )?;
     if let Some(id) = started["id"].as_str() {
-        let _ = client.on(host, "sessions.delete", json!({"id": id}), None);
+        let _ = client.call(
+            "hosts.sessions.close",
+            json!({"host": host, "terminal": id}),
+        );
     }
     let said = started["stdout_b64"]
         .as_str()
@@ -77,7 +83,10 @@ pub fn send_here(
 /// The lines of the end of the host's session.
 fn tail(client: &Client, host: &str, id: &str) -> Vec<String> {
     let said = client
-        .on(host, "sessions.output", json!({"id": id, "tail": 15}), None)
+        .call(
+            "hosts.sessions.output",
+            json!({"host": host, "terminal": id, "query": {"tail": "15"}}),
+        )
         .unwrap_or(Value::Null);
     said["lines"]
         .as_array()
@@ -111,7 +120,7 @@ pub fn follow(client: &Client, host: &str, id: &str) -> Result<()> {
         std::thread::sleep(Duration::from_secs(3));
         let session = client.reopen().and_then(|again| {
             Ok((
-                again.on(host, "sessions.get", json!({"id": id}), None)?,
+                again.call("hosts.sessions.get", json!({"host": host, "terminal": id}))?,
                 again,
             ))
         });

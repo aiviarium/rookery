@@ -4,14 +4,15 @@ description: Run a Rookery server on one machine and use its hosts from Rookery 
 icon: ServerCog
 ---
 
-A server machine keeps the hosts with their profiles and secrets, and runs `rookery serve`. Rookery on another machine, such as your laptop, then uses that server: `rookery ls`, `rookery run` and every other command call the server's API through its [portal](/docs/api/portal). On macOS and Windows Rookery is only that: a client of a server.
+A server machine keeps the hosts with their profiles and secrets, and runs `rookery serve`. Rookery on another machine, such as your laptop, then uses that server: `rookery ls`, `rookery run` and every other command call the server's API on its [`/ws`](/docs/api#the-servers-methods). On macOS and Windows Rookery is only that: a client of a server.
 
 ```text
  your laptop                  the server                       hosts
 ┌─────────────┐  HTTPS/HTTP  ┌───────────────────────────┐ SSH ┌─────────┐
-│ rookery       │ ───────────▶ │ rookery serve               │ ──▶ │ studio  │
-│ --server …  │   + token    │ profiles, secrets, builds │ ──▶ │ cloud-1 │
-└─────────────┘              └───────────────────────────┘     └─────────┘
+│ rookery     │ ───────────▶ │ rookery serve             │ ──▶ │ studio  │
+│ rookery ls  │  + sign-in   │ PostgreSQL: hosts, jobs,  │ ──▶ │ cloud-1 │
+└─────────────┘              │ secrets, accounts         │     └─────────┘
+                             └───────────────────────────┘
 ```
 
 ## Run the server
@@ -26,12 +27,12 @@ docker run -d --name rookery -p 127.0.0.1:7777:7777 \
 docker exec rookery rookery server setup-key
 ```
 
-Without the image, run `rookery serve --listen 0.0.0.0:7777 --expose` where Rookery is installed. The last command makes a [setup key](#with-a-setup-key), which hands the server's token to its first user.
+The image runs a PostgreSQL of its own unless `ROOKERY_DATABASE_URL` names one. Without the image, run `rookery serve` where Rookery is installed, with the settings in [`rookery serve`](/docs/extend/serve#its-settings). The last command prints a [sign-in link](#with-a-sign-in-link) for the first admin.
 
-The server keeps its state in one store, a SQLite file by default. [The store](/docs/use/store) says how to keep it in PostgreSQL, encrypt it and restore the server on another machine from it.
+[The database](/docs/use/store) says how to back the server up, restore it on another machine and bring in the store of an older Rookery.
 
 <Callout type="warn" title="Put TLS in front">
-  `rookery serve` speaks plain HTTP, and the token gives full control of every host. Serve it behind a TLS proxy, such as Tailscale Serve or Caddy, and use the `https://` address. Without one, keep the port on loopback or a private network such as your tailnet.
+  `rookery serve` speaks plain HTTP, and an admin's sign-in gives full control of every host. Serve it behind a TLS proxy, such as Tailscale Serve or Caddy, and use the `https://` address. Without one, keep the port on loopback or a private network such as your tailnet.
 </Callout>
 
 With Tailscale on the server:
@@ -42,16 +43,16 @@ sudo tailscale serve --bg --https=443 http://127.0.0.1:7777
 
 ## Connect to it
 
-`rookery login` keeps the server and its token, and every command after it uses that server:
+`rookery login` signs in through the browser, keeps the server and the session, and every command after it uses that server:
 
 ```bash
-rookery login https://rookery.example.ts.net    # asks for a setup key
+rookery login https://rookery.example.ts.net    # opens the browser to sign in
 rookery ls
 rookery run studio status
 rookery logout                                # back to the rookery of this machine
 ```
 
-With the token in a file instead, `rookery login https://rookery.example.ts.net --token-file token` keeps it. For one command alone, give the server on its command line. That leaves the kept one alone:
+Without a browser, `--no-browser` asks for a sign-in link instead. With an access token in a file, `rookery login https://rookery.example.ts.net --token-file token` keeps it. For one command alone, give the server on its command line. That leaves the kept one alone:
 
 ```bash
 rookery --server https://rookery.example.ts.net --token-file token ls
@@ -59,27 +60,27 @@ rookery --server https://rookery.example.ts.net --token-file token ls
 
 `ROOKERY_SERVER` and `ROOKERY_TOKEN` in the environment take precedence over what `rookery login` kept. A token never goes on the command line, where other users of the machine could read it.
 
-### With a setup key
+### With a sign-in link
 
-A setup key lets the first user collect the token without reading `serve.token` on the server. Whoever installs the server, such as a coding agent, hands on the key and never sees the token. Make one where the server keeps its data:
+A sign-in link signs one person in once, without a password. The first admin of a new server signs in this way. Whoever installs the server, such as a coding agent, hands on the link and never sees a token. Make one on the server's machine:
 
 ```bash title="On the server"
 docker exec rookery rookery server setup-key       # or: rookery server setup-key
 ```
 
-It prints the key. On your own machine, give it to `rookery login` when it asks, or on standard input with `--setup-key-stdin`:
+It prints the link. Open it in a browser, or give it to `rookery login` on your own machine, as its address or on standard input with `--link-stdin`:
 
 ```bash
-rookery login https://rookery.example.ts.net
+rookery login https://rookery.example.ts.net/auth/link/CODE
 ```
 
-Rookery checks the key, collects the token and keeps the server and the token. The key lasts 24 hours, and ends once `rookery login` has saved the token. Until then it's as good as the token, so keep it to yourself. A new key replaces the old one, and `rookery server setup-key --revoke` ends it. A server with `serve_token` off has no token to hand out, so it doesn't make a key.
+The link lasts a day and works once. Until it is used it is as good as a sign-in, so keep it to yourself. An admin invites others with links of their own, and `auth.revokeLink` ends one that was not used.
 
 | Address | Reaches |
 | --- | --- |
 | `https://HOST[:PORT]` | A server behind a TLS proxy |
 | `http://HOST:PORT` | A server's port directly |
-| `unix:/path/to/serve.sock` | A `rookery serve` on this machine, without a token |
+| `unix:/path/to/server.sock` | A `rookery serve` on this machine, as its admin. Rookery finds the server's own socket by itself |
 
 ## On other systems
 
@@ -97,14 +98,14 @@ curl -fsSL https://raw.githubusercontent.com/aiviarium/rookery/main/install.sh |
 
 Each script downloads the latest release for this machine, checks it against its SHA-256 and installs it, to `%LOCALAPPDATA%\Programs\rookery` on Windows and to `~/.local/bin` on macOS. `ROOKERY_INSTALL_DIR` and `ROOKERY_VERSION` work as on Linux. To download it by hand, take the archive for your system and its `.sha256` file from the [latest release](https://github.com/aiviarium/rookery/releases/latest).
 
-Then connect it with a setup key, and see its hosts:
+Then sign in, and see its hosts:
 
 ```bash
 rookery login https://rookery.example.ts.net
 rookery ls
 ```
 
-Rookery keeps the server and the token as the settings `server` and `server_token`, in `config.json` of its folder of settings, which only you can read: `~/.config/rookery` on Linux, or under `$XDG_CONFIG_HOME`.
+Rookery keeps the server and its session or token as the settings `server` and `server_token`, in `config.json` of its folder of settings, which only you can read: `~/.config/rookery` on Linux, or under `$XDG_CONFIG_HOME`.
 
 | Variable | Effect |
 | --- | --- |
@@ -113,7 +114,7 @@ Rookery keeps the server and the token as the settings `server` and `server_toke
 
 Rookery talks to a server over `https` only with a certificate that the system or the Mozilla roots trust. `rookery logout` forgets the server and its token.
 
-A password the server makes up is shown once. The server keeps a copy in its store, and `rookery host credentials HOST` shows it again to an admin of the server.
+A password the server makes up is shown once. The server keeps a copy in its database, and `rookery host credentials HOST` shows it again to an admin of the server.
 
 What works with the server's own machine is offered there only. That is the USB installer, which writes a drive of that machine, and the settings that aren't open to the network. Elsewhere they are refused, with the reason.
 
@@ -124,14 +125,13 @@ Every command calls the server. Each works from another machine as it does on th
 | Needs the server's machine | Why |
 | --- | --- |
 | Writing the USB installer to a drive | The drive is a device of that machine |
-| `rookery ssh HOST` | It uses that machine's SSH configuration and keys |
 | `rookery registry publish` and `rookery registry push-image` | They upload files of that machine |
 | `rookery server …` and `rookery serve` | They are the server itself |
 | The settings that aren't open to the network | The server keeps them to its own users |
 
 ### Setting the server up from here
 
-With the role `admin` on the server, which its token has, Rookery sets the server up from anywhere. What you change is saved on the server:
+As an admin of the server, Rookery sets the server up from anywhere. What you change is saved on the server:
 
 - A host's set-up tabs, `rookery host create`, `rookery host set` and `rookery host import` save the profile there.
 - A password the server generates is kept there. `rookery host credentials HOST` asks the server for it.
@@ -145,4 +145,4 @@ With the role `admin` on the server, which its token has, Rookery sets the serve
 - The server logs in to hosts with the keys of [its own key ring](/docs/use/accounts#keys), by default its key `rookery`. `rookery key` acts on the server's ring, and its private halves stay there. `rookery key trust HOST` and `rookery host verify HOST --accept` make first contact and accept a changed host key from the server.
 - `rookery key rotate` replaces a key on the hosts that take it, as a job of the server ([Rekeying](/docs/use/accounts#rekeying)).
 
-With a lesser role the set-up says *This host is set up on the Rookery server at URL*, and the host's other commands work as before. The roles, access tokens of an OAuth 2.0 issuer in place of the token, and how to keep set-up on the server itself are in [`rookery serve`](/docs/extend/serve#who-gets-in).
+Without `manage` on a host, the set-up says *This host is set up on the Rookery server at URL*, and the host's other commands work as before. Accounts, grants on hosts and access tokens are in [`rookery serve`](/docs/extend/serve#who-gets-in).

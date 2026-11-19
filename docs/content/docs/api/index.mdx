@@ -1,55 +1,69 @@
 ---
 title: API overview
-description: Which programs have an API, how to call an operation, and the documents the reference is made from.
+description: Which programs have an API, how to call a method or an operation, and the documents the reference is made from.
 icon: BookOpen
 ---
 
-rookeryd and `rookery serve` answer the same kind of API. Each of their *operations* has a name, such as `sessions.start` or `kv.set`, and can be called in two ways.
+Two programs have an API. rookeryd runs on every host, and `rookery serve` is the server that keeps the hosts.
 
 | Program | Runs on | Reached at | Reference |
 | --- | --- | --- | --- |
 | rookeryd | every host, as root | unix sockets in `/run/rookery` | [rookeryd](/docs/api/host) |
-| `rookery serve` | your machine, or a server | a unix socket of your user, and optionally TCP | [`rookery serve`](/docs/api/serve) |
+| `rookery serve` | a server, with its PostgreSQL database | `/ws` and `/rpc` over TCP, and a unix socket on its machine | [`rookery serve`](/docs/api/server) |
 
-`rookery serve` passes rookeryd's operations through to the host it names, under `/v1/hosts/NAME/controller`, so a program that talks to `rookery serve` reaches all hosts. It does not pass through `endpoints.connect`, which it opens itself for `resources.connect`. It also lists what can be done to each host and to the installation as [actions](/docs/extend/serve#actions), and runs one as a job it keeps.
+The server reaches each host's rookeryd itself. A client of the server never talks to rookeryd: what it does on a host is a method of the server, such as `hosts.sessions.open` or `hosts.files.read`, with the host in its parameters.
 
-## Ways to call an operation
+## The server's methods
+
+Every method of the server has a name, such as `hosts.list` or `jobs.follow`, and takes its parameters as one JSON object. It is called as JSON-RPC 2.0:
 
 | Way | For |
 | --- | --- |
-| [The portal](/docs/api/portal) | One WebSocket at `/v1/portal` for many calls and streams at once. Rookery's server mode uses it |
-| HTTP | One request per call, at the operation's path. Simple to try with `curl`, and the way to move more than 8 MB |
-| A stream's own WebSocket | Each streaming operation is also a WebSocket at its path, for a client that follows only one thing |
+| `GET /ws` | A WebSocket for many calls and streams at once. Crow and the `rookery` command line use it |
+| `POST /rpc` | One call per request, for scripts. Methods that open a stream are refused there |
+| The unix socket | `/ws` and `/rpc` on the server's own machine, `server.sock` in Rookery's runtime folder or `ROOKERY_SOCKET`. Its caller is the machine's admin |
 
-Every operation page shows the portal frame and the HTTP request side by side.
+```bash
+curl -H "Authorization: Bearer $ROOKERY_TOKEN" -d '{"jsonrpc": "2.0", "id": 1, "method": "hosts.list"}' \
+  https://rookery.example.ts.net/rpc
+```
 
-## Calls and streams
+```json
+{ "jsonrpc": "2.0", "id": 1, "result": { "hosts": [{ "name": "studio", "reachable": true }] } }
+```
 
-A *call* takes arguments and input and gives back a result. After it opens, a *stream* keeps sending frames, such as a session's output or new channel messages, and some streams take frames back, such as typed input. On the portal a stream is a subscription. See [Streams](/docs/extend/streams) for what all streams have in common.
+On `/ws` a browser signs in with its session cookie, and any other client sends a bearer token in `Authorization`. `rookery server token --user NAME` makes an access token on the server's machine.
 
-## The API number
+## Streams
 
-`version` answers with `api`, a number that rises when something is added to the API. A client compares it to see what a host or a server can do. In `rookery serve`, `hosts.list` gives each host's number too.
+A method that opens a stream, such as `jobs.follow` or `hosts.sessions.attach`, answers with `{"stream": ID}`. The stream's data then comes as binary WebSocket frames: 4 bytes of the stream's id, big endian, then up to 64 KB of payload. The same frames go the other way for a stream that takes input, such as a terminal or `hosts.ports.connect`.
 
-| `api` | Added |
+Each direction starts with 256 KB of credit. A reader grants more with `streams.credit` as it takes data, and a writer waits while it has none, so a slow reader never fills the server. `streams.eof` ends one direction and `streams.close` both. A peer that sends more than its credit loses the stream.
+
+## Errors
+
+An error is JSON-RPC's, with Rookery's code in `data`:
+
+```json
+{ "jsonrpc": "2.0", "id": 1, "error": { "code": -32002, "message": "no host forge", "data": { "code": "NOT_FOUND" } } }
+```
+
+| `data.code` | Means |
 | --- | --- |
-| 2 | What the list below names |
-
-What number 2 adds:
-
-- `ports.connect`, with windows on the portal's streams
-- Roles from the keys of an object claim
-- The `dropped` frame of `events.follow`, `inbox.follow` and `kv.follow`
-- Host and resource changes on `events.follow`
-- The endpoints of a resource, and `resources.connect` to them
-- `endpoints.connect` of rookeryd, which `rookery serve` alone opens, to reach an endpoint of a resource on a node
-- The `exec` action of a resource
-
-Rookery needs number 2 for a host's actions and port forwarding, and says to update the controller or apply the host until it has it.
+| `INVALID` | The parameters fail the method's schema, or the request is wrong |
+| `UNAUTHENTICATED` | No session or token that works: sign in again |
+| `FORBIDDEN` | The caller lacks the level the method needs |
+| `NOT_FOUND` | No such method, host, job or thing |
+| `CONFLICT` | A revision did not match, or something else holds what this changes |
+| `UNAVAILABLE` | Something it needs is not there, such as a host that does not answer. A host's refusal is in `data.details` |
+| `TIMEOUT` | The call's deadline passed |
+| `INTERNAL` | Something failed inside. A job's command that failed says its exit code in `data.details.exit` |
 
 ## Who may call
 
-rookeryd answers on two sockets, and each operation says which may use it:
+Each method says who may call it: anyone, any signed-in caller for itself, an admin, or a caller that holds `view`, `use` or `manage` on the resource the method is about. A host is the resource `env://NAME`, and `access.grant` gives another account a host. See [Who gets in](/docs/extend/serve#who-gets-in).
+
+rookeryd answers on two sockets, and each of its operations says which may use it:
 
 | Socket | Level | Who connects |
 | --- | --- | --- |
@@ -58,34 +72,22 @@ rookeryd answers on two sockets, and each operation says which may use it:
 
 In a container rookeryd runs for the agent alone, without systemd, and calls that need systemd or another user are refused.
 
-`rookery serve` has no levels. Its unix socket is readable by your user only, and over TCP every request and the portal need the token from `serve.token` as a bearer. See [`rookery serve`](/docs/extend/serve).
+## rookeryd's operations
 
-## Errors
+Each operation of rookeryd can be called in two ways:
 
-Over HTTP an error is a status code with a JSON body; on the portal the same object comes back under the request's `id`:
+| Way | For |
+| --- | --- |
+| [The portal](/docs/api/portal) | One WebSocket at `/v1/portal` for many calls and streams at once |
+| HTTP | One request per call, at the operation's path. Simple to try with `curl`, and the way to move more than 8 MB |
+
+`version` answers with `api`, a number that rises when something is added to rookeryd's API. The server compares it to see what a host can do, and `hosts.list` gives each host's number.
+
+Over HTTP an error of rookeryd is a status code with a JSON body; on the portal the same object comes back under the request's `id`:
 
 ```json
 { "error": { "code": "not_found", "message": "No session k3v9qz2m8w1x", "status": 404 } }
 ```
-
-Over HTTP the header `rookery-error` repeats the code, and `rookery-error-message` the start of the message, percent-encoded. A WebSocket client that is refused during the handshake often sees only the head of the answer, so it reads both there.
-
-| Status | Code | Means |
-| --- | --- | --- |
-| 400 | `bad_request` | An argument or the input is missing or malformed |
-| 401 | `unauthorized` | No token, or the wrong one |
-| 403 | `forbidden` | This level may not call the operation |
-| 404 | `not_found` | No such operation, session, host or key |
-| 409 | `conflict` | The thing is in a state that does not allow this, such as a host that another action is changing |
-| 412 | `precondition_failed` | Someone else wrote in between |
-| 413 | `too_large` | The input, or bytes on the portal, are too large |
-| 429 | `limit` | Too many at once |
-| 500 | `internal` | Something failed inside |
-| 501 | `not_available` | Not available here, such as systemd in a container, this operation on the portal, or an action that cannot run now |
-| 502 | `unreachable` | `rookery serve` could not reach the host |
-| 503 | `not_served` | Nobody serves that service right now |
-| 504 | `timeout` | A service did not answer in time |
-| 520 | `service_error` | A service answered with an error |
 
 ## The documents
 
@@ -94,13 +96,11 @@ The reference is generated from documents that the programs print and the tests 
 | Document | Printed by | Download |
 | --- | --- | --- |
 | Operations of rookeryd | `rookeryd operations` | [rookeryd.operations.json](/openapi/rookeryd.operations.json) |
-| Operations of `rookery serve` | `rookery server api operations` | [rookery.operations.json](/openapi/rookery.operations.json) |
 | OpenAPI 3 of rookeryd | `rookeryd openapi` | [rookeryd.openapi.json](/openapi/rookeryd.openapi.json) |
-| OpenAPI 3 of `rookery serve` | `rookery server api openapi` | [rookery.openapi.json](/openapi/rookery.openapi.json) |
 | AsyncAPI 3 of rookeryd | `rookeryd asyncapi` | [rookeryd.asyncapi.json](/openapi/rookeryd.asyncapi.json) |
-| AsyncAPI 3 of `rookery serve` | `rookery server api asyncapi` | [rookery.asyncapi.json](/openapi/rookery.asyncapi.json) |
+| Methods of `rookery serve` | the test `the_method_report_is_current` of rookery-server | `api/methods.json` in the repository |
 
-An operations document describes each operation with its name and HTTP route, arguments and errors, and input and result schemas. For streams it adds the frames each way. `components` holds the JSON schemas the `$ref`s point at. The `rookery serve` document has `"hosts": true`: every rookeryd operation is available there with a host.
+The methods document lists each method with its summary, who may call it, whether it opens a stream, and the JSON schemas of its parameters and result. The TypeScript types of the same are in `@rookery/client`.
 
 ## For agents
 
@@ -110,6 +110,6 @@ The whole site is also plain Markdown, for an assistant or a script that should 
 | --- | --- |
 | `/llms.txt` | Every page with a one-line description and a link to its Markdown |
 | `/llms-full.txt` | Every page in one file |
-| `/md/PAGE.md` | One page, such as `/md/api/portal.md` or `/md/api/host/sessions.md` |
+| `/md/PAGE.md` | One page, such as `/md/api/portal.md` or `/md/api/server/hosts.md` |
 
 Each page has a button at its top that copies its Markdown.

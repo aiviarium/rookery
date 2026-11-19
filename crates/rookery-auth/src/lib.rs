@@ -8,6 +8,7 @@
 //! - Either ends in a **device session**: a random token in the `HttpOnly` cookie `rookery_session`, kept
 //!   hashed. **Access tokens** (`rookery_pat_…`) are for scripts.
 
+pub mod desktop;
 pub mod links;
 pub mod methods;
 pub mod oidc;
@@ -31,6 +32,8 @@ pub fn routes() -> Router<Kernel> {
             "/auth/link/{code}",
             get(links::show).post(links::redeem_route),
         )
+        .route("/auth/desktop", get(desktop::ask).post(desktop::grant))
+        .route("/auth/desktop/token", post(desktop::token))
         .route("/auth/login", get(oidc::login))
         .route("/auth/callback", get(oidc::callback))
 }

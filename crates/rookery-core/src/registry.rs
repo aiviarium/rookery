@@ -951,8 +951,7 @@ mod tests {
 
     fn opened() -> (tempfile::TempDir, Arc<store::Store>) {
         let home = tempfile::tempdir().unwrap();
-        let store = store::Store::open(&home.path().join("rookery.db")).unwrap();
-        (home, Arc::new(store))
+        (home, Arc::new(store::Store::memory()))
     }
 
     #[test]

@@ -4,6 +4,7 @@
 pub mod actions;
 pub mod api;
 pub mod auth;
+pub mod connect;
 pub mod keys;
 pub mod provisioners;
 pub mod resources;
@@ -232,13 +233,8 @@ impl Remote {
         let Some(link) = &self.link else {
             return Err(self.problem.clone().unwrap_or_else(|| "no link".into()));
         };
-        // A simulated host changes within a step, which tests wait for.
-        let fresh = match rookery_core::simulate::active() {
-            Some(_) => rookery_core::simulate::delay().min(SEEN_FOR),
-            None => SEEN_FOR,
-        };
         if let Some((when, answer)) = &*self.seen.lock().unwrap()
-            && when.elapsed() < fresh
+            && when.elapsed() < SEEN_FOR
         {
             return answer.clone();
         }
@@ -582,42 +578,87 @@ async fn take_in(state: Arc<Serve>, remote: Arc<Remote>) {
     }
 }
 
-/// Frames both ways between a host's stream and a caller's, until either side closes: the host's
-/// text frames as lines and its binary frames as they are, the caller's bytes as binary frames.
+/// How a host's stream is carried on a caller's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Carry {
+    /// The host's text frames as lines and its binary frames as they are, as a log is read.
+    Lines,
+    /// Each frame with a byte before it, `t` for text and `b` for binary, both ways, as a terminal
+    /// takes its size as text and its keys as bytes.
+    Tagged,
+    /// Bytes both ways, and each side's end as the other's: a port's connection.
+    Bytes,
+}
+
+/// The largest frame of a caller's stream, with room for a tag.
+const CARRIED: usize = rookery_proto::stream::MAX_FRAME_PAYLOAD - 1;
+
+/// Frames both ways between a host's stream and a caller's, until either side closes.
 pub async fn pipe(
     upstream: rookery_core::link::LinkStream,
     stream: rookery_kernel::streams::Stream,
+    carry: Carry,
 ) {
     use futures_util::SinkExt;
     use rookery_kernel::streams::Inbound;
     let (mut reader, writer) = stream.split();
     let (mut to_host, mut from_host) = upstream.split();
+    let eof = r#"{"eof":true}"#;
     let towards_host = async {
         while let Some(inbound) = reader.read().await {
-            match inbound {
-                Inbound::Data(data) => {
-                    if to_host
-                        .send(client::Frame::Binary(data.into()))
-                        .await
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                Inbound::Eof | Inbound::Closed(_) => break,
+            let frame = match inbound {
+                Inbound::Data(data) => match carry {
+                    Carry::Tagged => match data.split_first() {
+                        Some((b't', text)) => {
+                            client::Frame::Text(String::from_utf8_lossy(text).into_owned().into())
+                        }
+                        Some((_, bytes)) => client::Frame::Binary(bytes.to_vec().into()),
+                        None => continue,
+                    },
+                    _ => client::Frame::Binary(data.into()),
+                },
+                Inbound::Eof if carry == Carry::Bytes => client::Frame::Text(eof.into()),
+                Inbound::Eof => continue,
+                Inbound::Closed(_) => break,
+            };
+            if to_host.send(frame).await.is_err() {
+                break;
             }
         }
     };
     let towards_caller = async {
         while let Some(Ok(frame)) = from_host.next().await {
-            let sent = match frame {
-                client::Frame::Text(text) => {
+            let sent = match (frame, carry) {
+                (client::Frame::Text(text), Carry::Lines) => {
                     let mut line = text.as_str().as_bytes().to_vec();
                     line.push(b'\n');
                     writer.write(&line).await
                 }
-                client::Frame::Binary(data) => writer.write(&data).await,
-                client::Frame::Close(_) => break,
+                (client::Frame::Text(text), Carry::Tagged) => {
+                    let mut tagged = vec![b't'];
+                    tagged.extend_from_slice(text.as_str().as_bytes());
+                    writer.write(&tagged).await
+                }
+                (client::Frame::Text(text), Carry::Bytes) => {
+                    if text.as_str().contains("\"eof\"") {
+                        writer.eof();
+                    }
+                    Ok(())
+                }
+                (client::Frame::Binary(data), Carry::Tagged) => {
+                    let mut sent = Ok(());
+                    for chunk in data.chunks(CARRIED) {
+                        let mut tagged = vec![b'b'];
+                        tagged.extend_from_slice(chunk);
+                        sent = writer.write(&tagged).await;
+                        if sent.is_err() {
+                            break;
+                        }
+                    }
+                    sent
+                }
+                (client::Frame::Binary(data), _) => writer.write(&data).await,
+                (client::Frame::Close(_), _) => break,
                 _ => Ok(()),
             };
             if sent.is_err() {
@@ -631,5 +672,52 @@ pub async fn pipe(
     }
     let _ = to_host.send(client::Frame::Close(None)).await;
     writer.eof();
+    writer.close(None);
+}
+
+/// Bytes both ways between a caller's stream and a connection the server made, such as to a
+/// resource's endpoint, each side's end as the other's.
+pub async fn tunnel<C>(stream: rookery_kernel::streams::Stream, connection: C)
+where
+    C: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + 'static,
+{
+    use rookery_kernel::streams::Inbound;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let (mut reader, writer) = stream.split();
+    let (mut from, mut to) = tokio::io::split(connection);
+    let upstream = async move {
+        while let Some(inbound) = reader.read().await {
+            match inbound {
+                Inbound::Data(data) => {
+                    if to.write_all(&data).await.is_err() {
+                        break;
+                    }
+                }
+                Inbound::Eof => {
+                    let _ = to.shutdown().await;
+                }
+                Inbound::Closed(_) => break,
+            }
+        }
+    };
+    let downstream = async {
+        let mut buffer = vec![0; CARRIED];
+        loop {
+            match from.read(&mut buffer).await {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    if writer.write(&buffer[..n]).await.is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+        writer.eof();
+        writer.closed().await;
+    };
+    tokio::select! {
+        () = upstream => {}
+        () = downstream => {}
+    }
     writer.close(None);
 }

@@ -1076,8 +1076,7 @@ mod tests {
             config_dir: fx.tmp.path().join("other/config"),
             data_dir: fx.tmp.path().join("other/data"),
         };
-        let store =
-            crate::store::Store::open(&crate::store::default_file(&fx.manager.paths)).unwrap();
+        let store = crate::store::shared(&fx.manager.paths).unwrap();
         let plan = crate::plugin_state::plan(&other, &store).unwrap().unwrap();
         let said = crate::plugin_state::carry_out(&other, &plan).unwrap();
         let own = own_dir(&other.config_dir);

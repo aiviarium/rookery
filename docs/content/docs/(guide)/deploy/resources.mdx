@@ -125,7 +125,7 @@ A change in the endpoints is a change of the resource for `events.follow`, so a 
 
 ### Reach an endpoint
 
-`resources.connect` opens a TCP connection to one endpoint, through the server ([The stream of an endpoint](/docs/extend/streams#the-stream-of-an-endpoint)). The caller names the endpoint by its name or its port, and needs the role `operate`.
+`resources.connect` opens a TCP connection to one endpoint, through the server, as a stream of `/ws` ([The server's streams](/docs/extend/streams#the-servers-streams)). The caller names the endpoint by its name or its port, and needs to be an admin of the server.
 
 The server dials only what the provisioner reported. When it dials, it reads the resource's endpoints again and resolves the address then. It refuses:
 
@@ -164,12 +164,12 @@ The action `exec` runs a command in a resource whose kind has it, such as a Dock
 | `command` | The words of the command, split at spaces, or a JSON list such as `["sh", "-c", "echo hi"]` for a word with spaces in it |
 | `stdin` | What the command reads on its standard input. Empty gives it none |
 
-It runs as a job of the resource, and needs the role `operate`. It does not hold the resource's lock, so several commands can run at once. The job's output is the command's, and the job ends with the command's exit status. The job records the command line, but not the standard input. Give a secret on standard input, never on the command line.
+It runs as a job of the resource. It does not hold the resource's lock, so several commands can run at once. The job's output is the command's, and the job ends with the command's exit status. The job records the command line, but not the standard input. Give a secret on standard input, never on the command line.
 
 ```bash
-curl -X POST "$ROOKERY/v1/resources/r-m4t8qv2c/actions/exec" \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"arguments": {"command": "psql -U app", "stdin": "select count(*) from notes;"}}'
+curl "$ROOKERY/rpc" -H "Authorization: Bearer $ROOKERY_TOKEN" -d '{"jsonrpc": "2.0", "id": 1,
+  "method": "resources.act", "params": {"id": "r-m4t8qv2c", "action": "exec",
+  "arguments": {"command": "psql -U app", "stdin": "select count(*) from notes;"}}}'
 ```
 
 ## A host's machine
@@ -214,19 +214,16 @@ A host's machine is also in `rookery host show HOST`, with rows to start, stop a
 
 With a [Rookery server](/docs/use/server) set, `rookery resource list`, `rookery resource create` and the short forms use the server's resources. What changes one runs as a job there, with the server's plugins, secrets and provisioner settings.
 
-| Operation | Route | Role |
-| --- | --- | --- |
-| `resources.list` | `GET /v1/resources`, with `provisioner`, `kind` or `host` to narrow it | `view` |
-| `resources.get` | `GET /v1/resources/{id}` | `view` |
-| `resources.create` | `POST /v1/resources`. Answers `202` with the resource and its job | `admin` |
-| `resources.change` | `PUT /v1/resources/{id}`, as a job | `admin` |
-| `resources.remove` | `DELETE /v1/resources/{id}`, as a job. A token goes in `?token=` | `admin` |
-| `resources.actions` | `GET /v1/resources/{id}/actions` | `view` |
-| `resources.act` | `POST /v1/resources/{id}/actions/{action}` | The action's own |
-| `resources.logs` | `GET /v1/resources/{id}/logs?tail=N`, as plain text | `operate` |
-| `resources.follow` | A WebSocket at the same path. The lines come as binary frames, then `{"exited": …}` | `operate` |
-| `resources.connect` | A WebSocket at `/v1/resources/{id}/endpoints/{endpoint}`: a TCP connection to the endpoint | `operate` |
+| Method | Does |
+| --- | --- |
+| `resources.list` | The resources, with `provisioner`, `kind` or `host` to narrow it |
+| `resources.get` | One resource, as its provisioner sees it now |
+| `resources.create` | Makes one as a job, and answers with the resource and its job |
+| `resources.change` | Changes its arguments or specification, as a job |
+| `resources.remove` | Removes it with its provisioner, as a job. A `token` makes a second call answer with the first one's job |
+| `resources.actions`, `resources.act` | Its actions, and running one as a job |
+| `resources.logs` | Its log as it is now |
+| `resources.follow` | A stream of its log, a line at a time |
+| `resources.connect` | A stream that is a TCP connection to one of its endpoints |
 
-An action of a resource needs `admin` unless its plugin says otherwise, including one that only reads. `exec` needs `operate`. Requests and answers are in the [API reference](/docs/api/serve/resources).
-
-With `serve_setup off`, a server takes changes to resources only on its own socket, not over the network ([Closing set-up](/docs/extend/serve#closing-set-up)).
+Each of them needs an admin of the server. Requests and answers are in the [API reference](/docs/api/server/resources).

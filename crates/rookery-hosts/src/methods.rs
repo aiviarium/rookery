@@ -21,7 +21,7 @@ use serde_json::{Value, json};
 
 use crate::runner::CALLER;
 use crate::serve::api::{self, Answer, Json};
-use crate::serve::{Serve, actions, auth, keys, provisioners, resources, setup};
+use crate::serve::{Carry, Serve, actions, auth, keys, provisioners, resources, setup};
 
 fn host(grant: Grant) -> Level {
     Level::Resource {
@@ -119,6 +119,7 @@ async fn pass_stream(
     name: &str,
     capability: Capability,
     target: String,
+    carry: crate::serve::Carry,
 ) -> Result<StreamOpened, RpcError> {
     let state = serve(call)?;
     let remote = api::controller(&state, name, capability).await?;
@@ -129,7 +130,7 @@ async fn pass_stream(
     let upstream = link.stream(&target).await.map_err(api::Fail::from)?;
     let stream = call.conn()?.streams().open(Initiator::Peer)?;
     let id = stream.id();
-    tokio::spawn(crate::serve::pipe(upstream, stream));
+    tokio::spawn(crate::serve::pipe(upstream, stream, carry));
     Ok(StreamOpened {
         stream: id,
         offset: None,
@@ -142,8 +143,141 @@ pub fn register(methods: &mut Methods) {
     register_hosts(methods);
     register_controller(methods);
     register_keys(methods);
+    register_env(methods);
+    register_messages(methods);
     register_provisioning(methods);
     register_setup(methods);
+    register_installation(methods);
+    register_machine(methods);
+}
+
+/// Refused unless the call comes over the server's own socket.
+fn on_this_machine(call: &Call, what: &str) -> Result<(), RpcError> {
+    match call.caller {
+        rookery_kernel::Caller::Local => Ok(()),
+        _ => Err(RpcError::forbidden(format!(
+            "{what} names files of the server's machine, and is for its socket alone"
+        ))),
+    }
+}
+
+/// Runs `work` with the server's folders, off the runtime.
+async fn with_paths<T: Send + 'static>(
+    call: &Call,
+    work: impl FnOnce(&rookery_core::paths::Paths) -> Result<T, String> + Send + 'static,
+) -> Result<T, RpcError> {
+    let paths = serve(call)?.paths.clone();
+    tokio::task::spawn_blocking(move || work(&paths))
+        .await
+        .map_err(|e| RpcError::internal(e.to_string()))?
+        .map_err(RpcError::invalid)
+}
+
+/// What the server's own machine asks of it for its programs: the inventory and SSH logins of the
+/// hosts, and the key an apply joins a tailnet with. Their files are the server's, so only its
+/// socket gets them, and no child of the server needs the database.
+fn register_machine(methods: &mut Methods) {
+    methods
+        .add("hosts.inventory", |call: Call, p: HostNames| async move {
+            on_this_machine(&call, "hosts.inventory")?;
+            let inventory = with_paths(&call, move |paths| {
+                use rookery_core::host::Host;
+                let hosts: Vec<Host> = match p.hosts.as_slice() {
+                    [] => Host::all(paths)
+                        .into_iter()
+                        .filter(|host| !host.address().is_empty())
+                        .collect(),
+                    names => names
+                        .iter()
+                        .map(|name| Host::load(paths, crate::name_of(name)).map_err(|e| e.to_string()))
+                        .collect::<Result<_, _>>()?,
+                };
+                let mut all = serde_json::Map::new();
+                for host in hosts {
+                    let inventory = host
+                        .inventory(paths)
+                        .map_err(|error| format!("{}: {error}", host.name))?;
+                    all.insert(
+                        host.name.clone(),
+                        inventory["all"]["hosts"]["rookery_target"].clone(),
+                    );
+                }
+                Ok(json!({"all": {"hosts": all}}))
+            })
+            .await?;
+            Ok(Inventory { inventory })
+        })
+        .summary("The hosts as an Ansible inventory, with the server's key as a file of its machine. For the server's socket alone.")
+        .level(Level::Admin);
+    methods
+        .add("hosts.ssh", |call: Call, p: HostSsh| async move {
+            on_this_machine(&call, "hosts.ssh")?;
+            with_paths(&call, move |paths| {
+                let host = rookery_core::host::Host::load(paths, crate::name_of(&p.host))
+                    .map_err(|e| e.to_string())?;
+                if !host.access().reachable() {
+                    return Err(format!("{} has no SSH address yet", host.name));
+                }
+                let command = host.ssh(paths).map_err(|e| e.to_string())?;
+                let mut args: Vec<String> = command
+                    .get_args()
+                    .map(|arg| arg.to_string_lossy().into_owned())
+                    .collect();
+                args.push(host.target());
+                if p.agent {
+                    // Root login and the agent's own key are not a given, so it goes through the
+                    // SSH user and sudo; agent-env adds the display and tools.
+                    let agent = host.agent();
+                    if agent.starts_with('-')
+                        || !agent
+                            .chars()
+                            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+                    {
+                        return Err("the agent's account name is not a valid one".into());
+                    }
+                    args.push("-t".into());
+                    args.push(format!(
+                        "sudo -iu {agent} sh -c 'command -v agent-env >/dev/null && exec agent-env; exec bash -l'"
+                    ));
+                }
+                let env = command
+                    .get_envs()
+                    .filter_map(|(key, value)| {
+                        Some((key.to_string_lossy().into_owned(), value?.to_string_lossy().into_owned()))
+                    })
+                    .collect();
+                Ok(SshCommand { args, env })
+            })
+            .await
+        })
+        .summary("The plain ssh command that logs in to a host with the server's key, for the server's socket alone.")
+        .level(Level::Admin);
+    methods
+        .add("hosts.askpass", |call: Call, p: AskpassAsked| async move {
+            on_this_machine(&call, "hosts.askpass")?;
+            if !p.source.starts_with("secret:") {
+                return Err(RpcError::invalid("the server answers for a password kept as secret:NAME"));
+            }
+            let answer = with_paths(&call, move |paths| {
+                rookery_core::keys::askpass::answer(&p.prompt, &p.source, Some(paths))
+                    .map_err(|e| e.to_string())
+            })
+            .await?;
+            Ok(AskpassAnswer { answer })
+        })
+        .summary("The password ssh asks rookery's askpass helper for, from the secret the helper names. For the server's socket alone.")
+        .level(Level::Admin);
+    methods
+        .add("hosts.tailnetKey", |call: Call, p: HostRef| async move {
+            on_this_machine(&call, "hosts.tailnetKey")?;
+            let key = with_paths(&call, move |paths| {
+                rookery_core::tailnet::key_for(paths, crate::name_of(&p.host)).map_err(|e| e.to_string())
+            })
+            .await?;
+            Ok(TailnetKey { key })
+        })
+        .summary("A one-use enrollment key for a host's tailnet, which an apply on the server's machine asks for.")
+        .level(Level::Admin);
 }
 
 fn register_hosts(methods: &mut Methods) {
@@ -450,7 +584,14 @@ fn register_controller(methods: &mut Methods) {
     methods
         .add("hosts.logs.follow", |call: Call, p: HostQuery| async move {
             let target = format!("/v1/logs{}", query_of(&p.query));
-            pass_stream(&call, crate::name_of(&p.host), Capability::Sessions, target).await
+            pass_stream(
+                &call,
+                crate::name_of(&p.host),
+                Capability::Sessions,
+                target,
+                Carry::Lines,
+            )
+            .await
         })
         .summary("A host's journal as it is written, a line for each entry.")
         .stream()
@@ -545,12 +686,455 @@ fn register_controller(methods: &mut Methods) {
                     rookery_api::client::encode(&p.plugin),
                     rookery_api::client::encode(&p.name)
                 );
-                pass_stream(&call, crate::name_of(&p.host), Capability::Sessions, target).await
+                pass_stream(&call, crate::name_of(&p.host), Capability::Sessions, target, Carry::Tagged)
+                    .await
             },
         )
-        .summary("A stream to a plugin's service on a host.")
+        .summary("A stream to a plugin's service on a host; each frame has a byte before it, t for text and b for binary.")
         .stream()
         .level(host(Grant::Use));
+}
+
+fn terminal(
+    host: &str,
+    terminal: &str,
+    rest: &str,
+    query: &BTreeMap<String, String>,
+) -> (String, String) {
+    let target = format!(
+        "/v1/sessions/{}{rest}{}",
+        rookery_api::client::encode(terminal),
+        query_of(query)
+    );
+    (name(host), target)
+}
+
+/// What a host's controller said no with: its own failure, 5xx, is the host's (UNAVAILABLE), and
+/// the rest the request's.
+fn host_refused(status: u16, body: &[u8]) -> RpcError {
+    let said = String::from_utf8_lossy(body).into_owned();
+    match status {
+        403 => RpcError::forbidden(said),
+        409 | 412 => RpcError::conflict(said),
+        status if status >= 500 => {
+            RpcError::unavailable(said).with_details(json!({"host_status": status}))
+        }
+        _ => RpcError::invalid(said),
+    }
+}
+
+/// Refused unless the caller may work with this session: `use` on the host reaches the agent's own
+/// sessions, and one of another account, or one an action runs, needs `manage`. The host says
+/// whose the session is, so an id from anywhere passes only for what its caller may do.
+async fn session_guard(call: &Call, name: &str, terminal: &str) -> Result<(), RpcError> {
+    if call.is_admin() || matches!(call.caller, rookery_kernel::Caller::Local) {
+        return Ok(());
+    }
+    let (_, target) = self::terminal(name, terminal, "", &BTreeMap::new());
+    let Passed(session) = pass(call, name, Capability::Sessions, "GET", target, None).await?;
+    let user = session["user"].as_str().unwrap_or_default();
+    let action = session["action"]
+        .as_str()
+        .filter(|action| !action.is_empty());
+    if user == "agent" && action.is_none() {
+        return Ok(());
+    }
+    let uri = crate::uri(name);
+    if rookery_facilities::access::holds(call, &uri, Grant::Manage).await? {
+        return Ok(());
+    }
+    Err(RpcError::forbidden(match action {
+        Some(action) => {
+            format!("the session of the action {action} on {name} needs manage on {uri}")
+        }
+        None => format!("a session as {user} on {name} needs manage on {uri}"),
+    }))
+}
+
+/// Sessions, files and ports of a host, as the agent account: `hosts.sessions.*` and `hosts.files.*`, `hosts.ports.connect`.
+fn register_env(methods: &mut Methods) {
+    methods
+        .add(
+            "hosts.sessions.open",
+            |call: Call, p: TerminalOpen| async move {
+                let name = name(&p.host);
+                // Another account than the agent's operates the host.
+                if p.start.user != "agent" {
+                    let held = call.is_admin()
+                        || rookery_facilities::access::holds(
+                            &call,
+                            &crate::uri(&name),
+                            Grant::Manage,
+                        )
+                        .await?;
+                    if !held {
+                        return Err(RpcError::forbidden(format!(
+                            "a session as {} needs manage on {}",
+                            p.start.user,
+                            crate::uri(&name)
+                        )));
+                    }
+                }
+                let query = match &p.wait {
+                    Some(wait) => format!("?wait={}", rookery_api::client::encode(wait)),
+                    None => String::new(),
+                };
+                let body = serde_json::to_value(&p.start)
+                    .map_err(|e| RpcError::internal(e.to_string()))?;
+                let opened = pass(
+                    &call,
+                    &name,
+                    Capability::Sessions,
+                    "POST",
+                    format!("/v1/sessions{query}"),
+                    Some(body),
+                )
+                .await?;
+                call.audit(
+                    "terminal.open",
+                    Some(&crate::uri(&name)),
+                    json!({"user": p.start.user}),
+                )
+                .await;
+                Ok(opened)
+            },
+        )
+        .summary(
+            "Opens a session on a host: a terminal or a process. The screen is kept on the host.",
+        )
+        .level(host(Grant::Use));
+    methods
+        .add("hosts.sessions.list", |call: Call, p: HostRef| async move {
+            pass(
+                &call,
+                &name(&p.host),
+                Capability::Sessions,
+                "GET",
+                "/v1/sessions".into(),
+                None,
+            )
+            .await
+        })
+        .summary("The sessions on a host.")
+        .level(host(Grant::View));
+    methods
+        .add(
+            "hosts.sessions.get",
+            |call: Call, p: TerminalRef| async move {
+                let (name, target) = terminal(&p.host, &p.terminal, "", &p.query);
+                pass(&call, &name, Capability::Sessions, "GET", target, None).await
+            },
+        )
+        .summary("A session on a host.")
+        .level(host(Grant::View));
+    methods
+        .add(
+            "hosts.sessions.output",
+            |call: Call, p: TerminalRef| async move {
+                let (name, target) = terminal(&p.host, &p.terminal, "/output", &p.query);
+                session_guard(&call, &name, &p.terminal).await?;
+                pass(&call, &name, Capability::Sessions, "GET", target, None).await
+            },
+        )
+        .summary("What a session wrote, from an offset or its last lines. Another account's session, or an action's, needs manage.")
+        .level(host(Grant::Use));
+    methods
+        .add(
+            "hosts.sessions.screen",
+            |call: Call, p: TerminalRef| async move {
+                let (name, target) = terminal(&p.host, &p.terminal, "/screen", &p.query);
+                session_guard(&call, &name, &p.terminal).await?;
+                pass(&call, &name, Capability::Sessions, "GET", target, None).await
+            },
+        )
+        .summary("A terminal's screen as the host keeps it. Another account's session, or an action's, needs manage.")
+        .level(host(Grant::Use));
+    methods
+        .add("hosts.sessions.close", |call: Call, p: TerminalRef| async move {
+            let (name, target) = terminal(&p.host, &p.terminal, "", &p.query);
+            session_guard(&call, &name, &p.terminal).await?;
+            pass(&call, &name, Capability::Sessions, "DELETE", target, None).await
+        })
+        .summary("Ends a session on a host, or forgets one that ended. Another account's session, or an action's, needs manage.")
+        .level(host(Grant::Use));
+    for (method, rest, summary) in [
+        (
+            "hosts.sessions.input",
+            "/input",
+            "Types into a session. Another account's session, or an action's, needs manage.",
+        ),
+        (
+            "hosts.sessions.resize",
+            "/resize",
+            "Gives a terminal another size. Another account's session, or an action's, needs manage.",
+        ),
+        (
+            "hosts.sessions.signal",
+            "/signal",
+            "Sends a signal to a session's process. Another account's session, or an action's, needs manage.",
+        ),
+    ] {
+        methods
+            .add(method, move |call: Call, p: TerminalSend| async move {
+                let (name, target) = terminal(&p.host, &p.terminal, rest, &BTreeMap::new());
+                session_guard(&call, &name, &p.terminal).await?;
+                pass(
+                    &call,
+                    &name,
+                    Capability::Sessions,
+                    "POST",
+                    target,
+                    Some(p.body),
+                )
+                .await
+            })
+            .summary(summary)
+            .level(host(Grant::Use));
+    }
+    methods
+        .add("hosts.sessions.attach", |call: Call, p: TerminalRef| async move {
+            let (name, target) = terminal(&p.host, &p.terminal, "", &p.query);
+            session_guard(&call, &name, &p.terminal).await?;
+            pass_stream(&call, &name, Capability::Sessions, target, Carry::Tagged).await
+        })
+        .summary("A session's output as it comes and its input, as a stream: each frame has a byte before it, b for the terminal's bytes and t for the host's JSON, such as a size to take or how it exited. Another account's session, or an action's, needs manage.")
+        .stream()
+        .level(host(Grant::Use));
+    methods
+        .add("hosts.files.read", |call: Call, p: FileRef| async move {
+            let name = name(&p.host);
+            let state = serve(&call)?;
+            let remote = api::controller(&state, &name, Capability::Sessions).await?;
+            let link = remote
+                .link
+                .as_ref()
+                .ok_or_else(|| RpcError::unavailable("no link"))?;
+            let target = format!("/v1/files?path={}", rookery_api::client::encode(&p.path));
+            let answer = link
+                .send("GET", &target, &[], &[])
+                .await
+                .map_err(api::Fail::from)?;
+            match answer.status {
+                404 => return Err(RpcError::not_found(format!("no file {}", p.path))),
+                status if status >= 400 => return Err(host_refused(status, &answer.body)),
+                _ => {}
+            }
+            let header = |key: &str| {
+                answer
+                    .headers
+                    .get(key)
+                    .and_then(|v| v.to_str().ok())
+                    .map(str::to_owned)
+            };
+            Ok(Passed(json!({
+                "base64": rookery_api::b64(&answer.body),
+                "content_type": header("content-type").unwrap_or_default(),
+                "etag": header("etag"),
+            })))
+        })
+        .summary(
+            "A file on a host, in base64 with its content_type and etag, inside the host's roots.",
+        )
+        .level(host(Grant::Use));
+    methods
+        .add("hosts.files.write", |call: Call, p: FileWrite| async move {
+            let name = name(&p.host);
+            let state = serve(&call)?;
+            let remote = api::controller(&state, &name, Capability::Sessions).await?;
+            let link = remote
+                .link
+                .as_ref()
+                .ok_or_else(|| RpcError::unavailable("no link"))?;
+            let bytes = rookery_api::unb64(&p.base64)
+                .ok_or_else(|| RpcError::invalid("base64: not base64"))?;
+            // With no etag a file that is there is replaced.
+            let target = format!(
+                "/v1/files?path={}{}",
+                rookery_api::client::encode(&p.path),
+                if p.etag.is_none() {
+                    "&overwrite=true"
+                } else {
+                    ""
+                }
+            );
+            let mut headers = vec![("content-type", "application/octet-stream")];
+            if let Some(etag) = &p.etag {
+                headers.push(("if-match", etag.as_str()));
+            }
+            let answer = link
+                .send("PUT", &target, &headers, &bytes)
+                .await
+                .map_err(api::Fail::from)?;
+            if answer.status == 412 {
+                return Err(RpcError::conflict(format!(
+                    "{} changed since it was read",
+                    p.path
+                )));
+            }
+            if answer.status >= 400 {
+                return Err(host_refused(answer.status, &answer.body));
+            }
+            Ok(Passed(
+                serde_json::from_slice(&answer.body).unwrap_or(json!({})),
+            ))
+        })
+        .summary("Writes a file on a host, inside its roots; with etag only if it is still at it.")
+        .level(host(Grant::Use));
+    methods
+        .add("hosts.files.delete", |call: Call, p: FileRef| async move {
+            let target = format!("/v1/files?path={}", rookery_api::client::encode(&p.path));
+            pass(
+                &call,
+                &name(&p.host),
+                Capability::Sessions,
+                "DELETE",
+                target,
+                None,
+            )
+            .await
+        })
+        .summary("Removes a file on a host, inside its roots.")
+        .level(host(Grant::Use));
+    methods
+        .add(
+            "hosts.ports.connect",
+            |call: Call, p: PortConnect| async move {
+                pass_stream(
+                    &call,
+                    &name(&p.host),
+                    Capability::Sessions,
+                    format!("/v1/ports/{}", p.port),
+                    Carry::Bytes,
+                )
+                .await
+            },
+        )
+        .summary("A byte stream to a TCP port on a host's loopback.")
+        .stream()
+        .level(host(Grant::Use));
+    methods
+        .add("resources.connect", |call: Call, p: EndpointConnect| async move {
+            let state = serve(&call)?;
+            let connection = crate::serve::connect::connect(state, (p.id, p.endpoint)).await?;
+            let stream = call.conn()?.streams().open(Initiator::Peer)?;
+            let id = stream.id();
+            tokio::spawn(crate::serve::tunnel(stream, connection));
+            Ok(StreamOpened { stream: id, offset: None })
+        })
+        .summary("A byte stream to an endpoint a resource's provisioner reported, by its name or its port.")
+        .stream()
+        .level(Level::Admin);
+}
+
+/// The messages hosts keep, taken in by the leader from their channels.
+fn register_messages(methods: &mut Methods) {
+    methods
+        .add("hosts.messages.list", |call: Call, p: MessageQuery| async move {
+            let state = serve(&call)?;
+            let host = p.host.as_deref().map(name);
+            let key = host.as_ref().map(|host| {
+                let (state, host) = (state.clone(), host.clone());
+                (state, host)
+            });
+            let filter_host = match key {
+                Some((state, host)) => Some(
+                    tokio::task::spawn_blocking(move || api::host_key(&state.paths, &host))
+                        .await
+                        .map_err(|e| RpcError::internal(e.to_string()))?,
+                ),
+                None => None,
+            };
+            let limit = p.limit.unwrap_or(100).clamp(1, 1000);
+            let (topic, done, before) = (p.topic.clone(), p.done, p.before);
+            let found = {
+                let state = state.clone();
+                tokio::task::spawn_blocking(move || {
+                    let filter = rookery_core::store::Filter {
+                        host: filter_host.as_deref(),
+                        topic: topic.as_deref(),
+                        before,
+                        done,
+                        limit,
+                    };
+                    let found = state.store.inbox(&filter)?;
+                    let named: Vec<(rookery_core::store::Stored, String)> = found
+                        .0
+                        .into_iter()
+                        .map(|stored| {
+                            let name = state
+                                .store
+                                .label_of(rookery_core::store::kind::PROFILE, rookery_core::store::OWN, &stored.host)
+                                .ok()
+                                .flatten()
+                                .unwrap_or_else(|| stored.host.clone());
+                            (stored, name)
+                        })
+                        .collect();
+                    Ok::<_, rookery_core::store::Error>((named, found.1))
+                })
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))?
+                .map_err(api::Fail::from)?
+            };
+            let mut messages = vec![];
+            for (stored, host) in found.0 {
+                let seen = call.is_admin()
+                    || rookery_facilities::access::holds(&call, &crate::uri(&host), Grant::View).await?;
+                if seen {
+                    messages.push(HostMessage { message: stored.message, host, done: stored.done, seq: stored.seq });
+                }
+            }
+            Ok(MessageList { messages, next: found.1 })
+        })
+        .summary("The messages hosts kept on their channels, newest first, of the hosts the caller sees.")
+        .level(Level::Own);
+    for (method, done, summary) in [
+        ("hosts.messages.done", true, "Marks a host's message done."),
+        (
+            "hosts.messages.reopen",
+            false,
+            "Marks a host's message open again.",
+        ),
+    ] {
+        methods
+            .add(method, move |call: Call, p: MessageRef| async move {
+                let state = serve(&call)?;
+                let host = name(&p.host);
+                let changed = tokio::task::spawn_blocking(move || {
+                    let key = api::host_key(&state.paths, &host);
+                    state.store.set_done(&key, p.id, done)
+                })
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))?
+                .map_err(api::Fail::from)?;
+                match changed {
+                    true => Ok(Empty {}),
+                    false => Err(RpcError::not_found("no such message")),
+                }
+            })
+            .summary(summary)
+            .level(host(Grant::Manage));
+    }
+    methods
+        .add(
+            "hosts.channel.listen",
+            |call: Call, p: HostQuery| async move {
+                let target = format!("/v1/channel{}", query_of(&p.query));
+                pass_stream(
+                    &call,
+                    &name(&p.host),
+                    Capability::Sessions,
+                    target,
+                    Carry::Lines,
+                )
+                .await
+            },
+        )
+        .summary(
+            "A host's channel as its messages come, a JSON line each, from `since` in `query`.",
+        )
+        .stream()
+        .level(host(Grant::View));
 }
 
 fn register_keys(methods: &mut Methods) {
@@ -772,6 +1356,120 @@ fn register_provisioning(methods: &mut Methods) {
         )
         .summary("A resource's log as it comes, then a line with how it ended.")
         .stream()
+        .level(Level::Admin);
+}
+
+fn text(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
+fn parsed<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, RpcError> {
+    serde_json::from_value(value).map_err(|e| RpcError::invalid(format!("value: {e}")))
+}
+
+/// The installation's secrets, settings and registries, as Rookery has had them: a host's SSH and
+/// sudo passwords, a registry's login and a provisioner's secrets belong to what they are for.
+fn register_installation(methods: &mut Methods) {
+    methods
+        .add("installation.secrets.list", |call: Call, _: Empty| async move {
+            answer(&call, setup::secrets(serve(&call)?)).await
+        })
+        .summary("The names of the installation's secrets: its own, and those of hosts, registries and provisioners.")
+        .level(Level::Admin);
+    methods
+        .add("installation.secrets.set", |call: Call, p: NamedValue| async move {
+            let value = parsed(json!({"value": text(&p.value)}))?;
+            answer(&call, setup::set_secret(serve(&call)?, p.name.clone(), value)).await?;
+            call.audit("secret.set", None, json!({"name": p.name})).await;
+            Ok(Empty {})
+        })
+        .summary("Sets a secret: sudo/HOST and ssh/HOST for a host's passwords, registry/NAME for a registry's login, or one of a name of its own.")
+        .level(Level::Admin);
+    methods
+        .add(
+            "installation.secrets.rename",
+            |call: Call, p: NamedValue| async move {
+                let to = parsed(json!({"name": text(&p.value)}))?;
+                answer(&call, setup::rename_secret(serve(&call)?, p.name, to)).await?;
+                Ok(Empty {})
+            },
+        )
+        .summary("Renames a secret of a name of its own; value is the new name.")
+        .level(Level::Admin);
+    methods
+        .add(
+            "installation.secrets.remove",
+            |call: Call, p: Named| async move {
+                answer(&call, setup::remove_secret(serve(&call)?, p.name.clone())).await?;
+                call.audit("secret.remove", None, json!({"name": p.name}))
+                    .await;
+                Ok(Empty {})
+            },
+        )
+        .summary("Removes a secret.")
+        .level(Level::Admin);
+    methods
+        .add(
+            "installation.settings.list",
+            |call: Call, _: Empty| async move {
+                let caller = access(&call, None).await?;
+                answer(&call, setup::settings(serve(&call)?, caller)).await
+            },
+        )
+        .summary(
+            "The installation's settings, with what each means; secret ones without their value.",
+        )
+        .level(Level::Admin);
+    methods
+        .add("installation.settings.set", |call: Call, p: NamedValue| async move {
+            let caller = access(&call, None).await?;
+            let value = parsed(json!({"value": text(&p.value)}))?;
+            answer(&call, setup::set_setting(serve(&call)?, caller, p.name.clone(), value)).await?;
+            call.audit("setting.set", None, json!({"name": p.name})).await;
+            Ok(Empty {})
+        })
+        .summary("Sets one of the installation's settings, or with an empty value takes it back to its default. Those that are not open are set over the socket alone.")
+        .level(Level::Admin);
+    methods
+        .add("registries.list", |call: Call, _: Empty| async move {
+            answer(&call, setup::registries(serve(&call)?)).await
+        })
+        .summary("The registries hosts are given logins and mirrors of; connections of the type registry.")
+        .level(Level::Admin);
+    methods
+        .add("registries.save", |call: Call, p: NamedValue| async move {
+            answer(&call, setup::save_registry(serve(&call)?, p.name, p.value)).await?;
+            Ok(Empty {})
+        })
+        .summary("Saves a registry: value is the registry, with its type and url.")
+        .level(Level::Admin);
+    methods
+        .add(
+            "registries.rename",
+            |call: Call, p: NamedValue| async move {
+                let to = parsed(json!({"name": text(&p.value)}))?;
+                answer(&call, setup::rename_registry(serve(&call)?, p.name, to)).await?;
+                Ok(Empty {})
+            },
+        )
+        .summary("Renames a registry, with its login; value is the new name.")
+        .level(Level::Admin);
+    methods
+        .add("registries.remove", |call: Call, p: Named| async move {
+            answer(&call, setup::remove_registry(serve(&call)?, p.name)).await?;
+            Ok(Empty {})
+        })
+        .summary("Removes a registry with its login.")
+        .level(Level::Admin);
+    methods
+        .add("registries.check", |call: Call, p: Named| async move {
+            answer(&call, setup::check_registry(serve(&call)?, p.name)).await
+        })
+        .summary("Whether a registry answers, and takes its login.")
         .level(Level::Admin);
 }
 

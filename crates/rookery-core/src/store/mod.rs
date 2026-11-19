@@ -1,25 +1,17 @@
 //! What rookery keeps: messages taken in from the hosts' channels, a small
-//! key-value store, the jobs `rookery serve` ran, and state. It lives in a
-//! SQLite file by default or in a PostgreSQL database; `rookery serve` writes it
-//! and the commands read it beside it.
+//! key-value store, and state of kinds. `rookery serve` keeps it in its tables
+//! on Postgres, through a [`Backend`] of rookery-hosts; tests keep it in memory
+//! ([`memory`]).
 
 mod installation;
-mod postgres;
-mod sqlite;
-#[cfg(test)]
-mod suite;
+#[cfg(any(test, feature = "testing"))]
+pub mod memory;
 
-pub use installation::{
-    Installation, default_file, hold_lock, keep_before_converting, set_shared, shared, wait_lock,
-};
-pub use postgres::PostgresBackend;
-pub use sqlite::SqliteBackend;
+pub use installation::{hold_lock, set_shared, shared, wait_lock};
 
-use crate::seal;
-use rookery_api::{Keep, Message, ids, rfc3339, unix_now};
+use rookery_api::{Message, ids, rfc3339, unix_now};
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
 /// The kinds of values in the `state` table.
@@ -212,76 +204,12 @@ pub struct Filter<'a> {
     pub limit: usize,
 }
 
-/// Which jobs a list has, newest first.
-#[derive(Debug, Clone, Default)]
-pub struct JobFilter<'a> {
-    /// Only those of this subject, as [`crate::runner::Subject::key`] says it.
-    pub subject: Option<&'a str>,
-    /// Only those about this host, alone or among others.
-    pub host: Option<&'a str>,
-    /// Only those that have not ended, or only those that have.
-    pub running: Option<bool>,
-    /// Only those that started before the job of this id.
-    pub before: Option<&'a str>,
-    pub limit: usize,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
     pub key: String,
     pub value: Value,
     pub revision: i64,
     pub updated: String,
-}
-
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Job {
-    pub id: String,
-    /// The hosts it is about, for a reader.
-    pub host: String,
-    /// The action, as rows kept without `action` say it.
-    pub what: String,
-    pub started: String,
-    pub ended: Option<String>,
-    pub exit_code: Option<i32>,
-    pub output_path: String,
-    /// `host:NAME`, `provisioner:NAME`, `resource:ID` or `installation`;
-    /// empty in rows kept without it.
-    pub subject: String,
-    pub action: String,
-    /// The caller's token: the same one again for the same subject and
-    /// action finds this job.
-    pub token: Option<String>,
-    /// Who stopped it, when it was stopped before it ended by itself.
-    pub stopped_by: Option<String>,
-    /// What it was started with that people may see; never a secret.
-    pub arguments: Vec<String>,
-}
-
-impl Job {
-    pub fn json(&self) -> Value {
-        // A row kept without an action says what it did.
-        let action = match self.action.is_empty() {
-            true => &self.what,
-            false => &self.action,
-        };
-        json!({
-            "id": self.id, "subject": self.subject, "action": action, "host": self.host,
-            "started": self.started, "ended": self.ended, "exit_code": self.exit_code,
-            "stopped_by": self.stopped_by, "arguments": self.arguments,
-        })
-    }
-}
-
-/// A job's arguments as its column keeps them: a JSON list, or nothing.
-fn arguments_text(arguments: &[String]) -> Option<String> {
-    (!arguments.is_empty()).then(|| json!(arguments).to_string())
-}
-
-/// A job's arguments from its column; none in rows kept without it.
-fn arguments_from(text: Option<String>) -> Vec<String> {
-    text.and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
 }
 
 /// A row of the `state` table: a value of some kind, for a scope, by name.
@@ -324,153 +252,14 @@ pub fn owned_by(row_name: &str, owner: &str) -> bool {
             .is_some_and(|rest| rest.starts_with('/'))
 }
 
-/// The tables of the store, in the order a copy writes them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Table {
-    State,
-    Messages,
-    Cursors,
-    Kv,
-    Jobs,
-}
-
-impl Table {
-    pub const ALL: [Table; 5] = [
-        Table::State,
-        Table::Messages,
-        Table::Cursors,
-        Table::Kv,
-        Table::Jobs,
-    ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Table::State => "state",
-            Table::Messages => "messages",
-            Table::Cursors => "cursors",
-            Table::Kv => "kv",
-            Table::Jobs => "jobs",
-        }
-    }
-}
-
-/// A row of `messages` as it is stored, for copying it unchanged.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MessageRow {
-    pub seq: i64,
-    pub host: String,
-    pub id: i64,
-    pub topic: String,
-    pub body: String,
-    pub keep: String,
-    pub from_level: String,
-    pub from_uid: i64,
-    pub session: Option<String>,
-    pub time: String,
-    pub done: bool,
-}
-
-/// A row of `cursors`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CursorRow {
-    pub host: String,
-    pub last_id: i64,
-}
-
-/// A row of `kv` as it is stored, its value as the JSON text it was written as.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KvRow {
-    pub namespace: String,
-    pub key: String,
-    pub value: String,
-    pub revision: i64,
-    pub updated: String,
-}
-
-/// The rows of one table.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Rows {
-    State(Vec<StateRow>),
-    Messages(Vec<MessageRow>),
-    Cursors(Vec<CursorRow>),
-    Kv(Vec<KvRow>),
-    Jobs(Vec<Job>),
-}
-
-impl Rows {
-    pub fn table(&self) -> Table {
-        match self {
-            Rows::State(_) => Table::State,
-            Rows::Messages(_) => Table::Messages,
-            Rows::Cursors(_) => Table::Cursors,
-            Rows::Kv(_) => Table::Kv,
-            Rows::Jobs(_) => Table::Jobs,
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        match self {
-            Rows::State(rows) => rows.len(),
-            Rows::Messages(rows) => rows.len(),
-            Rows::Cursors(rows) => rows.len(),
-            Rows::Kv(rows) => rows.len(),
-            Rows::Jobs(rows) => rows.len(),
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
-/// Where the store is.
-#[derive(Clone, PartialEq, Eq)]
-pub enum Target {
-    Sqlite(PathBuf),
-    /// A `postgres://` or `postgresql://` URL.
-    Postgres(String),
-}
-
-impl Target {
-    /// The store a setting names: nothing is the SQLite file at
-    /// `default_file`, a PostgreSQL URL is that database, anything else the
-    /// path of a SQLite file.
-    pub fn parse(setting: Option<&str>, default_file: &Path) -> Target {
-        let setting = setting.map(str::trim).unwrap_or("");
-        if setting.is_empty() {
-            Target::Sqlite(default_file.to_owned())
-        } else if setting.starts_with("postgres://") || setting.starts_with("postgresql://") {
-            Target::Postgres(setting.to_owned())
-        } else {
-            Target::Sqlite(PathBuf::from(setting))
-        }
-    }
-
-    /// Where it is, for people: the file, or the PostgreSQL server and
-    /// database without the user or the password.
-    pub fn describe(&self) -> String {
-        match self {
-            Target::Sqlite(path) => format!("SQLite file {}", path.display()),
-            Target::Postgres(url) => postgres::describe(url),
-        }
-    }
-}
-
-// The URL may hold a password, so it is never printed.
-impl std::fmt::Debug for Target {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Target::Sqlite(path) => f.debug_tuple("Sqlite").field(path).finish(),
-            Target::Postgres(_) => f.write_str("Postgres(..)"),
-        }
-    }
-}
-
 /// What a database has to do for the store. Times are given by `Store`, so
 /// every backend writes the same.
 pub trait Backend: Send {
     fn name(&self) -> &'static str;
-    fn schema_version(&mut self) -> Result<i64>;
+    /// Whether it seals secrets and keys where it keeps them.
+    fn seals(&self) -> bool {
+        false
+    }
 
     fn cursor(&mut self, host: &str) -> Result<u64>;
     fn take_in(&mut self, host: &str, message: &Message) -> Result<Option<Stored>>;
@@ -492,20 +281,6 @@ pub trait Backend: Send {
     ) -> Result<i64>;
     fn remove(&mut self, namespace: &str, key: &str, when: When) -> Result<bool>;
     fn list(&mut self, namespace: &str) -> Result<Vec<Entry>>;
-
-    /// Add the job, unless one with its subject, action and token is there:
-    /// then that one is returned instead, in the same statement, so two
-    /// callers with one token get one job.
-    fn add_job(&mut self, job: &Job) -> Result<Job>;
-    fn job_by_token(&mut self, subject: &str, action: &str, token: &str) -> Result<Option<Job>>;
-    fn end_job(&mut self, id: &str, exit_code: Option<i32>, ended: &str) -> Result<()>;
-    /// Say who stopped a job that has not ended.
-    fn stop_job(&mut self, id: &str, by: &str) -> Result<()>;
-    fn end_lost_jobs(&mut self, ended: &str) -> Result<usize>;
-    fn job(&mut self, id: &str) -> Result<Option<Job>>;
-    /// The jobs `filter` lets through, newest first. A `before` that names
-    /// no job lets none through.
-    fn jobs(&mut self, filter: &JobFilter<'_>) -> Result<Vec<Job>>;
 
     /// Drop messages from before `cutoff` and jobs that ended and started
     /// before it, in one transaction. Returns the dropped jobs' output files.
@@ -535,62 +310,10 @@ pub trait Backend: Send {
     ) -> Result<bool>;
     /// Make a change in one transaction, in the order [`Change`] lists.
     fn change_states(&mut self, change: &Change) -> Result<()>;
-    /// In one transaction, while nobody else writes to the table: give each
-    /// row the value and `sealed` of its new version, leaving `updated` as
-    /// it is. False, with nothing changed, when the table no longer holds
-    /// exactly the old rows.
-    fn swap_states(&mut self, rows: &[(StateRow, StateRow)]) -> Result<bool>;
-
-    /// Every row of a table, as it is stored.
-    fn export(&mut self, table: Table) -> Result<Rows>;
-    /// In one transaction: add the rows as they are, and leave a row that
-    /// is there already by its key as it is. Returns how many were added.
-    fn import(&mut self, rows: &Rows) -> Result<usize>;
-    /// How many rows a table has.
-    fn count(&mut self, table: Table) -> Result<u64>;
-}
-
-/// How much of the `state` table is sealed.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SealReport {
-    pub sealed: usize,
-    pub plain: usize,
-    /// The ids of the keys the sealed rows were made with, in hex.
-    pub key_ids: Vec<String>,
 }
 
 pub struct Store {
     backend: Mutex<Box<dyn Backend>>,
-    /// With keys every value written to `state` is sealed; without, plain.
-    keys: Option<seal::Keys>,
-    /// The key file rookery looked for, to name when a value does not open.
-    key_file: Option<PathBuf>,
-}
-
-/// The associated data that binds a sealed value to its place.
-fn context(kind: &str, scope: &str, name: &str) -> Vec<u8> {
-    [kind, scope, name].join("\0").into_bytes()
-}
-
-pub(crate) fn keep_name(keep: Keep) -> &'static str {
-    match keep {
-        Keep::None => "none",
-        Keep::Last => "last",
-        Keep::Log => "log",
-    }
-}
-
-pub(crate) fn keep_from(name: &str) -> Keep {
-    if name == "last" {
-        Keep::Last
-    } else {
-        Keep::Log
-    }
-}
-
-/// A stored JSON text as a value; what cannot be read is null.
-pub(crate) fn json_value(text: &str) -> Value {
-    serde_json::from_str(text).unwrap_or(Value::Null)
 }
 
 fn now() -> String {
@@ -606,40 +329,13 @@ impl Store {
     fn new(backend: Box<dyn Backend>) -> Store {
         Store {
             backend: Mutex::new(backend),
-            keys: None,
-            key_file: None,
         }
     }
 
-    /// The store, sealing with `keys` from now on. `key_file` is where they
-    /// were looked for, which an error names when a value does not open.
-    pub fn with_keys(self, keys: Option<seal::Keys>, key_file: Option<PathBuf>) -> Store {
-        Store {
-            keys,
-            key_file,
-            ..self
-        }
-    }
-
-    /// Open the SQLite file, creating it and bringing its schema up to date.
-    pub fn open(path: &Path) -> Result<Store> {
-        Ok(Store::new(Box::new(SqliteBackend::open(path)?)))
-    }
-
-    /// Open the store at `target`, bringing its schema up to date.
-    pub fn connect(target: &Target) -> Result<Store> {
-        Store::connect_trusting(target, None)
-    }
-
-    /// As [`Store::connect`], with the certificates in the PEM file `ca`
-    /// trusted as well for a PostgreSQL connection with `sslmode=require`.
-    pub fn connect_trusting(target: &Target, ca: Option<&Path>) -> Result<Store> {
-        match target {
-            Target::Sqlite(path) => Store::open(path),
-            Target::Postgres(url) => Ok(Store::new(Box::new(PostgresBackend::connect_trusting(
-                url, ca,
-            )?))),
-        }
+    /// A store in memory, for tests.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn memory() -> Store {
+        Store::new(Box::new(memory::MemoryBackend::default()))
     }
 
     // A backend that panicked part-way holds no half-done transaction, as
@@ -653,10 +349,6 @@ impl Store {
     /// "sqlite" or "postgres".
     pub fn backend_name(&self) -> &'static str {
         self.backend().name()
-    }
-
-    pub fn schema_version(&self) -> Result<i64> {
-        self.backend().schema_version()
     }
 
     // ── Messages ────────────────────────────────────────────────────────────
@@ -724,53 +416,6 @@ impl Store {
 
     // ── Jobs ────────────────────────────────────────────────────────────────
 
-    /// Add a job, and return the job the store has for it: this one, or
-    /// the one added before with the same subject, action and token.
-    pub fn add_job(&self, job: &Job) -> Result<Job> {
-        self.backend().add_job(job)
-    }
-
-    /// The job started with this token for this subject and action.
-    pub fn job_by_token(&self, subject: &str, action: &str, token: &str) -> Result<Option<Job>> {
-        self.backend().job_by_token(subject, action, token)
-    }
-
-    pub fn end_job(&self, id: &str, exit_code: Option<i32>) -> Result<()> {
-        self.backend().end_job(id, exit_code, &now())
-    }
-
-    /// Say who stopped a job that has not ended.
-    pub fn stop_job(&self, id: &str, by: &str) -> Result<()> {
-        self.backend().stop_job(id, by)
-    }
-
-    /// Jobs that were running when the program that ran them went away.
-    pub fn end_lost_jobs(&self) -> Result<usize> {
-        self.backend().end_lost_jobs(&now())
-    }
-
-    pub fn job(&self, id: &str) -> Result<Option<Job>> {
-        self.backend().job(id)
-    }
-
-    /// Jobs, newest first.
-    pub fn jobs(&self, limit: usize) -> Result<Vec<Job>> {
-        self.find_jobs(&JobFilter {
-            limit,
-            ..JobFilter::default()
-        })
-    }
-
-    /// The jobs `filter` lets through, newest first: at most its limit,
-    /// which is between 1 and 1,000.
-    pub fn find_jobs(&self, filter: &JobFilter<'_>) -> Result<Vec<Job>> {
-        let filter = JobFilter {
-            limit: filter.limit.clamp(1, 1000),
-            ..filter.clone()
-        };
-        self.backend().jobs(&filter)
-    }
-
     // ── Pruning ─────────────────────────────────────────────────────────────
 
     /// Drop messages and ended jobs older than `days`. Key-value and state
@@ -783,9 +428,9 @@ impl Store {
 
     // ── State ───────────────────────────────────────────────────────────────
 
-    /// A key is loaded, so values written to `state` are sealed.
+    /// Whether secrets and keys are sealed where they are kept.
     pub fn encrypted(&self) -> bool {
-        self.keys.is_some()
+        self.backend().seals()
     }
 
     fn row(
@@ -796,41 +441,20 @@ impl Store {
         plain: &[u8],
         updated: &str,
     ) -> Result<StateRow> {
-        let (value, sealed) = match &self.keys {
-            Some(keys) => (seal_with(keys, kind, scope, name, plain)?, true),
-            None => (plain.to_vec(), false),
-        };
         Ok(StateRow {
             kind: kind.to_owned(),
             scope: scope.to_owned(),
             name: name.to_owned(),
-            value,
-            sealed,
+            value: plain.to_vec(),
+            sealed: false,
             updated: updated.to_owned(),
             label: None,
         })
     }
 
-    /// The plain value of a row. A plain row is taken as it is, even with a
-    /// key loaded, as a store being converted holds both.
+    /// The value of a row: the backend gives it plain.
     fn opened(&self, row: StateRow) -> Result<Vec<u8>> {
-        if !row.sealed {
-            return Ok(row.value);
-        }
-        let encrypted = |id: Option<[u8; 8]>| Error::Encrypted {
-            key_file: self.key_file.clone(),
-            key_id: id.map(|id| seal::hex(&id)),
-        };
-        let Some(keys) = &self.keys else {
-            return Err(encrypted(seal::key_id(&row.value)));
-        };
-        keys.open(&context(&row.kind, &row.scope, &row.name), &row.value)
-            .map_err(|error| match error {
-                seal::Error::NoKey(id) => encrypted(Some(id)),
-                error => {
-                    Error::Sealing(format!("{} {:?} in the store: {error}", row.kind, row.name))
-                }
-            })
+        Ok(row.value)
     }
 
     pub fn read(&self, kind: &str, scope: &str, name: &str) -> Result<Option<Vec<u8>>> {
@@ -1042,81 +666,6 @@ impl Store {
                 false => error,
             })
     }
-
-    /// The ids of the keys the sealed rows of `state` were made with.
-    pub fn key_ids(&self) -> Result<BTreeSet<[u8; 8]>> {
-        let rows = self.backend().all_states()?;
-        Ok(rows
-            .iter()
-            .filter(|row| row.sealed)
-            .filter_map(|row| seal::key_id(&row.value))
-            .collect())
-    }
-
-    /// How many rows of `state` are sealed and plain, and with which keys.
-    pub fn seal_report(&self) -> Result<SealReport> {
-        let rows = self.backend().all_states()?;
-        let sealed = rows.iter().filter(|row| row.sealed).count();
-        let ids: BTreeSet<_> = rows
-            .iter()
-            .filter(|row| row.sealed)
-            .filter_map(|row| seal::key_id(&row.value))
-            .collect();
-        Ok(SealReport {
-            sealed,
-            plain: rows.len() - sealed,
-            key_ids: ids.iter().map(|id| seal::hex(id)).collect(),
-        })
-    }
-
-    /// Rewrite every row of `state` in one transaction: sealed with `to`'s
-    /// current key, or plain when `to` is `None`. The rows are read with this
-    /// store's keys, which stay as they are, and keep their `updated`.
-    /// Returns how many rows were rewritten.
-    pub fn reseal(&self, to: Option<&seal::Keys>) -> Result<usize> {
-        let rows = self.backend().all_states()?;
-        let mut pairs = Vec::with_capacity(rows.len());
-        for row in rows {
-            let plain = self.opened(row.clone())?;
-            let (value, sealed) = match to {
-                Some(keys) => (
-                    seal_with(keys, &row.kind, &row.scope, &row.name, &plain)?,
-                    true,
-                ),
-                None => (plain, false),
-            };
-            let new = StateRow {
-                value,
-                sealed,
-                ..row.clone()
-            };
-            pairs.push((row, new));
-        }
-        if !self.backend().swap_states(&pairs)? {
-            return Err(Error::Database(
-                "the store changed while it was being rewritten: nothing was changed, run it again"
-                    .into(),
-            ));
-        }
-        Ok(pairs.len())
-    }
-
-    // ── Copying ─────────────────────────────────────────────────────────────
-
-    /// Every row of a table as it is stored, sealed values sealed.
-    pub fn export(&self, table: Table) -> Result<Rows> {
-        self.backend().export(table)
-    }
-
-    /// Add rows as they are, in one transaction; rows there already stay.
-    /// Returns how many were added.
-    pub fn import(&self, rows: &Rows) -> Result<usize> {
-        self.backend().import(rows)
-    }
-
-    pub fn count(&self, table: Table) -> Result<u64> {
-        self.backend().count(table)
-    }
 }
 
 /// A write of a batch: (kind, scope, name, label, plain value).
@@ -1174,13 +723,6 @@ impl Batch {
         self
     }
 
-    /// Set the hosts and the subject of a job.
-    pub fn set_job(&mut self, id: &str, host: &str, subject: &str) -> &mut Self {
-        self.jobs
-            .push((id.to_owned(), host.to_owned(), subject.to_owned()));
-        self
-    }
-
     pub fn is_empty(&self) -> bool {
         self.writes.is_empty()
             && self.removals.is_empty()
@@ -1207,80 +749,4 @@ fn taken(error: Error, writes: &[Write]) -> Error {
         },
         _ => error,
     }
-}
-
-/// What a copy did with one table.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Copied {
-    pub table: Table,
-    /// The rows of the source that were to be copied.
-    pub found: usize,
-    /// Those the target did not have yet.
-    pub added: usize,
-}
-
-/// What [`copy`] did.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct CopyReport {
-    pub tables: Vec<Copied>,
-    /// Rows of `served:` scopes, a cache of rookery servers, which were left out.
-    pub left_out: usize,
-}
-
-/// Whether a scope of `state` holds what a client knows of a rookery server,
-/// which its next mirror writes again.
-pub fn served_scope(scope: &str) -> bool {
-    scope.starts_with("served:")
-}
-
-/// Copy every table of `from` into `to`, the values as they are, sealed or
-/// plain: both are stores of the same installation, opened with its key. A
-/// target that holds anything in `state`, `messages`, `kv` or `jobs` is
-/// refused unless `into_existing`, and then keeps its rows and gets the
-/// rest. The scopes of rookery servers are left out.
-pub fn copy(from: &Store, to: &Store, into_existing: bool) -> Result<CopyReport> {
-    if !into_existing {
-        for table in [Table::State, Table::Messages, Table::Kv, Table::Jobs] {
-            let count = to.count(table)?;
-            if count > 0 {
-                return Err(Error::Database(format!(
-                    "the target already holds {count} rows in {}: give --into-existing to add to it, keeping what it has",
-                    table.name()
-                )));
-            }
-        }
-    }
-    let mut report = CopyReport::default();
-    for table in Table::ALL {
-        let rows = match from.export(table)? {
-            Rows::State(rows) => {
-                let before = rows.len();
-                let kept: Vec<StateRow> = rows
-                    .into_iter()
-                    .filter(|row| !served_scope(&row.scope))
-                    .collect();
-                report.left_out = before - kept.len();
-                Rows::State(kept)
-            }
-            rows => rows,
-        };
-        let added = to.import(&rows)?;
-        report.tables.push(Copied {
-            table,
-            found: rows.len(),
-            added,
-        });
-    }
-    Ok(report)
-}
-
-fn seal_with(
-    keys: &seal::Keys,
-    kind: &str,
-    scope: &str,
-    name: &str,
-    plain: &[u8],
-) -> Result<Vec<u8>> {
-    keys.seal(&context(kind, scope, name), plain)
-        .map_err(|error| Error::Sealing(error.to_string()))
 }

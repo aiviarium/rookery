@@ -1,189 +1,177 @@
-"""rookery serve over TCP: its routes and the portal, the roles of access
-tokens, setting the server up through the API, and applying as a job.
+"""rookery serve over TCP: its methods over /rpc and /ws with their streams, grants
+on a host for people who are not admins, setting the server up through the API,
+and applying as a job.
 
 All but ApplyJob use rookery serve as harness.served() starts it. ApplyJob
 looks at the job of the server's own shared state (harness.served_extended())."""
+import base64
 import json
 import unittest
 
-from harness import (AGENT, HOST, Serve, Workstation, needs_e2e, provisioned, random_text, served,
-                     served_extended, unb64, wait_for)
+from harness import (AGENT, HOST, needs_e2e, provisioned, random_text, served, served_extended, unb64,
+                     wait_for)
 
 
 def text_of(started):
     return unb64(started.get('stdout_b64'))
 
 
+def process(command, user='agent'):
+    return {'host': HOST, 'kind': 'process', 'command': command, 'user': user, 'wait': '30s'}
+
+
 @needs_e2e
-class Routes(unittest.TestCase):
+class Methods(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.serve = served()
 
     def test_the_server_and_its_hosts(self):
-        version = self.serve.call('GET', '/v1/version')
-        self.assertEqual(version['mode'], 'serve')
-        self.assertEqual(self.serve.call('GET', '/v1/access'), {'role': 'admin', 'setup': True})
+        me = self.serve.call('auth.me')
+        self.assertTrue(me['admin'])
+        self.assertTrue(me['version'])
         hosts = wait_for('the host answering through the server', lambda: [
-            host for host in self.serve.call('GET', '/v1/hosts') if host['name'] == HOST and host['reachable']])
+            host for host in self.serve.call('hosts.list')['hosts'] if host['name'] == HOST and host['reachable']])
         self.assertTrue(hosts[0]['version'])
-        self.assertEqual(self.serve.call('GET', f'/v1/hosts/{HOST}')['address'], HOST)
+        self.assertEqual(self.serve.call('hosts.get', {'host': f'env://{HOST}'})['address'], HOST)
 
-    def test_nothing_without_the_token(self):
-        for token in ('', 'not-the-token', self.serve.token[:-1]):
-            status, answer = self.serve.request('GET', '/v1/hosts', token=token)
+    def test_nothing_without_a_token(self):
+        for token in ('', 'rookery_pat_not-a-token', self.serve.token[:-1]):
+            status, answer = self.serve.rpc('hosts.list', token=token)
             self.assertEqual(status, 401, answer)
-            self.assertEqual(answer['error']['code'], 'unauthorized')
+            self.assertEqual(answer['error']['data']['code'], 'UNAUTHENTICATED')
 
     def test_a_hosts_operations_go_through(self):
-        started = self.serve.call('POST', f'/v1/hosts/{HOST}/controller/sessions?wait=30s',
-                                  {'kind': 'process', 'command': ['id', '-un']})
+        started = self.serve.call('hosts.sessions.open', process(['id', '-un']))
         self.assertEqual((started['exit_code'], text_of(started)), (0, f'{AGENT}\n'))
-        tasks = self.serve.call('GET', f'/v1/hosts/{HOST}/controller/actions')
-        self.assertIn('secrets', [task['name'] for task in tasks])
-        path = f'/v1/hosts/{HOST}/controller/files?path=/home/{AGENT}/through-serve.txt&overwrite=true'
-        status, _ = self.serve.request('PUT', path, b'written through rookery serve',
-                                       headers={'Content-Type': 'application/octet-stream'})
-        self.assertEqual(status, 200)
-        status, read, _ = self.serve.request('GET', path.split('&')[0], raw=True)
-        self.assertEqual((status, read), (200, b'written through rookery serve'))
-        status, _ = self.serve.request('GET', '/v1/hosts/nowhere/controller/sessions')
-        self.assertEqual(status, 404)
+        actions = self.serve.call('hosts.actions', {'host': HOST})['actions']
+        self.assertIn('secrets', [action['name'] for action in actions])
+        path = f'/home/{AGENT}/through-serve.txt'
+        written = b'written through rookery serve'
+        self.serve.call('hosts.files.write', {'host': HOST, 'path': path, 'base64': base64.b64encode(written).decode()})
+        read = self.serve.call('hosts.files.read', {'host': HOST, 'path': path})
+        self.assertEqual(base64.b64decode(read['base64']), written)
+        self.assertEqual(self.serve.refused('hosts.sessions.list', {'host': 'nowhere'}), 'NOT_FOUND')
 
-    def test_the_key_value_store(self):
+    def test_the_key_value_storage(self):
         key = random_text('key')
-        first = self.serve.call('PUT', f'/v1/kv/e2e/{key}', {'colour': 'blue'})
-        self.assertEqual(self.serve.call('GET', f'/v1/kv/e2e/{key}')['value'], {'colour': 'blue'})
-        status, _ = self.serve.request('PUT', f'/v1/kv/e2e/{key}', {'colour': 'red'},
-                                       headers={'If-Match': str(first['revision'] + 100)})
-        self.assertIn(status, (409, 412))
-        self.serve.call('PUT', f'/v1/kv/e2e/{key}', {'colour': 'red'})
-        listed = self.serve.call('GET', '/v1/kv/e2e')
-        entries = listed['entries'] if isinstance(listed, dict) else listed
-        self.assertIn(key, [entry['key'] for entry in entries])
-        self.serve.call('DELETE', f'/v1/kv/e2e/{key}')
-        status, _ = self.serve.request('GET', f'/v1/kv/e2e/{key}')
-        self.assertEqual(status, 404)
+        first = self.serve.call('storage.set', {'plugin': 'e2e', 'key': key, 'value': {'colour': 'blue'}})
+        self.assertEqual(self.serve.call('storage.get', {'plugin': 'e2e', 'key': key})['value'],
+                         {'colour': 'blue'})
+        self.assertEqual(self.serve.refused('storage.set', {'plugin': 'e2e', 'key': key, 'value': {'colour': 'red'},
+                                                            'revision': first['revision'] + 100}), 'CONFLICT')
+        self.serve.call('storage.set', {'plugin': 'e2e', 'key': key, 'value': {'colour': 'red'}})
+        listed = self.serve.call('storage.list', {'plugin': 'e2e'})['entries']
+        self.assertIn(key, [entry['key'] for entry in listed])
+        self.serve.call('storage.delete', {'plugin': 'e2e', 'key': key})
+        self.assertIsNone(self.serve.call('storage.get', {'plugin': 'e2e', 'key': key})['value'])
 
-    def test_the_inbox_takes_in_what_the_host_keeps(self):
+    def test_what_the_host_keeps_is_taken_in(self):
         body = {'note': random_text('inbox')}
-        self.serve.call('POST', f'/v1/hosts/{HOST}/controller/sessions?wait=30s', {
-            'kind': 'process', 'command': ['box', 'publish', 'e2e/inbox', json.dumps(body), '--keep', 'log']})
+        self.serve.call('hosts.sessions.open', process(['box', 'publish', 'e2e/inbox', json.dumps(body), '--keep', 'log']))
 
         def arrived():
-            listed = self.serve.call('GET', f'/v1/inbox?host={HOST}&topic=e2e/inbox')
-            messages = listed['messages'] if isinstance(listed, dict) else listed
-            return [item for item in messages if item['body'] == body]
-        found = wait_for('the message in the inbox', arrived)[0]
+            listed = self.serve.call('hosts.messages.list', {'host': HOST, 'topic': 'e2e/inbox'})['messages']
+            return [item for item in listed if item['body'] == body]
+        found = wait_for('the message taken in', arrived)[0]
         number = found['id']
-        self.serve.call('POST', f'/v1/inbox/{HOST}/{number}/done')
+        self.serve.call('hosts.messages.done', {'host': HOST, 'id': number})
         self.assertTrue(arrived()[0]['done'])
-        self.serve.call('DELETE', f'/v1/inbox/{HOST}/{number}/done')
+        self.serve.call('hosts.messages.reopen', {'host': HOST, 'id': number})
         self.assertFalse(arrived()[0]['done'])
         # The command line marks it the same way.
         rookery = self.serve.station.rookery
-        self.assertIn(f'Message {number} of {HOST} is done', rookery('inbox', 'done', HOST, str(number)).stdout)
+        self.assertIn(f'Message {number} of {HOST} is done', rookery('inbox', 'done', HOST, str(number)).output)
         self.assertTrue(arrived()[0]['done'])
         self.assertNotIn(body['note'], rookery('inbox', 'list', HOST, '--topic', 'e2e/inbox').stdout)
         rookery('inbox', 'reopen', HOST, str(number))
         self.assertFalse(arrived()[0]['done'])
+        # It is on the host's durable topic too, by the host's id.
+        host = self.serve.call('hosts.get', {'host': HOST})
+        topic = self.serve.call('topics.inspect', {'plugin': 'rookery', 'topic': f'hosts.{host["id"]}.channel'})
+        self.assertGreater(topic['messages'], 0, topic)
 
 
 @needs_e2e
-class Portal(unittest.TestCase):
+class Streams(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.serve = served()
 
     def setUp(self):
-        self.portal = self.serve.portal()
+        self.socket = self.serve.socket()
 
     def tearDown(self):
-        self.portal.close()
+        self.socket.close()
 
-    def test_calls_of_the_server_and_of_a_host(self):
-        self.assertEqual(self.portal.result('version')['mode'], 'serve')
-        self.assertIn(HOST, [host['name'] for host in self.portal.result('hosts.list')])
-        started = self.portal.result('sessions.start', {'wait': '30s'},
-                                     {'kind': 'process', 'command': 'echo through the portal'}, host=HOST)
-        self.assertEqual(text_of(started), 'through the portal\n')
-        missing = self.portal.call('nothing.here')
-        self.assertEqual(missing['error']['status'], 404)
+    def test_calls_over_the_socket(self):
+        self.assertIn(HOST, [host['name'] for host in self.socket.result('hosts.list')['hosts']])
+        started = self.socket.result('hosts.sessions.open', process(['echo', 'through /ws']))
+        self.assertEqual(text_of(started), 'through /ws\n')
+        missing = self.socket.call('nothing.here')
+        self.assertEqual(missing['error']['code'], -32601)
 
     def test_a_session_streams_its_output(self):
         marker = random_text('streamed')
-        started = self.portal.result('sessions.start', data={
-            'kind': 'process', 'command': f'sleep 1; echo {marker}'}, host=HOST)
-        texts, data, _ = self.portal.stream('sessions.attach', {'id': started['id']}, host=HOST,
-                                            until=lambda texts, data: marker.encode() in data)
+        started = self.socket.result('hosts.sessions.open', {
+            'host': HOST, 'kind': 'process', 'command': ['sh', '-c', f'sleep 1; echo {marker}']})
+        data, _ = self.socket.stream('hosts.sessions.attach', {'host': HOST, 'terminal': started['id']},
+                                     until=lambda data: marker.encode() in data)
         self.assertIn(marker.encode(), data)
-
-    def test_the_store_over_the_portal(self):
-        key = random_text('portal')
-        self.portal.result('kv.set', {'namespace': 'e2e', 'key': key}, {'n': 1})
-        self.assertEqual(self.portal.result('kv.get', {'namespace': 'e2e', 'key': key})['value'], {'n': 1})
-        self.portal.result('kv.delete', {'namespace': 'e2e', 'key': key})
 
 
 @needs_e2e
-class Roles(unittest.TestCase):
-    """Access tokens of the issuer rookery serve trusts, with the role they name."""
+class Grants(unittest.TestCase):
+    """People who are not admins do on a host what their grant on env://NAME allows."""
 
     @classmethod
     def setUpClass(cls):
         cls.serve = served()
-        cls.issuer = cls.serve.issuer
+        cls.people = {}
+        for level in ('none', 'view', 'use', 'manage'):
+            name = f'grace-{level}'
+            token = cls.serve.make_token(name)
+            user = cls.serve.call('auth.me', token=token)['user']['id']
+            if level != 'none':
+                cls.serve.call('access.grant', {'resource': f'env://{HOST}', 'principal': f'user:{user}',
+                                                'level': level})
+            cls.people[level] = token
 
-    def status(self, scope, method, path, body=None, **token):
-        return self.serve.request(method, path, body, token=self.issuer.token(scope, **token))
-
-    def test_each_role_may_do_what_it_names(self):
-        process = {'kind': 'process', 'command': ['true']}
+    def test_each_level_may_do_what_it_names(self):
         asked = [
-            ('GET', '/v1/hosts', None, 'view'),
-            ('GET', f'/v1/hosts/{HOST}/controller/sessions', None, 'view'),
-            ('POST', f'/v1/hosts/{HOST}/controller/sessions?wait=10s', process, 'operate'),
-            ('GET', f'/v1/hosts/{HOST}/controller/files?path=/home/{AGENT}', None, 'operate'),
-            ('GET', '/v1/secrets', None, 'admin'),
-            ('GET', f'/v1/hosts/{HOST}/profile', None, 'admin'),
+            ('hosts.get', {'host': HOST}, 'view'),
+            ('hosts.sessions.list', {'host': HOST}, 'view'),
+            ('hosts.sessions.open', process(['true']), 'use'),
+            ('hosts.sessions.open', process(['true'], user='operator'), 'manage'),
+            ('hosts.profile', {'host': HOST}, 'manage'),
+            ('hosts.units.list', {'host': HOST}, 'view'),
+            ('hosts.processes.list', {'host': HOST}, 'use'),
+            ('hosts.logs.read', {'host': HOST, 'query': {'lines': '5'}}, 'manage'),
+            ('installation.secrets.list', {}, 'admin'),
+            ('keys.list', {}, 'admin'),
         ]
-        order = ['view', 'operate', 'admin']
-        for role in order:
-            for method, path, body, needed in asked:
-                status, answer = self.status(f'openid rookery:{role}', method, path, body)
-                allowed = order.index(role) >= order.index(needed)
-                self.assertEqual(status == 200, allowed, (role, method, path, status, answer))
-                if not allowed:
-                    self.assertEqual(status, 403, answer)
+        order = ['none', 'view', 'use', 'manage', 'admin']
+        for level, token in self.people.items():
+            for method, params, needed in asked:
+                refused = self.serve.refused(method, params, token=token)
+                allowed = order.index(level) >= order.index(needed)
+                if allowed:
+                    # The host may still say no, as units do without a working systemd: that is
+                    # the host's answer, never the server's own failure.
+                    self.assertIn(refused, (None, 'UNAVAILABLE'), (level, method))
+                else:
+                    self.assertEqual(refused, 'FORBIDDEN', (level, method))
 
-    def test_the_caller_is_told_its_role(self):
-        status, access = self.status('rookery:operate', 'GET', '/v1/access', subject='grace')
-        self.assertEqual((status, access['role'], access['subject']), (200, 'operate', 'grace'))
+    def test_a_person_sees_the_hosts_they_were_granted(self):
+        none = self.serve.call('hosts.list', token=self.people['none'])['hosts']
+        self.assertEqual(none, [])
+        viewed = self.serve.call('hosts.list', token=self.people['view'])['hosts']
+        self.assertEqual([host['name'] for host in viewed], [HOST])
 
-    def test_the_portal_asks_for_each_operation(self):
-        portal = self.serve.portal(self.issuer.token('rookery:view'))
-        try:
-            self.assertTrue(portal.result('hosts.list'))
-            refused = portal.call('sessions.start', data={'kind': 'process', 'command': 'true'}, host=HOST)
-            self.assertEqual(refused['error']['status'], 403)
-            self.assertEqual(portal.call('secrets.list')['error']['status'], 403)
-        finally:
-            portal.close()
-
-    def test_tokens_that_are_not_good(self):
-        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: PLC0415
-        bad = {
-            # Past the minute of leeway for clocks that differ.
-            'expired': {'expires': -120},
-            'for another audience': {'audience': 'someone-else'},
-            'from another issuer': {'issuer': 'http://192.0.2.50'},
-            'signed with another key': {'key': Ed25519PrivateKey.generate()},
-        }
-        for what, token in bad.items():
-            status, answer = self.status('rookery:admin', 'GET', '/v1/hosts', **token)
-            self.assertEqual(status, 401, (what, answer))
-        status, answer = self.status('openid profile', 'GET', '/v1/hosts')
-        self.assertEqual(status, 403, answer)
+    def test_an_action_needs_the_role_it_names(self):
+        # Removing a host is an admin's; managing it is not enough. The refusal runs nothing.
+        self.assertEqual(self.serve.refused('hosts.act', {'host': HOST, 'action': 'remove'},
+                                            token=self.people['manage']), 'FORBIDDEN')
 
 
 @needs_e2e
@@ -196,80 +184,88 @@ class SetUp(unittest.TestCase):
 
     def test_secrets_and_registries(self):
         name = random_text('token')
-        self.serve.call('PUT', f'/v1/secrets/{name}', {'value': 'kept on the server'})
-        self.assertIn(name, self.serve.call('GET', '/v1/secrets')['names'])
-        self.serve.call('DELETE', f'/v1/secrets/{name}')
-        self.assertNotIn(name, self.serve.call('GET', '/v1/secrets')['names'])
+        self.serve.call('installation.secrets.set', {'name': name, 'value': 'kept on the server'})
+        self.assertIn(name, self.serve.call('installation.secrets.list')['names'])
+        self.serve.call('installation.secrets.remove', {'name': name})
+        self.assertNotIn(name, self.serve.call('installation.secrets.list')['names'])
         registry = {'type': 'npm', 'url': 'http://192.0.2.60/npm/'}
-        self.serve.call('PUT', '/v1/registries/e2e-npm', registry)
-        kept = self.serve.call('GET', '/v1/registries')['registries']['e2e-npm']
+        self.serve.call('registries.save', {'name': 'e2e-npm', 'value': registry})
+        kept = self.serve.call('registries.list')['registries']['e2e-npm']
         self.assertRegex(kept.pop('id'), r'^[0-9a-f]{32}$')
         self.assertEqual(kept, registry)
-        self.serve.call('DELETE', '/v1/registries/e2e-npm')
-        self.assertNotIn('e2e-npm', self.serve.call('GET', '/v1/registries')['registries'])
+        # A registry is a connection of the type registry.
+        connections = self.serve.call('connections.list', {'type': 'registry'})['connections']
+        self.assertIn('e2e-npm', [connection['name'] for connection in connections])
+        self.serve.call('registries.remove', {'name': 'e2e-npm'})
+        self.assertNotIn('e2e-npm', self.serve.call('registries.list')['registries'])
 
     def test_what_a_new_host_starts_from(self):
-        catalogue = self.serve.call('GET', '/v1/setup')
+        catalogue = self.serve.call('setup.catalogue')
         self.assertIn('operator_ssh_public_keys', catalogue['template'])
         self.assertIn('github/cli', [feature['key'] for feature in catalogue['features']])
         own = self.serve.station.own_public()
         self.assertNotIn('key', catalogue)
-        keys = {key['name']: key for key in self.serve.call('GET', '/v1/keys')['keys']}
+        keys = {key['name']: key for key in self.serve.call('keys.list')['keys']}
         self.assertEqual(keys['rookery']['public'], own)
         self.assertNotIn('PRIVATE KEY', json.dumps(keys))
-        name = self.serve.call('POST', '/v1/setup/generate', {'what': 'hostname'})['value']
+        name = self.serve.call('setup.generate', {'what': 'hostname'})['value']
         self.assertRegex(name, r'^rookery-')
-        made = self.serve.call('POST', '/v1/setup/generate', {'what': 'password', 'host': 'draft', 'user': 'ops'})
+        made = self.serve.call('setup.generate', {'what': 'password', 'host': 'draft', 'user': 'ops'})
         self.assertTrue(made['value'].startswith('$6$') and made['password'], made)
-        hashed = self.serve.call('POST', '/v1/setup/generate', {'what': 'password', 'password': 'correct horse'})
+        hashed = self.serve.call('setup.generate', {'what': 'password', 'password': 'correct horse'})
         self.assertTrue(hashed['value'].startswith('$6$'))
 
     def test_a_host_is_made_seeded_and_removed(self):
         profile = provisioned().read_profile()
         # A seed of a host that joins the tailnet needs a key no test network can make.
         apart = {**profile.get('ansible_vars', {}), 'rookery_install_tailscale': False}
-        self.serve.call('PUT', '/v1/hosts/cloud-2/profile', {
+        self.serve.call('hosts.save', {'host': 'cloud-2', 'profile': {
             **profile, 'hostname': 'cloud-2', 'builder': {}, 'access': {}, 'ansible_vars': apart,
             'operator_password_hash': '$6$e2e$' + 'x' * 86,
-            'release_url': 'https://192.0.2.30/rookery-release.tar.gz'})
-        self.assertFalse(self.serve.call('GET', '/v1/hosts/cloud-2')['reachable'])
-        seed = self.serve.call('POST', '/v1/hosts/cloud-2/actions/seed')['result']['user_data']
+            'release_url': 'https://192.0.2.30/rookery-release.tar.gz'}})
+        self.assertFalse(self.serve.call('hosts.get', {'host': 'cloud-2'})['reachable'])
+        seed = self.serve.call('hosts.act', {'host': 'cloud-2', 'action': 'seed'})['result']['user_data']
         own = self.serve.station.own_public().split()[1]
         self.assertTrue(seed.startswith('#cloud-config'))
         self.assertIn(own, seed)
-        self.serve.call('DELETE', '/v1/hosts/cloud-2')
-        status, _ = self.serve.request('GET', '/v1/hosts/cloud-2')
-        self.assertEqual(status, 404)
+        self.serve.call('hosts.remove', {'host': 'cloud-2'})
+        self.assertEqual(self.serve.refused('hosts.get', {'host': 'cloud-2'}), 'NOT_FOUND')
 
     def test_the_server_sends_its_secrets_to_the_host(self):
         value = random_text('from-the-server')
-        self.serve.call('PUT', '/v1/secrets/server-token', {'value': value})
-        profile = self.serve.call('GET', f'/v1/hosts/{HOST}/profile')
+        self.serve.call('installation.secrets.set', {'name': 'server-token', 'value': value})
+        profile = self.serve.call('hosts.profile', {'host': HOST})['profile']
         kept = profile.get('secrets', [])
         profile['secrets'] = [{'name': 'server-token', 'env': 'SERVER_TOKEN'}]
-        self.serve.call('PUT', f'/v1/hosts/{HOST}/profile', profile)
+        self.serve.call('hosts.save', {'host': HOST, 'profile': profile})
         try:
-            session = self.serve.call('POST', f'/v1/hosts/{HOST}/actions/secrets', expect=202)['session']
-            wait_for('the secrets action to end', lambda: self.serve.call(
-                'GET', f'/v1/hosts/{HOST}/controller/sessions/{session["id"]}').get('exit_code') == 0)
+            acted = self.serve.call('hosts.act', {'host': HOST, 'action': 'secrets'})
+            if acted.get('job'):
+                job, log = self.serve.wait_job(acted['job'])
+                self.assertEqual(job['state'], 'succeeded', log)
+            else:
+                session = acted['session']
+                wait_for('the secrets action to end', lambda: self.serve.call(
+                    'hosts.sessions.get', {'host': HOST, 'terminal': session['id']}).get('exit_code') == 0)
             env = provisioned().root_on_host(f'cat /home/{AGENT}/.config/rookery/secrets.env').stdout
             self.assertIn(f'export SERVER_TOKEN={value}', env)
         finally:
             profile['secrets'] = kept
-            self.serve.call('PUT', f'/v1/hosts/{HOST}/profile', profile)
+            self.serve.call('hosts.save', {'host': HOST, 'profile': profile})
 
-    def test_settings_open_to_callers(self):
-        self.serve.call('PUT', '/v1/settings/retention_days', {'value': '30'})
-        settings = {setting['key']: setting for setting in self.serve.call('GET', '/v1/settings')}
+    def test_settings(self):
+        self.serve.call('installation.settings.set', {'name': 'retention_days', 'value': '30'})
+        settings = {setting['key']: setting for setting in self.serve.call('installation.settings.list')}
         self.assertEqual(settings['retention_days']['value'], '30')
-        status, _ = self.serve.request('PUT', '/v1/settings/oauth_issuer', {'value': 'http://192.0.2.1'})
-        self.assertEqual(status, 403)
+        # One that belongs to the server's own machine is set there, over its socket.
+        self.assertEqual(self.serve.refused('installation.settings.set', {'name': 'source', 'value': '/tmp'}),
+                         'FORBIDDEN')
 
 
 @needs_e2e
 class ApplyJob(unittest.TestCase):
-    """Applying as a job of the server, followed over the portal: the second
-    apply of the shared state of rookery serve (harness.served_extended())."""
+    """Applying as a job of the server, followed over /ws: the second apply of
+    the shared state of rookery serve (harness.served_extended())."""
 
     @classmethod
     def setUpClass(cls):
@@ -278,29 +274,14 @@ class ApplyJob(unittest.TestCase):
 
     def test_applying_is_a_job_of_the_server(self):
         job, texts, data = self.applied.job, self.applied.texts, self.applied.data
-        exited = next(text['exited'] for text in texts if 'exited' in (text or {}))
-        self.assertEqual(exited['exit_code'], 0, data.decode(errors='replace')[-3000:])
-        self.assertIn(b'PLAY RECAP', data)
-        listed = self.serve.call('GET', '/v1/jobs')
-        jobs = listed['jobs'] if isinstance(listed, dict) else listed
-        self.assertIn(job['id'], [known['id'] for known in jobs])
-        output = self.serve.call('GET', f'/v1/jobs/{job["id"]}/output')
-        self.assertIn('failed=0', unb64(output['data_b64']) if isinstance(output, dict) else output)
+        ended = texts[-1]
+        self.assertEqual(ended['state'], 'succeeded', data[-3000:])
+        self.assertIn('PLAY RECAP', data)
+        jobs = self.serve.call('jobs.list', {'subject': f'env://{HOST}'})['jobs']
+        self.assertIn(job, [known['id'] for known in jobs])
+        self.assertEqual([known['kind'] for known in jobs if known['id'] == job], ['hosts.act'])
+        self.assertIn('failed=0', self.serve.log(job))
         # The operator now takes the server's key as well.
         keys = provisioned().ssh('ops', 'cat ~/.ssh/authorized_keys').stdout
         own = self.serve.station.own_public()
         self.assertIn(own, keys)
-
-
-@needs_e2e
-class ClosedSetUp(unittest.TestCase):
-    def test_set_up_can_be_closed_to_the_network(self):
-        station = Workstation('closed', ssh_key=False)
-        closed = Serve(station, env={'ROOKERY_SERVE_SETUP': 'off'})
-        try:
-            self.assertEqual(closed.call('GET', '/v1/access'), {'role': 'operate', 'setup': False})
-            status, answer = closed.request('PUT', '/v1/secrets/x', {'value': 'y'})
-            self.assertEqual(status, 403)
-            self.assertIn('set-up', answer['error']['message'])
-        finally:
-            closed.stop()

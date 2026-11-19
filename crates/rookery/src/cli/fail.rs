@@ -92,6 +92,36 @@ impl From<Error> for Fail {
     }
 }
 
+impl From<rookery_client::Error> for Fail {
+    fn from(error: rookery_client::Error) -> Fail {
+        use rookery_proto::ErrorCode::*;
+        let message = error.message();
+        // The code a host's handler gave, as the commands knew them.
+        let code = error
+            .details()
+            .and_then(|details| details["code"].as_str())
+            .map(str::to_owned);
+        let (status, named) = match error.code() {
+            Invalid => (USAGE, "bad_request"),
+            Forbidden | Unauthenticated => (REFUSED, "forbidden"),
+            NotFound => (FAILED, "not_found"),
+            Conflict => (REFUSED, "conflict"),
+            Unavailable => match &error {
+                rookery_client::Error::Transport(_) => (UNREACHABLE, "unreachable"),
+                // A host that refused, or a capability the host lacks.
+                _ => (REFUSED, "unavailable"),
+            },
+            Timeout => (UNREACHABLE, "timeout"),
+            _ => (FAILED, "internal"),
+        };
+        Fail {
+            status,
+            code: code.unwrap_or_else(|| named.to_owned()),
+            message,
+        }
+    }
+}
+
 impl From<std::io::Error> for Fail {
     fn from(error: std::io::Error) -> Fail {
         Fail::failed(error.to_string())

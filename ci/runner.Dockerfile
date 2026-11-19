@@ -6,7 +6,7 @@
 FROM debian:trixie-slim
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl docker-cli docker-compose git jq nodejs npm openssh-client procps python3 python3-venv tini xz-utils \
+      ca-certificates curl docker-cli docker-compose git jq nodejs npm openssh-client postgresql-client procps python3 python3-venv tini xz-utils \
     && rm -rf /var/lib/apt/lists/*
 COPY provision/requirements.txt /tmp/requirements.txt
 RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt \

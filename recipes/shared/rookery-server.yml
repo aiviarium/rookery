@@ -21,7 +21,7 @@
   changed_when: false
   failed_when: false
 
-# Its port stays on this machine: the token gives full control of every host.
+# Its port stays on this machine: an admin's sign-in controls every host.
 - name: Start the rookery server in a container
   ansible.builtin.command:
     argv: "{{ ['docker', 'run', '--detach', '--name', 'rookery', '--restart', 'unless-stopped']
@@ -68,7 +68,7 @@
     - ('127.0.0.1:' ~ rookery_server_port) not in rookery_served.stdout
   changed_when: true
 
-# rookery serve makes its token before it listens, so the key below collects that one.
+# The image's own database is made and started before the server listens.
 - name: Wait for the new rookery server to answer
   ansible.builtin.wait_for:
     host: 127.0.0.1
@@ -76,9 +76,9 @@
     timeout: 60
   when: rookery_container.rc != 0 or rookery_container_remade is changed
 
-# The first user collects the token with this key, so whoever ran the
-# recipe hands on the key and never the token. Later runs leave it be.
-- name: Make a setup key for the first user of the new rookery server
+# The first admin signs in once with this link, so whoever ran the recipe
+# hands on the link and never a token. Later runs leave it be.
+- name: Make a sign-in link for the first admin of the new rookery server
   ansible.builtin.command: docker exec rookery rookery server setup-key
   register: rookery_setup_key
   when: rookery_container.rc != 0
@@ -107,15 +107,18 @@
       else 'http://127.0.0.1:' ~ rookery_server_port) }}
     rookery_here: >-
       {{ '' if rookery_url.startswith('http://127.') else ' (on this machine also http://127.0.0.1:' ~ rookery_server_port ~ ')' }}
+    # The server names itself by its address in the container; the link is the
+    # same at the address the recipe found.
     rookery_key: >-
-      {{ (rookery_setup_key.stdout | default('') | trim) if (rookery_setup_key.rc | default(1)) == 0 else '' }}
+      {{ (rookery_url ~ (rookery_setup_key.stdout | trim | urlsplit('path')))
+      if (rookery_setup_key.rc | default(1)) == 0 and (rookery_setup_key.stdout | default('') | trim) else '' }}
     with_key:
       - "rookery server: {{ rookery_url }}{{ rookery_here }}"
-      - "Setup key for the first user, valid for 24 hours: {{ rookery_key }}"
-      - "With rookery: rookery login {{ rookery_url }} and paste the setup key when asked"
-      - "The key ends once rookery login has the token. A new one: sudo docker exec rookery rookery server setup-key"
+      - "Sign-in link for the first admin, once, within a day: {{ rookery_key }}"
+      - "Open it in a browser, or with rookery: rookery login {{ rookery_key }}"
+      - "A new one: sudo docker exec rookery rookery server setup-key"
     without_key:
       - "rookery server: {{ rookery_url }}{{ rookery_here }}"
-      - "A setup key for a user to collect the token: sudo docker exec rookery rookery server setup-key"
-      - "With it: rookery login {{ rookery_url }}"
-      - "Or the token itself: sudo cat {{ rookery_server_dir }}/data/rookery/serve.token"
+      - "A sign-in link for the first admin: sudo docker exec rookery rookery server setup-key"
+      - "With it: rookery login LINK, or open it in a browser at {{ rookery_url }}"
+      - "Or an access token: sudo docker exec rookery rookery server token --user NAME --admin | rookery login {{ rookery_url }} --token-stdin"

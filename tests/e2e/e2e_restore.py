@@ -1,22 +1,24 @@
 """An installation restored from its database and its key file alone.
 
-A rookery serve keeps its state in an encrypted SQLite store. The test gives it
-the test host, a finished job, a secret, a setting and a key of the ring, stops
-it and wipes its configuration, data and runtime directories. Only the two
-files of the store are kept, and a rookery serve started on them is the same
-installation: the host, the token, rookery's key, the secret, the setting and
-the job are there. The job's output stays on the machine that ran it. Without
-the key file, rookery serve refuses and writes nothing.
+A rookery serve keeps its state in its PostgreSQL database, with its secrets and
+key ring sealed under its key. The test gives it the test host, a finished job, a
+secret, a setting, a key of the ring and an access token, stops it and wipes its
+configuration, data and runtime directories. A copy of the database is all that
+is kept, with the key file, and a rookery serve started on them is the same
+installation: the host, the token, rookery's key, the secret, the setting and the
+job with its log are there. Without the key file, it serves, and refuses what is
+sealed.
 
 It runs on `studio` after the other tests of rookery serve and applies nothing:
 the host is the one provisioned() set up, and the server is its own."""
-import hashlib
+import os
 import shutil
 import subprocess
 import unittest
+import urllib.parse
 
-from harness import (AGENT, HOST, OPERATOR, SCRATCH, Serve, Workstation, _provisioned, free_port, hand_over_operator_key,
-                     light_vars, needs_e2e, provisioned, random_text, unb64, wait_for)
+from harness import (AGENT, HOST, OPERATOR, Serve, Workstation, _provisioned, hand_over_operator_key, light_vars,
+                     make_database, needs_e2e, provisioned, random_text, wait_for)
 
 
 def wipe(station):
@@ -26,19 +28,29 @@ def wipe(station):
             shutil.rmtree(entry) if entry.is_dir() and not entry.is_symlink() else entry.unlink()
 
 
-def digest(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def public_of(key_file):
     """The public half of a private key file, as the two fields of an authorized_keys line."""
     shown = subprocess.run(['ssh-keygen', '-y', '-f', str(key_file)], capture_output=True, text=True, check=True)
     return shown.stdout.split()[:2]
 
 
-def jobs_of(serve):
-    listed = serve.call('GET', '/v1/jobs')
-    return listed['jobs'] if isinstance(listed, dict) else listed
+def pg(url):
+    """The libpq arguments and environment of a database URL."""
+    parts = urllib.parse.urlsplit(url)
+    args = ['-h', parts.hostname, '-p', str(parts.port or 5432), '-U', parts.username, parts.path.lstrip('/')]
+    return args, {**os.environ, 'PGPASSWORD': parts.password or ''}
+
+
+def dump(url):
+    args, env = pg(url)
+    return subprocess.run(['pg_dump', '--no-owner', *args], env=env, capture_output=True, check=True,
+                          timeout=120).stdout
+
+
+def restore(text, url):
+    args, env = pg(url)
+    subprocess.run(['psql', '-q', '-v', 'ON_ERROR_STOP=1', *args], env=env, input=text, capture_output=True,
+                   check=True, timeout=120)
 
 
 @needs_e2e
@@ -49,33 +61,22 @@ class Restore(unittest.TestCase):
     def setUpClass(cls):
         cls.station = station = Workstation('restore', ssh_key=False, trust=False)
         cls.worker = provisioned()
-        keep = SCRATCH / 'restore-store'
-        cls.moved = SCRATCH / 'restore-moved'
-        cls.keyless = SCRATCH / 'restore-keyless'
-        for folder in (keep, cls.moved, cls.keyless):
-            folder.mkdir(mode=0o700)
-        station.env.update(ROOKERY_STORE=str(keep / 'rookery.db'), ROOKERY_STORE_KEY=str(keep / 'store.key'))
-        # What the store says of itself when it is sealed.
-        cls.encrypted = station.rookery('server', 'store', 'encrypt')
         cls.own_public = station.own_public()
         cls.give_the_host_the_keys()
         key = station.own_key_file()
         wait_for('the operator taking the key of the server', lambda: station.ssh(
             OPERATOR, 'true', key=key, check=False).returncode == 0)
-        serve = Serve(station)
-        try:
-            cls.fill(serve)
-        finally:
-            serve.stop()
-        cls.status = station.rookery('server', 'store', 'status').stdout
-        cls.sealed_file = (keep / 'rookery.db').read_bytes()
-        # The database and the key file are all that is kept.
-        for name in ('rookery.db', 'store.key'):
-            shutil.copy2(keep / name, cls.moved / name)
-        shutil.copy2(keep / 'rookery.db', cls.keyless / 'rookery.db')
+        cls.fill(Serve(station))
+        station.stop_server()
+        cls.dumped = dump(station.database)
+        # A database of its own, as one restored from a backup, and the key file: all that is kept.
+        restored = make_database('restored')
+        restore(cls.dumped, restored)
+        cls.keyless = make_database('keyless')
+        restore(cls.dumped, cls.keyless)
         wipe(station)
-        shutil.rmtree(keep)
-        station.env.update(ROOKERY_STORE=str(cls.moved / 'rookery.db'), ROOKERY_STORE_KEY=str(cls.moved / 'store.key'))
+        station.env['ROOKERY_DATABASE_URL'] = station.database = restored
+        station.start_server()
         cls.serve = Serve(station)
 
     @classmethod
@@ -89,103 +90,88 @@ class Restore(unittest.TestCase):
     @classmethod
     def fill(cls, serve):
         """Put a host, a job, a secret, a setting and a key in the first server, and note them."""
-        station = cls.station
         host = cls.worker.read_profile()
         host['access']['auth'] = 'rookery'
         host['ansible_vars'] = light_vars()
         for key in ('secrets', 'registries'):
             host.pop(key, None)
-        serve.call('PUT', f'/v1/hosts/{HOST}/profile', host)
+        serve.call('hosts.save', {'host': HOST, 'profile': host})
         wait_for('the host answering through the server', lambda: [
-            known for known in serve.call('GET', '/v1/hosts') if known['name'] == HOST and known['reachable']])
-        started = serve.call('POST', f'/v1/hosts/{HOST}/actions/status', expect=202)
-        cls.job = started['job']['id']
-
-        def ended():
-            job = serve.call('GET', f'/v1/jobs/{cls.job}')
-            return job if job.get('ended') else None
-        cls.finished = wait_for('the job to end', ended, timeout=120)
-        output = serve.call('GET', f'/v1/jobs/{cls.job}/output')
-        assert unb64(output['data_b64']).strip(), 'the job wrote nothing'
+            known for known in serve.call('hosts.list')['hosts'] if known['name'] == HOST and known['reachable']])
+        cls.job = serve.call('hosts.act', {'host': HOST, 'action': 'status'})['job']
+        cls.finished, cls.output = serve.wait_job(cls.job, timeout=120)
+        assert cls.output.strip(), 'the job wrote nothing'
         cls.secret = random_text('restored-secret')
         cls.secret_value = random_text('value')
-        serve.call('PUT', f'/v1/secrets/{cls.secret}', {'value': cls.secret_value})
-        serve.call('PUT', '/v1/settings/retention_days', {'value': '37'})
+        serve.call('installation.secrets.set', {'name': cls.secret, 'value': cls.secret_value})
+        serve.call('installation.settings.set', {'name': 'retention_days', 'value': '37'})
         cls.ring_key = random_text('ring')
-        serve.call('PUT', f'/v1/keys/{cls.ring_key}')
-        cls.keys = {key['name']: key['public'].split()[:2] for key in serve.call('GET', '/v1/keys')['keys']}
+        serve.call('keys.add', {'name': cls.ring_key})
+        cls.keys = {key['name']: key['public'].split()[:2] for key in serve.call('keys.list')['keys']}
         cls.token = serve.token
-        cls.own_file_public = public_of(station.own_key)
+        cls.own_file_public = public_of(cls.station.own_key)
 
     @classmethod
     def tearDownClass(cls):
-        cls.serve.stop()
         hand_over_operator_key(*cls.others)
 
-    def test_1_the_store_was_sealed_and_the_secret_value_is_not_in_the_file(self):
-        self.assertIn('Encrypted  yes', self.status)
-        self.assertTrue(self.secret_value.encode() not in self.sealed_file, 'the secret is in the file as it is')
+    def test_1_the_secret_value_and_the_keys_are_sealed_in_the_database(self):
+        self.assertTrue(self.secret_value.encode() not in self.dumped, 'the secret is in the database as it is')
+        self.assertTrue(b'PRIVATE KEY' not in self.dumped, 'a key of the ring is in the database as it is')
 
     def test_2_the_host_is_listed_and_reachable(self):
         found = wait_for('the restored server reaching the host', lambda: [
-            known for known in self.serve.call('GET', '/v1/hosts') if known['name'] == HOST and known['reachable']])
+            known for known in self.serve.call('hosts.list')['hosts'] if known['name'] == HOST and known['reachable']])
         self.assertTrue(found[0]['version'])
-        self.assertEqual(self.serve.call('GET', f'/v1/hosts/{HOST}')['address'], HOST)
+        self.assertEqual(self.serve.call('hosts.get', {'host': HOST})['address'], HOST)
 
     def test_3_the_token_and_the_key_of_rookery_are_the_same(self):
-        # Compared without showing either: a failure must not print a token.
-        self.assertTrue(self.serve.token == self.token, 'the restored server has another token')
-        self.assertEqual(self.serve.request('GET', '/v1/hosts', token=self.token)[0], 200)
-        self.assertEqual(self.serve.request('GET', '/v1/hosts', token='not-the-token')[0], 401)
+        # The token of before works, without showing it in a failure.
+        status, _ = self.serve.rpc('hosts.list', token=self.token)
+        self.assertEqual(status, 200)
+        self.assertEqual(self.serve.rpc('hosts.list', token='rookery_pat_not-the-token')[0], 401)
         wait_for('rookery writing its key file', lambda: self.station.own_key.is_file())
         self.assertEqual(self.station.own_key.stat().st_mode & 0o777, 0o600)
         self.assertEqual(public_of(self.station.own_key), self.own_file_public)
         self.assertEqual(self.own_file_public, self.own_public.split()[:2])
-        keys = {key['name']: key['public'].split()[:2] for key in self.serve.call('GET', '/v1/keys')['keys']}
+        keys = {key['name']: key['public'].split()[:2] for key in self.serve.call('keys.list')['keys']}
         self.assertEqual(keys, self.keys)
         self.assertIn(self.ring_key, keys)
         self.assertEqual(keys['rookery'], self.own_file_public)
 
     def test_4_the_secret_and_the_setting_are_there(self):
-        self.assertIn(self.secret, self.serve.call('GET', '/v1/secrets')['names'])
-        settings = {setting['key']: setting for setting in self.serve.call('GET', '/v1/settings')}
+        self.assertIn(self.secret, self.serve.call('installation.secrets.list')['names'])
+        settings = {setting['key']: setting for setting in self.serve.call('installation.settings.list')}
         self.assertEqual(settings['retention_days']['value'], '37')
         # The secret's value opens too: it reaches the host the way a server's secrets do.
-        profile = self.serve.call('GET', f'/v1/hosts/{HOST}/profile')
+        profile = self.serve.call('hosts.profile', {'host': HOST})['profile']
         profile['secrets'] = [{'name': self.secret, 'env': 'RESTORED_SECRET'}]
-        self.serve.call('PUT', f'/v1/hosts/{HOST}/profile', profile)
-        session = self.serve.call('POST', f'/v1/hosts/{HOST}/actions/secrets', expect=202)['session']
-        wait_for('the secrets action to end', lambda: self.serve.call(
-            'GET', f'/v1/hosts/{HOST}/controller/sessions/{session["id"]}').get('exit_code') == 0)
+        self.serve.call('hosts.save', {'host': HOST, 'profile': profile})
+        acted = self.serve.call('hosts.act', {'host': HOST, 'action': 'secrets'})
+        if acted.get('job'):
+            job, log = self.serve.wait_job(acted['job'])
+            self.assertEqual(job['state'], 'succeeded', log)
+        else:
+            wait_for('the secrets action to end', lambda: self.serve.call(
+                'hosts.sessions.get', {'host': HOST, 'terminal': acted['session']['id']}).get('exit_code') == 0)
         env = self.worker.root_on_host(f'cat /home/{AGENT}/.config/rookery/secrets.env').stdout
         self.assertIn(f'export RESTORED_SECRET={self.secret_value}', env)
 
-    def test_5_the_old_job_is_listed_and_its_output_is_somewhere_else(self):
-        self.assertIn(self.job, [job['id'] for job in jobs_of(self.serve)])
-        job = self.serve.call('GET', f'/v1/jobs/{self.job}')
-        self.assertEqual((job['action'], job['exit_code']), ('status', self.finished['exit_code']))
-        status, answer = self.serve.request('GET', f'/v1/jobs/{self.job}/output')
-        self.assertEqual(status, 404, answer)
-        self.assertIn(f'The output of job {self.job} was kept on the machine that ran it', answer['error']['message'])
+    def test_5_the_old_job_is_listed_with_its_log(self):
+        jobs = self.serve.call('jobs.list', {'subject': f'env://{HOST}'})['jobs']
+        self.assertIn(self.job, [job['id'] for job in jobs])
+        job = self.serve.call('jobs.get', {'id': self.job})
+        self.assertEqual((job['params']['action'], job['state']), ('status', self.finished['state']))
+        self.assertEqual(self.serve.log(self.job), self.output)
 
-    def test_6_without_the_key_file_rookery_serve_refuses_and_writes_nothing(self):
-        self.serve.stop()
-        station = self.station
-        wipe(station)
-        database = self.keyless / 'rookery.db'
-        before = digest(database)
-        absent = self.keyless / 'store.key'
-        station.env.update(ROOKERY_STORE=str(database), ROOKERY_STORE_KEY=str(absent))
-        done = station.rookery('serve', '--listen', f'127.0.0.1:{free_port()}', check=False, timeout=60)
-        said = done.stdout + done.stderr
-        self.assertNotEqual(done.returncode, 0, said)
-        self.assertIn('the store is encrypted', said)
-        self.assertIn(str(absent), said)
-        self.assertNotIn('Listening on', said)
-        self.assertTrue(digest(database) == before, 'rookery serve changed the database')
-        # SQLite's own files and rookery's empty lock beside the database are no change; a key file, a copy or a new database would be.
-        beside = {'rookery.db-wal', 'rookery.db-shm', 'rookery.db.convert.lock'}
-        self.assertEqual({path.name for path in self.keyless.iterdir()} - beside, {'rookery.db'})
-        self.assertEqual((self.keyless / 'rookery.db.convert.lock').stat().st_size, 0)
-        self.assertFalse((station.data / 'rookery/serve.token').exists())
-        self.assertFalse((station.data / 'rookery/keys').exists())
+    def test_6_without_the_key_file_it_serves_and_refuses_what_is_sealed(self):
+        self.station.stop_server()
+        wipe(self.station)
+        env = {**self.station.env, 'ROOKERY_DATABASE_URL': self.keyless}
+        del env['ROOKERY_SECRET_KEY_FILE']
+        self.station.env = env
+        self.station.start_server()
+        serve = Serve(self.station)
+        self.assertIn(HOST, [host['name'] for host in serve.call('hosts.list')['hosts']])
+        self.assertEqual(serve.refused('secrets.get', {'plugin': 'rookery', 'name': self.secret}), 'UNAVAILABLE')
+        self.assertFalse((self.station.data / 'rookery/keys/rookery').exists())

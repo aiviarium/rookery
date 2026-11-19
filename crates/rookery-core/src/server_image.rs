@@ -17,6 +17,8 @@ use std::process::{Command, Stdio};
 
 /// The Dockerfile of the server's image, as CI builds the published one.
 pub const DOCKERFILE: &str = include_str!("../../../container/rookery.Dockerfile");
+/// The image's entrypoint, which runs the server's own database.
+pub const ENTRYPOINT: &str = include_str!("../../../container/rookery-container.sh");
 
 /// Where the published images are, and where a self-built server goes back to.
 pub const BASELINE: &str = "ghcr.io/aiviarium/rookery";
@@ -206,11 +208,17 @@ fn tar_entry(out: &mut Vec<u8>, name: &str, mode: u32, bytes: &[u8]) {
 }
 
 /// The build context of the image: the Dockerfile, the provisioning
-/// source's `requirements.txt` and the program, as a tar stream.
+/// source's `requirements.txt`, the entrypoint and the program, as a tar stream.
 pub fn tar(program: &[u8], requirements: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(program.len() + 16 * 1024);
     tar_entry(&mut out, "Dockerfile", 0o644, DOCKERFILE.as_bytes());
     tar_entry(&mut out, "requirements.txt", 0o644, requirements);
+    tar_entry(
+        &mut out,
+        "rookery-container.sh",
+        0o755,
+        ENTRYPOINT.as_bytes(),
+    );
     tar_entry(&mut out, "rookery", 0o755, program);
     out.resize(out.len() + 1024, 0);
     out
@@ -378,10 +386,22 @@ mod tests {
         assert_eq!(tar.len() % 512, 0);
         let found = entries(&tar);
         let names: Vec<&str> = found.iter().map(|(name, ..)| name.as_str()).collect();
-        assert_eq!(names, ["Dockerfile", "requirements.txt", "rookery"]);
+        assert_eq!(
+            names,
+            [
+                "Dockerfile",
+                "requirements.txt",
+                "rookery-container.sh",
+                "rookery"
+            ]
+        );
         assert_eq!(found[0].2, DOCKERFILE.as_bytes());
         assert_eq!(found[1].2, b"ansible-core==2.21.6\n");
-        assert_eq!((found[2].1, &found[2].2), (0o755, &program));
+        assert_eq!(
+            (found[2].1, found[2].2.as_slice()),
+            (0o755, ENTRYPOINT.as_bytes())
+        );
+        assert_eq!((found[3].1, &found[3].2), (0o755, &program));
         let context = Context::of(&program, b"x\n", Cpu::Amd64).unwrap();
         assert_eq!(context.sha256, sha256(&program));
         assert_eq!(context.sha256.len(), 64);

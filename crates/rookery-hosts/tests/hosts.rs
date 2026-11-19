@@ -304,6 +304,25 @@ async fn hosts_are_saved_shared_acted_on_and_renamed() {
         Some(ErrorCode::Forbidden)
     );
 
+    // What names files of the server's machine is for its socket alone, an admin elsewhere refused.
+    for (method, params) in [
+        ("hosts.inventory", json!({"hosts": ["studio"]})),
+        ("hosts.ssh", json!({"host": "studio"})),
+        ("hosts.tailnetKey", json!({"host": "studio"})),
+    ] {
+        assert_eq!(
+            code(server.call(&admin, method, params).await),
+            Some(ErrorCode::Forbidden),
+            "{method}"
+        );
+    }
+    assert!(
+        server
+            .call(&Caller::Local, "hosts.inventory", json!({}))
+            .await
+            .is_ok()
+    );
+
     // The profile is manage's to read. Who manages a host changes how it is reached and set
     // up, but not which of the installation's secrets, registries and features it gets.
     assert_eq!(
@@ -418,6 +437,64 @@ async fn hosts_are_saved_shared_acted_on_and_renamed() {
             .any(|line| line.contains("hello from the host")),
         "{lines:?}"
     );
+    // A session an action runs is the host's managers' to read and drive: use reaches the
+    // agent's own sessions alone, whichever id it names.
+    let session = ended["params"]["session"].as_str().unwrap().to_owned();
+    let user = server.person("Di", false).await;
+    let di = match &user {
+        Caller::User { user, .. } => format!("user:{}", user.id),
+        _ => unreachable!(),
+    };
+    server
+        .call(
+            &admin,
+            "access.grant",
+            json!({"resource": "env://studio", "principal": di, "level": "use"}),
+        )
+        .await
+        .unwrap();
+    for method in [
+        "hosts.sessions.output",
+        "hosts.sessions.screen",
+        "hosts.sessions.close",
+    ] {
+        assert_eq!(
+            code(
+                server
+                    .call(
+                        &user,
+                        method,
+                        json!({"host": "studio", "terminal": session})
+                    )
+                    .await
+            ),
+            Some(ErrorCode::Forbidden),
+            "{method}"
+        );
+    }
+    assert_eq!(
+        code(
+            server
+                .call(
+                    &user,
+                    "hosts.sessions.input",
+                    json!({"host": "studio", "terminal": session, "body": {"data_b64": "eA=="}}),
+                )
+                .await
+        ),
+        Some(ErrorCode::Forbidden)
+    );
+    assert!(
+        server
+            .call(
+                &admin,
+                "hosts.sessions.output",
+                json!({"host": "studio", "terminal": session})
+            )
+            .await
+            .is_ok()
+    );
+
     // Its viewer sees the job and its log on a stream, and cannot cancel it.
     let inbox = server.connect(&member);
     let followed = server_call_on(

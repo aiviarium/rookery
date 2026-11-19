@@ -1,29 +1,52 @@
 //! The command line as a script sees it: the exit statuses of the documented
 //! table, and `-o json` printing the API's own documents. It runs the rookery
-//! that was built, against a `rookery serve` and a server in its own process,
-//! in scratch directories, with made-up hosts.
+//! that was built, against a `rookery serve` on a fresh database of the
+//! Postgres of `ROOKERY_TEST_POSTGRES`, on its socket, in scratch directories,
+//! with made-up hosts.
 #![cfg(target_os = "linux")]
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// A scratch installation: its directories, and the `rookery serve` of it
-/// while one runs.
+/// A scratch installation: its directories, its database, and its `rookery serve`.
 struct Scratch {
     dir: tempfile::TempDir,
     serve: Option<Child>,
+    db: Option<rookery_store::testing::TestDb>,
+    runtime: tokio::runtime::Runtime,
+    /// Whether the user has a runtime folder; a server in a container has none.
+    runtime_dir: bool,
 }
 
 impl Scratch {
-    fn new() -> Scratch {
+    /// A server on a database of its own, or nothing without a Postgres to test on.
+    fn new() -> Option<Scratch> {
+        Scratch::with(true)
+    }
+
+    fn with(runtime_dir: bool) -> Option<Scratch> {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        let db = runtime.block_on(rookery_store::testing::TestDb::new())?;
         let dir = tempfile::Builder::new().prefix("bc").tempdir().unwrap();
         for sub in ["r", "c", "d", "home"] {
             std::fs::create_dir_all(dir.path().join(sub)).unwrap();
         }
-        Scratch { dir, serve: None }
+        let mut scratch = Scratch {
+            dir,
+            serve: None,
+            db: Some(db),
+            runtime,
+            runtime_dir,
+        };
+        scratch.serve();
+        Some(scratch)
     }
 
     fn command(&self) -> Command {
@@ -33,13 +56,15 @@ impl Scratch {
             .env_clear()
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
             .env("HOME", path.join("home"))
-            .env("XDG_RUNTIME_DIR", path.join("r"))
             .env("XDG_CONFIG_HOME", path.join("c"))
             .env("XDG_DATA_HOME", path.join("d"))
             .env("NO_COLOR", "1")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if self.runtime_dir {
+            command.env("XDG_RUNTIME_DIR", path.join("r"));
+        }
         command
     }
 
@@ -54,32 +79,41 @@ impl Scratch {
     }
 
     fn socket(&self) -> PathBuf {
-        self.dir.path().join("r/rookery/serve.sock")
+        match self.runtime_dir {
+            true => self.dir.path().join("r/rookery/server.sock"),
+            false => self.dir.path().join("d/rookery/server.sock"),
+        }
     }
 
-    /// Start `rookery serve` on its socket and wait until it answers.
+    /// Start `rookery serve` and wait until it leads.
     fn serve(&mut self) {
+        let db = self.db.as_ref().unwrap();
         let child = self
             .command()
             .args(["serve"])
+            .env("ROOKERY_DATABASE_URL", &db.url)
+            .env("ROOKERY_SECRET_KEY", db.store.key().unwrap().to_hex())
+            .env("ROOKERY_LISTEN", "127.0.0.1:0")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
             .unwrap();
         self.serve = Some(child);
         let start = Instant::now();
-        while std::os::unix::net::UnixStream::connect(self.socket()).is_err() {
+        while std::os::unix::net::UnixStream::connect(self.socket()).is_err()
+            || call(&self.socket(), "hosts.list", json!({})).is_err()
+        {
             assert!(
-                start.elapsed() < Duration::from_secs(20),
+                start.elapsed() < Duration::from_secs(30),
                 "rookery serve did not start"
             );
-            std::thread::sleep(Duration::from_millis(50));
+            std::thread::sleep(Duration::from_millis(100));
         }
     }
 
-    /// What the server answers to `GET path`, as JSON.
-    fn get(&self, path: &str) -> Value {
-        get(&self.socket(), path)
+    /// What the server answers to a method, as JSON.
+    fn call(&self, method: &str, params: Value) -> Value {
+        call(&self.socket(), method, params).unwrap_or_else(|error| panic!("{method}: {error}"))
     }
 }
 
@@ -89,25 +123,40 @@ impl Drop for Scratch {
             let _ = serve.kill();
             let _ = serve.wait();
         }
+        if let Some(db) = self.db.take() {
+            self.runtime.block_on(db.close());
+        }
     }
 }
 
-fn get(socket: &Path, path: &str) -> Value {
-    let mut stream = std::os::unix::net::UnixStream::connect(socket).unwrap();
-    write!(stream, "GET {path} HTTP/1.0\r\nHost: rookery\r\n\r\n").unwrap();
+/// One call over the socket's `POST /rpc`: its result, or its error.
+fn call(socket: &Path, method: &str, params: Value) -> Result<Value, String> {
+    let mut stream = std::os::unix::net::UnixStream::connect(socket).map_err(|e| e.to_string())?;
+    let body = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).to_string();
+    write!(
+        stream,
+        "POST /rpc HTTP/1.0\r\nHost: rookery\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        body.len()
+    )
+    .map_err(|e| e.to_string())?;
     let mut answer = String::new();
-    stream.read_to_string(&mut answer).unwrap();
-    let (head, body) = answer.split_once("\r\n\r\n").unwrap();
-    assert!(
-        head.starts_with("HTTP/1.0 200") || head.starts_with("HTTP/1.1 200"),
-        "{path}: {head}"
-    );
-    serde_json::from_str(body).unwrap_or_else(|error| panic!("{path}: {error}: {body}"))
+    stream
+        .read_to_string(&mut answer)
+        .map_err(|e| e.to_string())?;
+    let (_, body) = answer.split_once("\r\n\r\n").ok_or("no answer")?;
+    let said: Value = serde_json::from_str(body).map_err(|e| format!("{e}: {body}"))?;
+    match said.get("result") {
+        Some(result) => Ok(result.clone()),
+        None => Err(said["error"].to_string()),
+    }
 }
 
 #[test]
 fn exit_statuses_follow_the_documented_table() {
-    let scratch = Scratch::new();
+    let Some(scratch) = Scratch::new() else {
+        eprintln!("skipped: ROOKERY_TEST_POSTGRES is not set");
+        return;
+    };
     let (status, _, said) = scratch.run(&[
         "host",
         "add",
@@ -164,7 +213,10 @@ fn exit_statuses_follow_the_documented_table() {
 
 #[test]
 fn json_is_the_documents_of_the_api() {
-    let mut scratch = Scratch::new();
+    let Some(scratch) = Scratch::new() else {
+        eprintln!("skipped: ROOKERY_TEST_POSTGRES is not set");
+        return;
+    };
     let (status, _, said) = scratch.run(&[
         "host",
         "add",
@@ -177,7 +229,6 @@ fn json_is_the_documents_of_the_api() {
     assert_eq!(status, 0, "{said}");
     let (status, _, said) = scratch.run(&["key", "create", "spare"]);
     assert_eq!(status, 0, "{said}");
-    scratch.serve();
     let json = |args: &[&str]| -> Value {
         let mut all = vec!["-o", "json"];
         all.extend(args);
@@ -187,18 +238,33 @@ fn json_is_the_documents_of_the_api() {
             .unwrap_or_else(|error| panic!("rookery {}: {error}: {out}", all.join(" ")))
     };
     // What does not change between two reads is the same document.
-    let same: &[(&[&str], &str)] = &[
-        (&["key", "list"], "/v1/keys"),
-        (&["secret", "list"], "/v1/secrets"),
-        (&["registry", "list"], "/v1/registries"),
-        (&["provisioner", "list"], "/v1/provisioners"),
-        (&["provisioner", "types"], "/v1/provisioner-types"),
-        (&["resource", "list"], "/v1/resources"),
-        (&["plugin", "list"], "/v1/plugins"),
-        (&["job", "list"], "/v1/jobs?limit=20"),
+    let same: &[(&[&str], &str, Value, &str)] = &[
+        (&["key", "list"], "keys.list", json!({}), ""),
+        (
+            &["secret", "list"],
+            "installation.secrets.list",
+            json!({}),
+            "",
+        ),
+        (&["registry", "list"], "registries.list", json!({}), ""),
+        (&["provisioner", "list"], "provisioners.list", json!({}), ""),
+        (
+            &["provisioner", "types"],
+            "provisioners.types",
+            json!({}),
+            "",
+        ),
+        (&["resource", "list"], "resources.list", json!({}), ""),
+        (&["plugin", "list"], "plugins.installed", json!({}), ""),
+        (&["job", "list"], "jobs.list", json!({"limit": 20}), "jobs"),
     ];
-    for (args, path) in same {
-        assert_eq!(json(args), scratch.get(path), "rookery {}", args.join(" "));
+    for (args, method, params, under) in same {
+        let served = scratch.call(method, params.clone());
+        let served = match *under {
+            "" => served,
+            key => served[key].clone(),
+        };
+        assert_eq!(json(args), served, "rookery {}", args.join(" "));
     }
     // A host's live state may move between two reads; what it is does not.
     let keys = |value: &Value| -> Vec<String> {
@@ -207,7 +273,7 @@ fn json_is_the_documents_of_the_api() {
         keys
     };
     let listed = json(&["host", "list"]);
-    let served = scratch.get("/v1/hosts");
+    let served = scratch.call("hosts.list", json!({}))["hosts"].clone();
     assert_eq!(
         listed.as_array().unwrap().len(),
         served.as_array().unwrap().len()
@@ -215,10 +281,30 @@ fn json_is_the_documents_of_the_api() {
     assert_eq!(keys(&listed[0]), keys(&served[0]));
     assert_eq!(listed[0]["name"], "studio");
     let shown = json(&["host", "show", "studio"]);
-    let got = scratch.get("/v1/hosts/studio");
+    let got = scratch.call("hosts.get", json!({"host": "studio"}));
     assert_eq!(keys(&shown), keys(&got));
     assert_eq!(
         (&shown["name"], &shown["type"]),
         (&got["name"], &got["type"])
     );
+}
+
+#[test]
+fn the_servers_machine_reaches_it_without_a_runtime_folder() {
+    // As the server's image runs it: no XDG_RUNTIME_DIR and no ROOKERY_SOCKET.
+    let Some(scratch) = Scratch::with(false) else {
+        eprintln!("skipped: ROOKERY_TEST_POSTGRES is not set");
+        return;
+    };
+    assert!(scratch.socket().exists());
+    let (code, out, err) = scratch.run(&["host", "inventory"]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&out).unwrap(),
+        json!({"all": {"hosts": {}}})
+    );
+    // The apply's enrollment key reaches the server too, which says there is no such host.
+    let (code, _, err) = scratch.run(&["tailnet-key", "nowhere"]);
+    assert_ne!(code, 0);
+    assert!(!err.contains("No rookery serve runs"), "{err}");
 }

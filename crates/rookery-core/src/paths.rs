@@ -72,39 +72,15 @@ pub const SETTINGS: &[(&str, &str)] = &[
     ),
     (
         "server",
-        "address of a rookery serve to use instead of hosts of this machine: http://HOST:PORT, https://HOST or unix:/path/to/serve.sock",
+        "address of the rookery serve to use: http://HOST:PORT, https://HOST or unix:/path/to/server.sock",
     ),
     (
         "server_token",
-        "the token of that rookery serve (its serve.token), for an address over the network",
+        "the device session or access token for that rookery serve, kept by rookery login",
     ),
     (
         "retention_days",
-        "days rookery serve keeps messages and jobs in its store (default: 90)",
-    ),
-    (
-        "serve_setup",
-        "off: rookery serve lets nobody over the network change hosts, secrets, registries or settings",
-    ),
-    (
-        "serve_token",
-        "off: rookery serve takes no serve.token over the network, only OAuth 2.0 access tokens",
-    ),
-    (
-        "oauth_issuer",
-        "rookery serve takes access tokens (JWTs) of this OAuth 2.0 issuer: its address, as in the tokens' iss",
-    ),
-    (
-        "oauth_jwks",
-        "address of the issuer's keys, when its metadata is not at the usual place",
-    ),
-    (
-        "oauth_audience",
-        "the aud an access token needs for rookery serve to take it",
-    ),
-    (
-        "oauth_claim",
-        "the claim with the roles rookery:view, rookery:operate and rookery:admin (default: scope; dots go into objects, as in realm_access.roles)",
+        "days rookery serve keeps messages and jobs (default: 90)",
     ),
     (
         "tailnet_login_server",
@@ -118,35 +94,18 @@ pub const SETTINGS: &[(&str, &str)] = &[
         "tailnet_tags",
         "tags new hosts get, comma separated, such as tag:rookery; an OAuth client of Tailscale needs them",
     ),
-    (
-        "store",
-        "where rookery keeps its state: a SQLite file, or a PostgreSQL URL such as postgres://rookery@db.example.org/rookery?sslmode=require (default: rookery.db in the data directory)",
-    ),
-    (
-        "store_key",
-        "the key file that seals the store's values, made by rookery server store encrypt (default: store.key in the configuration directory)",
-    ),
-    (
-        "store_ca",
-        "a PEM file of certificate authorities to trust as well for a PostgreSQL store with sslmode=require",
-    ),
 ];
 
 /// Whether the value of a setting lets someone in, so that no list shows it
-/// whole. `serve_token` is a switch that holds `off`, not a secret.
+/// whole.
 pub fn is_secret(key: &str) -> bool {
-    // A PostgreSQL URL in `store` can hold a password.
-    matches!(key, "server_token" | "store")
+    matches!(key, "server_token")
 }
 
-/// Whether a setting is kept in `config.json` rather than in the store: it
-/// belongs to this machine alone, or it is needed before the store can be
-/// opened.
+/// Whether a setting is kept in `config.json` rather than on the server: it
+/// belongs to this machine alone.
 pub fn is_local(key: &str) -> bool {
-    matches!(
-        key,
-        "store" | "store_key" | "store_ca" | "server" | "server_token" | "source" | "iso_dir"
-    )
+    matches!(key, "server" | "server_token" | "source" | "iso_dir")
 }
 
 /// How long the settings read from the store are taken as they are. The
@@ -579,30 +538,6 @@ mod tests {
             .permissions()
             .mode();
         assert_eq!(mode & 0o777, 0o600);
-    }
-
-    #[test]
-    fn a_local_setting_never_opens_the_store() {
-        let (home, paths) = scratch();
-        // A store that cannot be opened: its directory is a file.
-        fs::write(home.path().join("file"), "").unwrap();
-        let unopenable = home.path().join("file/rookery.db");
-        paths.set("store", unopenable.to_str().unwrap()).unwrap();
-        paths.set("server", "http://192.0.2.7:7777").unwrap();
-        assert_eq!(
-            paths.setting_with("server", None).as_deref(),
-            Some("http://192.0.2.7:7777")
-        );
-        assert_eq!(paths.setting_with("default_host", None), None);
-        assert!(paths.settings().is_err());
-        assert!(paths.set("default_host", "studio").is_err());
-        // And the store can be set back.
-        paths.set("store", "").unwrap();
-        paths.set("default_host", "studio").unwrap();
-        assert_eq!(
-            paths.setting_with("default_host", None).as_deref(),
-            Some("studio")
-        );
     }
 
     #[test]

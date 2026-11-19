@@ -4,13 +4,12 @@
 //! tunnel is no way to an address of the caller's choosing.
 
 use super::Serve;
-use super::api::{Answer, Json, Bytes, Fail};
+use super::api::{Answer, Fail};
 use rookery_api::{Endpoint, client, code, tunnel::Tunnel};
 use rookery_core::{
     paths::Paths,
     resource::{self, Kept},
 };
-use std::sync::Arc;
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     time::Duration,
@@ -308,16 +307,9 @@ async fn dial_first(
 /// The endpoint is dialled before the stream opens, so one that nothing
 /// answers on is an answer of its own and not a stream that ends at once.
 pub async fn connect(
-    axum::extract::state: Arc<Serve>,
+    state: std::sync::Arc<Serve>,
     (id, given): (String, String),
-    ws: Ws,
-) -> Answer<Response> {
-    let ws = ws.map_err(|_| {
-        Fail::new(
-            code::BAD_REQUEST,
-            "An endpoint is opened only as a WebSocket",
-        )
-    })?;
+) -> Answer<impl AsyncRead + AsyncWrite + Send + 'static> {
     // Read now, so the endpoints are those the provisioner reported last.
     let kept = resource::find(&state.paths, &id)
         .map_err(|error| Fail::new(code::NOT_FOUND, error.to_string()))?;
@@ -345,20 +337,10 @@ pub async fn connect(
             ),
         ));
     }
-    if rookery_core::simulate::active().is_some() {
-        return Err(Fail::new(
-            code::NOT_AVAILABLE,
-            format!(
-                "rookery serve --simulate dials no endpoint: {} of {} leads nowhere",
-                endpoint.name,
-                kept.title(&state.paths)
-            ),
-        ));
-    }
     let connection = Dialler::of(&state.paths, &kept)
         .dial(&state, &endpoint)
         .await?;
-    Ok(ws.on_upgrade(move |socket| rookeryd::ports::tunnel(socket, connection)))
+    Ok(connection)
 }
 
 #[cfg(test)]
