@@ -1,9 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["crates/rookery-api", "crates/rookery-pty", "crates/rookery-core", "crates/rookery-setup", "crates/rookery", "crates/rookeryd", "crates/box", "crates/rookery-proto", "crates/rookery-store", "crates/rookery-kernel", "crates/rookery-auth", "crates/rookery-server", "crates/rookery-facilities", "crates/rookery-jobs", "crates/rookery-hosts"]
+members = ["crates/rookery-api", "crates/rookery-pty", "crates/rookery-core", "crates/rookery-setup", "crates/rookery", "crates/rookeryd", "crates/box", "crates/rookery-proto", "crates/rookery-store", "crates/rookery-kernel", "crates/rookery-auth", "crates/rookery-server", "crates/rookery-facilities", "crates/rookery-jobs", "crates/rookery-hosts", "crates/rookery-client"]
 # The vendored crate is a member because it lives inside; it is left out of what
 # is built, tested and linted by default.
-default-members = ["crates/rookery-api", "crates/rookery-pty", "crates/rookery-core", "crates/rookery-setup", "crates/rookery", "crates/rookeryd", "crates/box", "crates/rookery-proto", "crates/rookery-store", "crates/rookery-kernel", "crates/rookery-auth", "crates/rookery-server", "crates/rookery-facilities", "crates/rookery-jobs", "crates/rookery-hosts"]
+default-members = ["crates/rookery-api", "crates/rookery-pty", "crates/rookery-core", "crates/rookery-setup", "crates/rookery", "crates/rookeryd", "crates/box", "crates/rookery-proto", "crates/rookery-store", "crates/rookery-kernel", "crates/rookery-auth", "crates/rookery-server", "crates/rookery-facilities", "crates/rookery-jobs", "crates/rookery-hosts", "crates/rookery-client"]
 
 [workspace.package]
 version = "0.6.0"
@@ -27,6 +27,8 @@ rookery-server = { path = "crates/rookery-server" }
 rookery-facilities = { path = "crates/rookery-facilities" }
 rookery-jobs = { path = "crates/rookery-jobs" }
 rookery-hosts = { path = "crates/rookery-hosts" }
+# The client of rookery serve, on every system.
+rookery-client = { path = "crates/rookery-client" }
 sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "derive", "postgres", "uuid", "chrono", "json"] }
 uuid = { version = "1", features = ["v7", "serde"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
