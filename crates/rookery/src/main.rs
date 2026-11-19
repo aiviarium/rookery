@@ -1,7 +1,7 @@
-//! rookery: set up and look after agent workstations. Its commands and its
-//! screens are clients of a rookery server's API, on Linux, macOS and Windows.
-//! On Linux the program has the server in it as well: `rookery serve`, and
-//! one in the process for a command when no other is set.
+//! rookery: set up and look after agent workstations. Its commands are
+//! clients of a rookery server's API, on Linux, macOS and Windows. On Linux
+//! the program has the server in it as well: `rookery serve`, and one in the
+//! process for a command when no other is set.
 
 mod cli;
 #[cfg(target_os = "linux")]
@@ -29,46 +29,6 @@ fn end_quietly_on_a_closed_pipe() {
         }
         report(panic);
     }));
-}
-
-/// `rookery ui [HOST]`: the screens of a server: the one this rookery is set to
-/// use, a `rookery serve` of this user on this machine, or else one in this
-/// process for as long as they are open, which waits for the jobs it runs
-/// before rookery ends.
-fn screens(global: &cli::args::Global, host: Option<&str>) -> cli::fail::Result<()> {
-    use cli::fail::Fail;
-    use rookery_page::settings::{self, Settings};
-    use std::io::IsTerminal;
-    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
-        return Err(Fail::usage(
-            "rookery's screens need a terminal, and there is none here. rookery help lists the commands that need none",
-        ));
-    }
-    let var = |name: &str| std::env::var(name).ok();
-    let settings = Settings::new(settings::folder(var));
-    let mut linked = rookery_page::device::Linked {
-        server: global
-            .server
-            .clone()
-            .or_else(|| var("ROOKERY_SERVER").filter(|server| !server.trim().is_empty())),
-        token: var("ROOKERY_TOKEN").filter(|token| !token.trim().is_empty()),
-        setup_key: None,
-    };
-    if let Some(file) = &global.token_file {
-        linked.token = Some(std::fs::read_to_string(file)?.trim().to_owned());
-    }
-    let mut finish: Box<dyn FnOnce()> = Box::new(|| {});
-    // Without a server here, the screens ask for one and its token.
-    if linked.local(&settings)
-        && let Some((server, then)) = local::server(true)?
-    {
-        linked.server = Some(server);
-        finish = then;
-    }
-    rookery_page::device::install(linked, settings);
-    let shown = rookery_page::screens::run(host.map(str::to_owned));
-    finish();
-    Ok(shown?)
 }
 
 fn main() {

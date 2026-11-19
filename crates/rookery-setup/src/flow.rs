@@ -1,7 +1,7 @@
-//! The set-up of a new host as questions. It walks the tabs of the screens
-//! in their order, Install, Features, Settings and Run, with the same rows:
-//! what [`Profile::fields`] shows on each, written with [`setup::commit`]
-//! and [`setup::set_feature`], and stopped by the same [`Problem`]s. What
+//! The set-up of a new host as questions. It walks the set-up in its order,
+//! Install, Features, Settings and Run, asking for the fields
+//! [`Profile::fields`] gives for each, writing them with [`setup::commit`]
+//! and [`setup::set_feature`], and stopping on the same [`Problem`]s. What
 //! the command line was given is taken first; whoever runs the flow is asked
 //! for the rest, one [`Question`] at a time, or names the flag that gives it.
 
@@ -59,7 +59,7 @@ pub enum Answer {
 /// One thing the flow wants to know.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Question {
-    /// The tab it belongs to, as the screens show it.
+    /// The part of the set-up it belongs to.
     pub step: Step,
     pub label: String,
     pub help: String,
@@ -165,7 +165,7 @@ pub fn setting(word: &str) -> Result<Setting, String> {
     let field = Field::by_key(key).ok_or_else(|| {
         format!("{key} is no field of a profile. rookery host create --help lists them")
     })?;
-    // A switch is given as on or off, as the screens show it.
+    // A switch is given as on or off, as a toggle field stores it.
     let value = match field.spec().kind {
         Kind::Toggle => on()?.to_string(),
         _ => value.to_owned(),
@@ -192,7 +192,7 @@ impl Given {
     }
 }
 
-/// Write `value` into a field of the profile, as the screens' row does.
+/// Write `value` into a field of the profile, as the flow does.
 pub fn write(config: &mut Value, field: Field, value: &str) -> Result<(), String> {
     match field.spec().kind {
         Kind::Toggle => {
@@ -301,14 +301,14 @@ pub struct Flow {
 pub enum Stop {
     /// A question that has to be answered, and nobody could be asked: its flag.
     Missing(Box<Question>),
-    /// What still stops it, each on its tab.
+    /// What still stops it, each with the part of the set-up it is about.
     Problems(Vec<Problem>),
     /// A value was refused, or the asker gave up.
     Refused(String),
 }
 
-/// The ways offered for a host of `host_type`, as the Install tab offers
-/// them; with the type given, only the ways that keep it.
+/// The ways offered for a host of `host_type`; with the type given, only
+/// the ways that keep it.
 fn methods_for(host_type: rookery_api::HostType, given: bool) -> Vec<Action> {
     Action::SERVED
         .into_iter()
@@ -320,7 +320,7 @@ fn methods_for(host_type: rookery_api::HostType, given: bool) -> Vec<Action> {
 }
 
 impl Flow {
-    /// A new host from the server's starting profile, as the screens begin one.
+    /// A new host from the server's starting profile, as the flow begins one.
     pub fn new(name: &str, catalogue: Catalogue) -> Flow {
         let mut config = catalogue.template.clone();
         if !config.is_object() {
@@ -342,7 +342,7 @@ impl Flow {
         flow
     }
 
-    /// The profile as the screens' tab `step` sees it.
+    /// The profile as the part of the set-up `step` sees it.
     pub fn view(&self, step: Step) -> Profile<'_> {
         Profile {
             config: &self.config,
@@ -361,13 +361,13 @@ impl Flow {
         }
     }
 
-    /// Choose the way it is installed, as a row of the Install tab does.
+    /// Choose the way it is installed.
     pub fn choose(&mut self, action: Action) {
         self.action = action.choose(&mut self.config);
         setup::fit_target(&mut self.config, self.action);
     }
 
-    /// Everything that stops it, as the Run tab lists it.
+    /// Everything that stops it, as the last part of the set-up lists it.
     pub fn problems(&self) -> Vec<Problem> {
         let mut problems = self.view(Step::Run).problems_with(&self.machine);
         if self.action == Action::Machine {
@@ -577,8 +577,8 @@ impl Flow {
         }
     }
 
-    /// The provisioner and the arguments it requires, as the Install tab
-    /// asks for them when a provisioner makes the host.
+    /// The provisioner and the arguments it requires, asked for when a
+    /// provisioner makes the host.
     pub fn machine_questions(&mut self, given: &Given, asker: &mut dyn Asker) -> Result<(), Stop> {
         match &given.provisioner {
             Some(name) => {
@@ -687,7 +687,7 @@ impl Flow {
         Ok(())
     }
 
-    /// The Features tab as one list to tick: the plugins' features and
+    /// The features as one list to tick: the plugins' features and
     /// rookery's own things to install.
     fn feature_question(&mut self, asker: &mut dyn Asker) -> Result<(), Stop> {
         let view = self.view(Step::Features);
@@ -917,9 +917,9 @@ mod tests {
         }
     }
 
-    /// The same host set up as the screens do it: a way chosen on the
-    /// Install tab, features ticked, rows of the Settings tab written.
-    fn on_the_screens() -> Value {
+    /// The same host set up field by field: a way chosen, features ticked,
+    /// settings written.
+    fn written_by_hand() -> Value {
         let catalogue = catalogue();
         let mut config = catalogue.template.clone();
         let mut action = Action::Machine;
@@ -927,7 +927,7 @@ mod tests {
         action = Action::Iso.choose(&mut config);
         setup::fit_target(&mut config, action);
         // A new host starts as one a provisioner makes, which is a cloud
-        // host; the Install tab's Target is chosen again for the installer.
+        // host; the target is chosen again for the installer.
         setup::commit(&mut config, Field::Target, "laptop").unwrap();
         setup::set_feature(&mut config, &catalogue.features, 0, true);
         setup::commit(&mut config, Field::Hostname, "studio").unwrap();
@@ -947,7 +947,7 @@ mod tests {
     }
 
     #[test]
-    fn answers_flags_and_the_screens_make_the_same_profile() {
+    fn answers_and_flags_make_the_same_profile() {
         // With flags, nothing is asked.
         let mut given = Given {
             method: Action::by_key("iso"),
@@ -1014,9 +1014,9 @@ mod tests {
         );
         assert!(script.answers.is_empty());
 
-        let screens = on_the_screens();
-        assert_eq!(flagged.config, screens);
-        assert_eq!(asked.config, screens);
+        let by_hand = written_by_hand();
+        assert_eq!(flagged.config, by_hand);
+        assert_eq!(asked.config, by_hand);
         assert_eq!((flagged.action, asked.action), (Action::Iso, Action::Iso));
     }
 

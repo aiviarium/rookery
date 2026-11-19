@@ -158,7 +158,7 @@ pub fn forward(
                             }
                             Err(error) => out::warn(format!(
                                 "{from}: {shown}:{remote} did not open: {}",
-                                rookery_page::net::describe(&error)
+                                super::net::describe(&error)
                             )),
                         }
                     });

@@ -127,7 +127,7 @@
             "type": "boolean"
           },
           "collection": {
-            "description": "The id of the provisioner's collection it belongs to, whose items it\nmakes, acts on or lists. The screens offer it there and not on the\nprovisioner's page.",
+            "description": "The id of the provisioner's collection it belongs to, whose items it\nmakes, acts on or lists. It is listed with that collection's actions.",
             "type": "string"
           },
           "confirm": {
@@ -266,7 +266,7 @@
             "type": "string"
           },
           "fixed": {
-            "description": "Why it keeps its default here and cannot be given another value,\nsuch as destroying a machine no provisioner made. The screens show\nit greyed and say this instead of changing it. Empty when it can be\nchanged.",
+            "description": "Why it keeps its default here and cannot be given another value,\nsuch as destroying a machine no provisioner made. The set-up says\nthis instead of asking. Empty when it can be changed.",
             "type": "string"
           },
           "help": {
@@ -274,7 +274,7 @@
             "type": "string"
           },
           "kind": {
-            "description": "`resource` for an argument of a provisioner that sizes the machine:\nits CPUs, memory or disk. `text` for one whose value has several\nlines. `boolean` for a yes or no, which the screens show as a switch.\nEmpty for any other argument.",
+            "description": "`resource` for an argument of a provisioner that sizes the machine:\nits CPUs, memory or disk. `text` for one whose value has several\nlines. `boolean` for a yes or no, which the set-up asks as a switch.\nEmpty for any other argument.",
             "type": "string"
           },
           "label": {
@@ -482,7 +482,7 @@
             "type": "string"
           },
           "show": {
-            "description": "The action that prints the list for the command line, which the\nscreens show as the table instead.",
+            "description": "The action that prints the list, for a caller that has no table.",
             "type": "string"
           },
           "within": {

@@ -1,7 +1,6 @@
 //! What rookery says when two of its programs are of different versions: a
 //! client and its server, or the server and a host's controller. Each is one
-//! sentence that names both versions and what to update, the same for the
-//! command line and the screens.
+//! sentence that names both versions and what to update.
 
 use crate::{API, HostType, VERSION};
 

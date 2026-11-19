@@ -1,4 +1,4 @@
-//! The server the screens use and its token, kept between runs as rookery's
+//! The server this rookery uses and its token, kept between runs as rookery's
 //! own `server` and `server_token` settings: in `config.json` of rookery's
 //! folder, a file only its user can read, in a folder only its user can open.
 //! The other settings of that file are left as they are.

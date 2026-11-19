@@ -1,13 +1,13 @@
-//! The server a command talks to, the same way the screens do: the one
-//! named by `--server` or `ROOKERY_SERVER`, the one `rookery login` kept, a
-//! `rookery serve` of this user on this machine, or one in this process for
-//! as long as the command runs. Every command is a call of its API.
+//! The server a command talks to: the one named by `--server` or
+//! `ROOKERY_SERVER`, the one `rookery login` kept, a `rookery serve` of this
+//! user on this machine, or one in this process for as long as the command
+//! runs. Every command is a call of its API.
 
 use super::args::Global;
 use super::fail::{Fail, Result};
+use super::net;
+use super::settings::{self, Settings};
 use rookery_api::portal::{Portal, PortalStream};
-use rookery_page::net;
-use rookery_page::settings::{self, Settings};
 use serde_json::{Value, json};
 use std::future::Future;
 
@@ -77,7 +77,7 @@ fn named_in(global: &Global, kept: &Settings) -> Option<String> {
         .filter(|server| !server.trim().is_empty())
         .or_else(|| variable("ROOKERY_SERVER"))
         .or_else(|| kept.get(settings::SERVER))
-        .map(|server| rookery_page::device::address(&server))
+        .map(|server| net::address(&server))
 }
 
 impl Client {
@@ -156,7 +156,7 @@ impl Client {
 
     /// Whether the server runs in this process, and ends with it.
     pub fn in_process(&self) -> bool {
-        self.url == rookery_page::device::HERE
+        self.url == net::HERE
     }
 
     pub fn wait<F: Future>(&self, future: F) -> F::Output {

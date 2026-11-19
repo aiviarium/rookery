@@ -75,7 +75,7 @@
             "type": "string"
           },
           "fixed": {
-            "description": "Why it keeps its default here and cannot be given another value,\nsuch as destroying a machine no provisioner made. The screens show\nit greyed and say this instead of changing it. Empty when it can be\nchanged.",
+            "description": "Why it keeps its default here and cannot be given another value,\nsuch as destroying a machine no provisioner made. The set-up says\nthis instead of asking. Empty when it can be changed.",
             "type": "string"
           },
           "help": {
@@ -83,7 +83,7 @@
             "type": "string"
           },
           "kind": {
-            "description": "`resource` for an argument of a provisioner that sizes the machine:\nits CPUs, memory or disk. `text` for one whose value has several\nlines. `boolean` for a yes or no, which the screens show as a switch.\nEmpty for any other argument.",
+            "description": "`resource` for an argument of a provisioner that sizes the machine:\nits CPUs, memory or disk. `text` for one whose value has several\nlines. `boolean` for a yes or no, which the set-up asks as a switch.\nEmpty for any other argument.",
             "type": "string"
           },
           "label": {

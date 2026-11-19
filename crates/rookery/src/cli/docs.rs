@@ -188,13 +188,13 @@ fn section(out: &mut String, path: &str, command: &Command, depth: usize) {
         }
         if path == "rookery host create" {
             out.push_str("The ways to install, for `--method`:\n\n");
-            let methods: Vec<(String, String)> = rookery_tui::fields::Action::SERVED
+            let methods: Vec<(String, String)> = rookery_setup::fields::Action::SERVED
                 .iter()
                 .map(|action| (action.key().to_owned(), action.label().to_owned()))
                 .collect();
             out.push_str(&table(&methods, ("Method", "What it is")));
             out.push_str("\nThe fields of a profile, for `--set KEY=VALUE` here and `rookery host set`. A switch takes `on` or `off`. `feature.PLUGIN/FEATURE=on`, `secret.NAME=VARIABLE` and `registry.NAME=on` give a host those as well.\n\n");
-            let keys: Vec<(String, String)> = rookery_tui::flow::keys()
+            let keys: Vec<(String, String)> = rookery_setup::flow::keys()
                 .into_iter()
                 .map(|(key, label, _)| (key, label.to_owned()))
                 .collect();

@@ -7,13 +7,13 @@ use super::args::{Global, Login};
 use super::ask;
 use super::client;
 use super::fail::{Fail, Result};
+use super::net;
 use super::out;
-use rookery_page::net;
-use rookery_page::settings::{self, Settings};
+use super::settings::{self, Settings};
 use serde_json::Value;
 
 pub fn login(global: &Global, login: &Login) -> Result<()> {
-    let url = rookery_page::device::address(&login.url);
+    let url = net::address(&login.url);
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return Err(Fail::usage(format!(
             "{} is no address of a rookery server: https://HOST or http://HOST:PORT",

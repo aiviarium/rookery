@@ -63,7 +63,7 @@ if [ "$system" != linux ]; then
   printf 'Next: rookery login URL, with the setup key of your rookery server.\n'
   exit 0
 fi
-printf 'Next: rookery host create NAME, or rookery ui for the screens. rookery login URL uses a rookery server instead.\n'
+printf 'Next: rookery host create NAME. rookery login URL uses a rookery server instead.\n'
 missing=
 for tool in ssh python3 ansible-playbook; do
   command -v "$tool" >/dev/null || missing="$missing $tool"

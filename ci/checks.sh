@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-crates=(-p rookery-api -p rookery-pty -p rookery-core -p rookery-tui -p rookery -p rookeryd -p box -p rookery-page)
+crates=(-p rookery-api -p rookery-pty -p rookery-core -p rookery-setup -p rookery -p rookeryd -p box)
 
 # Each runs as the condition of an if, where set -e does not stop it: the
 # steps are joined with && instead.

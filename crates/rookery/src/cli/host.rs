@@ -1,5 +1,5 @@
-//! `rookery host …`: the hosts of the server, as the screens' home list and
-//! a host's overview and set-up show them.
+//! `rookery host …`: the hosts of the server, and a host's profile and
+//! set-up.
 
 use super::args::{self, Global, Host};
 use super::ask;
@@ -227,8 +227,8 @@ fn add(client: &Client, add: &args::HostAdd) -> Result<()> {
     if !add.feature.is_empty() {
         let features = super::setup::catalogue(client)?.features;
         for key in &add.feature {
-            let setting = rookery_tui::flow::Setting::Feature(key.clone(), true);
-            rookery_tui::flow::apply(&mut config, &features, &setting)
+            let setting = rookery_setup::flow::Setting::Feature(key.clone(), true);
+            rookery_setup::flow::apply(&mut config, &features, &setting)
                 .map_err(|why| Fail::usage(format!("--feature {key}: {why}")))?;
         }
     }
@@ -328,8 +328,8 @@ pub fn set(client: &Client, name: &str, values: &[String]) -> Result<()> {
     let mut profile = profile_of(client, name)?;
     let features = super::setup::catalogue(client)?.features;
     for word in values {
-        let setting = rookery_tui::flow::setting(word).map_err(Fail::usage)?;
-        rookery_tui::flow::apply(&mut profile, &features, &setting)
+        let setting = rookery_setup::flow::setting(word).map_err(Fail::usage)?;
+        rookery_setup::flow::apply(&mut profile, &features, &setting)
             .map_err(|why| Fail::usage(format!("{word}: {why}")))?;
     }
     save(client, name, &profile)?;

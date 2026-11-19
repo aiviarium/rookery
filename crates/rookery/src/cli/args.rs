@@ -103,11 +103,6 @@ pub enum Command {
     Ssh(Ssh),
     /// Run one of a host's actions: rookery action list HOST names them.
     Run(RunAction),
-    /// Open rookery's screens: the home screen, or the page of one host.
-    Ui {
-        /// The host to open.
-        host: Option<String>,
-    },
     /// The hosts: list, create, add, change, install and remove them.
     #[command(subcommand)]
     Host(Host),

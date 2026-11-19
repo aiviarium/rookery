@@ -1,6 +1,6 @@
-//! What the set-up tabs of the screens do, as commands: a new host through
-//! the same flow the screens walk, and the keys, secrets, registries,
-//! plugins and settings of the home screen.
+//! What the set-up of a host does, as commands: a new host through the same
+//! flow, and the keys, secrets, registries, plugins and settings of the
+//! server.
 
 use super::args::{self, Global, Key, Plugin, Registry, Secret};
 use super::ask;
@@ -9,10 +9,11 @@ use super::fail::{Fail, Result};
 use super::follow;
 use super::host;
 use super::out::{self, Style, Table, styled};
+use super::settings;
 use rookery_api::Act;
-use rookery_tui::fields::{Action, Step};
-use rookery_tui::flow::{self, Catalogue, Flow, Given, Hash, Maker, Stop};
-use rookery_tui::setup::Feature;
+use rookery_setup::fields::{Action, Step};
+use rookery_setup::flow::{self, Catalogue, Flow, Given, Hash, Maker, Stop};
+use rookery_setup::setup::Feature;
 use serde_json::{Value, json};
 
 /// The keys of `--set`, for the help of `rookery host create` and `rookery host set`.
@@ -55,7 +56,7 @@ pub fn catalogue(client: &Client) -> Result<Catalogue> {
                 label: text("label"),
                 group: text("group"),
                 help: text("help"),
-                types: rookery_tui::setup::feature_types(feature),
+                types: rookery_setup::setup::feature_types(feature),
             }
         })
         .collect();
@@ -133,7 +134,7 @@ fn starting_profile(client: &Client, from: &str) -> Result<Value> {
     Ok(profile)
 }
 
-/// `rookery host create`: the flow of the screens' set-up tabs, asked inline
+/// `rookery host create`: the set-up flow, asked inline
 /// or taken from the flags, then saved, then run as its way says.
 pub fn create(client: &Client, create: &args::HostCreate) -> Result<()> {
     let name = &create.name;
@@ -147,7 +148,7 @@ pub fn create(client: &Client, create: &args::HostCreate) -> Result<()> {
         return match (&create.provisioner, planned) {
             (Some(_), _) | (None, Some(_)) => make_saved(client, create),
             (None, None) => Err(Fail::failed(format!(
-                "There is a host {name} already. Change it with rookery host set {name} KEY=VALUE, or rookery ui {name}"
+                "There is a host {name} already. Change it with rookery host set {name} KEY=VALUE, or see it with rookery host show {name}"
             ))),
         };
     }
@@ -283,7 +284,7 @@ fn stopped(stop: Stop) -> Fail {
             // Only a secret the server lacks stops it: the command line was right.
             let refused = problems
                 .iter()
-                .all(|problem| problem.field == Some(rookery_tui::fields::Field::Tailscale));
+                .all(|problem| problem.field == Some(rookery_setup::fields::Field::Tailscale));
             let said: Vec<String> = problems
                 .iter()
                 .map(|problem| match problem.field {
@@ -356,15 +357,15 @@ fn run_way(client: &Client, flow: &Flow, create: &args::HostCreate) -> Result<()
     let run = create.run
         || (out::get().ask
             && matches!(
-                ask::ask(&rookery_tui::flow::Question {
+                ask::ask(&rookery_setup::flow::Question {
                     step: Step::Run,
                     label: question.into(),
                     help: String::new(),
                     flag: "--run".into(),
-                    asked: rookery_tui::flow::Asked::Confirm { default: false },
+                    asked: rookery_setup::flow::Asked::Confirm { default: false },
                     required: false,
                 })?,
-                rookery_tui::flow::Answer::Confirm(true)
+                rookery_setup::flow::Answer::Confirm(true)
             ));
     if !run {
         out::hint(format!("Install it with: {then}"));
@@ -1069,11 +1070,11 @@ fn pack(folder: &std::path::Path) -> Result<Vec<u8>> {
 /// server: where the server is, and its token.
 const CLIENT_SETTINGS: &[(&str, &str)] = &[
     (
-        rookery_page::settings::SERVER,
+        settings::SERVER,
         "the rookery server this rookery uses, kept by rookery login; empty for the one in rookery itself",
     ),
     (
-        rookery_page::settings::TOKEN,
+        settings::TOKEN,
         "the token of that server, kept by rookery login and never shown",
     ),
 ];
@@ -1084,7 +1085,7 @@ fn client_settings() -> Vec<Value> {
     CLIENT_SETTINGS
         .iter()
         .map(|(key, meaning)| {
-            let value = match (kept.get(key), *key == rookery_page::settings::TOKEN) {
+            let value = match (kept.get(key), *key == settings::TOKEN) {
                 (Some(_), true) => "(set)".to_owned(),
                 (Some(value), false) => value,
                 (None, _) => String::new(),
@@ -1100,15 +1101,15 @@ fn is_client_setting(key: &str) -> bool {
 
 /// Change one of the client's own settings.
 fn set_client(key: &str, value: &str) -> Result<()> {
-    if key == rookery_page::settings::TOKEN && !value.is_empty() {
+    if key == settings::TOKEN && !value.is_empty() {
         return Err(Fail::usage(
             "The token is not given on the command line, where others can read it. rookery login URL keeps one",
         ));
     }
     let mut changes = vec![(key, value)];
     // Another server takes another token.
-    if key == rookery_page::settings::SERVER {
-        changes.push((rookery_page::settings::TOKEN, ""));
+    if key == settings::SERVER {
+        changes.push((settings::TOKEN, ""));
     }
     super::client::settings()
         .set(&changes)
@@ -1192,7 +1193,7 @@ pub fn config(client: &Client, command: args::Config) -> Result<()> {
             Ok(())
         }
         args::Config::Get { key } => {
-            if key == rookery_page::settings::TOKEN {
+            if key == settings::TOKEN {
                 return Err(Fail::usage(
                     "The token is never shown. rookery config list says whether there is one",
                 ));
@@ -1206,7 +1207,7 @@ pub fn config(client: &Client, command: args::Config) -> Result<()> {
         args::Config::Set { key, value } => {
             set(&key, &value)?;
             out::done(format!("{key} = {value}"));
-            if key == rookery_page::settings::SERVER {
+            if key == settings::SERVER {
                 out::hint(format!("Claim its token with: rookery login {value}"));
             }
             Ok(())

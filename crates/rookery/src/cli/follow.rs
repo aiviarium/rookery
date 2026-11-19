@@ -5,6 +5,7 @@
 
 use super::client::Client;
 use super::fail::{Fail, Result};
+use super::look::Role;
 use super::out::{self, Style};
 use ratatui::{
     Terminal, TerminalOptions, Viewport,
@@ -14,7 +15,6 @@ use ratatui::{
     widgets::Paragraph,
 };
 use rookery_api::portal::Piece;
-use rookery_tui::theme::Role;
 use serde_json::{Value, json};
 use std::io::Write;
 use std::time::{Duration, Instant};
@@ -134,19 +134,19 @@ enum Watched {
 
 /// Ask whether Ctrl+C stops a job the server keeps, or only the watching.
 fn stop_or_keep(id: &str) -> bool {
-    let question = rookery_tui::flow::Question {
-        step: rookery_tui::fields::Step::Run,
+    let question = rookery_setup::flow::Question {
+        step: rookery_setup::fields::Step::Run,
         label: "Stop the job, or keep it running?".into(),
         help: format!("It goes on where the server runs; rookery job stop {id} stops it later."),
         flag: String::new(),
-        asked: rookery_tui::flow::Asked::Choice {
+        asked: rookery_setup::flow::Asked::Choice {
             options: vec![
-                rookery_tui::flow::Choice {
+                rookery_setup::flow::Choice {
                     key: "keep".into(),
                     label: "keep it running".into(),
                     help: format!("Stop watching. rookery job logs {id} -f follows it again."),
                 },
-                rookery_tui::flow::Choice {
+                rookery_setup::flow::Choice {
                     key: "stop".into(),
                     label: "stop the job".into(),
                     help: "Its programs end, and its record says who stopped it.".into(),
@@ -158,7 +158,7 @@ fn stop_or_keep(id: &str) -> bool {
     };
     matches!(
         super::ask::ask(&question),
-        Ok(rookery_tui::flow::Answer::Choice(1))
+        Ok(rookery_setup::flow::Answer::Choice(1))
     )
 }
 

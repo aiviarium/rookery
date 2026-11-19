@@ -1,4 +1,4 @@
-//! The settings the UI can edit, and the wizard steps and actions around them.
+//! The settings of a host's profile, and the steps and actions around them.
 
 /// What a host can be installed on, as its profile's `target` says.
 pub const TARGETS: &[&str] = &["laptop", "cloud"];
@@ -15,14 +15,14 @@ pub const TYPES: &[&str] = &["workstation", "node", "managed", "ssh"];
 /// controller shutting it down.
 pub const POWER_STOPS: &[&str] = &["none", "controller"];
 
-/// The pages of a host: its overview (`Manage`) and the tabs of the set-up
-/// flow. Each tab depends only on the ones before it.
+/// The parts of a host's set-up, in the order the flow asks them. Each
+/// depends only on the ones before it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Step {
     /// How the host is installed and reached: what has to be chosen.
     Install,
     Features,
-    /// What has a default that follows from the tabs before.
+    /// What has a default that follows from the parts before.
     Settings,
     /// The last few things, every problem, and the buttons.
     Run,
@@ -30,7 +30,7 @@ pub enum Step {
 }
 
 impl Step {
-    /// The tabs of the set-up flow.
+    /// The parts of the set-up flow.
     pub const SETUP: [Step; 4] = [Step::Install, Step::Features, Step::Settings, Step::Run];
 
     pub fn label(self) -> &'static str {
@@ -43,7 +43,7 @@ impl Step {
         }
     }
 
-    /// The tab `delta` places along, wrapping around at the ends.
+    /// The part `delta` places along, wrapping around at the ends.
     pub fn offset(self, delta: isize) -> Step {
         if self == Step::Manage {
             return self;
@@ -53,40 +53,6 @@ impl Step {
     }
 }
 
-/// The rows of a host's overview that are rookery's own: name, label and help.
-/// Everything else there is an action the host lists itself.
-pub const OFFERS: &[(&str, &str, &str)] = &[
-    (
-        "terminal",
-        "Terminal",
-        "A shell on the host, in a panel here. Space switches between the agent account, with its tools on the PATH and the virtual desktop as its display, and the SSH user. It is a session of the host: Ctrl+Q leaves it running and it can be opened again from Sessions; exit, Ctrl+D or Alt+X ends it. The mouse wheel scrolls back. From the command line: `rookery session attach HOST`.",
-    ),
-    (
-        "apply",
-        "Apply this configuration",
-        "Run the installer role against the host again with the settings of this profile, for example after changing what is installed. It also installs or updates rookery's own tools on the host. Continues in the terminal.",
-    ),
-    (
-        "connect",
-        "Try again",
-        "Ask the host again what it can do. A host whose sudo asks for a password needs that password once; it is kept until rookery is closed and stored nowhere.",
-    ),
-    (
-        "address",
-        "Change the SSH address",
-        "Edit the address rookery reaches this host at, for a host that has a new one, and try again once it is saved.",
-    ),
-    (
-        "install-controller",
-        "Install the controller",
-        "Put rookeryd and box on the host and start rookery's controller, so that sessions, actions and files work there, without the rest of a workstation. The host's type becomes managed. Continues in the terminal. From the command line: `rookery run HOST install-controller`.",
-    ),
-    (
-        "ssh",
-        "Terminal over SSH",
-        "A shell on the host as the SSH user, over plain SSH, for looking at a host whose controller cannot be reached. From the command line: `rookery ssh HOST`.",
-    ),
-];
 /// How much the agent account may do with sudo.
 pub const PRIVILEGES: &[&str] = &["full", "limited", "none"];
 
@@ -101,26 +67,15 @@ pub enum Action {
     Apply,
     Docker,
     Ssh,
-    /// An existing host rookery only logs in to: a way offered on the Install
-    /// tab that chooses [`Action::Ssh`] for a host of the type ssh.
+    /// An existing host rookery only logs in to: a way that chooses
+    /// [`Action::Ssh`] for a host of the type ssh.
     Reach,
     Manage,
 }
 
 impl Action {
-    /// The ways to install a host, offered on the Install tab.
-    pub const METHODS: [Action; 7] = [
-        Action::Machine,
-        Action::Iso,
-        Action::CloudSeed,
-        Action::Ssh,
-        Action::Reach,
-        Action::Apply,
-        Action::Docker,
-    ];
-
-    /// The ways a rookery server installs a host itself, as the screens and
-    /// `rookery host create` offer them. The USB installer is built on the
+    /// The ways a rookery server installs a host itself, as
+    /// `rookery host create` offers them. The USB installer is built on the
     /// machine the server runs on.
     pub const SERVED: [Action; 5] = [
         Action::Machine,
@@ -166,14 +121,14 @@ impl Action {
         }
     }
 
-    /// Whether the Install tab offers this way to a host of `host_type`:
+    /// Whether this way is offered to a host of `host_type`:
     /// the ways its type allows, and the two over SSH, which move a host
     /// between the type ssh and the types rookery installs.
     pub fn offered(self, host_type: rookery_api::HostType) -> bool {
         matches!(self, Action::Ssh | Action::Reach) || self.types().contains(&host_type)
     }
 
-    /// The action a way of the Install tab sets, with the type it gives the
+    /// The action a way sets, with the type it gives the
     /// profile when it implies one.
     pub fn choose(self, config: &mut serde_json::Value) -> Action {
         use rookery_api::HostType;
@@ -226,7 +181,7 @@ impl Action {
                 "Generate cloud-init user data. Upload the generated release archive to the configured URL."
             }
             Action::Machine => {
-                "Have a provisioner make the host, such as a container or a virtual machine on a server, and set it up. Choose the provisioner below; plugins bring them. Its size is on the Settings tab, and Create is on the Run tab."
+                "Have a provisioner make the host, such as a container or a virtual machine on a server, and set it up. Choose the provisioner below; plugins bring them. Its size is asked for with the settings, and it is created at the end."
             }
             Action::Apply => {
                 "Provision a dedicated Ubuntu host using Ansible. Blank inventory applies to this machine."
@@ -235,7 +190,7 @@ impl Action {
                 "Build the desktop image using Docker Compose. Start it afterwards with docker compose."
             }
             Action::Manage => {
-                "Look after a host that is already set up, over SSH: show its status and access links, publish the desktop on the tailnet, run the smoke test, install updates or reboot. Pick the action on the overview."
+                "Look after a host that is already set up, over SSH: show its status and access links, publish the desktop on the tailnet, run the smoke test, install updates or reboot. Run the action by name."
             }
             Action::Ssh => {
                 "Install on an existing Ubuntu host over SSH. Enter a hostname, IP address or SSH config alias, and how rookery logs in: its own key by default. A host that does not take that key yet gets it with rookery key trust HOST and a password used once."
@@ -463,7 +418,7 @@ impl Field {
                 "Publish release to",
                 "/release_store",
                 Text,
-                "Where the new machine gets the release archive from. Enter switches between the file servers and raw repositories of the Registries tab of the home screen; rookery uploads the archive there when the seed is made. Or upload it yourself and enter its address below.",
+                "Where the new machine gets the release archive from. It is a file server or a raw repository of the registries; rookery uploads the archive there when the seed is made. Or upload it yourself and enter its address below.",
             ),
             ReleasePrivate => (
                 "Download with login",
@@ -529,7 +484,7 @@ impl Field {
                 "Wi-Fi password",
                 "/wifi/password",
                 Secret,
-                "Wireless network password, saved in the private profile. When this machine knows the network, the Run tab shows whether the password matches.",
+                "Wireless network password, saved in the private profile. When this machine knows the network, the flow says whether the password matches.",
             ),
             OperatorUser => (
                 "Operator username",
@@ -541,7 +496,7 @@ impl Field {
                 "SSH key",
                 "/operator_ssh_public_keys",
                 Text,
-                "An OpenSSH public key the operator account takes. Enter changes it, x removes it. The account can have several: one for each person or machine that logs in.",
+                "An OpenSSH public key the operator account takes. The account can have several: one for each person or machine that logs in.",
             ),
             OperatorHash => (
                 "Operator password hash",
@@ -559,7 +514,7 @@ impl Field {
                 "SSH key",
                 "/agent_ssh_public_keys",
                 Text,
-                "An OpenSSH public key for SSH access to the agent account. Enter changes it, x removes it. The account can have several, or none.",
+                "An OpenSSH public key for SSH access to the agent account. The account can have several, or none.",
             ),
             AgentHash => (
                 "Agent password hash",
@@ -703,7 +658,7 @@ impl Field {
                 "Log in with",
                 "/access/auth",
                 Choice(LOGINS),
-                "How rookery logs in. rookery: the installation's own key, which hosts it sets up take. key:NAME: another key of rookery's key ring (the Settings tab of the home screen lists them). password: a password, kept as the secret ssh/HOST or asked for. ssh: your own SSH configuration and agent, with rookery's key offered after them. A host that does not take its key yet gets it with: rookery key trust HOST.",
+                "How rookery logs in. rookery: the installation's own key, which hosts it sets up take. key:NAME: another key of rookery's key ring (rookery key list names them). password: a password, kept as the secret ssh/HOST or asked for. ssh: your own SSH configuration and agent, with rookery's key offered after them. A host that does not take its key yet gets it with: rookery key trust HOST.",
             ),
             Type => (
                 "Type",
@@ -721,7 +676,7 @@ impl Field {
                 "Then write to USB drive",
                 "/builder/usb_device",
                 Text,
-                "The USB drive the finished ISO is written to, such as /dev/sdb, on the machine rookery serve runs on. It is erased. The host's overview asks for it again, with your sudo password, when the installer is built.",
+                "The USB drive the finished ISO is written to, such as /dev/sdb, on the machine rookery serve runs on. It is erased. `rookery host iso` asks for it again, with your sudo password, when the installer is built.",
             ),
         };
         Spec {

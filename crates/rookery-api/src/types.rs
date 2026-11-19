@@ -438,7 +438,7 @@ pub struct Argument {
     pub choices: String,
     /// `resource` for an argument of a provisioner that sizes the machine:
     /// its CPUs, memory or disk. `text` for one whose value has several
-    /// lines. `boolean` for a yes or no, which the screens show as a switch.
+    /// lines. `boolean` for a yes or no, which the set-up asks as a switch.
     /// Empty for any other argument.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub kind: String,
@@ -454,9 +454,8 @@ pub struct Argument {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub secret: bool,
     /// Why it keeps its default here and cannot be given another value,
-    /// such as destroying a machine no provisioner made. The screens show
-    /// it greyed and say this instead of changing it. Empty when it can be
-    /// changed.
+    /// such as destroying a machine no provisioner made. The set-up says
+    /// this instead of asking. Empty when it can be changed.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub fixed: String,
     /// For a yes or no: the question to answer yes to before the action
@@ -680,8 +679,7 @@ pub struct Action {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub steps: Vec<ActionStep>,
     /// The id of the provisioner's collection it belongs to, whose items it
-    /// makes, acts on or lists. The screens offer it there and not on the
-    /// provisioner's page.
+    /// makes, acts on or lists. It is listed with that collection's actions.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub collection: String,
 }
@@ -1538,8 +1536,7 @@ pub struct Collection {
     /// The item action that removes one.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub remove: String,
-    /// The action that prints the list for the command line, which the
-    /// screens show as the table instead.
+    /// The action that prints the list, for a caller that has no table.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub show: String,
 }
