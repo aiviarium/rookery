@@ -16,7 +16,7 @@ Rookery is the successor of berth. It doesn't read anything under berth's names,
 | The store `berth.db` | `rookery.db` |
 | Environment variables `BERTH_*` | `ROOKERY_*` |
 | Profile settings `devbox_*` | `rookery_*` |
-| A plugin's `berth` key in `package.json`, the package names `berth-plugin-*`, `BERTH_ARG_*` in its actions | A Hatchery package with a `rookery` target, with that key's content in `rookery/rookery.json` ([Writing a plugin](/docs/extend/writing-plugins)), and `ROOKERY_ARG_*` |
+| A plugin's `berth` key in `package.json`, the package names `berth-plugin-*`, `BERTH_ARG_*` in its actions | A Hatchery package with a `rookery` target, with that key's content under `contributes` in `rookery/plugin.json` ([Writing a plugin](/docs/extend/writing-plugins)), and `ROOKERY_ARG_*` |
 | The image `ghcr.io/helightdev/berth`, the container `berth`, `/srv/berth` of the server recipe | `ghcr.io/aiviarium/rookery`, `rookery`, `/srv/rookery` |
 | The OAuth roles `berth:view`, `berth:operate`, `berth:admin` and the client `berth-cli` | `rookery:view`, `rookery:operate`, `rookery:admin` and `rookery-cli` |
 | Labels `berth-*` on Docker machines, `user.berth-*` on Incus instances | `rookery-*`, `user.rookery-*` |

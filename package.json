@@ -4,13 +4,14 @@
   "type": "module",
   "workspaces": [
     "sdk",
-    "client"
+    "client",
+    "host"
   ],
   "scripts": {
-    "lint": "biome ci client sdk",
-    "format": "biome format --write client sdk",
-    "typecheck": "tsc -p sdk/tsconfig.json --noEmit && tsc -p client/tsconfig.json --noEmit",
-    "test": "bun test sdk/test client/test",
+    "lint": "biome ci client sdk host",
+    "format": "biome format --write client sdk host",
+    "typecheck": "tsc -p sdk/tsconfig.json --noEmit && tsc -p client/tsconfig.json --noEmit && tsc -p host/tsconfig.json --noEmit",
+    "test": "bun test sdk/test client/test host/test",
     "check": "bun run lint && bun run typecheck && bun run test"
   },
   "devDependencies": {

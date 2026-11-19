@@ -528,6 +528,27 @@ impl Manager {
         Ok(lines)
     }
 
+    /// The packages the install folder's lock names, as `GROUP/ID`, all of
+    /// them, those that share an id among them.
+    pub fn locked(&self) -> Vec<String> {
+        if !self.own.join(hatchery::lock::FILE).is_file() {
+            return vec![];
+        }
+        hatchery::Lock::load(&self.own)
+            .map(|lock| lock.packages.iter().map(|p| p.name.to_string()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Removes a package by its name, `GROUP/ID`, even when another package
+    /// of the same id is the one Rookery uses.
+    pub fn remove_package(&self, package: &str) -> Result<()> {
+        let client = self.client()?;
+        client.remove(&Name::parse(package)?, &self.own)?;
+        forget_uploads(&self.own);
+        let _ = remembered(&self.paths);
+        Ok(())
+    }
+
     /// Which plugins have a newer version that can be installed, as their
     /// registries say.
     pub fn check(&self) -> Result<PluginUpdates> {

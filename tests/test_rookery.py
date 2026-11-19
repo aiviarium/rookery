@@ -306,7 +306,7 @@ class RenderTests(unittest.TestCase):
                 names=archive.getnames()
                 # rookery runs a provisioner's command straight from the unpacked release.
                 self.assertEqual(archive.getmember('plugins/rookery/incus/rookery/bin/provision').mode,0o755)
-                self.assertEqual(archive.getmember('plugins/rookery/incus/rookery/rookery.json').mode,0o644)
+                self.assertEqual(archive.getmember('plugins/rookery/incus/rookery/plugin.json').mode,0o644)
             self.assertIn('provision/bootstrap/bootstrap.sh',names)
             # What bootstrap.sh and rookery look for in an unpacked release.
             for need in ['provision/bin/rookery.py','provision/requirements.txt','provision/ansible.cfg',

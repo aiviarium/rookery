@@ -1,5 +1,5 @@
-// Host-half API types for Rookery plugins. The extension host runtime arrives in M2;
-// these types define the contract plugins build their host halves against.
+// Host-half API types for Rookery plugins: the contract plugins build their host halves against.
+// `runtime.ts` is what the extension host runs them with.
 import type { CollectionsOf, Refs, Row } from "../data"
 import type {
   AccessLevel,
@@ -76,7 +76,15 @@ export interface Commands {
   run<T = unknown>(ctx: Ctx, id: CommandId, params?: Record<string, unknown>): Promise<T>
 }
 
+/**
+ * Who may call a method of `rookery.rpc.handle` through `plugins.rpc`: `own`, anyone signed in, or
+ * `admin`. The server checks it before the handler runs; a handler of level `own` decides the rest.
+ */
+export type RpcLevel = "own" | "admin"
+
 export interface RpcHandlerDef<P = any, R = unknown> {
+  /** Every handler says who may call it. */
+  level: RpcLevel
   params?: { parse(input: unknown): P }
   run(ctx: Ctx, params: P): R | Promise<R>
 }

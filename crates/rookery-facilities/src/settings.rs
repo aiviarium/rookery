@@ -53,19 +53,10 @@ fn user_of(call: &Call) -> Option<uuid::Uuid> {
     }
 }
 
-/// The installation's own settings, those of the plugin id `rookery`, are its admins' to read.
-fn installation_admin(call: &Call, plugin: &str) -> Result<(), rookery_kernel::RpcError> {
-    match rookery_kernel::methods::reserved_plugin(plugin) {
-        true => call.require_admin(),
-        false => Ok(()),
-    }
-}
-
 pub fn register(methods: &mut Methods) {
     methods
         .add("settings.get", |call: Call, p: SettingRef| async move {
-            rookery_kernel::methods::plugin_id(&p.plugin)?;
-            installation_admin(&call, &p.plugin)?;
+            rookery_kernel::methods::named_plugin(&call, &p.plugin)?;
             let found = call.store().settings().get(&p.plugin, &p.key, user_of(&call)).await?.map(setting);
             Ok(match found {
                 Some(s) => SettingValue { key: s.key, value: s.value, scope: Some(s.scope) },
@@ -76,8 +67,7 @@ pub fn register(methods: &mut Methods) {
         .level(Level::Own);
     methods
         .add("settings.list", |call: Call, p: SettingsOf| async move {
-            rookery_kernel::methods::plugin_id(&p.plugin)?;
-            installation_admin(&call, &p.plugin)?;
+            rookery_kernel::methods::named_plugin(&call, &p.plugin)?;
             let all = call
                 .store()
                 .settings()
@@ -91,7 +81,7 @@ pub fn register(methods: &mut Methods) {
         .level(Level::Own);
     methods
         .add("settings.set", |call: Call, p: SettingSet| async move {
-            rookery_kernel::methods::plugin_id(&p.plugin)?;
+            rookery_kernel::methods::named_plugin(&call, &p.plugin)?;
             check_key(&p.key)?;
             let at = scope(&call, &p.plugin, p.scope)?;
             call.store().settings().set(&p.plugin, &p.key, at, &p.value, &call.audit_name()).await?;
@@ -104,7 +94,7 @@ pub fn register(methods: &mut Methods) {
         .level(Level::Own);
     methods
         .add("settings.reset", |call: Call, p: SettingReset| async move {
-            rookery_kernel::methods::plugin_id(&p.plugin)?;
+            rookery_kernel::methods::named_plugin(&call, &p.plugin)?;
             let at = scope(&call, &p.plugin, p.scope)?;
             call.store().settings().reset(&p.plugin, &p.key, at).await?;
             Ok(Empty {})

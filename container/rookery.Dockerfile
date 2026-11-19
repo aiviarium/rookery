@@ -14,6 +14,10 @@
 # program in the context and ROOKERY_SOURCE=published. rookery carries this file
 # and a test checks that the two are the same.
 #
+# Bun runs the host halves of plugins, with the extension host the program
+# carries in its provisioning source (host/dist). Its version is pinned, with the
+# SHA-256 of each CPU's build.
+#
 # Settings and host profiles live in /config with the secret key, the database
 # and builds in /data. `serve` runs a PostgreSQL of its own in /data, on a socket
 # only this container reaches, unless ROOKERY_DATABASE_URL names another
@@ -24,9 +28,18 @@ FROM debian:trixie-slim
 COPY requirements.txt /tmp/requirements.txt
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl docker-buildx docker-cli docker-compose git openssh-client openssl \
-      postgresql-17 python3 python3-pip tar tini \
+      postgresql-17 python3 python3-pip tar tini unzip \
+    && case "$(dpkg --print-architecture)" in \
+         amd64) bun=bun-linux-x64; sum=951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f ;; \
+         arm64) bun=bun-linux-aarch64; sum=a27ffb63a8310375836e0d6f668ae17fa8d8d18b88c37c821c65331973a19a3b ;; \
+         *) echo "no Bun for $(dpkg --print-architecture)" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL -o /tmp/bun.zip "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/$bun.zip" \
+    && echo "$sum  /tmp/bun.zip" | sha256sum -c - \
+    && unzip -q /tmp/bun.zip -d /tmp && install -m 0755 "/tmp/$bun/bun" /usr/local/bin/bun \
+    && rm -rf /tmp/bun.zip "/tmp/$bun" && bun --version \
     && pip install --no-cache-dir --break-system-packages -r /tmp/requirements.txt \
-    && apt-get purge -y python3-pip && apt-get autoremove -y \
+    && apt-get purge -y python3-pip unzip && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/* /tmp/requirements.txt \
     && useradd --create-home --uid 1000 rookery \
     && mkdir -p /config /data && chown rookery:rookery /config /data

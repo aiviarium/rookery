@@ -17,6 +17,7 @@ rookery-auth.workspace = true
 rookery-facilities.workspace = true
 rookery-jobs.workspace = true
 rookery-hosts.workspace = true
+rookery-plugins.workspace = true
 rookery-core.workspace = true
 rookery-api.workspace = true
 tokio.workspace = true
@@ -34,6 +35,8 @@ tokio-util = { version = "0.7", default-features = false }
 
 [dev-dependencies]
 rookery-store = { workspace = true, features = ["testing"] }
+rookery-api = { workspace = true, features = ["plugins"] }
+hatchery.workspace = true
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
 ureq = "3"

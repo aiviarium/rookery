@@ -29,6 +29,8 @@ RELEASE_SOURCES = [
     'provision/ansible', 'provision/bin', 'provision/bootstrap', 'provision/requirements.txt',
     'provision/ansible.cfg', 'provision/config/example.json',
     'container', 'plugins', 'tests', 'README.md', 'LICENSE-MIT', 'LICENSE-APACHE',
+    # The extension host, bundled: rookery serve runs plugins' host halves with it on Bun.
+    'host/dist',
     'crates/rookery/Cargo.toml', 'crates/rookery/build.rs', 'crates/rookery/src', 'crates/vendor/tui-input',
     'crates/vendor/README.md',
 ]

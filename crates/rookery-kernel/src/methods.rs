@@ -156,7 +156,7 @@ impl Call {
             (Caller::Plugin(_), Some(_)) => {
                 Err(RpcError::forbidden("a plugin acts for itself alone"))
             }
-            (_, Some(named)) if self.is_admin() => crate::methods::plugin_id(named),
+            (_, Some(named)) if self.is_admin() => crate::methods::named_plugin(self, named),
             (_, None) if self.is_admin() => Err(RpcError::invalid("name the plugin in plugin")),
             _ => Err(RpcError::forbidden(
                 "this is for plugins, and for admins naming one",
@@ -189,18 +189,25 @@ pub fn reserved_plugin(id: &str) -> bool {
     id == "rookery" || id.starts_with("rookery.") || id.starts_with("rookery/")
 }
 
-/// A plugin id: lower case letters, digits, `-` and `.`, as Hatchery names packages.
+/// A plugin id a package may have: lower-case letters, digits, `-` and `_`, starting with a letter, and
+/// none Rookery keeps for itself, as `rookery_api::plugin_ids` says.
 pub fn plugin_id(id: &str) -> Result<String, RpcError> {
-    let ok = !id.is_empty()
-        && id.len() <= 100
-        && id.bytes().all(|b| {
-            b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.' || b == b'/'
-        });
-    if ok {
+    if rookery_api::plugin_ids::valid_plugin_id(id) {
         Ok(id.to_owned())
     } else {
         Err(RpcError::invalid(format!("{id:?} is not a plugin id")))
     }
+}
+
+/// The plugin a call names: one a package may have, or Rookery's own (see [`reserved_plugin`]),
+/// whose settings and secrets an admin alone reaches.
+pub fn named_plugin(call: &Call, id: &str) -> Result<String, RpcError> {
+    if reserved_plugin(id) {
+        call.require_admin()
+            .map_err(|_| RpcError::forbidden("the plugin rookery is Rookery's own, for admins"))?;
+        return Ok(id.to_owned());
+    }
+    plugin_id(id)
 }
 
 type Handler =
@@ -467,6 +474,16 @@ pub fn grant_name(grant: Grant) -> &'static str {
 mod tests {
     use super::*;
     use rookery_proto::Empty;
+
+    #[test]
+    fn plugin_ids_are_package_ids_and_rookery_is_for_admins() {
+        for good in ["hello", "a_b", "fleet-2"] {
+            assert_eq!(plugin_id(good).unwrap(), good);
+        }
+        for bad in ["a.b", "a/b", "Hello", "", "rookery", "sign-in"] {
+            assert!(plugin_id(bad).is_err(), "{bad}");
+        }
+    }
 
     fn kernel(methods: Methods) -> Kernel {
         let store = rookery_store::Store::lazy(rookery_store::StoreOptions::new(

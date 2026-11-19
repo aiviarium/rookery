@@ -1,0 +1,2836 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aiviarium/rookery/blob/main/schemas/plugin.schema.json",
+  "title": "plugin.json",
+  "description": "The manifest of a package's rookery target: what a Rookery plugin is and what it contributes. Its id and version come from package.kdl. Rookery reads it without running plugin code.",
+  "type": "object",
+  "required": [
+    "name",
+    "apiVersion"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "apiVersion": {
+      "description": "The version of this manifest format.",
+      "enum": [
+        "1"
+      ]
+    },
+    "description": {
+      "type": "string"
+    },
+    "host": {
+      "description": "The host half's entry, relative to the plugin folder.",
+      "$ref": "#/$defs/path"
+    },
+    "client": {
+      "description": "The client half's entry, relative to the plugin folder.",
+      "$ref": "#/$defs/path"
+    },
+    "styles": {
+      "description": "A stylesheet loaded with the client half.",
+      "$ref": "#/$defs/path"
+    },
+    "dependencies": {
+      "description": "Plugins this one needs, by id, with the semver range of versions it works with (\"^1.2\"). They activate first; one that is missing or out of range keeps this plugin from loading.",
+      "$ref": "#/$defs/dependencyMap"
+    },
+    "optionalDependencies": {
+      "description": "Plugins this one uses when they are there, by id, with a semver range. One that is missing or out of range is treated as absent: rookery.services.find gives undefined.",
+      "$ref": "#/$defs/dependencyMap"
+    },
+    "interface": {
+      "description": "The interface module, declared with defineInterface: the plugin's services and events. The extension host writes interface.json and interface.d.ts from it.",
+      "$ref": "#/$defs/path"
+    },
+    "provides": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "services": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/name"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "extensionPoints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/qualifiedId"
+          },
+          "description": {
+            "type": "string"
+          },
+          "schema": {
+            "description": "A JSON Schema each contribution must match.",
+            "type": "object"
+          }
+        }
+      }
+    },
+    "activate": {
+      "description": "\"lazy\" (default): start the host half on first use. \"startup\": start it with the kernel.",
+      "enum": [
+        "lazy",
+        "startup"
+      ]
+    },
+    "namespace": {
+      "description": "The first URL segment of the plugin's routes: /<namespace>/... The plugin id when missing.",
+      "$ref": "#/$defs/pluginId"
+    },
+    "contributes": {
+      "$ref": "#/$defs/contributes"
+    },
+    "database": {
+      "description": "Raw SQL (docs/data.md, \"Raw SQL\"). Without it the plugin gets no Postgres role, views or schema.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sql": {
+          "description": "Run SQL through the kernel: read views over the plugin's collections and a schema of its own.",
+          "type": "boolean"
+        },
+        "direct": {
+          "description": "Also give the plugin's services a connection string (ROOKERY_DATABASE_URL). Needs sql.",
+          "type": "boolean"
+        },
+        "migrations": {
+          "description": "Who migrates the plugin's raw schema: the kernel runs migrations/sql/*.sql (default), or the plugin's service does and ships no SQL files.",
+          "enum": [
+            "kernel",
+            "service"
+          ]
+        }
+      }
+    },
+    "app": {
+      "description": "The plugin is also an app of its own: how app mode (rookery serve|dev --app DIR) shows it. See docs/apps.md.",
+      "type": "object",
+      "required": [
+        "title",
+        "icon",
+        "home"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "description": "The window title, the sign-in page and the web manifest's name.",
+          "type": "string",
+          "minLength": 1
+        },
+        "icon": {
+          "description": "An image in the plugin folder (SVG or PNG): the favicon and the app icon.",
+          "type": "string",
+          "minLength": 1
+        },
+        "accent": {
+          "description": "The default accent colour in app mode.",
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "home": {
+          "description": "The view / opens in app mode: one of this plugin's views.",
+          "type": "string"
+        },
+        "bundle": {
+          "description": "Other plugins the app ships with standalone, by id, looked up in the plugin dirs.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pluginId"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "services": {
+      "description": "Servers the plugin ships with (docs/apps.md, \"App services\"). The deployment places each: a dev process, an external URL, or a deployment.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Unique within the plugin; the service is <plugin>.<id>.",
+            "$ref": "#/$defs/pluginId"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "build": {
+            "description": "A folder of the plugin with a Dockerfile.",
+            "$ref": "#/$defs/path"
+          },
+          "image": {
+            "description": "An image to pull instead of build.",
+            "type": "string",
+            "minLength": 1
+          },
+          "endpoints": {
+            "description": "Where the service listens: http endpoints (the first is proxied at /svc/<plugin>/<service>/ and reached by fetch), at most one grpc endpoint (where the kernel invokes the service's methods) and tcp ones. Leave it out for a service that only calls Rookery.",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "port"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "$ref": "#/$defs/pluginId"
+                },
+                "kind": {
+                  "description": "http (default), grpc or tcp.",
+                  "enum": [
+                    "http",
+                    "grpc",
+                    "tcp"
+                  ]
+                },
+                "port": {
+                  "description": "The port inside the service's container. rookery dev picks its own ({port}).",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65535
+                },
+                "health": {
+                  "description": "A path that answers 2xx while the service is up.",
+                  "type": "string",
+                  "pattern": "^/"
+                },
+                "isolate": {
+                  "description": "Serve the endpoint only on an origin of its own, <service>--<plugin>.<ROOKERY_SERVICE_HOST>, which the page opens with a one-time ticket. For content not written for the app, such as a third-party web client. Only the service's first http endpoint may set it, and neither the plugin id nor the service id may contain --.",
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "gen": {
+            "description": "Where `rookery gen` writes this service's types: with it, `rookery gen` needs no --lang or --out, and `rookery dev` regenerates the file when the manifest changes. One file per service; the conformance fixture's one service is generated for five SDKs, so it names one here and the other four use flags.",
+            "type": "object",
+            "required": [
+              "lang",
+              "out"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "lang": {
+                "description": "The language rookery gen writes: rust, csharp, python, kotlin, or typescript (ts).",
+                "enum": [
+                  "rust",
+                  "csharp",
+                  "python",
+                  "kotlin",
+                  "typescript",
+                  "ts"
+                ]
+              },
+              "out": {
+                "description": "The file, relative to the plugin folder, without '..': src/rookery_gen.rs.",
+                "$ref": "#/$defs/path"
+              }
+            }
+          },
+          "replicas": {
+            "description": "How many instances a placement may run; the service is ready when at least min of them are. Default { \"min\": 1, \"max\": 1 }.",
+            "type": "object",
+            "required": [
+              "min",
+              "max"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "min": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64
+              },
+              "max": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 64
+              }
+            }
+          },
+          "methods": {
+            "description": "The methods the kernel invokes on the grpc endpoint, by name, or a path to a JSON file with the same map.",
+            "oneOf": [
+              {
+                "$ref": "#/$defs/serviceMethods"
+              },
+              {
+                "$ref": "#/$defs/path"
+              }
+            ]
+          },
+          "definitions": {
+            "description": "JSON Schemas the methods' schemas refer to as #/definitions/<name>.",
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "object",
+                "boolean"
+              ]
+            }
+          },
+          "env": {
+            "description": "Environment variables: a setting of this plugin, a secret setting of this plugin, or a value.",
+            "type": "object",
+            "propertyNames": {
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "required": [
+                    "setting"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "setting": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "secret"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "secret": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "value"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "value": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "dev": {
+            "description": "How rookery dev runs it: a program and its arguments, without a shell. {port} is the port the kernel picks.",
+            "type": "object",
+            "required": [
+              "command"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "command": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "cwd": {
+                "$ref": "#/$defs/path"
+              }
+            }
+          },
+          "optional": {
+            "description": "The plugin works, with less, without it.",
+            "type": "boolean"
+          },
+          "provides": {
+            "description": "A service of provides.services that this one implements: calls to it (services.call, services.stream) go to the method of the same name, with no host half in between.",
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "enum": [
+              "stateless",
+              "stateful"
+            ]
+          },
+          "resources": {
+            "description": "A hint for placement; external placement ignores it.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "gpu": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "cpus": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "memory": {
+                "type": "string",
+                "pattern": "^[0-9]+(\\.[0-9]+)?[kmgKMG]?$"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "collectionAction": {
+      "description": "An action on a collection's rows: the id of a command, or an object that runs a command or sets fields.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/qualifiedId"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1
+            },
+            "icon": {
+              "$ref": "#/$defs/icon"
+            },
+            "command": {
+              "$ref": "#/$defs/qualifiedId"
+            },
+            "set": {
+              "type": "object",
+              "minProperties": 1
+            },
+            "confirm": {
+              "description": "true asks \"<title>?\"; a string is the question.",
+              "oneOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "string",
+                  "minLength": 1
+                }
+              ]
+            },
+            "danger": {
+              "type": "boolean"
+            },
+            "when": {
+              "type": "object"
+            },
+            "target": {
+              "enum": [
+                "record",
+                "collection"
+              ]
+            },
+            "bulk": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "recordView": {
+      "description": "The page of one row of one of the plugin's collections, rendered by the shell from the collection's fields and display: a header, sections of fields edited in place, related rows, the sections other plugins contribute, history. The route's last parameter is the row's id.",
+      "type": "object",
+      "required": [
+        "collection"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "collection": {
+          "description": "A collection of this plugin.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "collectionView": {
+      "description": "The rows of one of the plugin's collections as a table, a list or a board, rendered by the shell from the collection's fields, in place of a client half's component.",
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "A collection of this plugin.",
+          "type": "string",
+          "minLength": 1
+        },
+        "layouts": {
+          "description": "The layouts a person can choose between; the first is the one the view opens in. table when missing.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "table",
+              "list",
+              "board"
+            ]
+          }
+        },
+        "columns": {
+          "description": "The fields shown as columns, in order; the collection's display.fields when missing.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "sort": {
+          "description": "The order rows come in until a person sorts.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "field"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "field": {
+                "type": "string"
+              },
+              "dir": {
+                "enum": [
+                  "asc",
+                  "desc"
+                ]
+              }
+            }
+          }
+        },
+        "filter": {
+          "description": "A filter (where) added to every query of the view.",
+          "type": "object"
+        },
+        "groupBy": {
+          "description": "An enum field the rows are grouped by: the board's columns, and the groups of a table or a list, in the order the field declares its values. A board without it uses the collection's display.status.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "frame": {
+      "description": "A page one of the plugin's services serves, shown in place of a client half's component. {name} in path is filled from the view's route parameters.",
+      "type": "object",
+      "required": [
+        "service"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "description": "A service of this plugin.",
+          "$ref": "#/$defs/pluginId"
+        },
+        "endpoint": {
+          "description": "An http endpoint of the service; the service's first http endpoint when missing.",
+          "$ref": "#/$defs/pluginId"
+        },
+        "path": {
+          "description": "Inside the endpoint; / when missing.",
+          "type": "string",
+          "pattern": "^/"
+        },
+        "allow": {
+          "description": "Browser permissions for the frame. Nothing is allowed by default.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "fullscreen",
+              "pointer-lock",
+              "gamepad",
+              "clipboard-read",
+              "clipboard-write",
+              "microphone",
+              "camera"
+            ]
+          }
+        }
+      }
+    },
+    "path": {
+      "description": "A path in the target's folder.",
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "pattern": "(^/|^\\.\\.(/|$)|/\\.\\.(/|$)|\\\\)"
+      }
+    },
+    "pluginId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]{0,62}$"
+    },
+    "dependencyMap": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/pluginId"
+      },
+      "additionalProperties": {
+        "description": "A semver range: ^1.2, ~1.4.0, >=1.0, <2.0, 1.*, =1.2.3.",
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+    },
+    "methodName": {
+      "type": "string",
+      "pattern": "^[a-z][A-Za-z0-9_]*$",
+      "maxLength": 64
+    },
+    "serviceHandler": {
+      "description": "A method of one of this plugin's app services, which handles the contribution instead of the host half. A bound command or tool takes the method's params schema.",
+      "type": "object",
+      "required": [
+        "service",
+        "method"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "$ref": "#/$defs/pluginId"
+        },
+        "method": {
+          "$ref": "#/$defs/methodName"
+        }
+      }
+    },
+    "serviceMethods": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/methodName"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "params": {
+            "description": "The params' JSON Schema. The kernel checks every call against it before the call leaves the kernel.",
+            "type": [
+              "object",
+              "boolean"
+            ]
+          },
+          "result": {
+            "description": "The result's JSON Schema.",
+            "type": [
+              "object",
+              "boolean"
+            ]
+          },
+          "timeoutSecs": {
+            "description": "How long one call may run. Default 30; longer work is a job.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 300
+          },
+          "stream": {
+            "description": "Answers with a stream of chunks (the host half's stream) instead of one result.",
+            "type": "boolean"
+          },
+          "idempotent": {
+            "description": "Safe to run twice: if the replica's connection drops before a response, the kernel may call another replica. Without it such a call fails with UNAVAILABLE.",
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "gridSize": {
+      "description": "A size on the widget grid, in cells: 12 columns wide.",
+      "type": "object",
+      "required": [
+        "w",
+        "h"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "w": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12
+        },
+        "h": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 24
+        }
+      }
+    },
+    "routePath": {
+      "description": "Inside the namespace, from '/': literal segments, :param for one segment, a last *rest for the remainder.",
+      "type": "string",
+      "pattern": "^/(?:(?:[a-z0-9._~-]+|:[A-Za-z][A-Za-z0-9_]*)(?:/(?:[a-z0-9._~-]+|:[A-Za-z][A-Za-z0-9_]*))*(?:/\\*[A-Za-z][A-Za-z0-9_]*)?|\\*[A-Za-z][A-Za-z0-9_]*)?$"
+    },
+    "blockWidth": {
+      "description": "How wide a block of a page is.",
+      "enum": [
+        "reading",
+        "wide",
+        "full"
+      ]
+    },
+    "qualifiedId": {
+      "description": "<plugin>.<name>",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*\\.[A-Za-z][A-Za-z0-9_.-]*$"
+    },
+    "icon": {
+      "description": "A Nocturne core icon or a kebab-case Lucide name.",
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "loose": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "contributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              },
+              "icon": {
+                "$ref": "#/$defs/icon"
+              },
+              "handler": {
+                "$ref": "#/$defs/serviceHandler"
+              }
+            }
+          }
+        },
+        "keybindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "command",
+              "key"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "command": {
+                "type": "string"
+              },
+              "key": {
+                "description": "Modifiers and a key joined by '+': mod+shift+h. mod is Ctrl, or Cmd on macOS.",
+                "type": "string",
+                "pattern": "^((mod|ctrl|alt|shift|meta)\\+)*[a-z0-9]+$"
+              },
+              "params": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "views": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "slot": {
+                "enum": [
+                  "main",
+                  "sidebar",
+                  "inspector",
+                  "panel"
+                ]
+              },
+              "icon": {
+                "$ref": "#/$defs/icon"
+              },
+              "description": {
+                "type": "string"
+              },
+              "frame": {
+                "$ref": "#/$defs/frame"
+              },
+              "collection": {
+                "$ref": "#/$defs/collectionView"
+              },
+              "record": {
+                "$ref": "#/$defs/recordView"
+              }
+            }
+          }
+        },
+        "nav": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "view"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "view": {
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "path": {
+                "description": "What the view opens with: the path its route's parameters are filled from.",
+                "type": "string"
+              },
+              "icon": {
+                "$ref": "#/$defs/icon"
+              },
+              "section": {
+                "description": "The sidebar section the entry goes into (any plugin's or the shell's). A section of the plugin's own when missing.",
+                "type": "string",
+                "minLength": 1
+              },
+              "order": {
+                "type": "integer"
+              },
+              "main": {
+                "description": "The plugin's main entry: the one row the sidebar shows for the plugin by default; its other entries show when the row is expanded. Default: the plugin's first entry by order.",
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "adminPages": {
+          "description": "Pages in the shell's Admin area, at /admin/<id>, for admins only. The body is one of the plugin's views. The kernel refuses anyone but an admin the listed rpc methods and collections.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "view"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "icon": {
+                "$ref": "#/$defs/icon"
+              },
+              "view": {
+                "description": "A view of this plugin in the main slot that needs nothing from its URL: a client view, a frame or a collection view (not a record page).",
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "rpc": {
+                "description": "Methods of contributes.rpc only admins may call.",
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "collections": {
+                "description": "Collections of this plugin only admins may read and write. A collection view's collection is among them. Not an entity collection.",
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              }
+            }
+          }
+        },
+        "routes": {
+          "description": "URLs of the plugin's views, inside its namespace or under a context's prefix.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "path",
+              "view"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/routePath"
+              },
+              "view": {
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "context": {
+                "description": "A context the route is mounted under: rookery.space, or a context a plugin contributes.",
+                "$ref": "#/$defs/qualifiedId"
+              }
+            }
+          }
+        },
+        "contexts": {
+          "description": "Route prefixes with one parameter that views can be mounted under, giving them a value (a space, an account).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "prefix"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "prefix": {
+                "$ref": "#/$defs/routePath"
+              },
+              "icon": {
+                "$ref": "#/$defs/icon"
+              }
+            }
+          }
+        },
+        "settings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "key",
+              "title",
+              "type"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "type": {
+                "enum": [
+                  "string",
+                  "number",
+                  "integer",
+                  "boolean",
+                  "enum",
+                  "text",
+                  "secret",
+                  "json"
+                ]
+              },
+              "default": {},
+              "description": {
+                "type": "string"
+              },
+              "enum": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "scopes": {
+                "description": "Where it can be set. All three when missing.",
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "global",
+                    "space",
+                    "user"
+                  ]
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "category": {
+                "description": "Shown before the title in the settings view.",
+                "type": "string"
+              },
+              "unit": {
+                "description": "The unit of a number: px, lines.",
+                "type": "string"
+              },
+              "minimum": {
+                "type": "number"
+              },
+              "maximum": {
+                "type": "number"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "string"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "default": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "number"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "default": {
+                      "type": "number"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "integer"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "default": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "boolean"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "default": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "enum"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "enum"
+                  ],
+                  "properties": {
+                    "default": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "text"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "default": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "secret"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "default": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "else": {
+                  "required": [
+                    "default"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "extensions": {
+          "description": "Contributions to other plugins' extension points, keyed by point id.",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/qualifiedId"
+          },
+          "additionalProperties": {
+            "type": "array"
+          }
+        },
+        "collections": {
+          "description": "Stored data (docs/data.md). Tables are created and extended when the plugin loads; other changes need a migration in migrations/.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "fields"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-zA-Z0-9_]{0,62}$"
+              },
+              "scope": {
+                "description": "Where rows live; the store adds the filter. Default space.",
+                "enum": [
+                  "global",
+                  "space",
+                  "user"
+                ]
+              },
+              "entity": {
+                "type": "object",
+                "required": [
+                  "scheme",
+                  "title"
+                ],
+                "additionalProperties": false,
+                "description": "Rows are entities <scheme>://<id>: indexed, referenceable, mentionable and shareable.",
+                "properties": {
+                  "scheme": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,30}$"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "subtitle": {
+                    "type": "string"
+                  },
+                  "icon": {
+                    "type": "string"
+                  },
+                  "parent": {
+                    "type": "string"
+                  },
+                  "private": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "description": "The text of a row (entities.text): generated from its fields (true, the default), only from the fields listed, or none (false).",
+                    "oneOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "fields"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "fields": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            },
+                            "minItems": 1
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              "access": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "read": {
+                    "enum": [
+                      "view",
+                      "use",
+                      "manage"
+                    ]
+                  },
+                  "write": {
+                    "enum": [
+                      "view",
+                      "use",
+                      "manage"
+                    ]
+                  },
+                  "delete": {
+                    "enum": [
+                      "view",
+                      "use",
+                      "manage"
+                    ]
+                  }
+                }
+              },
+              "agents": {
+                "description": "Makes the collection available to agent sessions through the generic data tools, under the session user's access: read finds and gets rows, write also creates and updates them and runs the declared actions.",
+                "enum": [
+                  "read",
+                  "write"
+                ]
+              },
+              "display": {
+                "type": "object",
+                "required": [
+                  "title"
+                ],
+                "additionalProperties": false,
+                "description": "The collection can be shown by generic views of rows, such as the docs plugin's inline database (table, board, list). Views query it with the ordinary data calls, so its scope and access apply.",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "description": "What pickers call the collection."
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "icon": {
+                    "type": "string"
+                  },
+                  "primary": {
+                    "type": "string",
+                    "description": "The field that names a row; the entity title by default."
+                  },
+                  "fields": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Fields offered as columns, in order; every field but json and richtext by default."
+                  },
+                  "status": {
+                    "type": "string",
+                    "description": "An enum field a board groups by; dragging a card writes it."
+                  },
+                  "view": {
+                    "type": "string",
+                    "description": "The view a row opens in, with its id as the path; the entity's view by default."
+                  },
+                  "create": {
+                    "type": "boolean",
+                    "description": "Rows can be added from a view."
+                  },
+                  "filter": {
+                    "type": "object",
+                    "description": "A where every query of a view adds."
+                  },
+                  "actions": {
+                    "type": "array",
+                    "description": "What a person can do with the rows: commands and field changes, in the row menu, the bulk bar and the view's menu.",
+                    "items": {
+                      "$ref": "#/$defs/collectionAction"
+                    }
+                  },
+                  "sections": {
+                    "type": "array",
+                    "description": "Field order and grouping on the record page. The fields no section names follow.",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "fields"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "fields": {
+                          "type": "array",
+                          "uniqueItems": true,
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "related": {
+                    "type": "array",
+                    "description": "Lists of rows of a collection of this plugin that reference the record, on its page.",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "collection",
+                        "by"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "collection": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "by": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "history": {
+                "type": "boolean"
+              },
+              "trash": {
+                "type": "boolean"
+              },
+              "fields": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "type"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-zA-Z0-9_]{0,62}$"
+                    },
+                    "type": {
+                      "enum": [
+                        "text",
+                        "longtext",
+                        "richtext",
+                        "integer",
+                        "number",
+                        "boolean",
+                        "date",
+                        "datetime",
+                        "enum",
+                        "json",
+                        "ref",
+                        "refs",
+                        "path",
+                        "sequence",
+                        "bytes",
+                        "blob",
+                        "vector"
+                      ]
+                    },
+                    "values": {
+                      "type": "array",
+                      "items": {
+                        "oneOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          {
+                            "type": "object",
+                            "required": [
+                              "value"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "value": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "tone": {
+                                "enum": [
+                                  "neutral",
+                                  "accent",
+                                  "positive",
+                                  "negative"
+                                ]
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "minItems": 1
+                    },
+                    "transitions": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "to": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,30}$"
+                    },
+                    "per": {
+                      "enum": [
+                        "global",
+                        "space",
+                        "user"
+                      ]
+                    },
+                    "search": {
+                      "type": "boolean"
+                    },
+                    "index": {
+                      "oneOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "enum": [
+                            "hnsw",
+                            "none"
+                          ]
+                        }
+                      ]
+                    },
+                    "unique": {
+                      "type": "boolean"
+                    },
+                    "caseInsensitive": {
+                      "type": "boolean"
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "min": {
+                      "type": "number"
+                    },
+                    "max": {
+                      "type": "number"
+                    },
+                    "minLength": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "maxLength": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "pattern": {
+                      "type": "string"
+                    },
+                    "default": {},
+                    "title": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "enum": [
+                        "currency",
+                        "percent",
+                        "duration",
+                        "progress",
+                        "url",
+                        "email"
+                      ]
+                    },
+                    "currency": {
+                      "description": "format currency: the ISO 4217 code of the amount (EUR). Without it the field shows a plain number.",
+                      "type": "string",
+                      "pattern": "^[A-Z]{3}$"
+                    },
+                    "trueTitle": {
+                      "description": "boolean: what true is called where it is shown (Needs attention), in place of Yes.",
+                      "type": "string"
+                    },
+                    "falseTitle": {
+                      "description": "boolean: what false is called where it is shown (Routine), in place of No.",
+                      "type": "string"
+                    },
+                    "visibleWhen": {
+                      "type": "object"
+                    },
+                    "editableWhen": {
+                      "type": "object"
+                    },
+                    "maxBytes": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 16777216,
+                      "default": 1048576
+                    },
+                    "dimensions": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 16000
+                    },
+                    "metric": {
+                      "enum": [
+                        "cosine",
+                        "l2",
+                        "ip"
+                      ]
+                    }
+                  },
+                  "allOf": [
+                    {
+                      "if": {
+                        "properties": {
+                          "type": {
+                            "const": "enum"
+                          }
+                        }
+                      },
+                      "then": {
+                        "required": [
+                          "values"
+                        ]
+                      }
+                    },
+                    {
+                      "if": {
+                        "properties": {
+                          "type": {
+                            "const": "vector"
+                          }
+                        }
+                      },
+                      "then": {
+                        "required": [
+                          "dimensions"
+                        ],
+                        "properties": {
+                          "index": {
+                            "enum": [
+                              "hnsw",
+                              "none"
+                            ],
+                            "default": "hnsw"
+                          }
+                        }
+                      },
+                      "else": {
+                        "properties": {
+                          "index": {
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "properties": {
+                          "type": {
+                            "const": "vector"
+                          }
+                        },
+                        "required": [
+                          "type"
+                        ]
+                      },
+                      "then": {
+                        "if": {
+                          "properties": {
+                            "index": {
+                              "const": "none"
+                            }
+                          },
+                          "required": [
+                            "index"
+                          ]
+                        },
+                        "else": {
+                          "properties": {
+                            "dimensions": {
+                              "maximum": 2000
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "indexes": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1
+                }
+              },
+              "unique": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1
+                }
+              },
+              "kind": {
+                "enum": [
+                  "regular",
+                  "log"
+                ]
+              },
+              "retention": {
+                "type": "object",
+                "required": [
+                  "days"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "days": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              },
+              "partition": {
+                "enum": [
+                  "day",
+                  "month"
+                ]
+              }
+            }
+          }
+        },
+        "entityTypes": {
+          "description": "URI schemes this plugin owns: how they look and which view opens them (/e/<scheme>/<id>).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "scheme",
+              "title"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "scheme": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,30}$"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "icon": {
+                "type": "string"
+              },
+              "view": {
+                "description": "The view that opens an entity; it gets the id as its path.",
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "description": {
+                "type": "string"
+              },
+              "textHandler": {
+                "description": "A method of one of the plugin's app services that turns an entity of this scheme into text, instead of the host half's rookery.entities.text.",
+                "$ref": "#/$defs/serviceHandler"
+              }
+            }
+          }
+        },
+        "spaceKinds": {
+          "description": "Kinds of space users can create, such as a project.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "icon": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "tools": {
+          "description": "Tools for agents, served by the kernel's MCP server. The host half registers each with rookery.agents.tool(id, { params, run }), or a handler names an app service method.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "description"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1
+              },
+              "confirm": {
+                "type": "boolean",
+                "description": "The agent's call becomes an approval card before it runs."
+              },
+              "handler": {
+                "$ref": "#/$defs/serviceHandler"
+              }
+            }
+          }
+        },
+        "rpc": {
+          "description": "Methods the client half calls with rpc.call (or reads as a stream with rpc.stream, when it says stream). One with a handler is a method of an app service; one without is handled by the host half (rookery.rpc.handle).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "method"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "method": {
+                "type": "string",
+                "minLength": 1
+              },
+              "handler": {
+                "$ref": "#/$defs/serviceHandler"
+              },
+              "stream": {
+                "description": "The method answers with a stream of chunks, read with rookery.host.stream (rpc.stream) instead of call. Bound to an app service method that streams, or served by the host half with rookery.rpc.stream.",
+                "type": "boolean"
+              },
+              "timeoutSecs": {
+                "description": "The limit on the whole stream, in seconds. Default 30. Only for a method that streams.",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 300
+              }
+            }
+          }
+        },
+        "jobs": {
+          "description": "Background work. The host half registers each with rookery.jobs.register(id, { params, run }).",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string"
+              },
+              "timeoutSecs": {
+                "description": "How long one attempt may run. Default 3600.",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 86400
+              },
+              "maxAttempts": {
+                "description": "Attempts before the job fails for good. Default 3.",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "backoffSecs": {
+                "description": "The first retry waits this long, each later one twice as long. Default 10.",
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 86400
+              },
+              "concurrency": {
+                "description": "At most this many of this job run at once. For a job handled by the host half the default is the plugin's limit; for a job handled by a service it is no limit beyond the slots its replicas offer. Across all replicas.",
+                "type": "integer",
+                "minimum": 1
+              },
+              "worker": {
+                "description": "Who handles the job. Without it the host half does (rookery.jobs.register); with it a service of the plugin pulls the job over rookery.v1 Jobs.Work and the host half never sees it.",
+                "type": "object",
+                "required": [
+                  "service"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "service": {
+                    "description": "The id of a service in `services` that speaks rookery.v1 (a grpc endpoint, or none).",
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "client": {
+                "description": "Clients may enqueue it as the signed-in user.",
+                "type": "boolean"
+              },
+              "params": {
+                "description": "The shape of the job's params, a JSON Schema. `rookery gen` writes the params type of a service's handler from it; the kernel does not check enqueued params against it.",
+                "type": "object"
+              },
+              "result": {
+                "description": "The shape of the job's result, a JSON Schema. `rookery gen` writes the result type of a service's handler from it.",
+                "type": "object"
+              }
+            }
+          }
+        },
+        "schedules": {
+          "description": "Schedules that run as the plugin's service principal.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "job"
+            ],
+            "additionalProperties": false,
+            "oneOf": [
+              {
+                "required": [
+                  "cron"
+                ]
+              },
+              {
+                "required": [
+                  "everySecs"
+                ]
+              }
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "job": {
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "title": {
+                "type": "string"
+              },
+              "cron": {
+                "description": "5 fields, or 6 with seconds, in timezone.",
+                "type": "string",
+                "minLength": 1
+              },
+              "everySecs": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "timezone": {
+                "description": "An IANA time zone. Default UTC.",
+                "type": "string"
+              },
+              "missed": {
+                "description": "Runs missed while the server was down: once (default), skip or all.",
+                "enum": [
+                  "once",
+                  "skip",
+                  "all"
+                ]
+              },
+              "params": {
+                "type": "object"
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "webhooks": {
+          "description": "Incoming webhooks at /hooks/<plugin>/<name>; each accepted delivery enqueues job.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "job",
+              "verify"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "job": {
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "title": {
+                "type": "string"
+              },
+              "maxBytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 16777216
+              },
+              "verify": {
+                "type": "object",
+                "required": [
+                  "scheme"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "scheme": {
+                    "description": "github, stripe, slack, standard (Standard Webhooks), hmac, or none (accept anything).",
+                    "enum": [
+                      "github",
+                      "stripe",
+                      "slack",
+                      "standard",
+                      "hmac",
+                      "none"
+                    ]
+                  },
+                  "secret": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "secret"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "secret": {
+                            "description": "A global secret of the plugin.",
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "connection"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "connection": {
+                            "description": "A connection type; its global connection's credential holds the secret.",
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "field": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "algorithm": {
+                    "enum": [
+                      "sha256",
+                      "sha1",
+                      "sha512"
+                    ]
+                  },
+                  "header": {
+                    "type": "string"
+                  },
+                  "prefix": {
+                    "type": "string"
+                  },
+                  "encoding": {
+                    "enum": [
+                      "hex",
+                      "base64"
+                    ]
+                  },
+                  "timestampHeader": {
+                    "type": "string"
+                  },
+                  "deliveryHeader": {
+                    "type": "string"
+                  },
+                  "toleranceSecs": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "connectionTypes": {
+          "description": "Kinds of external service the plugin connects to. The shell builds a form from fields; secret fields reach only this plugin's host half.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "fields"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "aliases": {
+                "description": "Ids the type was known by before. Connections stored under one of them become connections of this type when the plugin loads.",
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string"
+              },
+              "icon": {
+                "type": "string"
+              },
+              "fields": {
+                "description": "A JSON Schema of an object: the connection's fields.",
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "const": "object"
+                  }
+                }
+              },
+              "secret": {
+                "description": "Names of the fields whose values are secret.",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "uniqueItems": true
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "global",
+                    "space",
+                    "user"
+                  ]
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "oauth": {
+                "type": "object",
+                "required": [
+                  "authorizeUrl",
+                  "tokenUrl"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "authorizeUrl": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "tokenUrl": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "scopes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "clientId": {
+                    "type": "string"
+                  },
+                  "clientIdField": {
+                    "type": "string"
+                  },
+                  "clientSecretField": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "test": {
+                "description": "The host half registers a test with rookery.connections.test(type, fn).",
+                "type": "boolean"
+              },
+              "testHandler": {
+                "description": "Or a method of one of the plugin's app services tests the connection: it gets { connection } with its secrets and answers { ok, message, details? }. A type with one needs no host half.",
+                "$ref": "#/$defs/serviceHandler"
+              }
+            }
+          }
+        },
+        "widgets": {
+          "description": "Tiles for dashboards and the home screen. The client half registers the component with rookery.widgets.register.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title",
+              "sizes"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string"
+              },
+              "icon": {
+                "$ref": "#/$defs/icon"
+              },
+              "category": {
+                "type": "string"
+              },
+              "sizes": {
+                "type": "object",
+                "required": [
+                  "default"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "default": {
+                    "$ref": "#/$defs/gridSize"
+                  },
+                  "min": {
+                    "$ref": "#/$defs/gridSize"
+                  },
+                  "max": {
+                    "$ref": "#/$defs/gridSize"
+                  }
+                }
+              },
+              "settings": {
+                "description": "A JSON Schema of an object: the widget's settings.",
+                "type": "object"
+              },
+              "refreshSecs": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "areas": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "dashboard",
+                    "home"
+                  ]
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "frame": {
+                "$ref": "#/$defs/frame"
+              },
+              "collection": {
+                "description": "The widget shows a collection view of this plugin: its rows as a list or a table, or how many there are. No client half is needed.",
+                "type": "object",
+                "required": [
+                  "view"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "view": {
+                    "description": "A view of this plugin that has a collection.",
+                    "$ref": "#/$defs/qualifiedId"
+                  },
+                  "layout": {
+                    "enum": [
+                      "list",
+                      "table",
+                      "count"
+                    ]
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "blocks": {
+          "description": "Block types for the shared document editor: they appear in its / menu, and the client half renders them with rookery.blocks.register.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "title"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string"
+              },
+              "icon": {
+                "type": "string"
+              },
+              "keywords": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "attrs": {
+                "description": "A JSON Schema of an object: the block's attributes; defaults make a new block's attributes.",
+                "type": "object"
+              },
+              "text": {
+                "description": "Plain text for search, with {name} replaced by the attribute name.",
+                "type": "string"
+              },
+              "markdown": {
+                "description": "Markdown export in the same template form; text is used when absent.",
+                "type": "string"
+              },
+              "width": {
+                "description": "How wide the block may be in a page: reading (the text column), wide (the editor's width less its margins) or full (edge to edge). force fixes the width; otherwise allowed is what the block menu offers and default a new block's width (the first allowed one when absent). Without it the block is reading only.",
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "default": {
+                    "$ref": "#/$defs/blockWidth"
+                  },
+                  "allowed": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                      "$ref": "#/$defs/blockWidth"
+                    }
+                  },
+                  "force": {
+                    "$ref": "#/$defs/blockWidth"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "topics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "retention"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "public": {
+                "type": "boolean",
+                "default": false
+              },
+              "retention": {
+                "type": "object",
+                "required": [
+                  "days"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "days": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              },
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "hostFeatures": {
+          "description": "What the plugin installs on hosts, each switched on its own: the tasks an apply runs over SSH, the commands they install, the host's actions, services and channels.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/hostFeature"
+          }
+        },
+        "provisioners": {
+          "description": "Programs that create machines and other things, run by the server as children of jobs.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/provisioner"
+          }
+        },
+        "shell": {
+          "description": "The page browsers load: the plugin is the server's shell. One plugin per server is.",
+          "type": "object",
+          "required": [
+            "entry"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "entry": {
+              "description": "The shell's built entry, relative to the target's folder, beside its other files.",
+              "$ref": "#/$defs/path"
+            }
+          }
+        }
+      }
+    },
+    "featureName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "featureNames": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/featureName"
+      }
+    },
+    "strings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "hostFeature": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/featureName"
+        },
+        "group": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "packages": {
+          "$ref": "#/$defs/strings"
+        },
+        "commands": {
+          "$ref": "#/$defs/strings"
+        },
+        "tasks": {
+          "$ref": "#/$defs/path"
+        },
+        "guide": {
+          "$ref": "#/$defs/path"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/hostAction"
+          }
+        },
+        "services": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/hostService"
+          }
+        },
+        "channels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/hostChannel"
+          }
+        },
+        "types": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "workstation",
+              "node"
+            ]
+          }
+        },
+        "offers": {
+          "$ref": "#/$defs/featureNames"
+        },
+        "trusts": {
+          "type": "object",
+          "required": [
+            "certificate",
+            "key"
+          ],
+          "properties": {
+            "certificate": {
+              "$ref": "#/$defs/featureName"
+            },
+            "key": {
+              "$ref": "#/$defs/featureName"
+            }
+          }
+        }
+      }
+    },
+    "hostAction": {
+      "type": "object",
+      "required": [
+        "name",
+        "run"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/featureName"
+        },
+        "run": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        },
+        "user": {
+          "enum": [
+            "agent",
+            "operator",
+            "root"
+          ]
+        },
+        "agent": {
+          "type": "boolean"
+        },
+        "arguments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/argument"
+          }
+        },
+        "confirm": {
+          "type": "string"
+        },
+        "terminal": {
+          "type": "boolean"
+        },
+        "group": {
+          "type": "string"
+        },
+        "extends": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/strings"
+            }
+          ]
+        }
+      }
+    },
+    "argument": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/featureName"
+        },
+        "label": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "default": {
+          "type": "string"
+        },
+        "choices": {
+          "type": "string"
+        },
+        "values": {
+          "$ref": "#/$defs/strings"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        },
+        "secret": {
+          "type": "boolean"
+        }
+      }
+    },
+    "hostService": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/featureName"
+        },
+        "user": {
+          "type": "string"
+        },
+        "methods": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "hostChannel": {
+      "type": "object",
+      "required": [
+        "topic"
+      ],
+      "properties": {
+        "topic": {
+          "type": "string",
+          "minLength": 1
+        },
+        "keep": {
+          "enum": [
+            "none",
+            "last",
+            "log"
+          ]
+        },
+        "max": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "days": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "provisioner": {
+      "type": "object",
+      "required": [
+        "id",
+        "command"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/featureName"
+        },
+        "command": {
+          "$ref": "#/$defs/path"
+        },
+        "protocol": {
+          "description": "The version of the provisioner protocol the command speaks. Rookery 0.6 speaks 2, and does not use a provisioner that declares another version or none.",
+          "type": "integer",
+          "minimum": 1
+        },
+        "label": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "verbs": {
+          "$ref": "#/$defs/strings"
+        },
+        "secrets": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/featureName"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "$ref": "#/$defs/featureName"
+                  },
+                  "required": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "arguments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/argument"
+          }
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/featureName"
+              },
+              "label": {
+                "type": "string"
+              },
+              "setup": {
+                "enum": [
+                  "seed",
+                  "apply"
+                ]
+              },
+              "archive": {
+                "type": "boolean"
+              },
+              "verbs": {
+                "$ref": "#/$defs/strings"
+              },
+              "arguments": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/argument"
+                }
+              },
+              "spec": {
+                "type": "object"
+              },
+              "actions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/provisionerAction"
+                }
+              }
+            }
+          }
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/provisionerAction"
+          }
+        },
+        "collections": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "provisionerAction": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/featureName"
+        },
+        "label": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        },
+        "group": {
+          "type": "string"
+        },
+        "arguments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/argument"
+          }
+        },
+        "confirm": {
+          "type": "string"
+        },
+        "changes": {
+          "type": "boolean"
+        },
+        "role": {
+          "enum": [
+            "view",
+            "operate",
+            "admin"
+          ]
+        }
+      }
+    }
+  }
+}

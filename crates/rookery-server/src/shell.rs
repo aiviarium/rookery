@@ -1,5 +1,7 @@
-//! Serving the shell: the built files in `ROOKERY_SHELL_DIR`, with `index.html` for any path that names
-//! no file, so that the shell's own routes load it. Without a shell, `/` is a plain page that says so.
+//! Serving the shell: the built files in `ROOKERY_SHELL_DIR`, or else those of the installed plugin that
+//! contributes one (`contributes.shell`), with its entry (`index.html` for `ROOKERY_SHELL_DIR`) for any
+//! path that names no file, so that the shell's own routes load it. Without a shell, `/` is a plain
+//! page that says so.
 
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -7,6 +9,7 @@ use std::sync::Arc;
 use axum::extract::Request;
 use axum::http::{Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use rookery_kernel::Kernel;
 
 fn content_type(path: &Path) -> &'static str {
     match path.extension().and_then(|e| e.to_str()).unwrap_or("") {
@@ -46,14 +49,27 @@ fn inside(root: &Path, path: &str) -> Option<PathBuf> {
 const NO_SHELL: &str = r#"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>rookery serve</title>
 <style>:root{color-scheme:light dark}body{font:15px/1.5 system-ui,sans-serif;max-width:36rem;margin:15vh auto;padding:0 16px}code{font-size:90%}</style></head>
 <body><h1>rookery serve</h1><p>This server runs, and no shell is installed on it. A shell, such as Crow, is the page people use in a browser.</p>
-<p>Set <code>ROOKERY_SHELL_DIR</code> to the folder of a built shell, or use the <code>rookery</code> command line.</p></body></html>"#;
+<p>Install a shell plugin with <code>rookery plugin add</code>, set <code>ROOKERY_SHELL_DIR</code> to the folder of a built shell, or use the <code>rookery</code> command line.</p></body></html>"#;
 
-pub async fn serve(shell: Arc<Option<PathBuf>>, request: Request) -> Response {
+pub async fn serve(shell: Arc<Option<PathBuf>>, kernel: Kernel, request: Request) -> Response {
     if request.method() != Method::GET && request.method() != Method::HEAD {
         return StatusCode::NOT_FOUND.into_response();
     }
     let path = request.uri().path().to_owned();
-    let Some(root) = shell.as_ref() else {
+    let installed = match shell.as_ref() {
+        Some(root) => Some((root.clone(), "index.html".to_owned())),
+        None => kernel
+            .get_facility::<rookery_plugins::Plugins>()
+            .and_then(|plugins| plugins.shell())
+            .map(|(dir, entry)| {
+                let name = Path::new(&entry)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "index.html".into());
+                (dir, name)
+            }),
+    };
+    let Some((root, entry)) = installed.as_ref() else {
         if path == "/" {
             return (
                 [
@@ -73,7 +89,7 @@ pub async fn serve(shell: Arc<Option<PathBuf>>, request: Request) -> Response {
         return StatusCode::NOT_FOUND.into_response();
     };
     if file.is_dir() {
-        file.push("index.html");
+        file.push(entry);
     }
     let named_a_file = Path::new(&path).extension().is_some();
     if !file.is_file() {
@@ -81,7 +97,7 @@ pub async fn serve(shell: Arc<Option<PathBuf>>, request: Request) -> Response {
         if named_a_file {
             return StatusCode::NOT_FOUND.into_response();
         }
-        file = root.join("index.html");
+        file = root.join(entry);
     }
     let Ok(resolved) = tokio::fs::canonicalize(&file).await else {
         return StatusCode::NOT_FOUND.into_response();

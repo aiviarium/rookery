@@ -4,4 +4,8 @@ import type { PluginInfo } from "./PluginInfo";
 /**
  * `plugins.list`.
  */
-export type PluginList = { plugins: Array<PluginInfo>, };
+export type PluginList = { plugins: Array<PluginInfo>, 
+/**
+ * Plugins the database records as installed that the plugin folder does not have.
+ */
+missing?: Array<string>, };

@@ -1,6 +1,8 @@
 //! Plugins: Hatchery packages with a `rookery` target. The package's
 //! `package.kdl` names it and the Rookery versions it works with, and the
-//! target's `rookery.json` says what it brings. Each contributes features to
+//! target's `plugin.json` says what it brings: here, its host features and
+//! provisioners. A target that still has a `rookery.json` is read as a
+//! `plugin.json` with those alone. Each contributes features to
 //! the groups of the Features page, and actions to the overview of a host.
 //! The role does the installing from the same manifest. A plugin can also
 //! bring provisioners, programs that create the machine a profile describes;
@@ -15,7 +17,15 @@ use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub use rookery_api::plugin_contract::{MANIFEST, TARGET, valid_name};
+pub use rookery_api::plugin_contract::{LEGACY_MANIFEST, MANIFEST, TARGET, valid_name};
+
+/// The host features and provisioners of a target's folder, in the shape of
+/// `rookery.json`, from whichever manifest it has.
+pub fn host_parts(dir: &Path) -> Option<Value> {
+    rookery_api::plugin_contract::read_dir(dir)
+        .ok()
+        .map(|read| read.host_parts())
+}
 
 pub struct PluginAction {
     pub name: String,
@@ -74,10 +84,7 @@ pub struct Hosting {
 /// What each feature of a plugin says of the hosts it is for, read from its
 /// manifest.
 pub fn hosting(plugin: &Plugin) -> Vec<Hosting> {
-    let Some(data) = fs::read(plugin.dir.join(MANIFEST))
-        .ok()
-        .and_then(|data| serde_json::from_slice::<Value>(&data).ok())
-    else {
+    let Some(data) = host_parts(&plugin.dir) else {
         return vec![];
     };
     data["features"]
@@ -270,10 +277,24 @@ pub fn load(dirs: &[PathBuf]) -> Vec<Plugin> {
 pub fn scan(dirs: &[PathBuf]) -> Vec<Plugin> {
     let mut plugins: Vec<Plugin> = vec![];
     for dir in dirs {
+        // The package that holds each id in this folder: another package of the same id here is
+        // not used, as a plugin's settings, secrets and data are kept by its id.
+        let mut held: std::collections::HashMap<String, String> = Default::default();
         for (package, origin, source) in packages(dir) {
             if let Some(mut plugin) = read(&package) {
                 plugin.origin = origin;
                 plugin.source = source;
+                match held.get(&plugin.id) {
+                    Some(holder) if *holder != plugin.package => {
+                        plugin.problem = Some(format!(
+                            "the plugin id {} is held by the package {holder}",
+                            plugin.id
+                        ));
+                    }
+                    _ => {
+                        held.insert(plugin.id.clone(), plugin.package.clone());
+                    }
+                }
                 // One that cannot be used leaves a usable one of the same id.
                 if plugin.problem.is_some()
                     && plugins
@@ -296,12 +317,9 @@ fn packages(dir: &Path) -> Vec<(PathBuf, PluginOrigin, String)> {
     if !dir.join(hatchery::lock::FILE).is_file() {
         return vec![];
     }
-    let Ok(mut lock) = hatchery::Lock::load(dir) else {
+    let Ok(lock) = hatchery::Lock::load(dir) else {
         return vec![];
     };
-    // Another plugin of the same id replaces one that comes with rookery.
-    lock.packages
-        .sort_by_key(|locked| locked.registry.as_deref() != Some(crate::builtin::NAME));
     lock.packages
         .iter()
         .map(|locked| {
@@ -361,15 +379,15 @@ pub fn read(package: &Path) -> Option<Plugin> {
         features: vec![],
         provisioners: vec![],
     };
-    // `sign-in:NAME` are rookery's own sign-ins, and `rookery` the server's.
-    plugin.problem = if !valid_name(&id) || rookery_api::plugin_contract::reserved(&id) {
+    // `sign-in:NAME` are rookery's own sign-ins.
+    plugin.problem = if !rookery_api::plugin_contract::valid_plugin_id(&id) {
         Some(format!(
-            "{id} is no plugin id: ids are lower-case letters, digits, - and _, start with a letter, and are not sign-in or rookery"
+            "{id} is no plugin id: ids are lower-case letters, digits, - and _, start with a letter, and are neither rookery nor sign-in"
         ))
     } else if target
         .manifest
         .as_deref()
-        .is_some_and(|name| name != MANIFEST)
+        .is_some_and(|name| name != MANIFEST && name != LEGACY_MANIFEST)
     {
         Some(format!(
             "its rookery target names {} as its manifest, and Rookery reads {MANIFEST}",
@@ -378,18 +396,15 @@ pub fn read(package: &Path) -> Option<Plugin> {
     } else {
         unmet(target)
     };
-    let data = match fs::read(real.join(MANIFEST)) {
-        Ok(data) => serde_json::from_slice::<Value>(&data).ok(),
-        Err(_) => None,
-    };
-    let Some(rookery) = data.filter(Value::is_object) else {
-        plugin.problem.get_or_insert_with(|| {
-            format!(
-                "{}/{MANIFEST} is missing or not a JSON object",
-                target.dir()
-            )
-        });
-        return Some(plugin);
+    let rookery = match rookery_api::plugin_contract::read_dir(&real) {
+        Ok(read) => read.host_parts(),
+        Err(problem) => {
+            plugin.problem.get_or_insert_with(|| match &problem.path {
+                Some(path) => format!("{}/{path}: {}", target.dir(), problem.message),
+                None => problem.message.clone(),
+            });
+            return Some(plugin);
+        }
     };
     if plugin.problem.is_some() {
         return Some(plugin);
@@ -1038,7 +1053,7 @@ pub(crate) mod tests {
             ),
         )
         .unwrap();
-        fs::write(dir.join(TARGET).join(MANIFEST), rookery).unwrap();
+        fs::write(dir.join(TARGET).join(LEGACY_MANIFEST), rookery).unwrap();
         lock_package(dir, version);
         dir.join(TARGET)
     }

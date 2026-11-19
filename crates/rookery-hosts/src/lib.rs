@@ -30,6 +30,19 @@ pub fn name_of(given: &str) -> &str {
     given.strip_prefix("env://").unwrap_or(given)
 }
 
+/// The plugin folder changed: the hosts read the plugins again, and say which saved hosts are behind
+/// what is installed now. Nothing, on a server whose hosts are not ready.
+pub async fn plugins_changed(kernel: &rookery_kernel::Kernel) -> Vec<rookery_api::HostBehind> {
+    let Some(hosts) = kernel.get_facility::<Hosts>() else {
+        return vec![];
+    };
+    let Ok(serve) = hosts.serve() else {
+        return vec![];
+    };
+    serve.refresh_now(false).await;
+    serve::api::behind_hosts(&serve).await
+}
+
 /// What the hosts need from the server's configuration, which it puts in place before it leads.
 #[derive(Clone)]
 pub struct Setup {

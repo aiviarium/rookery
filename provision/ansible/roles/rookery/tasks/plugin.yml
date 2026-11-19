@@ -14,9 +14,16 @@
   ansible.builtin.set_fact:
     rookery_plugin_id: "{{ rookery_plugin_feature.split('/')[0] }}"
     rookery_plugin_dir: "{{ rookery_plugin_dirs[rookery_plugin_feature.split('/')[0]] | default(rookery_plugin_carried if rookery_plugin_carried is exists else rookery_plugin_shipped) }}"
-- name: Read the plugin's rookery.json
+# Its plugin.json, or the rookery.json of a plugin not yet converted, read as
+# the host features of the one and the features of the other.
+- name: Read the plugin's manifest
+  vars:
+    rookery_plugin_json: "{{ rookery_plugin_dir ~ '/plugin.json' }}"
   ansible.builtin.set_fact:
-    rookery_plugin_manifest: "{{ lookup('ansible.builtin.file', rookery_plugin_dir ~ '/rookery.json') | from_json }}"
+    rookery_plugin_manifest: >-
+      {{ {'features': ((lookup('ansible.builtin.file', rookery_plugin_json) | from_json).contributes | default({})).hostFeatures | default([])}
+         if rookery_plugin_json is exists
+         else lookup('ansible.builtin.file', rookery_plugin_dir ~ '/rookery.json') | from_json }}
 - name: Find the feature in it
   ansible.builtin.set_fact:
     rookery_plugin_label: "{{ rookery_plugin_labels[rookery_plugin_id] | default(rookery_plugin_id) }}"
@@ -24,7 +31,7 @@
 - name: Require the feature to exist
   ansible.builtin.assert:
     that: rookery_plugin_matches | length == 1
-    fail_msg: "{{ rookery_plugin_dir }}/rookery.json has no feature {{ rookery_plugin_feature.split('/')[1] }}"
+    fail_msg: "{{ rookery_plugin_dir }}/plugin.json has no host feature {{ rookery_plugin_feature.split('/')[1] }}"
 - name: Take the feature's description
   ansible.builtin.set_fact:
     rookery_feature: "{{ rookery_plugin_matches[0] }}"

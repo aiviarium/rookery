@@ -10,6 +10,7 @@
     ".": "./src/index.ts",
     "./client": "./src/client/index.ts",
     "./runtime/client": "./src/client/runtime.ts",
+    "./runtime/host": "./src/host/runtime.ts",
     "./errors": "./src/errors.ts",
     "./types": "./src/types.ts",
     "./data": "./src/data.ts",

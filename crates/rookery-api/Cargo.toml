@@ -30,6 +30,6 @@ schema = ["dep:schemars"]
 ts = ["dep:ts-rs", "schema"]
 # The client over a byte stream; without it only the types and tables remain,
 # which is all the shared screens take.
-# The contract of a plugin: the schema of rookery.json and Rookery's checks.
+# The contract of a plugin: the schema of plugin.json, and of rookery.json, and Rookery's checks.
 plugins = ["dep:hatchery", "dep:jsonschema"]
 client = ["dep:tokio", "dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:tokio-tungstenite", "dep:futures-util"]

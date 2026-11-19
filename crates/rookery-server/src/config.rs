@@ -39,6 +39,11 @@ pub struct ServerConfig {
     pub paths: Option<rookery_core::paths::Paths>,
     /// How long provisioners may take and how a new machine is waited for, which tests make quick.
     pub provision: fn() -> rookery_core::provision::Options,
+    /// How plugins' host halves run: `ROOKERY_BUN` (the Bun program, `bun` by default),
+    /// `ROOKERY_EXTHOST` (the extension host's entry: `host/dist/main.js` of the provisioning source
+    /// unless it is set, or `host/src/main.ts` of a checkout; without one no host half runs) and
+    /// `ROOKERY_EXTHOST_MEMORY_MB` (the memory a host may hold, 512 by default).
+    pub exthost: rookery_plugins::HostOptions,
 }
 
 /// What is wrong with the configuration, said for a person.
@@ -199,16 +204,37 @@ impl ServerConfig {
             socket: default_socket(var),
             paths: None,
             provision: Default::default,
+            exthost: rookery_plugins::HostOptions {
+                bun: get("ROOKERY_BUN")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("bun")),
+                entry: get("ROOKERY_EXTHOST").map(PathBuf::from),
+                memory_mb: match get("ROOKERY_EXTHOST_MEMORY_MB") {
+                    Some(mb) => mb.trim().parse().map_err(|_| {
+                        ConfigError(format!(
+                            "ROOKERY_EXTHOST_MEMORY_MB is a number of MiB, not {mb}"
+                        ))
+                    })?,
+                    None => rookery_plugins::HostOptions::default().memory_mb,
+                },
+            },
         })
     }
 
     /// From the environment, with the folders of the user it runs as.
     pub fn from_env() -> Result<ServerConfig, ConfigError> {
         let mut config = ServerConfig::from_vars(&|name| std::env::var(name).ok())?;
-        config.paths = Some(
-            rookery_core::paths::Paths::locate()
-                .map_err(|e| ConfigError(format!("rookery's folders: {e}")))?,
-        );
+        let paths = rookery_core::paths::Paths::locate()
+            .map_err(|e| ConfigError(format!("rookery's folders: {e}")))?;
+        // Without ROOKERY_EXTHOST, host halves run with the bundle the provisioning source carries.
+        if config.exthost.entry.is_none() {
+            config.exthost.entry = paths
+                .source()
+                .ok()
+                .map(|source| source.join("host/dist/main.js"))
+                .filter(|entry| entry.is_file());
+        }
+        config.paths = Some(paths);
         Ok(config)
     }
 }

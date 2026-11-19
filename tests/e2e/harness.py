@@ -723,7 +723,7 @@ def _enter_served_extended():
     leave_the_tailnet(station)
     registry = plugin_registry()
     registry.publish(plugin_version('1.0.0', 'served'))
-    serve.call('plugins.install', {'spec': 'example/served'})
+    serve.call('plugins.add', {'spec': 'example/served'})
     client = Workstation('served-client', ssh_key=False)
     client.rookery('login', serve.url, '--token-stdin', input=serve.token)
     client.rookery('config', 'set', 'tailnet_login_server', headscale().url)

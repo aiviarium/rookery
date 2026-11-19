@@ -1,0 +1,45 @@
+[package]
+name = "rookery-plugins"
+description = "The plugin system of rookery serve: plugin.json, installs through Hatchery, the extension host and the client halves."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+doctest = false
+
+[features]
+# What the tests of other crates need to load plugins of their own.
+testing = []
+
+[dependencies]
+rookery-api = { workspace = true, features = ["plugins", "schema"] }
+# After a change of the plugins, the hosts read them again.
+rookery-hosts.workspace = true
+rookery-core.workspace = true
+rookery-proto.workspace = true
+rookery-store.workspace = true
+rookery-kernel.workspace = true
+hatchery.workspace = true
+tokio.workspace = true
+tokio-util = { version = "0.7", default-features = false }
+axum.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+sqlx.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+libc.workspace = true
+sha2 = "0.11"
+
+[dev-dependencies]
+rookery-kernel = { workspace = true, features = ["testing"] }
+rookery-facilities.workspace = true
+rookery-jobs.workspace = true
+tempfile.workspace = true
+tower = { version = "0.5", default-features = false, features = ["util"] }
+http-body-util.workspace = true

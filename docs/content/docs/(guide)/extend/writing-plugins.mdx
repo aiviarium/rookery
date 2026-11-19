@@ -4,7 +4,7 @@ description: The plugin package format, from a minimal example to every field of
 icon: FileCode
 ---
 
-A plugin is a [Hatchery](https://aiviarium.github.io/hatchery/) package with a `rookery` target. The package is a folder with a `package.kdl`. The plugin's files are in its `rookery/` folder, and `rookery/rookery.json` lists its features and provisioners. Plugins are shared through plugin registries, such as a git repository of packages ([Installing a plugin](/docs/extend/plugins#installing-a-plugin)). The Unity plugin in `plugins/rookery/unity/` is a good one to copy.
+A plugin is a [Hatchery](https://aiviarium.github.io/hatchery/) package with a `rookery` target. The package is a folder with a `package.kdl`. The plugin's files are in its `rookery/` folder, and `rookery/plugin.json` says what the plugin is and what it contributes, such as its host features and provisioners. Plugins are shared through plugin registries, such as a git repository of packages ([Installing a plugin](/docs/extend/plugins#installing-a-plugin)). The Unity plugin in `plugins/rookery/unity/` is a good one to copy.
 
 ## A minimal plugin
 
@@ -12,7 +12,7 @@ A plugin is a [Hatchery](https://aiviarium.github.io/hatchery/) package with a `
   <Folder name="hello" defaultOpen>
     <File name="package.kdl" />
     <Folder name="rookery" defaultOpen>
-      <File name="rookery.json" />
+      <File name="plugin.json" />
     </Folder>
   </Folder>
 </Files>
@@ -39,22 +39,34 @@ targets {
 }
 ```
 
-```json title="hello/rookery/rookery.json"
+```json title="hello/rookery/plugin.json"
 {
-  "features": [
-    {
-      "id": "cowsay",
-      "group": "Development Tools",
-      "label": "cowsay",
-      "description": "Installs cowsay and adds a greeting to the host.",
-      "summary": "`cowsay` is installed.",
-      "packages": ["cowsay"],
-      "commands": ["cowsay"],
-      "actions": [
-        {"name": "greet", "label": "Say hello", "run": "cowsay hello from $(hostname)"}
-      ]
-    }
-  ]
+  "apiVersion": "1",
+  "name": "Hello",
+  "contributes": {
+    "hostFeatures": [
+      {
+        "id": "cowsay",
+        "group": "Development Tools",
+        "label": "cowsay",
+        "description": "Installs cowsay and adds a greeting to the host.",
+        "summary": "`cowsay` is installed.",
+        "packages": [
+          "cowsay"
+        ],
+        "commands": [
+          "cowsay"
+        ],
+        "actions": [
+          {
+            "name": "greet",
+            "label": "Say hello",
+            "run": "cowsay hello from $(hostname)"
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
 
@@ -66,7 +78,7 @@ Install it with `rookery plugin add ./hello`, switch it on with `rookery host se
   <Folder name="unity" defaultOpen>
     <File name="package.kdl" />
     <Folder name="rookery" defaultOpen>
-      <File name="rookery.json" />
+      <File name="plugin.json" />
       <File name="guide.md" />
       <Folder name="tasks" defaultOpen>
         <File name="cli.yml" />
@@ -109,36 +121,71 @@ targets {
 | `about` | `name` is the name Rookery shows, and `summary` its description. Without a name, Rookery shows the id |
 | `targets` | `rookery` is the target Rookery installs. `requires` names the Rookery versions the plugin works with |
 
-The ids of plugins and features are lower-case letters, digits, `-` and `_`, starting with a letter. The id `sign-in` is Rookery's own. The rest of `package.kdl`, such as dependencies and variants for each system, is described in [Hatchery's documentation](https://github.com/aiviarium/hatchery/blob/main/docs/package-kdl.md).
+The ids of plugins and features are lower-case letters, digits, `-` and `_`, starting with a letter. The ids `rookery` and `sign-in` are Rookery's own. The rest of `package.kdl`, such as dependencies and variants for each system, is described in [Hatchery's documentation](https://github.com/aiviarium/hatchery/blob/main/docs/package-kdl.md).
 
 ### The Rookery version
 
 The line `rookery ">=0.6"` in `requires` is a range of Rookery versions, in Cargo's syntax. Lines such as `rookery "^0.6" "^0.7"` give a choice of ranges. A package without the line is refused, and so is one for another Rookery: `rookery plugin add` says which versions it wants. A plugin installed before Rookery was updated past its range stays, but Rookery does not use it. `rookery plugin list` shows it as `not used`, with the reason.
 
-### rookery.json
+### The manifest
 
-`rookery.json` has two lists, `features` and `provisioners`, and other keys are refused. The JSON Schema [`schemas/rookery-plugin.schema.json`](https://github.com/aiviarium/rookery/blob/main/schemas/rookery-plugin.schema.json) in the Rookery source describes it. The paths in it, such as `tasks` and `guide`, are relative to the `rookery/` folder.
+`plugin.json` needs `apiVersion`, which is `"1"`, and `name`, the name Rookery and a shell show. The plugin's id and version come from `package.kdl`, and the manifest doesn't repeat them. What the plugin brings is under `contributes`: `hostFeatures`, what it installs on hosts, and `provisioners`, what makes machines, beside the parts a shell shows, such as `views`. `host` names a host half, which runs on the server, and `client` a built client half, which a shell loads. The JSON Schema [`schemas/plugin.schema.json`](https://github.com/aiviarium/rookery/blob/main/schemas/plugin.schema.json) in the Rookery source describes it, and other keys are refused. The paths in it, such as `tasks` and `guide`, are relative to the `rookery/` folder.
 
-```json title="rookery/rookery.json"
+A plugin written before `plugin.json` has a `rookery.json` with the lists `features` and `provisioners`. Rookery reads it for one more release as a `plugin.json` whose `contributes.hostFeatures` and `contributes.provisioners` are those lists, with the same fields. To convert one, move the lists there, add `apiVersion` and `name`, and remove `rookery.json`: a package with both is refused.
+
+```json title="rookery/plugin.json"
 {
-  "features": [
-    {
-      "id": "cli",
-      "group": "Development Tools",
-      "label": "Unity CLI",
-      "description": "Shown as help in rookery.",
-      "summary": "Unity CLI (`unity`) with its agent skills.",
-      "packages": ["libgtk-3-0t64"],
-      "commands": ["unity"],
-      "tasks": "tasks/cli.yml",
-      "guide": "guide.md",
-      "actions": [
-        {"name": "status", "label": "Sign-in and license", "run": "unity auth status"}
-      ]
-    }
-  ]
+  "apiVersion": "1",
+  "name": "Unity",
+  "contributes": {
+    "hostFeatures": [
+      {
+        "id": "cli",
+        "group": "Development Tools",
+        "label": "Unity CLI",
+        "description": "Shown as help in rookery.",
+        "summary": "Unity CLI (`unity`) with its agent skills.",
+        "packages": [
+          "libgtk-3-0t64"
+        ],
+        "commands": [
+          "unity"
+        ],
+        "tasks": "tasks/cli.yml",
+        "guide": "guide.md",
+        "actions": [
+          {
+            "name": "status",
+            "label": "Sign-in and license",
+            "run": "unity auth status"
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
+
+### Host halves and what they reach
+
+A plugin's `host` names its host half, a module that runs on the server: `export default definePlugin((rookery) => { ... })` from `@rookery/sdk`. Rookery starts it the first time something of the plugin is used, or with the server when the manifest says `"activate": "startup"`. Each plugin's host half runs in a Bun process of its own, and the server knows which plugin a call is from by that process's pipes alone. A host half calls the server's methods as its plugin, so it reaches its own settings, secrets and storage and no other plugin's.
+
+Each method it registers with `rookery.rpc.handle` says who may call it through `plugins.rpc`, and one that says nothing is refused:
+
+| `level` | Who may call it |
+| --- | --- |
+| `own` | A person who is signed in, or the server's own machine. Not another plugin. The handler checks the rest, with `ctx.user` |
+| `admin` | An admin |
+
+A host half is ended, and counted as a crash, when its process ends or when a handler keeps running past its call's deadline. So is one whose process holds more memory than `ROOKERY_EXTHOST_MEMORY_MB` (512 MiB unless set). After five crashes in a minute it's failed. Then only an admin starts it again, also as a dependency of another plugin.
+
+What a host half can reach:
+
+- Its process gets none of the server's environment but `PATH`, `HOME`, `LANG`, `LC_ALL` and `TZ`, so it doesn't get the database's address or the server's key.
+- The server and each host make themselves non-dumpable, so one host can't open another's pipes, or read another's or the server's memory and environment, through `/proc`.
+- That's a mitigation, not a sandbox. Every host half runs as the server's own system user and can read the files that user can, such as the secret key file and the configuration folder. A host half is code an admin installs and trusts: install plugins whose source you trust, as you would any program on the server.
+
+The route that serves client halves, `/plugins/ID/HASH/PATH`, serves only the files of the client half's folder and its stylesheet. It doesn't ask anyone to sign in, as a browser loads a shell before anyone signs in. Put nothing secret in a client half.
 
 ## Features
 
@@ -278,42 +325,81 @@ The topic becomes `PLUGIN/TOPIC`. `keep` is the default for messages published t
 
 ## Writing a provisioner
 
-A provisioner is a program of a plugin that makes things on a platform: machines for saved hosts, and other kinds of things its plugin names. It also has actions of its own, such as listing images or freeing space. Its plugin lists it under `provisioners` in `rookery.json`, next to `features`, and holds the executable in its `rookery/` folder. People register it under a name of their own with `rookery provisioner add NAME PLUGIN/ID`, and then use it with `rookery host create HOST --provisioner NAME`, `rookery provisioner show NAME` and `rookery resource list` ([Provisioners](/docs/deploy/provisioners), [Resources](/docs/deploy/resources)). The plugins `docker` and `incus` in the Rookery source are examples.
+A provisioner is a program of a plugin that makes things on a platform: machines for saved hosts, and other kinds of things its plugin names. It also has actions of its own, such as listing images or freeing space. Its plugin lists it under `contributes.provisioners` in `plugin.json`, next to `hostFeatures`, and holds the executable in its `rookery/` folder. People register it under a name of their own with `rookery provisioner add NAME PLUGIN/ID`, and then use it with `rookery host create HOST --provisioner NAME`, `rookery provisioner show NAME` and `rookery resource list` ([Provisioners](/docs/deploy/provisioners), [Resources](/docs/deploy/resources)). The plugins `docker` and `incus` in the Rookery source are examples.
 
-```json title="rookery/rookery.json"
+```json title="rookery/plugin.json"
 {
-  "provisioners": [
-    {
-      "id": "vm",
-      "label": "Lab virtual machine",
-      "description": "A guest on the lab server, set up from rookery's cloud seed.",
-      "command": "bin/provision",
-      "protocol": 2,
-      "verbs": ["list"],
-      "secrets": ["lab_token", {"name": "lab_ca", "required": false}],
-      "arguments": [
-        {"name": "server", "label": "Lab server", "required": true}
-      ],
-      "kinds": [
-        {
-          "id": "machine",
-          "setup": "seed",
-          "archive": true,
-          "verbs": ["start", "stop", "change", "logs"],
-          "arguments": [
-            {"name": "cpus", "label": "CPUs", "default": "4", "kind": "resource"},
-            {"name": "image", "label": "Image", "default": "ubuntu-26.04",
-             "help": "The image the machine starts from."}
-          ]
-        }
-      ],
-      "actions": [
-        {"name": "pools", "label": "Storage pools", "group": "Storage", "changes": false},
-        {"name": "prune", "label": "Remove unused images", "group": "Storage",
-         "confirm": "Remove every image no machine uses?"}
-      ]
-    }
-  ]
+  "apiVersion": "1",
+  "name": "Lab",
+  "contributes": {
+    "provisioners": [
+      {
+        "id": "vm",
+        "label": "Lab virtual machine",
+        "description": "A guest on the lab server, set up from rookery's cloud seed.",
+        "command": "bin/provision",
+        "protocol": 2,
+        "verbs": [
+          "list"
+        ],
+        "secrets": [
+          "lab_token",
+          {
+            "name": "lab_ca",
+            "required": false
+          }
+        ],
+        "arguments": [
+          {
+            "name": "server",
+            "label": "Lab server",
+            "required": true
+          }
+        ],
+        "kinds": [
+          {
+            "id": "machine",
+            "setup": "seed",
+            "archive": true,
+            "verbs": [
+              "start",
+              "stop",
+              "change",
+              "logs"
+            ],
+            "arguments": [
+              {
+                "name": "cpus",
+                "label": "CPUs",
+                "default": "4",
+                "kind": "resource"
+              },
+              {
+                "name": "image",
+                "label": "Image",
+                "default": "ubuntu-26.04",
+                "help": "The image the machine starts from."
+              }
+            ]
+          }
+        ],
+        "actions": [
+          {
+            "name": "pools",
+            "label": "Storage pools",
+            "group": "Storage",
+            "changes": false
+          },
+          {
+            "name": "prune",
+            "label": "Remove unused images",
+            "group": "Storage",
+            "confirm": "Remove every image no machine uses?"
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
 
@@ -725,7 +811,8 @@ rookery plugin check ./hello
 | Checked | Rule |
 | --- | --- |
 | `package.kdl` | It reads, has a `rookery` target and a valid id, and names the Rookery versions in `requires` |
-| `rookery.json` | It matches `schemas/rookery-plugin.schema.json`. Feature and provisioner ids are unique |
+| `plugin.json` | It matches `schemas/plugin.schema.json`, or a `rookery.json` matches `schemas/rookery-plugin.schema.json`. Host feature, provisioner, view, command and setting ids are unique |
+| Halves | `host`, `client`, `styles` and a shell's `entry` name files in the `rookery/` folder, and each dependency has a version range |
 | Files | Each `tasks`, `guide` and provisioner `command` names a file in the `rookery/` folder |
 | `offers` | Each id is that of a provisioner of the same plugin |
 | Ansible files | No `.yml` or `.yaml` file names `role_path`, `playbook_dir` or `inventory_dir` |

@@ -59,24 +59,26 @@ SEAM = [
     'crates/rookery-setup/src/fields.rs', 'crates/rookery-setup/src/setup.rs', 'crates/rookery-setup/src/flow.rs',
 ]
 
-# TypeScript packages (`@rookery/client` and `@rookery/sdk`) and their root
-# workspace files. They have a CI unit of their own (`ts`) and are not read by
-# the Rust, Python or end-to-end units.
+# TypeScript packages (`@rookery/client`, `@rookery/sdk` and the extension
+# host `@rookery/host`) and their root workspace files. They have a CI unit of
+# their own (`ts`) and are not read by the Python or end-to-end units.
 TS_PATHS = [
-    'client/', 'sdk/', 'package.json', 'bun.lock', 'bunfig.toml',
+    'client/', 'sdk/', 'host/', 'package.json', 'bun.lock', 'bunfig.toml',
     'biome.json', 'tsconfig.base.json',
 ]
 
 # rookery serve on Postgres and its method report. The end-to-end tests do not
 # reach it yet; the Rust tests and clippy do.
 SERVER = ['crates/rookery-proto/', 'crates/rookery-store/', 'crates/rookery-kernel/', 'crates/rookery-auth/',
-          'crates/rookery-server/', 'crates/rookery-facilities/', 'crates/rookery-jobs/', 'crates/rookery-hosts/',
+          'crates/rookery-server/', 'crates/rookery-facilities/', 'crates/rookery-jobs/', 'crates/rookery-hosts/', 'crates/rookery-plugins/',
           'api/']
 
 # What each kind of unit leaves out, beyond NOWHERE, and what it keeps of that.
 UNITS = {
-    # The Rust tests compare the wire's TypeScript types in client/src/generated.
-    'rust': dict(out=['recipes/', *TS_PATHS], keep=[*RUST_READS, 'client/src/generated/']),
+    # The Rust tests compare the wire's TypeScript types in client/src/generated,
+    # and run the extension host, which is built on the SDK.
+    'rust': dict(out=['recipes/', *TS_PATHS],
+                 keep=[*RUST_READS, 'client/src/generated/', 'host/', 'sdk/', 'package.json', 'bun.lock']),
     'python': dict(out=['crates/', 'Cargo.toml', 'Cargo.lock', 'tests/e2e/', 'api/', *TS_PATHS]),
     # rookery carries the provisioning source, so the end-to-end tests read
     # most of the tree; the Python tests and the recipes are not theirs.
