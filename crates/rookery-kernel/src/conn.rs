@@ -134,6 +134,40 @@ impl ConnHandle {
     }
 }
 
+impl ConnHandle {
+    /// A connection with no socket: what the server sends on it arrives on the receiver. For tests, and
+    /// for code inside the server that calls methods as a client would.
+    pub fn detached(
+        kernel: &Kernel,
+        caller: Caller,
+    ) -> (ConnHandle, mpsc::UnboundedReceiver<Outbound>) {
+        let (out, rx) = mpsc::unbounded_channel();
+        let id = kernel.conns.next.fetch_add(1, Ordering::Relaxed) + 1;
+        let conn = ConnHandle(Arc::new(ConnInner {
+            id,
+            caller,
+            out: out.clone(),
+            streams: Streams::new(out),
+            revoked: CancellationToken::new(),
+            refresh: CancellationToken::new(),
+        }));
+        kernel.conns.map.write().unwrap().insert(id, conn.clone());
+        (conn, rx)
+    }
+
+    /// Ends a detached connection, as a socket's end ends one.
+    pub fn close_detached(&self, kernel: &Kernel) {
+        kernel.conns.map.write().unwrap().remove(&self.0.id);
+        self.streams().close_all();
+        kernel.methods.connection_closed(kernel, self);
+    }
+
+    /// Whether the connection was told to end: its credential was revoked or its user changed.
+    pub fn ended(&self) -> bool {
+        self.0.revoked.is_cancelled() || self.0.refresh.is_cancelled()
+    }
+}
+
 #[derive(Default)]
 pub struct Connections {
     map: RwLock<HashMap<u64, ConnHandle>>,

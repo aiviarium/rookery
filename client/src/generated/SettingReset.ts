@@ -2,6 +2,6 @@
 import type { SettingScope } from "./SettingScope";
 
 /**
- * `settings.reset`: removes the value at one scope, so the next one down applies.
+ * `settings.reset`: removes the value at one scope.
  */
-export type SettingReset = { key: string, scope: SettingScope, space?: string, };
+export type SettingReset = { plugin: string, key: string, scope: SettingScope, };

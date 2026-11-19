@@ -4,9 +4,12 @@
 //! camelCase. Each derives a JSON Schema for the method report in `api/`, and with the feature `ts` a
 //! TypeScript type for `client/src/generated/`.
 
+pub mod access;
 pub mod auth;
 pub mod context;
 pub mod error;
+pub mod facilities;
+pub mod jobs;
 pub mod methods;
 pub mod rpc;
 pub mod stream;
