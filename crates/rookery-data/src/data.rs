@@ -93,6 +93,38 @@ pub fn register(methods: &mut Methods) {
         .level(Level::Own);
 }
 
+/// Runs a write under the call's idempotency key, when it has one: a repeat of the same request with the
+/// key answers as the first did, and another request with it is `INVALID`. Keys are the caller's own.
+async fn keyed<T, F>(
+    call: &Call,
+    plugin: &str,
+    method: &str,
+    key: Option<&str>,
+    params: &impl serde::Serialize,
+    f: F,
+) -> T
+where
+    F: std::future::Future<Output = T>,
+{
+    let Some(key) = key else {
+        return f.await;
+    };
+    let mut request = serde_json::to_value(params).unwrap_or_default();
+    if let Some(m) = request.as_object_mut() {
+        m.remove("idempotencyKey");
+    }
+    use sha2::Digest;
+    let hash = sha2::Sha256::digest(format!("{method}\n{request}").as_bytes());
+    let key = rookery_store::idempotency::Key {
+        // The caller's own keys, for the plugin the write is to: two callers' keys never meet, nor one
+        // caller's keys for two plugins.
+        scope: format!("{}\n{plugin}", call.audit_name()),
+        key: key.to_owned(),
+        request_hash: hash.iter().map(|b| format!("{b:02x}")).collect(),
+    };
+    rookery_store::idempotency::scope(key, f).await
+}
+
 pub(crate) fn query(q: &DataQuery) -> Result<Query, RpcError> {
     serde_json::to_value(q)
         .and_then(serde_json::from_value)
@@ -219,24 +251,42 @@ async fn tail(call: Call, p: DataTail) -> Result<DataTailResult, RpcError> {
 
 async fn insert(call: Call, p: DataInsert) -> Result<DataRow, RpcError> {
     let (plugin, caller) = write_target(&call, &p.target).await?;
-    let out = call
-        .store()
-        .data(&plugin)
-        .insert(&caller, &p.target.collection, p.values)
-        .await
-        .map_err(rpc)?;
+    let out = keyed(
+        &call,
+        &plugin,
+        "data.insert",
+        p.idempotency_key.as_deref(),
+        &p,
+        async {
+            call.store()
+                .data(&plugin)
+                .insert(&caller, &p.target.collection, p.values.clone())
+                .await
+        },
+    )
+    .await
+    .map_err(rpc)?;
     mentioned(&call, &caller, &plugin, &out.mentions, out.row.as_ref()).await;
     Ok(DataRow { row: out.row })
 }
 
 async fn upsert(call: Call, p: DataUpsert) -> Result<DataRow, RpcError> {
     let (plugin, caller) = write_target(&call, &p.target).await?;
-    let out = call
-        .store()
-        .data(&plugin)
-        .upsert(&caller, &p.target.collection, p.values, &p.on)
-        .await
-        .map_err(rpc)?;
+    let out = keyed(
+        &call,
+        &plugin,
+        "data.upsert",
+        p.idempotency_key.as_deref(),
+        &p,
+        async {
+            call.store()
+                .data(&plugin)
+                .upsert(&caller, &p.target.collection, p.values.clone(), &p.on)
+                .await
+        },
+    )
+    .await
+    .map_err(rpc)?;
     mentioned(&call, &caller, &plugin, &out.mentions, out.row.as_ref()).await;
     Ok(DataRow { row: out.row })
 }
@@ -244,52 +294,93 @@ async fn upsert(call: Call, p: DataUpsert) -> Result<DataRow, RpcError> {
 async fn update(call: Call, p: DataUpdate) -> Result<DataRow, RpcError> {
     let (plugin, caller) = write_target(&call, &p.target).await?;
     let id = parse_id("id", &p.id)?;
-    let out = call
-        .store()
-        .data(&plugin)
-        .update_ops(
-            &caller,
-            &p.target.collection,
-            id,
-            p.patch,
-            p.rev,
-            &ops(&p.ops)?,
-        )
-        .await
-        .map_err(rpc)?;
+    let field_ops = ops(&p.ops)?;
+    let out = keyed(
+        &call,
+        &plugin,
+        "data.update",
+        p.idempotency_key.as_deref(),
+        &p,
+        async {
+            call.store()
+                .data(&plugin)
+                .update_ops(
+                    &caller,
+                    &p.target.collection,
+                    id,
+                    p.patch.clone(),
+                    p.rev,
+                    &field_ops,
+                )
+                .await
+        },
+    )
+    .await
+    .map_err(rpc)?;
     mentioned(&call, &caller, &plugin, &out.mentions, out.row.as_ref()).await;
     Ok(DataRow { row: out.row })
 }
 
 async fn delete(call: Call, p: DataRowRef) -> Result<DataRow, RpcError> {
     let (plugin, caller) = write_target(&call, &p.target).await?;
-    let out = call
-        .store()
-        .data(&plugin)
-        .delete(&caller, &p.target.collection, parse_id("id", &p.id)?)
-        .await
-        .map_err(rpc)?;
+    let id = parse_id("id", &p.id)?;
+    let out = keyed(
+        &call,
+        &plugin,
+        "data.delete",
+        p.idempotency_key.as_deref(),
+        &p,
+        async {
+            call.store()
+                .data(&plugin)
+                .delete(&caller, &p.target.collection, id)
+                .await
+        },
+    )
+    .await
+    .map_err(rpc)?;
     Ok(DataRow { row: out.row })
 }
 
 async fn restore(call: Call, p: DataRowRef) -> Result<DataRow, RpcError> {
     let (plugin, caller) = write_target(&call, &p.target).await?;
-    let out = call
-        .store()
-        .data(&plugin)
-        .restore(&caller, &p.target.collection, parse_id("id", &p.id)?)
-        .await
-        .map_err(rpc)?;
+    let id = parse_id("id", &p.id)?;
+    let out = keyed(
+        &call,
+        &plugin,
+        "data.restore",
+        p.idempotency_key.as_deref(),
+        &p,
+        async {
+            call.store()
+                .data(&plugin)
+                .restore(&caller, &p.target.collection, id)
+                .await
+        },
+    )
+    .await
+    .map_err(rpc)?;
     Ok(DataRow { row: out.row })
 }
 
 async fn purge(call: Call, p: DataRowRef) -> Result<DataRow, RpcError> {
     let (plugin, caller) = write_target(&call, &p.target).await?;
-    call.store()
-        .data(&plugin)
-        .purge(&caller, &p.target.collection, parse_id("id", &p.id)?)
-        .await
-        .map_err(rpc)?;
+    let id = parse_id("id", &p.id)?;
+    keyed(
+        &call,
+        &plugin,
+        "data.purge",
+        p.idempotency_key.as_deref(),
+        &p,
+        async {
+            call.store()
+                .data(&plugin)
+                .purge(&caller, &p.target.collection, id)
+                .await
+        },
+    )
+    .await
+    .map_err(rpc)?;
     Ok(DataRow { row: None })
 }
 
@@ -374,15 +465,25 @@ async fn batch(call: Call, p: DataBatch) -> Result<DataBatchResult, RpcError> {
     }
     let condition = p
         .condition
+        .clone()
         .map(|c| serde_json::to_value(c).and_then(serde_json::from_value))
         .transpose()
         .map_err(|e| RpcError::invalid(e.to_string()))?;
-    let out = call
-        .store()
-        .data(&plugin)
-        .batch_if(&caller, &ops_, condition.as_ref(), &call.audit_name())
-        .await
-        .map_err(rpc)?;
+    let out = keyed(
+        &call,
+        &plugin,
+        "data.batch",
+        p.idempotency_key.as_deref(),
+        &p,
+        async {
+            call.store()
+                .data(&plugin)
+                .batch_if(&caller, &ops_, condition.as_ref(), &call.audit_name())
+                .await
+        },
+    )
+    .await
+    .map_err(rpc)?;
     if !out.jobs.is_empty() {
         rookery_jobs::wake(&call.kernel);
     }
@@ -409,12 +510,21 @@ async fn import(call: Call, p: DataImport) -> Result<DataImportResult, RpcError>
     let options: ImportOptions =
         serde_json::from_value(serde_json::json!({ "mode": p.mode, "on": p.on }))
             .map_err(|e| RpcError::invalid(format!("import: {e}")))?;
-    let out = call
-        .store()
-        .data(&plugin)
-        .import(&caller, &p.target.collection, &p.rows, &options)
-        .await
-        .map_err(rpc)?;
+    let out = keyed(
+        &call,
+        &plugin,
+        "data.import",
+        p.idempotency_key.as_deref(),
+        &p,
+        async {
+            call.store()
+                .data(&plugin)
+                .import(&caller, &p.target.collection, &p.rows, &options)
+                .await
+        },
+    )
+    .await
+    .map_err(rpc)?;
     Ok(DataImportResult {
         inserted: out.inserted,
         updated: out.updated,

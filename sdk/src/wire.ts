@@ -141,6 +141,13 @@ import type {
   ReferenceList,
   RefsOf,
   Revision,
+  ScheduleCreate,
+  ScheduleFire,
+  ScheduleInfo,
+  ScheduleList,
+  ScheduleListQuery,
+  ScheduleRef,
+  ScheduleSetEnabled,
   ScreenInfo,
   ScreenQuery,
   SearchParams,
@@ -194,6 +201,8 @@ import type {
   TerminalSignal,
   TerminalWrite,
   UserSearch,
+  WebhookList,
+  WebhookSecretSet,
   WorktreeCreate,
 } from "./generated"
 
@@ -301,6 +310,11 @@ export const WIRE = {
   "recents.forget": {} as WireCall<RecentForget, Empty>,
   "recents.list": {} as WireCall<RecentsQuery, RecentsList>,
   "recents.touch": {} as WireCall<RecentTouch, RecentTouched>,
+  "schedules.create": {} as WireCall<ScheduleCreate, ScheduleInfo>,
+  "schedules.fire": {} as WireCall<ScheduleFire, { job: string }>,
+  "schedules.list": {} as WireCall<ScheduleListQuery, ScheduleList>,
+  "schedules.remove": {} as WireCall<ScheduleRef, Empty>,
+  "schedules.setEnabled": {} as WireCall<ScheduleSetEnabled, ScheduleInfo>,
   "search.query": {} as WireCall<SearchParams, SearchResult>,
   "services.call": {} as WireCall<
     { plugin: string; service: string; method: string; params?: Record<string, unknown> },
@@ -353,6 +367,8 @@ export const WIRE = {
   "terminals.signal": {} as WireCall<TerminalSignal, Empty>,
   "terminals.write": {} as WireCall<TerminalWrite, Empty>,
   "users.search": {} as WireCall<UserSearch, PersonList>,
+  "webhooks.list": {} as WireCall<Empty, WebhookList>,
+  "webhooks.setSecret": {} as WireCall<WebhookSecretSet, Empty>,
 }
 
 /** The name of a method `rookery serve` has and the client calls. */

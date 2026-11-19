@@ -11,4 +11,8 @@ trashed?: boolean,
 /**
  * `data.history`: at most this many entries.
  */
-limit?: number, plugin?: string, collection: string, space?: string, };
+limit?: number, 
+/**
+ * Makes a retried write answer as the first one did, instead of writing again, for a day.
+ */
+idempotencyKey?: string, plugin?: string, collection: string, space?: string, };

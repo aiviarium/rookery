@@ -665,3 +665,149 @@ async fn rookerys_own_collections_are_not_written_through_data() {
     }
     k.close().await;
 }
+
+#[tokio::test]
+async fn a_log_collection_is_appended_to_followed_and_kept_by_the_hourly_round() {
+    let k: TestKernel = test_kernel!(methods());
+    plugins::apply(
+        &k.kernel,
+        &PluginData {
+            plugin: "ai".into(),
+            collections: json!([{
+                "name": "usage",
+                "scope": "global",
+                "kind": "log",
+                "retention": { "days": 30 },
+                "fields": [{ "name": "model", "type": "text" }, { "name": "tokens", "type": "integer" }]
+            }]),
+            ..Default::default()
+        },
+        &plugins::NoTransforms,
+    )
+    .await
+    .unwrap();
+    let ai = Caller::Plugin("ai".into());
+    for tokens in [10, 20] {
+        k.call(
+            &ai,
+            "data.insert",
+            json!({ "collection": "usage", "values": { "model": "m", "tokens": tokens } }),
+        )
+        .await
+        .unwrap();
+    }
+    // A log is only appended to.
+    let first = k
+        .call(
+            &ai,
+            "data.tail",
+            json!({ "collection": "usage", "fromSeq": 0 }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first["rows"].as_array().unwrap().len(), 2);
+    let id = first["rows"][0]["id"].clone();
+    assert_eq!(
+        code(
+            k.call(
+                &ai,
+                "data.update",
+                json!({ "collection": "usage", "id": id, "patch": { "tokens": 1 } })
+            )
+            .await
+        ),
+        "INVALID"
+    );
+    let sum = k
+        .call(
+            &ai,
+            "data.aggregate",
+            json!({ "collection": "usage", "groupBy": ["model"], "measures": { "total": { "sum": "tokens" } } }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(sum["rows"][0]["total"], 30);
+    // The round makes the coming partitions and trims nothing young.
+    rookery_data::maintenance::once(&k.kernel).await;
+    k.call(
+        &ai,
+        "data.insert",
+        json!({ "collection": "usage", "values": { "model": "m", "tokens": 5 } }),
+    )
+    .await
+    .unwrap();
+    let after = k
+        .call(
+            &ai,
+            "data.tail",
+            json!({ "collection": "usage", "fromSeq": first["seq"] }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(after["rows"].as_array().unwrap().len(), 1);
+    k.close().await;
+}
+
+#[tokio::test]
+async fn a_retried_write_with_its_idempotency_key_writes_once() {
+    let k: TestKernel = test_kernel!(methods());
+    install(&k, notes()).await;
+    let notes = Caller::Plugin("notes".into());
+    let insert = |key: &str, value: &str| json!({ "collection": "settings", "values": { "key": value }, "idempotencyKey": key });
+    let first = k
+        .call(&notes, "data.insert", insert("k1", "a"))
+        .await
+        .unwrap();
+    let again = k
+        .call(&notes, "data.insert", insert("k1", "a"))
+        .await
+        .unwrap();
+    assert_eq!(
+        first["row"]["id"], again["row"]["id"],
+        "the repeat answers as the first"
+    );
+    let count = k
+        .call(&notes, "data.count", json!({ "collection": "settings" }))
+        .await
+        .unwrap();
+    assert_eq!(count["count"], 1);
+    // The key with another request is refused; another caller's keys are its own.
+    assert_eq!(
+        code(k.call(&notes, "data.insert", insert("k1", "b")).await),
+        "INVALID"
+    );
+    let admin = k.person("Maria", true).await;
+    let mut theirs = insert("k1", "c");
+    theirs["plugin"] = json!("notes");
+    k.call(&admin, "data.insert", theirs).await.unwrap();
+    let count = k
+        .call(&notes, "data.count", json!({ "collection": "settings" }))
+        .await
+        .unwrap();
+    assert_eq!(count["count"], 2);
+    // A batch with a key too.
+    let batch = json!({ "ops": [{ "op": "insert", "collection": "settings", "values": { "key": "d" } }], "idempotencyKey": "b1" });
+    k.call(&notes, "data.batch", batch.clone()).await.unwrap();
+    k.call(&notes, "data.batch", batch).await.unwrap();
+    let count = k
+        .call(&notes, "data.count", json!({ "collection": "settings" }))
+        .await
+        .unwrap();
+    assert_eq!(count["count"], 3);
+    // One caller's key for another plugin is another key.
+    plugins::apply(
+        &k.kernel,
+        &PluginData {
+            plugin: "tasks".into(),
+            collections: json!([{ "name": "settings", "scope": "global", "fields": [{ "name": "key", "type": "text" }] }]),
+            ..Default::default()
+        },
+        &plugins::NoTransforms,
+    )
+    .await
+    .unwrap();
+    let mut elsewhere = insert("k1", "c");
+    elsewhere["plugin"] = json!("tasks");
+    k.call(&admin, "data.insert", elsewhere).await.unwrap();
+    k.close().await;
+}
