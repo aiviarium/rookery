@@ -44,6 +44,41 @@
         that:
           - ansible_facts.service_mgr == 'systemd'
           - ansible_facts.getent_passwd[rookery_user][1] | int > 0
+        fail_msg: >-
+          the Parrot broker needs systemd and an account that is not root
+    - name: Require the platform the staged driver is built for
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.architecture == 'x86_64'
+        fail_msg: >-
+          the staged Parrot driver is for Linux x86_64, and this host is
+          {{ ansible_facts.architecture }}
+    - name: Require a host of its own for the broker socket
+      ansible.builtin.assert:
+        that:
+          - rookery_profile != 'container'
+        fail_msg: >-
+          a container's /run/rookery belongs to its image, so the controller
+          cannot vouch for the broker socket there
+    - name: Require the release the server staged
+      ansible.builtin.assert:
+        that:
+          - rookery_parrot.release is string
+          - rookery_parrot.release is match('^[0-9a-f]{64}$')
+        fail_msg: >-
+          rookery_parrot.release must be a SHA-256 of the staged files, and
+          it is {{ rookery_parrot.release | default('<unset>') }}
+    - name: Require the egg names the server staged
+      ansible.builtin.assert:
+        that:
+          - item.file is string
+          - item.file is match('^[A-Za-z0-9._+-]+\.egg$')
+        fail_msg: >-
+          {{ item.file | default('<unset>') }} is not an egg name the role
+          takes
+      loop: "{{ rookery_parrot.eggs }}"
+      loop_control:
+        label: "{{ item.file | default('<unset>') }}"
     - name: Create the pinned release directory
       ansible.builtin.file:
         path: "{{ rookery_parrot_dir }}"
@@ -58,6 +93,19 @@
         owner: root
         group: root
         mode: '0755'
+    - name: Read the checksum of the runtime received
+      ansible.builtin.stat:
+        path: "{{ rookery_parrot_dir }}/parrot"
+        checksum_algorithm: sha256
+      register: rookery_parrot_runtime
+    - name: Require the runtime the server checksummed
+      ansible.builtin.assert:
+        that:
+          - rookery_parrot.runtime_sha256 is string
+          - rookery_parrot.runtime_sha256 is match('^[0-9a-f]{64}$')
+          - rookery_parrot_runtime.stat.checksum == rookery_parrot.runtime_sha256
+        fail_msg: >-
+          the Parrot runtime received is not the one the server staged
     - name: Use only the eggs supplied by the server
       ansible.builtin.copy:
         content: ""

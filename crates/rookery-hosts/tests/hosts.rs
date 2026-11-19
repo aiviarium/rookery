@@ -33,6 +33,12 @@ impl Rookeryd {
             return None;
         }
         let dir = tempfile::tempdir().unwrap();
+        // The folder stands in for /run/rookery, which only its owner may write to.
+        std::fs::set_permissions(
+            dir.path(),
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )
+        .unwrap();
         std::fs::create_dir_all(dir.path().join("etc")).unwrap();
         std::fs::write(dir.path().join("etc/actions.json"), actions.to_string()).unwrap();
         let child = std::process::Command::new(&program)
@@ -362,6 +368,35 @@ async fn hosts_are_saved_shared_acted_on_and_renamed() {
         vec![json!({"jsonrpc": "2.0", "id": 1, "result": {}})]
     );
     broker_task.await.unwrap();
+    // Revoking the `use` grant ends the streams it opened, even an idle one that waits for the
+    // broker, so a chat does not outlive the access that let it open.
+    std::fs::remove_file(&broker_path).unwrap();
+    let idle_broker = tokio::net::UnixListener::bind(&broker_path).unwrap();
+    std::fs::set_permissions(
+        &broker_path,
+        std::os::unix::fs::PermissionsExt::from_mode(0o600),
+    )
+    .unwrap();
+    let idle_task = tokio::spawn(async move {
+        // Accepts, and answers nothing: the stream stays open until its caller loses `use`.
+        if let Ok((stream, _)) = idle_broker.accept().await {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            drop(stream);
+        }
+    });
+    let mut idle = server.connect(&member);
+    let idle_call = Call::new(
+        server.kernel.clone(),
+        member.clone(),
+        Some(idle.conn.clone()),
+    );
+    let opened = server
+        .kernel
+        .methods
+        .dispatch(idle_call, "agents.connect", params.clone())
+        .await
+        .unwrap();
+    let idle_stream = opened["stream"].as_u64().unwrap() as u32;
     server
         .call(
             &admin,
@@ -370,6 +405,11 @@ async fn hosts_are_saved_shared_acted_on_and_renamed() {
         )
         .await
         .unwrap();
+    let left = tokio::time::timeout(Duration::from_secs(5), idle.lines(idle_stream))
+        .await
+        .unwrap();
+    assert!(left.is_empty(), "{left:?}");
+    idle_task.abort();
 
     assert!(
         server

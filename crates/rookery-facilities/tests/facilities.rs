@@ -688,7 +688,8 @@ async fn connections_keep_credentials_sealed() {
             .unwrap()["ok"],
         false
     );
-    // Only the plugin that uses it, or an admin, gets the credential.
+    // Only the plugin that declares its type, or an admin, gets the credential. Rookery's own
+    // types are not a plugin's: it declares one of its own and reads only that one.
     assert_eq!(
         code(
             k.call(&ops, "connections.resolve", json!({"id": made["id"]}))
@@ -696,11 +697,22 @@ async fn connections_keep_credentials_sealed() {
         ),
         "FORBIDDEN"
     );
+    assert_eq!(
+        code(
+            k.call(
+                &Caller::Plugin("docker".into()),
+                "connections.resolve",
+                json!({"type": "registry", "name": "studio-registry"}),
+            )
+            .await
+        ),
+        "FORBIDDEN"
+    );
     let resolved = k
         .call(
-            &Caller::Plugin("docker".into()),
+            &admin,
             "connections.resolve",
-            json!({"type": "registry", "name": "studio-registry"}),
+            json!({"id": made["id"], "plugin": "docker"}),
         )
         .await
         .unwrap();
@@ -737,6 +749,59 @@ async fn connections_keep_credentials_sealed() {
     k.call(&admin, "connections.delete", json!({"id": made["id"]}))
         .await
         .unwrap();
+    k.close().await;
+}
+
+#[tokio::test]
+async fn a_connection_type_takes_its_secret_only_as_a_list_of_one_field() {
+    use rookery_facilities::connections::PluginKinds;
+
+    let k: TestKernel = test_kernel!(methods());
+    let fields = json!({
+        "type": "object",
+        "required": ["key"],
+        "properties": {"key": {"type": "string"}, "token": {"type": "string"}}
+    });
+    let manifest = json!({"contributes": {"connectionTypes": [
+        {"id": "models.text", "title": "A string secret", "fields": fields, "secret": "key"},
+        {"id": "models.pair", "title": "Two secrets", "fields": fields, "secret": ["key", "token"]},
+        {"id": "models.object", "title": "An object secret", "fields": fields, "secret": {"key": true}},
+        {"id": "models.absent", "title": "No secret", "fields": fields},
+        {"id": "models.null", "title": "A null secret", "fields": fields, "secret": null},
+        {"id": "models.one", "title": "One secret", "fields": fields, "secret": ["key"]}
+    ]}});
+    k.kernel
+        .set_facility(PluginKinds::from_manifests([("models", &manifest)]));
+    let admin = k.person("Mira", true).await;
+    let types = k
+        .call(&admin, "connections.types", json!({}))
+        .await
+        .unwrap();
+    // A secret that is not a list of one field's name is no type at all: it would
+    // leave the secret in the plain config.
+    let ids: Vec<&str> = types["types"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|kind| kind["id"].as_str())
+        .filter(|id| id.starts_with("models."))
+        .collect();
+    assert_eq!(ids, ["models.absent", "models.null", "models.one"]);
+    let one = types["types"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|kind| kind["id"] == "models.one")
+        .unwrap();
+    assert_eq!(one["credential"], "key");
+    assert!(one["config"]["properties"].get("key").is_none());
+    let absent = types["types"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|kind| kind["id"] == "models.absent")
+        .unwrap();
+    assert_eq!(absent["credential"], json!(null));
     k.close().await;
 }
 

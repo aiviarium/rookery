@@ -2146,11 +2146,12 @@
                 }
               },
               "secret": {
-                "description": "Names of the fields whose values are secret.",
+                "description": "The one field whose value is secret. The server seals it as the connection's credential, apart from the config, and only this plugin reads it.",
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
+                "maxItems": 1,
                 "uniqueItems": true
               },
               "scopes": {

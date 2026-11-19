@@ -178,6 +178,12 @@ The files are served at `/plugins/{id}/{hash}/{path}`, where `hash` is the SHA-2
 
 A shell is a plugin whose `plugin.json` has `contributes.shell.entry`, the built page. The entry is in a folder of the plugin's target, as the rest of the shell's files are served beside it. One plugin on a server is the shell, and `/` serves its files, with its entry for any path that names no file, so that the shell's own routes load it. `ROOKERY_SHELL_DIR` serves a built shell from a folder instead. Without either, `/` is a page that says that no shell is installed.
 
+## Connection types
+
+A plugin that talks to an outside service declares its `contributes.connectionTypes`. `fields` is a JSON Schema of the object a connection keeps, `title` and `description` label the form a shell builds, and `scopes` says which of `global`, `space` and `user` the type takes. `test` asks the host half to answer whether a connection works.
+
+`secret` names the one field whose value is a secret, or is absent. The server seals it apart from the connection's config as its credential, and answers the config without it. Only the plugin that declares the type reads the credential, through `connections.resolve`. No other plugin does, and Rookery's own `registry` and `http` types are for people and the shell alone. A type whose `secret` is anything but a list of no names or one name is refused. A secret never stays in the plain config.
+
 ## Server events
 
 The server publishes events under its own plugin id, `rookery/NAME`:

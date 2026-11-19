@@ -9,6 +9,7 @@
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 
 use rookery_api::Act;
 use rookery_core::host_type::Capability;
@@ -121,6 +122,19 @@ async fn pass_stream(
     target: String,
     carry: crate::serve::Carry,
 ) -> Result<StreamOpened, RpcError> {
+    pass_stream_held(call, name, capability, target, carry, None).await
+}
+
+/// [`pass_stream`] with a [`crate::serve::Hold`], which ends the stream when the caller's access
+/// goes away.
+async fn pass_stream_held(
+    call: &Call,
+    name: &str,
+    capability: Capability,
+    target: String,
+    carry: crate::serve::Carry,
+    held: Option<crate::serve::Hold>,
+) -> Result<StreamOpened, RpcError> {
     let state = serve(call)?;
     let remote = api::controller(&state, name, capability).await?;
     let link = remote
@@ -130,7 +144,14 @@ async fn pass_stream(
     let upstream = link.stream(&target).await.map_err(api::Fail::from)?;
     let stream = call.conn()?.streams().open(Initiator::Peer)?;
     let id = stream.id();
-    tokio::spawn(crate::serve::pipe(upstream, stream, carry));
+    match held {
+        Some(held) => {
+            tokio::spawn(crate::serve::pipe_held(upstream, stream, carry, held));
+        }
+        None => {
+            tokio::spawn(crate::serve::pipe(upstream, stream, carry));
+        }
+    }
     Ok(StreamOpened {
         stream: id,
         offset: None,
@@ -747,14 +768,19 @@ fn register_agents(methods: &mut Methods) {
         .add("agents.connect", |call: Call, p: AgentConnect| async move {
             call.conn()?;
             let name = crate::name_of(&p.env);
-            let opened = pass_stream(
+            let uri = crate::uri(name);
+            let held = crate::serve::Hold::default();
+            let opened = pass_stream_held(
                 &call,
                 name,
                 Capability::Sessions,
                 "/v1/agents/connect".into(),
                 Carry::Bytes,
+                Some(held.clone()),
             )
             .await?;
+            // Revoking `use` cuts the streams it opened, as it cuts a terminal's.
+            watch_use(call.clone(), uri, held);
             call.audit("agents.connect", Some(&crate::uri(name)), json!({}))
                 .await;
             Ok(opened)
@@ -766,6 +792,44 @@ fn register_agents(methods: &mut Methods) {
             scheme: Some("env".into()),
             grant: Grant::Use,
         });
+}
+
+/// Ends an open `agents.connect` stream when its caller no longer holds `use` on `uri`, checked
+/// when a grant or a group's membership changes and every 30 s after that.
+///
+/// This is the stream's own re-check, to be unified with the event-driven re-check of open streams
+/// rookery#42 brings to terminals, ports and desktop. A check that cannot reach the store keeps
+/// the stream, and the next one asks again.
+fn watch_use(call: Call, uri: String, held: crate::serve::Hold) {
+    use rookery_facilities::access::{Change, Changes};
+    let changes = call.kernel.facility::<Changes>();
+    let mut changes = changes.subscribe();
+    let done = held.done.clone();
+    tokio::spawn(async move {
+        let mut every = tokio::time::interval(Duration::from_secs(30));
+        every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // The check at the start is the one that let the stream open.
+        every.tick().await;
+        loop {
+            tokio::select! {
+                () = done.cancelled() => return,
+                _ = every.tick() => {}
+                change = changes.recv() => match change {
+                    Ok(Change::Resource(resource)) if resource != uri => continue,
+                    Ok(_) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                },
+            }
+            if matches!(
+                rookery_facilities::access::holds(&call, &uri, Grant::Use).await,
+                Ok(false)
+            ) {
+                held.hold.cancel();
+                return;
+            }
+        }
+    });
 }
 
 /// Sessions, files and ports of a host, as the agent account: `hosts.sessions.*` and `hosts.files.*`, `hosts.ports.connect`.

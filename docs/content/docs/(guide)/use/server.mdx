@@ -222,10 +222,18 @@ The levels are:
 | Level | May |
 | --- | --- |
 | `view` | See the host, its state, jobs and output |
-| `use` | Open terminals, sessions, files and ports on it |
+| `use` | Open terminals, sessions, files and ports on it, and its agent sessions. Taking the level away ends what it opened |
 | `manage` | Change its profile, apply it, rename it, and run its actions and its controller's |
 
 Admins hold `manage` on every host, and what belongs to the installation, such as keys, secrets and plugins, needs an admin. [`rookery serve`](/docs/extend/serve#who-gets-in) has the methods, and an example of `access.grant`.
+
+## Host agent sessions
+
+A host that has the Parrot features runs an agent account's Parrot on its own socket, which the server reaches with `agents.connect`. The call needs `use` on `env://NAME`, and it ends when that level goes away, as a terminal's does.
+
+The server stages the Parrot executable and the driver eggs of the agent packages the host's features select, and sends them with the apply. The host checks the runtime's checksum, each egg's checksum and the release name against what the server staged, and the host's architecture against the driver's, before it installs them. A package's driver is pinned when the plugin is installed, and an apply installs only that variant.
+
+`ROOKERY_PARROT_BIN` on the server is the Parrot binary to send. Without it, an apply of a profile with agent features stops before it changes the host.
 
 ## On other systems
 

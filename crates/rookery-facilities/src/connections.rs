@@ -94,25 +94,29 @@ impl PluginKind {
             return None;
         }
         let mut credential_required = false;
-        let credential = match value
-            .get("secret")
-            .and_then(Value::as_array)
-            .map(Vec::as_slice)
-        {
-            None | Some([]) => None,
-            Some([field]) => {
-                let name = field.as_str()?;
-                config
-                    .get_mut("properties")?
-                    .as_object_mut()?
-                    .remove(name)?;
-                if let Some(required) = config.get_mut("required").and_then(Value::as_array_mut) {
-                    credential_required = required.iter().any(|field| field.as_str() == Some(name));
-                    required.retain(|field| field.as_str() != Some(name));
+        // One sealed credential at most: a list of one field's name, or none.
+        // Any other JSON type would leave the secret in the plain config.
+        let credential = match value.get("secret") {
+            None | Some(Value::Null) => None,
+            Some(Value::Array(fields)) => match fields.as_slice() {
+                [] => None,
+                [field] => {
+                    let name = field.as_str()?;
+                    config
+                        .get_mut("properties")?
+                        .as_object_mut()?
+                        .remove(name)?;
+                    if let Some(required) = config.get_mut("required").and_then(Value::as_array_mut)
+                    {
+                        credential_required =
+                            required.iter().any(|field| field.as_str() == Some(name));
+                        required.retain(|field| field.as_str() != Some(name));
+                    }
+                    Some(name.to_owned())
                 }
-                Some(name.to_owned())
-            }
-            _ => return None,
+                _ => return None,
+            },
+            Some(_) => return None,
         };
         config["additionalProperties"] = Value::Bool(false);
         let validator = jsonschema::validator_for(&config).ok()?;
@@ -542,16 +546,23 @@ pub fn register(methods: &mut Methods) {
                     }
                 };
                 let found = found.ok_or_else(|| RpcError::not_found("no such connection"))?;
-                if kind(&found.kind).is_none()
-                    && !call
-                        .kernel
-                        .get_facility::<PluginKinds>()
-                        .is_some_and(|kinds| {
-                            kinds
-                                .0
-                                .get(&found.kind)
-                                .is_some_and(|kind| kind.plugin == plugin)
-                        })
+                // Rookery's own types are for people, the shell and the server, never a plugin: a
+                // plugin declares its own type and reads only that one.
+                if kind(&found.kind).is_some() {
+                    if matches!(call.caller, Caller::Plugin(_)) {
+                        return Err(RpcError::forbidden(
+                            "a plugin resolves only the connection types it declares",
+                        ));
+                    }
+                } else if !call
+                    .kernel
+                    .get_facility::<PluginKinds>()
+                    .is_some_and(|kinds| {
+                        kinds
+                            .0
+                            .get(&found.kind)
+                            .is_some_and(|kind| kind.plugin == plugin)
+                    })
                 {
                     return Err(RpcError::forbidden(
                         "only the declaring plugin can resolve this connection",
