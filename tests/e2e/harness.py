@@ -910,11 +910,16 @@ class Serve:
     def socket(self, token=None):
         return RpcSocket(self.port, self.token if token is None else token)
 
-    def wait_job(self, job, timeout=900):
-        """The job once it has ended, and its log as text."""
-        wait_for(f'the job {job} ending', lambda: self.call('jobs.get', {'id': job})['state']
-                 in ('succeeded', 'failed', 'cancelled'), timeout=timeout, every=1)
-        return self.call('jobs.get', {'id': job}), self.log(job)
+    def wait_job(self, job, timeout=300):
+        """The job once it has ended, and its log as text. A call that fails fails at once."""
+        end = time.monotonic() + timeout
+        while True:
+            found = self.call('jobs.get', {'id': job})
+            if found['state'] in ('succeeded', 'failed', 'cancelled'):
+                return found, self.log(job)
+            if time.monotonic() > end:
+                raise AssertionError(f'the job {job} did not end within {timeout}s: {found["state"]}\n{self.log(job)}')
+            time.sleep(0.5)
 
     def log(self, job):
         lines, after = [], 0

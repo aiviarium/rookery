@@ -88,7 +88,7 @@ class Methods(unittest.TestCase):
         self.assertFalse(arrived()[0]['done'])
         # It is on the host's durable topic too, by the host's id.
         host = self.serve.call('hosts.get', {'host': HOST})
-        topic = self.serve.call('topics.inspect', {'plugin': 'rookery', 'topic': f'hosts/{host["id"]}/channel'})
+        topic = self.serve.call('topics.inspect', {'plugin': 'rookery', 'topic': f'hosts.{host["id"]}.channel'})
         self.assertGreater(topic['messages'], 0, topic)
 
 
@@ -143,8 +143,9 @@ class Grants(unittest.TestCase):
             ('hosts.sessions.list', {'host': HOST}, 'view'),
             ('hosts.sessions.open', process(['true']), 'use'),
             ('hosts.sessions.open', process(['true'], user='operator'), 'manage'),
-            ('hosts.profile', {'host': HOST}, 'view'),
+            ('hosts.profile', {'host': HOST}, 'manage'),
             ('hosts.units.list', {'host': HOST}, 'view'),
+            ('hosts.processes.list', {'host': HOST}, 'use'),
             ('hosts.logs.read', {'host': HOST, 'query': {'lines': '5'}}, 'manage'),
             ('installation.secrets.list', {}, 'admin'),
             ('keys.list', {}, 'admin'),
@@ -165,8 +166,8 @@ class Grants(unittest.TestCase):
         self.assertEqual([host['name'] for host in viewed], [HOST])
 
     def test_an_action_needs_the_role_it_names(self):
-        # Applying sets the host up, which is an admin's.
-        self.assertEqual(self.serve.refused('hosts.act', {'host': HOST, 'action': 'apply'},
+        # Removing a host is an admin's; managing it is not enough. The refusal runs nothing.
+        self.assertEqual(self.serve.refused('hosts.act', {'host': HOST, 'action': 'remove'},
                                             token=self.people['manage']), 'FORBIDDEN')
 
 
