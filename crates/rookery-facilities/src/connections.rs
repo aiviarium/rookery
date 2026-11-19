@@ -11,8 +11,7 @@ use rookery_proto::facilities::{
     ConnectionTested, ConnectionType, ConnectionTypes, ConnectionUpdate, ConnectionsOf,
     Scope as WireScope,
 };
-use rookery_store::connections::{Change, Connection};
-use rookery_store::secrets::Scope;
+use rookery_store::connections::{Change, Connection, Scope};
 use serde_json::{Value, json};
 use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver};
 
@@ -244,18 +243,36 @@ fn info(c: Connection) -> ConnectionInfo {
         id: c.id.to_string(),
         kind: c.kind,
         name: c.name,
-        scope: if c.scope == "user" {
-            WireScope::User
-        } else {
-            WireScope::Global
+        scope: match c.scope.as_str() {
+            "user" => WireScope::User,
+            "space" => WireScope::Space,
+            _ => WireScope::Global,
         },
+        space_id: c.space_id.map(|s| s.to_string()),
         config: c.config,
         has_credential: c.sealed,
         updated_at: time(c.updated_at),
     }
 }
 
-/// A connection the caller may change: a global one as admin, a user's one as that person.
+/// Whether the caller sees a connection: a global one, their own, or one of a space they hold `need` on.
+async fn reaches(
+    call: &Call,
+    c: &Connection,
+    need: rookery_kernel::Grant,
+) -> Result<bool, RpcError> {
+    let user = call.user().and_then(|u| uuid::Uuid::parse_str(&u.id).ok());
+    Ok(match (c.user_id, c.space_id) {
+        (Some(owner), _) => Some(owner) == user,
+        (None, Some(space)) => {
+            crate::access::holds(call, &format!("space://{space}"), need).await?
+        }
+        (None, None) => true,
+    })
+}
+
+/// A connection the caller may change: a global one as admin, a space's as a manager of the space, a
+/// user's one as that person.
 async fn changeable(call: &Call, id: &str) -> Result<Connection, RpcError> {
     let found = call
         .store()
@@ -263,11 +280,10 @@ async fn changeable(call: &Call, id: &str) -> Result<Connection, RpcError> {
         .get(parse_id("connection", id)?)
         .await?
         .ok_or_else(|| RpcError::not_found("no such connection"))?;
-    match found.user_id {
-        None => call.require_admin()?,
-        Some(owner)
-            if Some(owner) == call.user().and_then(|u| uuid::Uuid::parse_str(&u.id).ok()) => {}
-        Some(_) => return Err(RpcError::not_found("no such connection")),
+    match (found.user_id, found.space_id) {
+        (None, None) => call.require_admin()?,
+        _ if reaches(call, &found, rookery_kernel::Grant::Manage).await? => {}
+        _ => return Err(RpcError::not_found("no such connection")),
     }
     Ok(found)
 }
@@ -395,10 +411,14 @@ pub fn register(methods: &mut Methods) {
                     require_kind(&call, plugin, id)?;
                 }
                 let user = call.user().and_then(|u| uuid::Uuid::parse_str(&u.id).ok());
+                let spaces = match p.space.as_deref() {
+                    Some(_) => vec![crate::space_held(&call, p.space.as_deref(), rookery_kernel::Grant::View).await?],
+                    None => Vec::new(),
+                };
                 let all = call
                     .store()
                     .connections()
-                    .list(p.kind.as_deref(), user)
+                    .list_in(p.kind.as_deref(), user, &spaces)
                     .await?;
                 Ok(ConnectionList {
                     connections: all
@@ -413,7 +433,7 @@ pub fn register(methods: &mut Methods) {
                 })
             },
         )
-        .summary("The global connections and the caller's own, without credentials.")
+        .summary("The global connections, the caller's own and those of a space they name, without credentials.")
         .level(Level::Own);
     methods
         .add("connections.get", |call: Call, p: IdRef| async move {
@@ -422,9 +442,8 @@ pub fn register(methods: &mut Methods) {
                 .connections()
                 .get(parse_id("connection", &p.id)?)
                 .await?;
-            let user = call.user().and_then(|u| uuid::Uuid::parse_str(&u.id).ok());
             match found {
-                Some(c) if c.user_id.is_none() || c.user_id == user => {
+                Some(c) if reaches(&call, &c, rookery_kernel::Grant::View).await? => {
                     if matches!(call.caller, Caller::Plugin(_)) {
                         require_kind(&call, &call.plugin(None)?, &c.kind)?;
                     }
@@ -450,6 +469,9 @@ pub fn register(methods: &mut Methods) {
                         Scope::Global
                     }
                     WireScope::User => Scope::User(own_user(&call)?),
+                    WireScope::Space => Scope::Space(
+                        crate::space_held(&call, p.space.as_deref(), rookery_kernel::Grant::Manage).await?,
+                    ),
                 };
                 let made = call
                     .store()
@@ -472,7 +494,7 @@ pub fn register(methods: &mut Methods) {
                 Ok(info(made))
             },
         )
-        .summary("Makes a connection: a global one as admin, or one of the caller's own.")
+        .summary("Makes a connection: a global one as admin, a space's as its manager, or one of the caller's own.")
         .level(Level::Own);
     methods
         .add(
@@ -576,6 +598,7 @@ pub fn register(methods: &mut Methods) {
                     (Some(id), _, _) => connections
                         .get(parse_id("connection", id)?)
                         .await?
+                        // A plugin acts for itself: it uses the global connections and those of spaces.
                         .filter(|c| c.user_id.is_none() || c.user_id == user),
                     (None, Some(kind), Some(name)) => connections.find(kind, name, user).await?,
                     _ => {

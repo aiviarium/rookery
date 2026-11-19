@@ -3,4 +3,4 @@
 /**
  * Where a setting's value is set.
  */
-export type SettingScope = "default" | "global" | "user";
+export type SettingScope = "default" | "global" | "space" | "user";

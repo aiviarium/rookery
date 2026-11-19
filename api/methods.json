@@ -2155,7 +2155,7 @@
   },
   {
     "name": "connections.create",
-    "summary": "Makes a connection: a global one as admin, or one of the caller's own.",
+    "summary": "Makes a connection: a global one as admin, a space's as its manager, or one of the caller's own.",
     "level": {
       "kind": "self"
     },
@@ -2167,6 +2167,11 @@
             {
               "const": "global",
               "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "space",
+              "description": "A space's, named in `space`. Secrets have none.",
               "type": "string"
             },
             {
@@ -2198,6 +2203,13 @@
           "$ref": "#/$defs/Scope",
           "default": "global"
         },
+        "space": {
+          "description": "The space of the `space` scope, or the space to resolve in.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "type": {
           "type": "string"
         }
@@ -2217,6 +2229,11 @@
             {
               "const": "global",
               "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "space",
+              "description": "A space's, named in `space`. Secrets have none.",
               "type": "string"
             },
             {
@@ -2243,6 +2260,13 @@
         },
         "scope": {
           "$ref": "#/$defs/Scope"
+        },
+        "spaceId": {
+          "description": "The space of a connection of the space scope.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "type": {
           "type": "string"
@@ -2325,6 +2349,11 @@
               "type": "string"
             },
             {
+              "const": "space",
+              "description": "A space's, named in `space`. Secrets have none.",
+              "type": "string"
+            },
+            {
               "const": "user",
               "description": "The caller's own.",
               "type": "string"
@@ -2349,6 +2378,13 @@
         "scope": {
           "$ref": "#/$defs/Scope"
         },
+        "spaceId": {
+          "description": "The space of a connection of the space scope.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "type": {
           "type": "string"
         },
@@ -2371,7 +2407,7 @@
   },
   {
     "name": "connections.list",
-    "summary": "The global connections and the caller's own, without credentials.",
+    "summary": "The global connections, the caller's own and those of a space they name, without credentials.",
     "level": {
       "kind": "self"
     },
@@ -2380,6 +2416,13 @@
       "additionalProperties": false,
       "description": "`connections.list`.",
       "properties": {
+        "space": {
+          "description": "The space of the `space` scope, or the space to resolve in.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "type": {
           "default": null,
           "type": [
@@ -2410,6 +2453,13 @@
             "scope": {
               "$ref": "#/$defs/Scope"
             },
+            "spaceId": {
+              "description": "The space of a connection of the space scope.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "type": {
               "type": "string"
             },
@@ -2434,6 +2484,11 @@
             {
               "const": "global",
               "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "space",
+              "description": "A space's, named in `space`. Secrets have none.",
               "type": "string"
             },
             {
@@ -2523,6 +2578,13 @@
             "scope": {
               "$ref": "#/$defs/Scope"
             },
+            "spaceId": {
+              "description": "The space of a connection of the space scope.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "type": {
               "type": "string"
             },
@@ -2547,6 +2609,11 @@
             {
               "const": "global",
               "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "space",
+              "description": "A space's, named in `space`. Secrets have none.",
               "type": "string"
             },
             {
@@ -2734,6 +2801,11 @@
               "type": "string"
             },
             {
+              "const": "space",
+              "description": "A space's, named in `space`. Secrets have none.",
+              "type": "string"
+            },
+            {
               "const": "user",
               "description": "The caller's own.",
               "type": "string"
@@ -2757,6 +2829,13 @@
         },
         "scope": {
           "$ref": "#/$defs/Scope"
+        },
+        "spaceId": {
+          "description": "The space of a connection of the space scope.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "type": {
           "type": "string"
@@ -31884,6 +31963,11 @@
               "type": "string"
             },
             {
+              "const": "space",
+              "description": "A space's, named in `space`. Secrets have none.",
+              "type": "string"
+            },
+            {
               "const": "user",
               "description": "The caller's own.",
               "type": "string"
@@ -31935,6 +32019,11 @@
             {
               "const": "global",
               "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "space",
+              "description": "A space's, named in `space`. Secrets have none.",
               "type": "string"
             },
             {
@@ -32015,6 +32104,11 @@
               "type": "string"
             },
             {
+              "const": "space",
+              "description": "A space's, named in `space`. Secrets have none.",
+              "type": "string"
+            },
+            {
               "const": "user",
               "description": "The caller's own.",
               "type": "string"
@@ -32086,6 +32180,11 @@
               "type": "string"
             },
             {
+              "const": "space",
+              "description": "A space's, named in `space`. Secrets have none.",
+              "type": "string"
+            },
+            {
               "const": "user",
               "description": "The caller's own.",
               "type": "string"
@@ -32141,6 +32240,11 @@
             {
               "const": "global",
               "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "space",
+              "description": "A space's, named in `space`. Secrets have none.",
               "type": "string"
             },
             {
@@ -32506,7 +32610,7 @@
   },
   {
     "name": "settings.get",
-    "summary": "A plugin's setting as it resolves for the caller: their own, else the global one, else the default.",
+    "summary": "A plugin's setting as it resolves for the caller: their own, else the space's they name, else the global one, else the default.",
     "level": {
       "kind": "self"
     },
@@ -32520,6 +32624,13 @@
         },
         "plugin": {
           "type": "string"
+        },
+        "space": {
+          "description": "The space of the `space` scope, or the space to resolve in.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -32542,6 +32653,11 @@
             {
               "const": "global",
               "description": "For everyone, by an admin.",
+              "type": "string"
+            },
+            {
+              "const": "space",
+              "description": "For the members of a space, named in `space`.",
               "type": "string"
             },
             {
@@ -32592,6 +32708,13 @@
       "properties": {
         "plugin": {
           "type": "string"
+        },
+        "space": {
+          "description": "The space of the `space` scope, or the space to resolve in.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -32633,6 +32756,11 @@
             {
               "const": "global",
               "description": "For everyone, by an admin.",
+              "type": "string"
+            },
+            {
+              "const": "space",
+              "description": "For the members of a space, named in `space`.",
               "type": "string"
             },
             {
@@ -32682,6 +32810,11 @@
               "type": "string"
             },
             {
+              "const": "space",
+              "description": "For the members of a space, named in `space`.",
+              "type": "string"
+            },
+            {
               "const": "user",
               "description": "The caller's own.",
               "type": "string"
@@ -32701,6 +32834,13 @@
         },
         "scope": {
           "$ref": "#/$defs/SettingScope"
+        },
+        "space": {
+          "description": "The space of the `space` scope, or the space to resolve in.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -32721,7 +32861,7 @@
   },
   {
     "name": "settings.set",
-    "summary": "Sets a plugin's setting: its default (the plugin, or an admin), the global value (an admin) or the caller's own.",
+    "summary": "Sets a plugin's setting: its default (the plugin, or an admin), the global value (an admin), a space's (its managers) or the caller's own.",
     "level": {
       "kind": "self"
     },
@@ -32738,6 +32878,11 @@
             {
               "const": "global",
               "description": "For everyone, by an admin.",
+              "type": "string"
+            },
+            {
+              "const": "space",
+              "description": "For the members of a space, named in `space`.",
               "type": "string"
             },
             {
@@ -32760,6 +32905,13 @@
         },
         "scope": {
           "$ref": "#/$defs/SettingScope"
+        },
+        "space": {
+          "description": "The space of the `space` scope, or the space to resolve in.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "value": true
       },
@@ -34069,6 +34221,11 @@
               "type": "string"
             },
             {
+              "const": "space",
+              "description": "A space's, named in `space`. Secrets have none.",
+              "type": "string"
+            },
+            {
               "const": "user",
               "description": "The caller's own.",
               "type": "string"
@@ -34102,6 +34259,13 @@
         "scope": {
           "$ref": "#/$defs/Scope",
           "default": "global"
+        },
+        "space": {
+          "description": "The space of the `space` scope, or the space to resolve in.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -34142,6 +34306,11 @@
               "type": "string"
             },
             {
+              "const": "space",
+              "description": "A space's, named in `space`. Secrets have none.",
+              "type": "string"
+            },
+            {
               "const": "user",
               "description": "The caller's own.",
               "type": "string"
@@ -34175,6 +34344,13 @@
         "scope": {
           "$ref": "#/$defs/Scope",
           "default": "global"
+        },
+        "space": {
+          "description": "The space of the `space` scope, or the space to resolve in.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -34229,6 +34405,11 @@
               "type": "string"
             },
             {
+              "const": "space",
+              "description": "A space's, named in `space`. Secrets have none.",
+              "type": "string"
+            },
+            {
               "const": "user",
               "description": "The caller's own.",
               "type": "string"
@@ -34269,6 +34450,13 @@
         "scope": {
           "$ref": "#/$defs/Scope",
           "default": "global"
+        },
+        "space": {
+          "description": "The space of the `space` scope, or the space to resolve in.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "title": "StorageList",
@@ -34334,6 +34522,11 @@
               "type": "string"
             },
             {
+              "const": "space",
+              "description": "A space's, named in `space`. Secrets have none.",
+              "type": "string"
+            },
+            {
               "const": "user",
               "description": "The caller's own.",
               "type": "string"
@@ -34366,6 +34559,13 @@
         "scope": {
           "$ref": "#/$defs/Scope",
           "default": "global"
+        },
+        "space": {
+          "description": "The space of the `space` scope, or the space to resolve in.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "value": true
       },

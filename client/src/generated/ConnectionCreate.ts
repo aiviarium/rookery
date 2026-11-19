@@ -4,4 +4,8 @@ import type { Scope } from "./Scope";
 /**
  * `connections.create`: a global one is an admin's to make, a user's one the caller's.
  */
-export type ConnectionCreate = { type: string, name: string, scope: Scope, config: Record<string, unknown>, credential?: string, };
+export type ConnectionCreate = { type: string, name: string, scope: Scope, config: Record<string, unknown>, credential?: string, 
+/**
+ * The space of the `space` scope, or the space to resolve in.
+ */
+space?: string, };

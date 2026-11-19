@@ -23,6 +23,8 @@ pub enum SettingScope {
     Default,
     /// For everyone, by an admin.
     Global,
+    /// For the members of a space, named in `space`.
+    Space,
     /// The caller's own.
     User,
 }
@@ -37,6 +39,8 @@ pub enum Scope {
     /// For everyone.
     #[default]
     Global,
+    /// A space's, named in `space`. Secrets have none.
+    Space,
     /// The caller's own.
     User,
 }
@@ -46,6 +50,10 @@ wire! {
     pub struct SettingRef {
         pub plugin: String,
         pub key: String,
+        /// The space of the `space` scope, or the space to resolve in.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        pub space: Option<String>,
     }
 }
 
@@ -75,6 +83,10 @@ wire! {
     /// `settings.list`.
     pub struct SettingsOf {
         pub plugin: String,
+        /// The space of the `space` scope, or the space to resolve in.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        pub space: Option<String>,
     }
 }
 
@@ -93,6 +105,10 @@ wire! {
         pub scope: SettingScope,
         #[cfg_attr(feature = "ts", ts(type = "unknown"))]
         pub value: Value,
+        /// The space of the `space` scope, or the space to resolve in.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        pub space: Option<String>,
     }
 }
 
@@ -102,6 +118,10 @@ wire! {
         pub plugin: String,
         pub key: String,
         pub scope: SettingScope,
+        /// The space of the `space` scope, or the space to resolve in.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        pub space: Option<String>,
     }
 }
 
@@ -183,6 +203,10 @@ wire! {
         #[serde(default)]
         #[cfg_attr(feature = "ts", ts(optional, type = "number"))]
         pub revision: Option<i64>,
+        /// The space of the `space` scope, or the space to resolve in.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        pub space: Option<String>,
     }
 }
 
@@ -200,6 +224,10 @@ wire! {
         #[serde(default)]
         #[cfg_attr(feature = "ts", ts(optional, type = "number"))]
         pub revision: Option<i64>,
+        /// The space of the `space` scope, or the space to resolve in.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        pub space: Option<String>,
     }
 }
 
@@ -219,6 +247,10 @@ wire! {
         #[serde(default)]
         #[cfg_attr(feature = "ts", ts(optional, type = "number"))]
         pub limit: Option<i64>,
+        /// The space of the `space` scope, or the space to resolve in.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        pub space: Option<String>,
     }
 }
 
@@ -298,6 +330,8 @@ wire! {
         pub config: Value,
         pub has_credential: bool,
         pub updated_at: String,
+        /// The space of a connection of the space scope.
+        pub space_id: Option<String>,
     }
 }
 
@@ -307,6 +341,10 @@ wire! {
         #[serde(default, rename = "type")]
         #[cfg_attr(feature = "ts", ts(optional, rename = "type"))]
         pub kind: Option<String>,
+        /// The space of the `space` scope, or the space to resolve in.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        pub space: Option<String>,
     }
 }
 
@@ -331,6 +369,10 @@ wire! {
         #[serde(default)]
         #[cfg_attr(feature = "ts", ts(optional))]
         pub credential: Option<String>,
+        /// The space of the `space` scope, or the space to resolve in.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        pub space: Option<String>,
     }
 }
 

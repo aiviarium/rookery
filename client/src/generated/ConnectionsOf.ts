@@ -3,4 +3,8 @@
 /**
  * `connections.list`.
  */
-export type ConnectionsOf = { type?: string, };
+export type ConnectionsOf = { type?: string, 
+/**
+ * The space of the `space` scope, or the space to resolve in.
+ */
+space?: string, };

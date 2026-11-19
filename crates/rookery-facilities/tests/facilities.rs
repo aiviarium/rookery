@@ -1002,6 +1002,178 @@ async fn a_plugin_asks_what_one_person_holds_and_a_manager_finds_people_to_share
     k.close().await;
 }
 
+/// A space owned by `owner`, with `member` holding `level` on it.
+async fn space_of(k: &TestKernel, owner: &Caller, member: &Caller, level: i16) -> String {
+    let uid = |c: &Caller| uuid::Uuid::parse_str(&c.user().unwrap().id).unwrap();
+    let s =
+        k.db.store
+            .spaces()
+            .create(
+                &rookery_store::Caller::user(uid(owner)),
+                &rookery_store::spaces::NewSpace {
+                    kind: "notes.team".into(),
+                    name: "Platform".into(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+    k.db.store
+        .access()
+        .grant(
+            &format!("space://{}", s.id),
+            &format!("user:{}", uid(member)),
+            level,
+            "system:test",
+        )
+        .await
+        .unwrap();
+    s.id.to_string()
+}
+
+#[tokio::test]
+async fn settings_storage_and_connections_have_a_space_scope_for_its_members() {
+    let k: TestKernel = test_kernel!(methods());
+    let admin = k.person("Maria", true).await;
+    let ada = k.person("Ada", false).await;
+    let bob = k.person("Bob", false).await;
+    let eve = k.person("Eve", false).await;
+    let space = space_of(&k, &ada, &bob, 1).await;
+    let set = |scope: &str, value: i64| json!({ "plugin": "notes", "key": "pageSize", "value": value, "scope": scope, "space": space });
+    k.call(&admin, "settings.set", set("global", 50))
+        .await
+        .unwrap();
+    // A space's value is its managers' to set; its members read it in the space.
+    assert_eq!(
+        code(k.call(&bob, "settings.set", set("space", 20)).await),
+        "FORBIDDEN"
+    );
+    k.call(&ada, "settings.set", set("space", 20))
+        .await
+        .unwrap();
+    let get = |space: Option<&str>| match space {
+        Some(s) => json!({ "plugin": "notes", "key": "pageSize", "space": s }),
+        None => json!({ "plugin": "notes", "key": "pageSize" }),
+    };
+    assert_eq!(
+        k.call(&bob, "settings.get", get(Some(&space)))
+            .await
+            .unwrap(),
+        json!({ "key": "pageSize", "value": 20, "scope": "space" })
+    );
+    assert_eq!(
+        k.call(&bob, "settings.get", get(None)).await.unwrap()["value"],
+        50
+    );
+    assert_eq!(
+        code(k.call(&eve, "settings.get", get(Some(&space))).await),
+        "FORBIDDEN"
+    );
+    // A person's own value comes first.
+    k.call(&bob, "settings.set", set("user", 5)).await.unwrap();
+    assert_eq!(
+        k.call(&bob, "settings.get", get(Some(&space)))
+            .await
+            .unwrap()["value"],
+        5
+    );
+    k.call(
+        &ada,
+        "settings.reset",
+        json!({ "plugin": "notes", "key": "pageSize", "scope": "space", "space": space }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        k.call(&ada, "settings.get", get(Some(&space)))
+            .await
+            .unwrap()["value"],
+        50
+    );
+
+    // A plugin keeps values of a space of its own.
+    let notes = Caller::Plugin("notes".into());
+    let stored = json!({ "key": "cursor", "value": 3, "scope": "space", "space": space });
+    k.call(&notes, "storage.set", stored).await.unwrap();
+    assert_eq!(
+        k.call(
+            &notes,
+            "storage.get",
+            json!({ "key": "cursor", "scope": "space", "space": space })
+        )
+        .await
+        .unwrap()["value"],
+        3
+    );
+    assert_eq!(
+        k.call(&notes, "storage.get", json!({ "key": "cursor" }))
+            .await
+            .unwrap()["value"],
+        Value::Null
+    );
+
+    // A space's connection is its managers' to make and change, and its members' to see.
+    let create = json!({ "type": "http", "name": "wiki", "scope": "space", "space": space,
+                         "config": { "url": "https://wiki.example.test" } });
+    assert_eq!(
+        code(k.call(&bob, "connections.create", create.clone()).await),
+        "FORBIDDEN"
+    );
+    let made = k.call(&ada, "connections.create", create).await.unwrap();
+    assert_eq!(
+        (made["scope"].clone(), made["spaceId"].clone()),
+        (json!("space"), json!(space))
+    );
+    let listed = k
+        .call(&bob, "connections.list", json!({ "space": space }))
+        .await
+        .unwrap();
+    assert_eq!(listed["connections"].as_array().unwrap().len(), 1);
+    assert!(
+        k.call(&bob, "connections.list", json!({})).await.unwrap()["connections"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        code(
+            k.call(&eve, "connections.list", json!({ "space": space }))
+                .await
+        ),
+        "FORBIDDEN"
+    );
+    assert_eq!(
+        code(
+            k.call(&eve, "connections.get", json!({ "id": made["id"] }))
+                .await
+        ),
+        "NOT_FOUND"
+    );
+    assert_eq!(
+        code(
+            k.call(&bob, "connections.delete", json!({ "id": made["id"] }))
+                .await
+        ),
+        "NOT_FOUND"
+    );
+    k.call(&ada, "connections.delete", json!({ "id": made["id"] }))
+        .await
+        .unwrap();
+    // A secret has no space scope.
+    assert_eq!(
+        code(
+            k.call(
+                &notes,
+                "secrets.set",
+                json!({ "name": "token", "value": "x", "scope": "space" })
+            )
+            .await
+        ),
+        "INVALID"
+    );
+    k.close().await;
+}
+
 #[tokio::test]
 async fn disabled_accounts_hold_no_access_level() {
     let k: TestKernel = test_kernel!(methods());
