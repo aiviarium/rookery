@@ -31,6 +31,10 @@ wire! {
         pub process: bool,
         pub files: bool,
         pub connect: bool,
+        /// Whether the host runs a Parrot broker (`agents.connect`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        pub agents: Option<bool>,
         pub checkouts: bool,
         /// A desktop on a virtual display (VNC on the host's loopback).
         pub desktop: bool,

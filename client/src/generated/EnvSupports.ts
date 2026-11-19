@@ -3,7 +3,11 @@
 /**
  * What a host can do, from its type and what its controller was seen to be.
  */
-export type EnvSupports = { terminal: boolean, process: boolean, files: boolean, connect: boolean, agents?: boolean, checkouts: boolean, 
+export type EnvSupports = { terminal: boolean, process: boolean, files: boolean, connect: boolean, 
+/**
+ * Whether the host runs a Parrot broker (`agents.connect`).
+ */
+agents?: boolean, checkouts: boolean, 
 /**
  * A desktop on a virtual display (VNC on the host's loopback).
  */

@@ -42,6 +42,7 @@ pub fn supports(host_type: rookery_api::HostType) -> EnvSupports {
         process: sessions,
         files: sessions,
         connect: sessions,
+        agents: None,
         checkouts: false,
         desktop: can(Capability::Desktop),
         privileged: sessions,
@@ -63,6 +64,8 @@ pub fn info_of(host: &HostInfo, owner: Option<String>, level: Option<Grant>) -> 
         true => EnvState::Online,
         false => EnvState::Offline,
     };
+    let mut supported = supports(host.host_type);
+    supported.agents = Some(host.agents);
     EnvInfo {
         name: host.name.clone(),
         uri: crate::uri(&host.name),
@@ -72,7 +75,7 @@ pub fn info_of(host: &HostInfo, owner: Option<String>, level: Option<Grant>) -> 
         level,
         os: None,
         version: host.version.clone(),
-        supports: supports(host.host_type),
+        supports: supported,
         error: (!host.reachable).then(|| {
             host.error
                 .clone()
