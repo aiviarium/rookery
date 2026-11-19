@@ -339,22 +339,18 @@ impl<'a> Feed<'a> {
                 store.data.feed.listening.store(false, Ordering::SeqCst);
                 return;
             }
-            loop {
-                match listener.try_recv().await {
-                    Ok(Some(_)) => {}
-                    // The connection dropped: what was told meanwhile is in the log.
-                    Ok(None) => {}
-                    Err(_) if store.pool().is_closed() => break,
-                    Err(_) => {
-                        tokio::time::sleep(Duration::from_millis(200)).await;
-                        continue;
-                    }
-                }
-                if store.pool().is_closed() {
-                    break;
-                }
+            // Read the log after LISTEN starts. A commit before that had no listener to wake.
+            while !store.pool().is_closed() {
+                // Every notice that came meanwhile is the same wake: read the log once for all of them.
+                while listener.next_buffered().is_some() {}
                 if let Err(e) = store.feed().publish_logged().await {
                     tracing::warn!(error = %e, "publishing changes from the change log failed");
+                }
+                match listener.try_recv().await {
+                    // After reconnecting, read anything committed while the connection was down.
+                    Ok(_) => {}
+                    Err(_) if store.pool().is_closed() => break,
+                    Err(_) => tokio::time::sleep(Duration::from_millis(200)).await,
                 }
             }
             store.data.feed.listening.store(false, Ordering::SeqCst);

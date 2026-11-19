@@ -533,3 +533,29 @@ async fn people_from_before_get_their_entity_and_space() {
     assert_eq!(personal.owner_id, Some(id));
     db.close().await;
 }
+
+#[tokio::test]
+async fn a_typed_change_committed_before_listen_is_delivered() {
+    let Some(db) = TestDb::new().await else {
+        return;
+    };
+    let pool = db.store.pool();
+    // Hold the pool while the subscriber starts its listener so LISTEN cannot race this insert.
+    let mut connections = Vec::new();
+    for _ in 0..pool.options().get_max_connections() {
+        connections.push(pool.acquire().await.unwrap());
+    }
+    let mut sub = db.store.feed().subscribe_from(db.store.feed().head());
+    let job: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO rookery.jobs (id, kind, params, state, enqueued_by)
+         VALUES (gen_random_uuid(), 'apply', '{}', 'queued', 'system:rookery') RETURNING id",
+    )
+    .fetch_one(&mut **connections.last_mut().unwrap())
+    .await
+    .unwrap();
+    drop(connections);
+    let change = next_change(&mut sub).await;
+    assert_eq!(change.id, job);
+    assert_eq!(change.collection, "jobs");
+    db.close().await;
+}
