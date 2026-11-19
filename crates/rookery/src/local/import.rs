@@ -49,7 +49,8 @@ struct Old {
     state: Vec<StateRow>,
     messages: Vec<OldMessage>,
     cursors: Vec<(String, i64)>,
-    kv: Vec<(String, String, String, i64)>,
+    /// A value a plugin kept: its name, key, value, revision and when it last changed.
+    kv: Vec<(String, String, String, i64, String)>,
     jobs: Vec<OldJob>,
     /// Where the job's output files are, beside a SQLite file.
     jobs_dir: Option<PathBuf>,
@@ -128,10 +129,12 @@ fn sqlite_rows(path: &Path) -> Result<Old> {
         .collect::<rusqlite::Result<_>>()
         .map_err(fail)?;
     let mut q = db
-        .prepare("SELECT namespace, key, value, revision FROM kv")
+        .prepare("SELECT namespace, key, value, revision, updated FROM kv")
         .map_err(fail)?;
     old.kv = q
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .query_map([], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })
         .map_err(fail)?
         .collect::<rusqlite::Result<_>>()
         .map_err(fail)?;
@@ -250,10 +253,14 @@ fn postgres_read(url: &str) -> Result<Old> {
         old.cursors.push((r.get(0), r.get(1)));
     }
     for r in t
-        .query("SELECT namespace, key, value, revision FROM kv", &[])
+        .query(
+            "SELECT namespace, key, value, revision, updated FROM kv",
+            &[],
+        )
         .map_err(fail)?
     {
-        old.kv.push((r.get(0), r.get(1), r.get(2), r.get(3)));
+        old.kv
+            .push((r.get(0), r.get(1), r.get(2), r.get(3), r.get(4)));
     }
     for r in t
         .query("SELECT id, host, what, started, ended, exit_code, output_path, subject, action, stopped_by, arguments FROM jobs ORDER BY started", &[])
@@ -602,21 +609,22 @@ async fn write(
     }
     // Key-value entries are rows of Rookery's collection `rookery/storage` now, whose revision is the
     // row's `rev` and whose `writes` counts the sets it took.
-    for (namespace, key, value, revision) in &old.kv {
+    for (namespace, key, value, revision, updated) in &old.kv {
         let value: Value = serde_json::from_str(value).unwrap_or(Value::String(value.clone()));
         sqlx::query(
-            "INSERT INTO rookery.\"storage\" (id, plugin, key, value, rev, writes)
-             VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)",
+            "INSERT INTO rookery.\"storage\" (id, plugin, key, value, rev, writes, created_at, updated_at)
+             VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, coalesce($6::timestamptz, now()), coalesce($6::timestamptz, now()))",
         )
         .bind(namespace)
         .bind(key)
         .bind(&value)
         .bind(revision)
         .bind((revision - 1).max(0))
+        .bind(rfc3339(updated))
         .execute(&mut *tx)
         .await
         .map_err(fail)?;
-        report.wrote("kv");
+        report.wrote("storage");
     }
     let days = std::env::var("ROOKERY_RETENTION_DAYS")
         .ok()
@@ -880,23 +888,422 @@ mod tests {
         rookery_store::seal::Key::parse(&text).unwrap()
     }
 
-    /// What the server reads of the import, through the same store its hosts use.
-    fn read(url: &str) -> std::sync::Arc<rookery_core::store::Store> {
-        rookery_hosts::attach(url, Some(key())).unwrap();
-        rookery_core::store::shared(&rookery_core::paths::Paths {
+    /// The stores of berth 0.6 and its layout: three hosts with their profiles, SSH access, tailnet
+    /// devices and credentials; the key ring; a provisioner and the machine it made; two registries
+    /// with their logins; secrets, settings, plugin state and key-value entries; the messages of two
+    /// hosts' channels and how far they were read; and five jobs, of which one is older than the
+    /// retention, one had not ended and one lost its output file.
+    struct Made {
+        /// Kept so that the folder outlives the store in it.
+        _dir: tempfile::TempDir,
+        file: PathBuf,
+        /// The store's key in hex, as a file of 64 digits holds it.
+        key: String,
+    }
+
+    /// A job of the old store, with its output and whether it had ended.
+    struct MadeJob {
+        id: &'static str,
+        what: &'static str,
+        code: i32,
+        stopped_by: Option<&'static str>,
+        subject: String,
+        action: &'static str,
+        started: String,
+        /// Its output file's text, or `None` for one that is gone.
+        output: Option<&'static [u8]>,
+        ended: bool,
+    }
+
+    /// The id, name and type of each host.
+    const HOSTS: [(&str, &str, &str); 3] = [
+        ("0190f0a0b1c27d3e8f9a0b1c2d3e4f60", "studio", "workstation"),
+        ("0190f0a0b1c27d3e8f9a0b1c2d3e4f6a", "forge", "node"),
+        ("0190f0a0b1c27d3e8f9a0b1c2d3e4f6b", "kiln", "managed"),
+    ];
+    const RING: (&str, &str) = ("0190f0a0b1c27d3e8f9a0b1c2d3e4f70", "rookery");
+    const ENTRY: &str = "0190f0a0b1c27d3e8f9a0b1c2d3e4f74";
+    const RESOURCE: &str = "0190f0a0b1c27d3e8f9a0b1c2d3e4f75";
+    const REGISTRIES: [(&str, &str, &str); 2] = [
+        ("0190f0a0b1c27d3e8f9a0b1c2d3e4f71", "ghcr", "ghp-made-up"),
+        (
+            "0190f0a0b1c27d3e8f9a0b1c2d3e4f72",
+            "lab-registry",
+            "lab-made-up",
+        ),
+    ];
+    const AT: &str = "2026-11-01T09:00:00Z";
+
+    fn profile(host: &str, kind: &str) -> String {
+        json!({
+            "type": kind,
+            "hostname": host,
+            "access": { "address": format!("192.0.2.{}", 10 + host.len()), "user": "ops", "port": 22, "sudo": "none" },
+            "agent_username": "agent",
+            "secrets": ["tailnet_api_key"],
+            "registries": ["ghcr"],
+        })
+        .to_string()
+    }
+
+    /// A store as berth 0.6 kept one, with made-up names, keys and values, sealed under a key made
+    /// for it. Its layout is the one `sqlite_rows` reads: `state`, `messages`, `cursors`, `kv` and
+    /// `jobs`, with the output of a job in `jobs/<id>.log` beside it.
+    fn made_up() -> Made {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("rookery.db");
+        std::fs::create_dir_all(dir.path().join("jobs")).unwrap();
+        let key = rookery_store::seal::Key::generate().to_hex();
+        let keys = seal::Keys::new(seal::Key::from_hex(&key).unwrap(), vec![]);
+        let sealed = |kind: &str, name: &str, plain: &str| -> Vec<u8> {
+            keys.seal(
+                [kind, store::OWN, name].join("\0").as_bytes(),
+                plain.as_bytes(),
+            )
+            .unwrap()
+        };
+
+        let db = rusqlite::Connection::open(&file).unwrap();
+        db.execute_batch(
+            "PRAGMA user_version = 7;
+             CREATE TABLE state(
+                 kind TEXT NOT NULL, scope TEXT NOT NULL, name TEXT NOT NULL,
+                 value BLOB NOT NULL, sealed INTEGER NOT NULL, updated TEXT NOT NULL,
+                 label TEXT, PRIMARY KEY (kind, scope, name));
+             CREATE TABLE messages(
+                 seq INTEGER NOT NULL UNIQUE, host TEXT NOT NULL, id INTEGER NOT NULL,
+                 topic TEXT NOT NULL, body TEXT NOT NULL, keep TEXT NOT NULL,
+                 from_level TEXT NOT NULL, from_uid INTEGER NOT NULL, session TEXT,
+                 time TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (host, id));
+             CREATE TABLE cursors(host TEXT PRIMARY KEY, last_id INTEGER NOT NULL);
+             CREATE TABLE kv(
+                 namespace TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL,
+                 revision INTEGER NOT NULL, updated TEXT NOT NULL, PRIMARY KEY (namespace, key));
+             CREATE TABLE jobs(
+                 id TEXT PRIMARY KEY, host TEXT NOT NULL, what TEXT NOT NULL,
+                 started TEXT NOT NULL, ended TEXT, exit_code INTEGER, output_path TEXT NOT NULL,
+                 subject TEXT NOT NULL DEFAULT '', action TEXT NOT NULL DEFAULT '', token TEXT,
+                 stopped_by TEXT, arguments TEXT);",
+        )
+        .unwrap();
+        let mut state = db
+            .prepare("INSERT INTO state (kind, scope, name, value, sealed, updated, label) VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6)")
+            .unwrap();
+        let mut put = |kind: &str, scope: &str, name: &str, plain: &str, label: Option<&str>| {
+            state
+                .execute(rusqlite::params![
+                    kind,
+                    scope,
+                    name,
+                    sealed(kind, name, plain),
+                    AT,
+                    label
+                ])
+                .unwrap();
+        };
+        for (id, name, kind) in HOSTS {
+            put(
+                kind::PROFILE,
+                store::OWN,
+                id,
+                &profile(name, kind),
+                Some(name),
+            );
+        }
+        // Two hosts are on the tailnet; the third is not.
+        for (id, name, _) in &HOSTS[..2] {
+            put(
+                kind::TAILNET,
+                store::OWN,
+                id,
+                &json!({ "device": format!("{name}-made-up"), "name": name }).to_string(),
+                None,
+            );
+            put(
+                kind::ACCESS,
+                store::OWN,
+                id,
+                &json!({ "host_keys": [format!("ssh-ed25519 AAAA{name}")], "trusted": [] })
+                    .to_string(),
+                None,
+            );
+            put(
+                kind::CREDENTIALS,
+                store::OWN,
+                id,
+                &format!("made-up-password-{name}"),
+                None,
+            );
+        }
+        put(
+            kind::KEY,
+            store::OWN,
+            RING.0,
+            "-----BEGIN OPENSSH PRIVATE KEY-----\nmade-up\n-----END OPENSSH PRIVATE KEY-----\n",
+            Some(RING.1),
+        );
+        put(
+            kind::PROVISIONER_ENTRY,
+            store::OWN,
+            ENTRY,
+            &json!({ "type": "incus", "settings": { "project": "lab" } }).to_string(),
+            Some("lab"),
+        );
+        put(
+            kind::PROVISIONER,
+            store::OWN,
+            "incus/vm",
+            &json!({ "image": "images:ubuntu/24.04" }).to_string(),
+            None,
+        );
+        put(
+            kind::RESOURCE,
+            store::OWN,
+            RESOURCE,
+            &json!({ "kind": "incus", "name": "studio-vm", "host": HOSTS[0].0 }).to_string(),
+            None,
+        );
+        put(
+            kind::SPEC,
+            store::OWN,
+            RESOURCE,
+            "description: studio\n",
+            None,
+        );
+        for (id, name, token) in REGISTRIES {
+            put(
+                kind::REGISTRY,
+                store::OWN,
+                id,
+                &json!({ "type": "oci", "host": name, "username": "ops" }).to_string(),
+                Some(name),
+            );
+            put(
+                kind::SECRET,
+                store::OWN,
+                &format!("{id}/login"),
+                token,
+                None,
+            );
+        }
+        put(
+            kind::SECRET,
+            store::OWN,
+            "0190f0a0b1c27d3e8f9a0b1c2d3e4f52",
+            "tskey-made-up",
+            Some("tailnet_api_key"),
+        );
+        put(kind::SETTING, store::OWN, "tailnet_user", "agents", None);
+        put(kind::SETTING, store::OWN, "retention_days", "30", None);
+        for (name, text) in [
+            ("hatchery.kdl", "registries {\n  rookery\n}\n"),
+            ("eggs.lock", "incus 1.2.0\n"),
+            ("seen.toml", "[seen]\n"),
+        ] {
+            put(kind::PLUGIN, store::OWN, name, text, None);
+        }
+        // What the server does not keep: its token, and what clients cached of it.
+        put(kind::TOKEN, store::OWN, "serve", "made-up-token", None);
+        put(
+            kind::META,
+            store::OWN,
+            "server",
+            &json!({ "version": "0.6.0" }).to_string(),
+            None,
+        );
+        // A server that other installations mirrored.
+        put(
+            kind::PROFILE,
+            "0190f0a0b1c27d3e8f9a0b1c2d3e4f79",
+            HOSTS[0].0,
+            &profile("studio", "workstation"),
+            Some("studio"),
+        );
+        drop(state);
+
+        let mut message = db
+            .prepare("INSERT INTO messages (seq, host, id, topic, body, keep, from_level, from_uid, session, time, done) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)")
+            .unwrap();
+        for (seq, host, id, topic, keep, from, session, done) in [
+            (1, HOSTS[0].0, 1, "state", "log", "host", None, true),
+            (2, HOSTS[0].0, 2, "state", "last", "host", None, false),
+            (
+                3,
+                HOSTS[0].0,
+                3,
+                "agent",
+                "log",
+                "agent",
+                Some("tty-made-up"),
+                true,
+            ),
+            (4, HOSTS[1].0, 1, "state", "last", "host", None, false),
+        ] {
+            message
+                .execute(rusqlite::params![
+                    seq,
+                    host,
+                    id,
+                    topic,
+                    json!({ "n": seq }).to_string(),
+                    keep,
+                    from,
+                    if from == "agent" { 7 } else { 0 },
+                    session,
+                    AT,
+                    done
+                ])
+                .unwrap();
+        }
+        drop(message);
+        for (host, last) in [(HOSTS[0].0, 3), (HOSTS[1].0, 1)] {
+            db.execute(
+                "INSERT INTO cursors (host, last_id) VALUES (?1, ?2)",
+                rusqlite::params![host, last],
+            )
+            .unwrap();
+        }
+        let mut kv = db
+            .prepare("INSERT INTO kv (namespace, key, value, revision, updated) VALUES (?1, ?2, ?3, ?4, ?5)")
+            .unwrap();
+        for (plugin, key, value, revision) in [
+            ("box", "greeting", json!("hello again"), 2),
+            ("fleet", "cursor", json!({ "n": 3 }), 5),
+            ("ai", "mappings", json!({ "claude": "opus" }), 1),
+        ] {
+            kv.execute(rusqlite::params![
+                plugin,
+                key,
+                value.to_string(),
+                revision,
+                AT
+            ])
+            .unwrap();
+        }
+        drop(kv);
+
+        // Five jobs: one that worked, one that failed, one a person stopped, one older than the
+        // retention, and one that had not ended. The last two, and the failed one's output file,
+        // are left out of the import.
+        let now = rookery_api::now();
+        let jobs = [
+            MadeJob {
+                id: "japplystudio0001",
+                what: "apply",
+                code: 0,
+                stopped_by: None,
+                subject: format!("host:{}", HOSTS[0].0),
+                action: "apply",
+                started: now.clone(),
+                output: Some(b"ok 1\nok 2\nok 3\n"),
+                ended: true,
+            },
+            MadeJob {
+                id: "jrenamestudio001",
+                what: "rename",
+                code: 1,
+                stopped_by: None,
+                subject: format!("host:{}", HOSTS[0].0),
+                action: "rename",
+                started: now.clone(),
+                // Its output file is gone.
+                output: None,
+                ended: true,
+            },
+            MadeJob {
+                id: "jstopkiln0000001",
+                what: "provision",
+                code: 130,
+                stopped_by: Some("ada"),
+                subject: "provisioner:lab".into(),
+                action: "provision",
+                started: now.clone(),
+                output: Some(b"provisioning\n"),
+                ended: true,
+            },
+            MadeJob {
+                id: "jancient00000001",
+                what: "apply",
+                code: 0,
+                stopped_by: None,
+                subject: format!("host:{}", HOSTS[0].0),
+                action: "apply",
+                started: "2020-01-01T00:00:00Z".into(),
+                output: Some(b"old\n"),
+                ended: true,
+            },
+            MadeJob {
+                id: "jstillrunning001",
+                what: "apply",
+                code: 0,
+                stopped_by: None,
+                subject: format!("host:{}", HOSTS[0].0),
+                action: "apply",
+                started: now,
+                output: Some(b"running\n"),
+                ended: false,
+            },
+        ];
+        for job in &jobs {
+            let path = dir.path().join("jobs").join(format!("{}.log", job.id));
+            if let Some(text) = job.output {
+                std::fs::write(&path, text).unwrap();
+            }
+            let ended = job.ended.then_some(job.started.as_str());
+            db.execute(
+                "INSERT INTO jobs (id, host, what, started, ended, exit_code, output_path, subject, action, stopped_by, arguments) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                rusqlite::params![job.id, HOSTS[0].0, job.what, job.started, ended, job.code, path.to_string_lossy(), job.subject, job.action, job.stopped_by, json!(["limit=studio"]).to_string()],
+            )
+            .unwrap();
+        }
+        drop(db);
+        Made {
+            _dir: dir,
+            file,
+            key,
+        }
+    }
+
+    /// The key a made-up store was sealed with, as the server of the import has it.
+    fn server_key(hex: &str) -> rookery_store::seal::Key {
+        rookery_store::seal::Key::parse(hex).unwrap()
+    }
+
+    /// Runs `check` on what the server reads of the import, through the same store its hosts use.
+    /// One at a time, as that store and the locks are the process's.
+    fn reading<T>(
+        url: &str,
+        key: rookery_store::seal::Key,
+        check: impl FnOnce(&rookery_core::store::Store) -> T,
+    ) -> T {
+        static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _only = ONE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        rookery_hosts::attach(url, Some(key)).unwrap();
+        let store = rookery_core::store::shared(&rookery_core::paths::Paths {
             config_dir: "/nowhere/config".into(),
             data_dir: "/nowhere/data".into(),
         })
-        .unwrap()
+        .unwrap();
+        let done = check(&store);
+        rookery_core::store::set_shared(None);
+        rookery_core::runner::set_locks(None);
+        done
     }
 
     /// The server's first admin, who owns what comes in.
     async fn admin(db: &TestDb) -> uuid::Uuid {
+        admin_named(db, "ada", Some("ada@example.org")).await
+    }
+
+    async fn admin_named(db: &TestDb, name: &str, email: Option<&str>) -> uuid::Uuid {
         let id = uuid::Uuid::now_v7();
         sqlx::query(
-            "INSERT INTO rookery.users (id, issuer, subject, name, role) VALUES ($1, 'rookery-local:test', 'ada', 'Ada', 'admin')",
+            "INSERT INTO rookery.users (id, issuer, subject, name, email, role) VALUES ($1, 'rookery-local:test', $2, $3, $4, 'admin')",
         )
         .bind(id)
+        .bind(name)
+        .bind(name)
+        .bind(email)
         .execute(db.store.pool())
         .await
         .unwrap();
@@ -904,6 +1311,8 @@ mod tests {
     }
 
     async fn check(db: &TestDb, report: &Report) {
+        // Two hosts, and the tailnet device of one of them: the report counts the rows of state
+        // that went to each table.
         assert_eq!(report.tables["rookery.hosts"], 3, "{:?}", report.tables);
         assert_eq!(report.tables["rookery.jobs"], 2);
         assert_eq!(report.tables["rookery.log_items"], 6);
@@ -985,45 +1394,435 @@ mod tests {
             0
         );
         let url = db.url.clone();
+        let key = key();
         tokio::task::spawn_blocking(move || {
-            use rookery_core::store::{OWN, kind};
-            let s = read(&url);
-            let secret = s
-                .find(kind::SECRET, OWN, "tailnet_api_key")
-                .unwrap()
-                .unwrap();
-            assert_eq!(
-                s.read(kind::SECRET, OWN, &secret.id).unwrap().unwrap(),
-                b"tskey-made-up"
-            );
-            let registry = s.find(kind::REGISTRY, OWN, "ghcr").unwrap().unwrap();
-            let login = format!("{}/login", registry.id);
-            assert_eq!(
-                s.read(kind::SECRET, OWN, &login).unwrap().unwrap(),
-                b"made-up-token"
-            );
-            let ring = s.find(kind::KEY, OWN, "rookery").unwrap().unwrap();
-            assert!(
-                s.read(kind::KEY, OWN, &ring.id)
+            reading(&url, key, |s| {
+                use rookery_core::store::{OWN, kind};
+                let secret = s
+                    .find(kind::SECRET, OWN, "tailnet_api_key")
                     .unwrap()
-                    .unwrap()
-                    .starts_with(b"-----BEGIN")
-            );
-            let host = s.find(kind::PROFILE, OWN, "studio").unwrap().unwrap();
-            assert!(s.read(kind::CREDENTIALS, OWN, &host.id).unwrap().is_some());
-            assert_eq!(
-                s.read(kind::SETTING, OWN, "tailnet_user").unwrap().unwrap(),
-                b"agents"
-            );
-            assert_eq!(
-                s.labels(kind::PROVISIONER_ENTRY, OWN).unwrap()[0].name,
-                "lab"
-            );
-            rookery_core::store::set_shared(None);
-            rookery_core::runner::set_locks(None);
+                    .unwrap();
+                assert_eq!(
+                    s.read(kind::SECRET, OWN, &secret.id).unwrap().unwrap(),
+                    b"tskey-made-up"
+                );
+                let registry = s.find(kind::REGISTRY, OWN, "ghcr").unwrap().unwrap();
+                let login = format!("{}/login", registry.id);
+                assert_eq!(
+                    s.read(kind::SECRET, OWN, &login).unwrap().unwrap(),
+                    b"made-up-token"
+                );
+                let ring = s.find(kind::KEY, OWN, "rookery").unwrap().unwrap();
+                assert!(
+                    s.read(kind::KEY, OWN, &ring.id)
+                        .unwrap()
+                        .unwrap()
+                        .starts_with(b"-----BEGIN")
+                );
+                let host = s.find(kind::PROFILE, OWN, "studio").unwrap().unwrap();
+                assert!(s.read(kind::CREDENTIALS, OWN, &host.id).unwrap().is_some());
+                assert_eq!(
+                    s.read(kind::SETTING, OWN, "tailnet_user").unwrap().unwrap(),
+                    b"agents"
+                );
+                assert_eq!(
+                    s.labels(kind::PROVISIONER_ENTRY, OWN).unwrap()[0].name,
+                    "lab"
+                );
+            })
         })
         .await
         .unwrap();
+    }
+
+    /// A prototype installation comes in whole: its hosts and their profiles, the keys and secrets
+    /// that were sealed, the jobs with their output, the plugin state and the key-value entries, and
+    /// the person who signed in owns the hosts, with the old roles as groups.
+    async fn check_made_up(db: &TestDb, report: &Report, owner: uuid::Uuid) {
+        let wrote = |table: &str| *report.tables.get(&format!("rookery.{table}")).unwrap_or(&0);
+        // Three profiles and two tailnet devices; every other row of the old store's kinds.
+        assert_eq!(wrote("hosts"), 5, "{:?}", report.tables);
+        assert_eq!(wrote("host_access"), 2);
+        assert_eq!(wrote("host_keys"), 1);
+        assert_eq!(wrote("provisioners"), 2);
+        assert_eq!(wrote("resources"), 2);
+        assert_eq!(wrote("secrets"), 5);
+        assert_eq!(wrote("settings"), 2);
+        assert_eq!(wrote("connections"), 2);
+        assert_eq!(wrote("package_state"), 3);
+        assert_eq!(wrote("storage"), 3);
+        assert_eq!(wrote("host_messages"), 4);
+        assert_eq!(wrote("host_cursors"), 2);
+        assert_eq!(wrote("jobs"), 3);
+        assert_eq!(wrote("log_items"), 4);
+        assert_eq!(wrote("owners"), 3);
+        assert_eq!(wrote("grants"), 6);
+        assert_eq!(wrote("groups"), 2);
+        assert_eq!(wrote("users"), 0, "the owner signed in already");
+        for why in [
+            "server token",
+            "what clients cached of a server",
+            "rows of a scope of a server's clients",
+            "older than the retention",
+            "jobs that had not ended",
+            "job output files that are gone",
+        ] {
+            assert!(
+                report.skipped.keys().any(|said| said.contains(why)),
+                "{why} is not in {:?}",
+                report.skipped
+            );
+        }
+
+        let pool = db.store.pool();
+        let count = |sql: &'static str| async move {
+            sqlx::query_scalar::<_, i64>(sql)
+                .fetch_one(pool)
+                .await
+                .unwrap()
+        };
+        let one = |sql: &'static str| async move {
+            sqlx::query_scalar::<_, Option<String>>(sql)
+                .fetch_one(pool)
+                .await
+                .unwrap()
+                .unwrap_or_default()
+        };
+        // The hosts are as they were saved: their profiles, types and devices.
+        for (_, name, kind) in HOSTS {
+            let saved: String =
+                sqlx::query_scalar("SELECT profile->>'type' FROM rookery.hosts WHERE name = $1")
+                    .bind(name)
+                    .fetch_one(pool)
+                    .await
+                    .unwrap();
+            assert_eq!(saved, kind);
+        }
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.hosts WHERE tailnet IS NOT NULL").await,
+            2
+        );
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.hosts WHERE name = 'kiln' AND tailnet IS NULL")
+                .await,
+            1
+        );
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.host_access WHERE value->'host_keys'->>0 LIKE 'ssh-ed25519%'")
+                .await,
+            2
+        );
+        // The provisioner and the machine it made, with the specification it was made from.
+        assert_eq!(
+            count(
+                "SELECT count(*) FROM rookery.provisioners WHERE kind = 'entry' AND name = 'lab'"
+            )
+            .await,
+            1
+        );
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.provisioners WHERE kind = 'arguments' AND id = 'incus/vm'").await,
+            1
+        );
+        assert_eq!(
+            one("SELECT record->>'name' FROM rookery.resources WHERE id = '0190f0a0b1c27d3e8f9a0b1c2d3e4f75'").await,
+            "studio-vm"
+        );
+        assert_eq!(
+            one("SELECT spec #>> '{}' FROM rookery.resources WHERE id = '0190f0a0b1c27d3e8f9a0b1c2d3e4f75'").await,
+            "description: studio\n"
+        );
+        // Settings, registries and the plugin state.
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.settings WHERE plugin = 'rookery' AND scope = 'global' AND key IN ('tailnet_user', 'retention_days')").await,
+            2
+        );
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.connections WHERE type = 'registry' AND scope = 'global'").await,
+            2
+        );
+        assert_eq!(
+            one(
+                "SELECT encode(value, 'escape') FROM rookery.package_state WHERE name = 'eggs.lock'"
+            )
+            .await,
+            "incus 1.2.0\n"
+        );
+        // The messages of the hosts' channels, and how far each was read.
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.host_messages WHERE from_level = 'agent' AND session = 'tty-made-up'").await,
+            1
+        );
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.host_cursors WHERE last_id = 1").await,
+            1
+        );
+        // The jobs within the retention, with their log and the action they ran.
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.jobs WHERE enqueued_by <> 'system:import'").await,
+            0
+        );
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.jobs WHERE state = 'succeeded' AND subject = 'env://studio' AND params->>'action' = 'apply'").await,
+            1
+        );
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.jobs WHERE state = 'failed' AND error->'details'->>'exit' = '1'").await,
+            1
+        );
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.jobs WHERE state = 'cancelled' AND subject = 'provisioner://lab' AND error->>'message' = 'stopped by ada'").await,
+            1
+        );
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.log_items WHERE text LIKE 'ok %'").await,
+            3
+        );
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.jobs j WHERE log_seq <> (SELECT coalesce(max(seq), 0) FROM rookery.log_items WHERE job_id = j.id)").await,
+            0
+        );
+        // Everything is the owner's, and the old roles are groups of their claims with a level on
+        // every host.
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM rookery.hosts WHERE owner = $1")
+                .bind(owner)
+                .fetch_one(pool)
+                .await
+                .unwrap(),
+            3
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM rookery.owners WHERE user_id = $1")
+                .bind(owner)
+                .fetch_one(pool)
+                .await
+                .unwrap(),
+            3
+        );
+        assert_eq!(
+            count(
+                "SELECT count(*) FROM rookery.grants WHERE resource = 'env://kiln' AND level = 3"
+            )
+            .await,
+            1
+        );
+        assert_eq!(
+            count(
+                "SELECT count(*) FROM rookery.grants WHERE resource = 'env://kiln' AND level = 1"
+            )
+            .await,
+            1
+        );
+        // The owner has their entity and their personal space, as a sign-in's do.
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.entities WHERE scheme = 'user'").await,
+            1
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM rookery.spaces WHERE owner_id = $1 AND personal"
+            )
+            .bind(owner)
+            .fetch_one(pool)
+            .await
+            .unwrap(),
+            1
+        );
+        assert_eq!(count("SELECT count(*) FROM rookery.users").await, 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_prototype_installation_comes_in_with_its_hosts_people_and_data() {
+        let Some(db) = TestDb::new().await else {
+            eprintln!("skipped: ROOKERY_TEST_POSTGRES is not set");
+            return;
+        };
+        let made = made_up();
+        // The first admin signed in before the import, and owns what comes in by their email.
+        let owner = admin_named(&db, "Ada", Some("ada@example.org")).await;
+        let (url, path, key) = (
+            db.url.clone(),
+            made.file.to_string_lossy().into_owned(),
+            server_key(&made.key),
+        );
+        let report = tokio::task::spawn_blocking(move || {
+            import_into(&url, Some(key), &path, None, Some("ada@example.org"))
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        check_made_up(&db, &report, owner).await;
+
+        // The key-value entries are rows of Rookery's collection `rookery/storage`, with each key's
+        // revision, so that the datastore reads them as its own.
+        for (plugin, key, value, revision) in [
+            ("box", "greeting", json!("hello again"), 2),
+            ("fleet", "cursor", json!({ "n": 3 }), 5),
+            ("ai", "mappings", json!({ "claude": "opus" }), 1),
+        ] {
+            let entry = db
+                .store
+                .kv()
+                .get(plugin, rookery_store::kv::KvScope::Global, key)
+                .await
+                .unwrap()
+                .unwrap_or_else(|| panic!("{plugin}/{key} is not in the storage collection"));
+            assert_eq!(entry.value, value);
+            assert_eq!(entry.revision, revision);
+            let writes: i64 = sqlx::query_scalar(
+                "SELECT writes FROM rookery.\"storage\" WHERE plugin = $1 AND key = $2",
+            )
+            .bind(plugin)
+            .bind(key)
+            .fetch_one(db.store.pool())
+            .await
+            .unwrap();
+            assert_eq!(writes, revision - 1);
+        }
+        // Reading the collection as a person does, and finding the person the import knew.
+        let caller = rookery_store::Caller::system();
+        let page = db
+            .store
+            .data("rookery")
+            .find(
+                &caller,
+                "storage",
+                &rookery_store::collections::Query::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.rows.len(), 3, "{:?}", page.rows);
+        let settings = db
+            .store
+            .data("rookery")
+            .find(
+                &caller,
+                "settings",
+                &rookery_store::collections::Query::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(settings.rows.len(), 2);
+        let connections = db
+            .store
+            .data("rookery")
+            .find(
+                &caller,
+                "connections",
+                &rookery_store::collections::Query::default(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(connections.rows.len(), 2);
+        let found = db
+            .store
+            .search()
+            .query(
+                &caller,
+                &rookery_store::search::SearchQuery {
+                    text: "Ada".into(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert!(
+            found.hits.iter().any(|hit| hit.entity.scheme == "user"),
+            "the person is not indexed: {:?}",
+            found.hits
+        );
+
+        // What the server reads through its store, as the hosts' code does: the values that were
+        // sealed open under the server's key, and every kind is where the store looks for it.
+        let url = db.url.clone();
+        let key = server_key(&made.key);
+        tokio::task::spawn_blocking(move || {
+            reading(&url, key, |s| {
+                use rookery_core::store::{OWN, kind};
+                let secret = s
+                    .find(kind::SECRET, OWN, "tailnet_api_key")
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(
+                    s.read(kind::SECRET, OWN, &secret.id).unwrap().unwrap(),
+                    b"tskey-made-up"
+                );
+                for (id, _, token) in REGISTRIES {
+                    assert_eq!(
+                        s.read(kind::SECRET, OWN, &format!("{id}/login"))
+                            .unwrap()
+                            .unwrap(),
+                        token.as_bytes()
+                    );
+                    let found = s.find(kind::REGISTRY, OWN, id).unwrap().unwrap();
+                    assert!(found.name.contains("registry") || found.name == "ghcr");
+                }
+                let ring = s.find(kind::KEY, OWN, RING.1).unwrap().unwrap();
+                assert!(
+                    s.read(kind::KEY, OWN, &ring.id)
+                        .unwrap()
+                        .unwrap()
+                        .starts_with(b"-----BEGIN")
+                );
+                for (id, name, typ) in HOSTS {
+                    let host = s.find(kind::PROFILE, OWN, name).unwrap().unwrap();
+                    assert_eq!(host.id, id);
+                    let profile = s.read_json(kind::PROFILE, OWN, id).unwrap().unwrap();
+                    assert_eq!(profile["hostname"], name);
+                    assert_eq!(profile["type"], typ);
+                }
+                assert_eq!(
+                    s.read(kind::CREDENTIALS, OWN, HOSTS[0].0).unwrap().unwrap(),
+                    b"made-up-password-studio"
+                );
+                assert!(
+                    s.read(kind::CREDENTIALS, OWN, HOSTS[2].0)
+                        .unwrap()
+                        .is_none()
+                );
+                assert_eq!(
+                    s.read(kind::SETTING, OWN, "retention_days")
+                        .unwrap()
+                        .unwrap(),
+                    b"30"
+                );
+                assert_eq!(
+                    s.labels(kind::PROFILE, OWN).unwrap().len(),
+                    3,
+                    "a mirrored profile came in"
+                );
+                let entries = s.labels(kind::PROVISIONER_ENTRY, OWN).unwrap();
+                assert_eq!(entries.len(), 1);
+                assert_eq!(entries[0].name, "lab");
+                assert_eq!(
+                    s.read_json(kind::PROVISIONER, OWN, "incus/vm")
+                        .unwrap()
+                        .unwrap(),
+                    json!({ "image": "images:ubuntu/24.04" })
+                );
+                assert_eq!(
+                    s.read_json(kind::RESOURCE, OWN, RESOURCE).unwrap().unwrap(),
+                    json!({ "kind": "incus", "name": "studio-vm", "host": HOSTS[0].0 })
+                );
+                assert_eq!(
+                    s.read(kind::SPEC, OWN, RESOURCE).unwrap().unwrap(),
+                    b"description: studio\n"
+                );
+                assert_eq!(
+                    s.read(kind::PLUGIN, OWN, "hatchery.kdl").unwrap().unwrap(),
+                    b"registries {\n  rookery\n}\n"
+                );
+                assert_eq!(
+                    s.read(kind::META, OWN, "server").unwrap(),
+                    None,
+                    "what clients cached of a server came in"
+                );
+            })
+        })
+        .await
+        .unwrap();
+        db.close().await;
     }
 
     #[test]
@@ -1120,7 +1919,7 @@ mod tests {
                 .await
                 .unwrap();
         }
-        for (namespace, key, value, revision) in &rows.kv {
+        for (namespace, key, value, revision, _) in &rows.kv {
             sqlx::query("INSERT INTO kv (namespace, key, value, revision, updated) VALUES ($1, $2, $3, $4, '')")
                 .bind(namespace).bind(key).bind(value).bind(revision).execute(&mut *pool).await.unwrap();
         }
