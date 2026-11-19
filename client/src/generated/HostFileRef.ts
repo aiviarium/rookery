@@ -3,4 +3,4 @@
 /**
  * A file on a host, by its path.
  */
-export type FileRef = { host: string, path: string, };
+export type HostFileRef = { host: string, path: string, };

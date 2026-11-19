@@ -3,4 +3,4 @@
 /**
  * `hosts.files.write`: the bytes in base64. With `etag`, only if the file is still at it.
  */
-export type FileWrite = { host: string, path: string, base64: string, etag?: string | null, };
+export type HostFileWrite = { host: string, path: string, base64: string, etag?: string | null, };

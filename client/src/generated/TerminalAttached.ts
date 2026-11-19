@@ -3,16 +3,27 @@ import type { AttachMode } from "./AttachMode";
 import type { TermSize } from "./TermSize";
 import type { TerminalInfo } from "./TerminalInfo";
 
+/**
+ * The result of `terminals.attach`: the stream and how it starts.
+ */
 export type TerminalAttached = { stream: number, mode: AttachMode, 
 /**
  * The output offset the first type-0 frame starts at.
  */
 offset: number, 
 /**
- * Bytes of snapshot that come first.
+ * Bytes of type-2 frames that come before it.
  */
 snapshot: number, 
 /**
- * The session's size now.
+ * The terminal's size now.
  */
-size: TermSize, viewer: string, readonly: boolean, info: TerminalInfo, };
+size: TermSize, 
+/**
+ * This viewer's id, which a `size` event's `active` names.
+ */
+viewer: string, 
+/**
+ * Whether the viewer's input is ignored.
+ */
+readonly: boolean, info: TerminalInfo, };
