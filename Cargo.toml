@@ -1,9 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["crates/rookery-api", "crates/rookery-pty", "crates/rookery-core", "crates/rookery-setup", "crates/rookery", "crates/rookeryd", "crates/box"]
+members = ["crates/rookery-api", "crates/rookery-pty", "crates/rookery-core", "crates/rookery-setup", "crates/rookery", "crates/rookeryd", "crates/box", "crates/rookery-proto", "crates/rookery-store", "crates/rookery-kernel", "crates/rookery-auth", "crates/rookery-server"]
 # The vendored crate is a member because it lives inside; it is left out of what
 # is built, tested and linted by default.
-default-members = ["crates/rookery-api", "crates/rookery-pty", "crates/rookery-core", "crates/rookery-setup", "crates/rookery", "crates/rookeryd", "crates/box"]
+default-members = ["crates/rookery-api", "crates/rookery-pty", "crates/rookery-core", "crates/rookery-setup", "crates/rookery", "crates/rookeryd", "crates/box", "crates/rookery-proto", "crates/rookery-store", "crates/rookery-kernel", "crates/rookery-auth", "crates/rookery-server"]
 
 [workspace.package]
 version = "0.6.0"
@@ -18,6 +18,18 @@ rookery-pty = { path = "crates/rookery-pty" }
 rookery-core = { path = "crates/rookery-core" }
 rookery-setup = { path = "crates/rookery-setup" }
 tui-input = { path = "crates/vendor/tui-input", default-features = false }
+# rookery serve. Linux only: none of it reaches the client on macOS and Windows, rookeryd or box.
+rookery-proto = { path = "crates/rookery-proto" }
+rookery-store = { path = "crates/rookery-store" }
+rookery-kernel = { path = "crates/rookery-kernel" }
+rookery-auth = { path = "crates/rookery-auth" }
+rookery-server = { path = "crates/rookery-server" }
+sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "derive", "postgres", "uuid", "chrono", "json"] }
+uuid = { version = "1", features = ["v7", "serde"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }
+schemars = "1"
+ts-rs = { version = "12", features = ["serde-json-impl", "no-serde-warnings"] }
+tracing = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 libc = "0.2"

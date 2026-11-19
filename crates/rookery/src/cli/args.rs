@@ -157,9 +157,13 @@ pub enum Command {
     #[cfg(target_os = "linux")]
     #[command(subcommand)]
     Server(Server),
-    /// Short for rookery server run.
+    /// Run rookery serve: on Postgres when ROOKERY_DATABASE_URL is set, as rookery server run without it.
     #[cfg(target_os = "linux")]
     Serve(ServerRun),
+    /// The server of before Postgres, for the tests that still use it.
+    #[cfg(target_os = "linux")]
+    #[command(hide = true)]
+    ServeLegacy(ServerRun),
     /// Use the rookery server at URL, with a setup key made there.
     Login(Login),
     /// Stop using the rookery server rookery login kept.
@@ -1008,7 +1012,7 @@ pub enum Service {
 pub enum Server {
     /// Serve the API over all hosts on a socket of this user, and over HTTP with --listen.
     Run(ServerRun),
-    /// Make a key, valid for a day, that lets the first user collect the server's token.
+    /// A one-time sign-in link for the first admin of rookery serve on Postgres; without one running here, a key, valid for a day, that lets the first user collect the server's token.
     SetupKey {
         /// End the key that is open.
         #[arg(long)]

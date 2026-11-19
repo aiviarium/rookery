@@ -1531,7 +1531,7 @@ rookery server run [--listen ADDRESS:PORT] [--expose] [--simulate] [--seed FILE]
 
 ### rookery server setup-key
 
-Make a key, valid for a day, that lets the first user collect the server's token.
+A one-time sign-in link for the first admin of rookery serve on Postgres; without one running here, a key, valid for a day, that lets the first user collect the server's token.
 
 ```text
 rookery server setup-key [--revoke]
@@ -1648,7 +1648,7 @@ rookery server deploy [USER@]HOST [--container NAME] [--port PORT] [--release VE
 
 ## rookery serve
 
-Short for rookery server run.
+Run rookery serve: on Postgres when ROOKERY_DATABASE_URL is set, as rookery server run without it.
 
 ```text
 rookery serve [--listen ADDRESS:PORT] [--expose] [--simulate] [--seed FILE] [--delay SECONDS] [--data DIR] [--keep]

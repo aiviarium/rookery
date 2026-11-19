@@ -11,6 +11,13 @@ Rookery provisions and manages development machines. It sets up Ubuntu hosts and
 | `crates/rookery-core/` | Hosts, profiles, links to hosts, registries and secrets, and plugins. The store is in `store/`. `kept.rs` and `plugin_state.rs` write files from it. `kept_profile.rs` is the profile a host keeps of itself and `rookery host adopt`. `runner.rs` runs every action as a job. `keys/` is the key ring and how Rookery logs in to hosts. `host_type.rs` says what each type of host can do. `provisioner.rs` and `resource.rs` are the provisioners of plugins and what they made. `simulate.rs` is the world of `rookery serve --simulate`: its hosts, its provisioner `sim/cloud` and its seed. `plugins.rs` reads the plugins, and `eggs.rs` installs, updates and removes them through the `hatchery` library |
 | `crates/rookery-setup/` | A host's set-up, with nothing drawn. `fields.rs` is the fields of its profile, and `setup.rs` what changes them and what stops it. `flow.rs` has the questions the command line asks, `machine.rs` the machine a provisioner makes, and `event.rs` the keys a prompt takes |
 | `crates/rookery-pty/` | Terminals for sessions |
+| `crates/rookery-server/` | `rookery serve` on Postgres, when `ROOKERY_DATABASE_URL` is set. `config.rs` reads the `ROOKERY_*` variables. `leader.rs` is the advisory lock: one server per database leads, and the others wait as standbys that answer 503. `edge.rs` serves `/ws`, `/rpc` (`rpc.rs`), `/healthz` and the Unix socket, where the CLI of the same machine is an admin with no token. `shell.rs` serves the shell in `ROOKERY_SHELL_DIR`. `client.rs` calls the socket, for `rookery server setup-key`. `methods()` in `lib.rs` lists every facility's methods |
+| `crates/rookery-kernel/` | The core of `rookery serve`. In `methods.rs` each method is registered with a level and the schema of its params. `conn.rs` is a connection on `/ws`, `streams.rs` the binary stream channels with credit, `auth.rs` reads a session or a token |
+| `crates/rookery-auth/` | How people sign in, and the `auth.*` methods. `links.rs` has the one-time links of local accounts and `session.rs` the device sessions and their cookie. `oidc.rs` signs in through an identity provider with PKCE |
+| `crates/rookery-store/` | The server's tables in the schema `rookery` on Postgres, made by the numbered migrations in `migrations/`. `testing.rs` makes a fresh database for each test |
+| `crates/rookery-proto/` | The wire types of `rookery serve`, from the JSON-RPC envelope and its errors to the params and results of each method |
+| `api/` | `methods.json`, the report of every method of `rookery serve` with its level and params. A test fails while it is stale |
+| `client/src/generated/` | The TypeScript types of the wire, written from `rookery-proto`. A test fails while they are stale |
 | `crates/rookeryd/`, `crates/box/` | The controller on each host and the agent's own tool there |
 | `crates/vendor/` | The vendored `tui-input` crate |
 | `provision/` | The installer side of the provisioning source: the role in `ansible/`, first-boot provisioning in `bootstrap/`, the builder of seeds and releases in `bin/rookery.py` and the example profile in `config/`. Rookery names these paths in `layout` in `crates/rookery-core/src/paths.rs` |
@@ -48,7 +55,9 @@ Use cargo for everything Rust and bun for `client/` and `sdk/`. These are what C
 
 ```bash
 cargo test --locked --no-fail-fast
-cargo fmt --check -p rookery-api -p rookery-pty -p rookery-core -p rookery-setup -p rookery -p rookeryd -p box
+cargo fmt --check -p rookery-api -p rookery-pty -p rookery-core -p rookery-setup -p rookery -p rookeryd -p box \
+  -p rookery-proto -p rookery-store -p rookery-kernel -p rookery-auth -p rookery-server
+cargo test --locked -q -p rookery-proto --features ts --test bindings
 cargo clippy --locked --all-targets -- -D warnings
 cargo run --locked -q -p rookery -- plugin check plugins
 python3 -m unittest discover -s tests -v
@@ -60,7 +69,16 @@ vale --minAlertLevel=warning --glob='!docs/content/docs/api/{host,serve}/**' REA
 
 The Docs workflow checks the docs site with `npm run typecheck`, `npm run lint` and `npm run links` in `docs/`, and builds it. It runs for every pull request, as `ci/plan.py` leaves the site out of CI's units.
 
-On macOS and Windows Rookery is the client alone. Check that it still builds there with `cargo check -p rookery --target x86_64-pc-windows-msvc` or `--target aarch64-apple-darwin`. The release builds it on those systems.
+On macOS and Windows Rookery is the client alone. `rookery serve` on Postgres and every crate it needs (sqlx among them) are Linux-only dependencies of `rookery`, and never reach rookeryd or box. Check that it still builds there with `cargo check -p rookery --target x86_64-pc-windows-msvc` or `--target aarch64-apple-darwin`. The release builds it on those systems.
+
+The tests of `rookery serve` (`rookery-store`, `rookery-server`) need Postgres. Each makes a database of its own from a template, so one server serves every test at once. Without `ROOKERY_TEST_POSTGRES` they are skipped. In CI they fail instead. CI has a Postgres service; on a machine of your own Docker gives one:
+
+```bash
+docker run -d --name rookery-test-pg -e POSTGRES_USER=rookery -e POSTGRES_PASSWORD=rookery-test \
+  -p 127.0.0.1:55432:5432 postgres:17-alpine -c fsync=off
+export ROOKERY_TEST_POSTGRES=postgres://rookery:rookery-test@127.0.0.1:55432/rookery
+cargo nextest run -p rookery-proto -p rookery-store -p rookery-kernel -p rookery-auth -p rookery-server
+```
 
 Development and test builds embed quick builds of rookeryd and box (the `host-dev` profile). Only `--release` embeds the release builds. The Python tests skip their YAML checks without PyYAML, so install `provision/requirements.txt` in a virtual environment to run them all.
 
@@ -124,10 +142,10 @@ CI runs the checks on the runner itself, each in a job of its own, and the end-t
 
 | Unit | Runs for a change to |
 | --- | --- |
-| `rust-tests`, `clippy` | anything but the docs site, the recipes, `client/`, `sdk/` and the other workflows |
-| `python-tests` | anything but the Rust code, `client/`, `sdk/` and the docs site |
+| `rust-tests`, `clippy` | anything but the docs site, the recipes, `client/` (but its `src/generated/`), `sdk/` and the other workflows |
+| `python-tests` | anything but the Rust code, `api/`, `client/`, `sdk/` and the docs site |
 | `ts` | `client/`, `sdk/` and the root TypeScript configuration files |
-| The shards `studio` and `forge` | anything Rookery is built from: they apply only once |
+| The shards `studio` and `forge` | anything Rookery is built from but `rookery serve` on Postgres (`SERVER` in `ci/plan.py`), which they do not reach yet: they apply only once |
 | The other shards | the role, the plugins, the end-to-end tests, or the Rust code in `SEAM` of `ci/plan.py` (on main: anything Rookery is built from) |
 
 `SEAM` is the Rust code that decides what the role is given or finds on a host. The test `ansible_contract` in `crates/rookery-core/src/apply.rs` compares the variables of made-up profiles with the files in `crates/rookery-core/tests/fixtures/ansible/`, which are in `SEAM` too. A change elsewhere that alters them makes the test fail, and writing them again runs the shards. Code that moves into a new file that feeds the role belongs in `SEAM`.
@@ -139,6 +157,9 @@ The Rust jobs restore the target directory from main's cache. `ci/mtimes.py` set
 ## API changes
 
 - Add the operation to `crates/rookery-api/src/ops.rs` with the role it needs. A test fails when a route has no operation or the other way round.
+- A method of `rookery serve` is added in the `register` of its facility with `methods.add(…).summary(…).level(…)`, and its params and result types in `rookery-proto`. A method without a level is refused to every caller, and a test fails for it. `ROOKERY_UPDATE_DOCS=1 cargo test -p rookery-server` writes `api/methods.json` again.
+- `ROOKERY_UPDATE_DOCS=1 cargo test -p rookery-proto --features ts --test bindings` writes the TypeScript types in `client/src/generated/`. A wire type is added to the list in `crates/rookery-proto/tests/bindings.rs`.
+- A migration of the store is a new numbered file in `crates/rookery-store/migrations/` and an entry in `MIGRATIONS` of `migrate.rs`. A migration that ran is never edited: the server refuses to start on one that changed.
 - The API documents in `docs/openapi/` are committed. Regenerate them with `ROOKERY_UPDATE_DOCS=1 cargo test -p rookery -p rookeryd`. The same writes the command line's reference page, `docs/content/docs/(guide)/reference/cli.mdx`, from the grammar in `crates/rookery/src/cli/args.rs`. A test fails while either is stale.
 - The pages under `docs/content/docs/api/host` and `api/serve` are generated from those documents when the docs are built (`docs/scripts/reference.mjs`), and are not committed. Do not edit them by hand.
 

@@ -5,18 +5,22 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-crates=(-p rookery-api -p rookery-pty -p rookery-core -p rookery-setup -p rookery -p rookeryd -p box)
+crates=(-p rookery-api -p rookery-pty -p rookery-core -p rookery-setup -p rookery -p rookeryd -p box
+  -p rookery-proto -p rookery-store -p rookery-kernel -p rookery-auth -p rookery-server)
 
 # Each runs as the condition of an if, where set -e does not stop it: the
 # steps are joined with && instead.
 # nextest runs the test programs side by side, which pays on a machine with
 # many cores. On CI's four it is slower than cargo test.
+# The tests of rookery serve make a database each on the Postgres of
+# ROOKERY_TEST_POSTGRES. The TypeScript types of the wire are compared with
+# client/src/generated, with the feature that writes them.
 rust-tests() {
   if cargo nextest --version >/dev/null 2>&1; then
     cargo nextest run --locked --no-fail-fast
   else
     cargo test --locked --no-fail-fast
-  fi
+  fi && cargo test --locked -q -p rookery-proto --features ts --test bindings
 }
 # Each file in a process of its own, side by side, its output when it is done.
 python-tests() {
