@@ -271,14 +271,17 @@ pub async fn enqueue_with_token(
     Ok(job)
 }
 
-/// Tells the connections subscribed to `jobs.changed` that a job changed: those of its enqueuer, the
+/// The event a changed job is told by, under the server's own plugin id.
+pub const JOBS_CHANGED: &str = "rookery/jobs.changed";
+
+/// Tells the connections subscribed to `rookery/jobs.changed` that a job changed: those of its enqueuer, the
 /// admins, and those who see its subject.
 pub fn announce(kernel: &Kernel, job: &Job) {
     let (kernel, job) = (kernel.clone(), job.clone());
     tokio::spawn(async move {
         let payload = serde_json::json!({ "job": info(job.clone()) });
         let checker = kernel.clone();
-        crate::events::publish_where(&kernel, "jobs.changed", &payload, |caller| {
+        crate::events::publish_where(&kernel, JOBS_CHANGED, &payload, |caller| {
             let (kernel, job) = (checker.clone(), job.clone());
             async move {
                 let call = Call::new(kernel, caller, None);

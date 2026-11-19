@@ -1,4 +1,4 @@
-//! What happens to hosts, told to clients: `hosts.changed` and `resources.changed` events, each
+//! What happens to hosts, told to clients: `rookery/hosts.changed` and `rookery/resources.changed` events, each
 //! host's channel taken in on a durable topic `rookery/hosts/ID/channel`, and the messages a host keeps
 //! as notifications to those who manage it.
 
@@ -34,6 +34,10 @@ pub async fn forward(kernel: Kernel, serve: Arc<Serve>) {
     }
 }
 
+/// The server's events are its own plugin id's, as a plugin's are: `rookery/NAME`.
+pub const HOSTS_CHANGED: &str = "rookery/hosts.changed";
+pub const RESOURCES_CHANGED: &str = "rookery/resources.changed";
+
 async fn sees(kernel: &Kernel, caller: rookery_kernel::Caller, host: &str) -> bool {
     let call = Call::new(kernel.clone(), caller, None);
     call.is_admin()
@@ -45,13 +49,20 @@ async fn sees(kernel: &Kernel, caller: rookery_kernel::Caller, host: &str) -> bo
 async fn tell(kernel: &Kernel, serve: &Arc<Serve>, event: Event) {
     match event {
         Event::Host { name, change, from } => {
+            let removed = change == "removed";
+            // The host as hosts.get gives it, so a list keeps up without asking again.
+            let info = match removed {
+                true => None,
+                false => crate::serve::api::host_info(serve, &name).await.ok(),
+            };
             let payload = json!({
                 "host": name,
+                "info": info,
                 "change": change,
                 "from": from,
-                "removed": change == "removed",
+                "removed": removed,
             });
-            rookery_jobs::events::publish_where(kernel, "hosts.changed", &payload, |caller| {
+            rookery_jobs::events::publish_where(kernel, HOSTS_CHANGED, &payload, |caller| {
                 sees(kernel, caller, &name)
             })
             .await;
@@ -66,7 +77,7 @@ async fn tell(kernel: &Kernel, serve: &Arc<Serve>, event: Event) {
             let payload = json!({"resource": id, "provisioner": provisioner_name, "kind": kind, "change": change});
             rookery_jobs::events::publish_where(
                 kernel,
-                "resources.changed",
+                RESOURCES_CHANGED,
                 &payload,
                 |caller| async move { caller.is_admin() },
             )
