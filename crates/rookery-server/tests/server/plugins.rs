@@ -182,12 +182,7 @@ async fn a_plugin_installed_over_ws_runs_its_host_half_and_serves_its_halves() {
     // Stopping the server runs the host half's cleanups while the store is open.
     let db = served.db;
     served.running.stop().await.unwrap();
-    let disposed: Option<Value> = sqlx::query_scalar(
-        "SELECT value FROM rookery.kv WHERE plugin = 'echo' AND key = 'disposed'",
-    )
-    .fetch_optional(db.store.pool())
-    .await
-    .unwrap();
-    assert_eq!(disposed, Some(json!(true)));
+    let disposed = db.store.kv().get("echo", None, "disposed").await.unwrap();
+    assert_eq!(disposed.map(|entry| entry.value), Some(json!(true)));
     db.close().await;
 }

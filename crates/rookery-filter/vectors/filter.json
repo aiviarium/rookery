@@ -1,0 +1,735 @@
+{
+  "cases": [
+    {
+      "matches": [
+        "alpha",
+        "gamma",
+        "epsilon"
+      ],
+      "where": {
+        "state": "open"
+      }
+    },
+    {
+      "matches": [
+        "alpha"
+      ],
+      "where": {
+        "assignee": "00000000-0000-7000-8000-000000000001",
+        "state": "open"
+      }
+    },
+    {
+      "matches": [
+        "alpha"
+      ],
+      "where": {
+        "assignee": "user://00000000-0000-7000-8000-000000000001"
+      }
+    },
+    {
+      "matches": [
+        "beta",
+        "Delta",
+        "epsilon"
+      ],
+      "where": {
+        "assignee": null
+      }
+    },
+    {
+      "matches": [
+        "alpha",
+        "gamma"
+      ],
+      "where": {
+        "assignee": {
+          "ne": null
+        }
+      }
+    },
+    {
+      "matches": [
+        "beta",
+        "Delta"
+      ],
+      "where": {
+        "state": {
+          "ne": "open"
+        }
+      }
+    },
+    {
+      "matches": [
+        "alpha",
+        "gamma",
+        "Delta"
+      ],
+      "where": {
+        "estimate": {
+          "ne": 3
+        }
+      }
+    },
+    {
+      "matches": [
+        "beta",
+        "Delta"
+      ],
+      "where": {
+        "state": {
+          "in": [
+            "done"
+          ]
+        }
+      }
+    },
+    {
+      "matches": [
+        "beta",
+        "gamma",
+        "epsilon"
+      ],
+      "where": {
+        "estimate": {
+          "in": [
+            3,
+            null
+          ]
+        }
+      }
+    },
+    {
+      "matches": [
+        "alpha",
+        "gamma",
+        "Delta"
+      ],
+      "where": {
+        "estimate": {
+          "nin": [
+            3
+          ]
+        }
+      }
+    },
+    {
+      "matches": [
+        "alpha",
+        "Delta"
+      ],
+      "where": {
+        "estimate": {
+          "nin": [
+            3,
+            null
+          ]
+        }
+      }
+    },
+    {
+      "matches": [],
+      "where": {
+        "estimate": {
+          "in": []
+        }
+      }
+    },
+    {
+      "matches": [
+        "beta",
+        "Delta",
+        "epsilon"
+      ],
+      "where": {
+        "estimate": {
+          "gt": 1.5
+        }
+      }
+    },
+    {
+      "matches": [
+        "alpha",
+        "beta",
+        "epsilon"
+      ],
+      "where": {
+        "estimate": {
+          "gte": 1.5,
+          "lt": 8
+        }
+      }
+    },
+    {
+      "matches": [
+        "alpha",
+        "beta",
+        "epsilon"
+      ],
+      "where": {
+        "estimate": {
+          "lte": 3
+        }
+      }
+    },
+    {
+      "matches": [
+        "alpha",
+        "Delta"
+      ],
+      "where": {
+        "due": {
+          "lt": "2026-01-15"
+        }
+      }
+    },
+    {
+      "matches": [
+        "beta"
+      ],
+      "where": {
+        "closedAt": {
+          "gt": "2026-01-01T00:00:00Z"
+        }
+      }
+    },
+    {
+      "matches": [
+        "Delta"
+      ],
+      "where": {
+        "closedAt": {
+          "lte": "2025-12-24T06:30:00Z"
+        }
+      }
+    },
+    {
+      "matches": [
+        "Delta"
+      ],
+      "where": {
+        "title": {
+          "lt": "a"
+        }
+      }
+    },
+    {
+      "matches": [
+        "epsilon",
+        "gamma"
+      ],
+      "where": {
+        "title": {
+          "gte": "delta"
+        }
+      }
+    },
+    {
+      "matches": [
+        "alpha",
+        "beta"
+      ],
+      "where": {
+        "labels": {
+          "contains": "label://bug"
+        }
+      }
+    },
+    {
+      "matches": [
+        "alpha"
+      ],
+      "where": {
+        "labels": {
+          "contains": [
+            "label://bug",
+            "label://ui"
+          ]
+        }
+      }
+    },
+    {
+      "matches": [
+        "alpha"
+      ],
+      "where": {
+        "meta": {
+          "eq": {
+            "a": 1.0
+          }
+        }
+      }
+    },
+    {
+      "matches": [
+        "epsilon"
+      ],
+      "where": {
+        "meta": {
+          "eq": [
+            1,
+            2
+          ]
+        }
+      }
+    },
+    {
+      "matches": [
+        "alpha",
+        "beta",
+        "Delta"
+      ],
+      "where": {
+        "or": [
+          {
+            "state": "done"
+          },
+          {
+            "estimate": 1.5
+          }
+        ]
+      }
+    },
+    {
+      "matches": [
+        "alpha",
+        "gamma"
+      ],
+      "where": {
+        "and": [
+          {
+            "state": "open"
+          },
+          {
+            "not": {
+              "estimate": 3
+            }
+          }
+        ]
+      }
+    },
+    {
+      "matches": [
+        "alpha",
+        "gamma"
+      ],
+      "where": {
+        "not": {
+          "estimate": {
+            "gt": 2
+          }
+        }
+      }
+    },
+    {
+      "matches": [
+        "alpha",
+        "gamma"
+      ],
+      "where": {
+        "not": {
+          "or": [
+            {
+              "assignee": null
+            },
+            {
+              "state": "done"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "matches": [
+        "alpha",
+        "beta",
+        "epsilon"
+      ],
+      "where": {
+        "not": {
+          "not": {
+            "estimate": {
+              "lt": 4
+            }
+          }
+        }
+      }
+    },
+    {
+      "matches": [
+        "alpha",
+        "beta",
+        "gamma",
+        "Delta",
+        "epsilon"
+      ],
+      "where": {
+        "and": []
+      }
+    },
+    {
+      "matches": [],
+      "where": {
+        "or": []
+      }
+    },
+    {
+      "matches": [
+        "alpha",
+        "beta",
+        "gamma",
+        "Delta",
+        "epsilon"
+      ],
+      "where": {
+        "createdBy": "00000000-0000-7000-8000-000000000002",
+        "rev": 1
+      }
+    },
+    {
+      "matches": [
+        "beta"
+      ],
+      "where": {
+        "id": "00000000-0000-7000-8000-000000000003"
+      }
+    },
+    {
+      "matches": [
+        "Delta",
+        "epsilon"
+      ],
+      "where": {
+        "number": {
+          "gt": 3
+        }
+      }
+    },
+    {
+      "matches": [
+        "alpha",
+        "beta",
+        "gamma",
+        "Delta",
+        "epsilon"
+      ],
+      "where": {
+        "project": null
+      }
+    }
+  ],
+  "collection": {
+    "access": {
+      "read": "view",
+      "write": "use"
+    },
+    "entity": {
+      "parent": "project",
+      "scheme": "issue",
+      "title": "title"
+    },
+    "fields": [
+      {
+        "name": "number",
+        "per": "space",
+        "type": "sequence"
+      },
+      {
+        "name": "title",
+        "search": true,
+        "type": "text"
+      },
+      {
+        "default": "open",
+        "index": true,
+        "name": "state",
+        "type": "enum",
+        "values": [
+          "open",
+          "done"
+        ]
+      },
+      {
+        "name": "project",
+        "to": "project",
+        "type": "ref"
+      },
+      {
+        "name": "assignee",
+        "to": "user",
+        "type": "ref"
+      },
+      {
+        "name": "labels",
+        "type": "refs"
+      },
+      {
+        "name": "estimate",
+        "type": "number"
+      },
+      {
+        "name": "due",
+        "type": "date"
+      },
+      {
+        "name": "closedAt",
+        "type": "datetime"
+      },
+      {
+        "name": "body",
+        "search": true,
+        "type": "richtext"
+      },
+      {
+        "name": "meta",
+        "type": "json"
+      }
+    ],
+    "history": true,
+    "indexes": [
+      [
+        "state",
+        "assignee"
+      ]
+    ],
+    "name": "issues",
+    "scope": "space",
+    "trash": true
+  },
+  "comment": "Generated by crates/rookery-store/tests/data/queries.rs (where_operators_and_in_memory_matching_agree). Do not edit.",
+  "invalid": [
+    {
+      "nosuch": 1
+    },
+    {
+      "state": {
+        "like": "o%"
+      }
+    },
+    {
+      "meta": {
+        "a": 1
+      }
+    },
+    {
+      "labels": "label://bug"
+    },
+    {
+      "title": {
+        "contains": "a"
+      }
+    },
+    {
+      "meta": {
+        "lt": 1
+      }
+    },
+    {
+      "estimate": {
+        "lt": null
+      }
+    },
+    {
+      "state": [
+        "open"
+      ]
+    },
+    {
+      "or": {
+        "state": "open"
+      }
+    },
+    "state = 'open'"
+  ],
+  "orders": [
+    {
+      "orderBy": [
+        [
+          "number",
+          "desc"
+        ]
+      ],
+      "titles": [
+        "epsilon",
+        "Delta",
+        "gamma",
+        "beta",
+        "alpha"
+      ]
+    },
+    {
+      "orderBy": [
+        "estimate"
+      ],
+      "titles": [
+        "alpha",
+        "beta",
+        "epsilon",
+        "Delta",
+        "gamma"
+      ]
+    },
+    {
+      "orderBy": [
+        [
+          "estimate",
+          "desc"
+        ]
+      ],
+      "titles": [
+        "gamma",
+        "Delta",
+        "beta",
+        "epsilon",
+        "alpha"
+      ]
+    },
+    {
+      "orderBy": [
+        "state",
+        [
+          "due",
+          "desc"
+        ]
+      ],
+      "titles": [
+        "beta",
+        "Delta",
+        "gamma",
+        "epsilon",
+        "alpha"
+      ]
+    },
+    {
+      "orderBy": [],
+      "titles": [
+        "alpha",
+        "beta",
+        "gamma",
+        "Delta",
+        "epsilon"
+      ]
+    }
+  ],
+  "rows": [
+    {
+      "assignee": "user://00000000-0000-7000-8000-000000000001",
+      "body": null,
+      "closedAt": null,
+      "createdAt": "2026-01-01T00:00:00+00:00",
+      "createdBy": "00000000-0000-7000-8000-000000000002",
+      "deletedAt": null,
+      "due": "2026-01-10",
+      "estimate": 1.5,
+      "id": "00000000-0000-7000-8000-000000000004",
+      "labels": [
+        "label://bug",
+        "label://ui"
+      ],
+      "meta": {
+        "a": 1
+      },
+      "number": 1,
+      "project": null,
+      "rev": 1,
+      "spaceId": "00000000-0000-7000-8000-000000000005",
+      "state": "open",
+      "title": "alpha",
+      "updatedAt": "2026-01-01T00:00:00+00:00",
+      "updatedBy": "00000000-0000-7000-8000-000000000002"
+    },
+    {
+      "assignee": null,
+      "body": null,
+      "closedAt": "2026-03-01T10:00:00+00:00",
+      "createdAt": "2026-01-01T00:00:00+00:00",
+      "createdBy": "00000000-0000-7000-8000-000000000002",
+      "deletedAt": null,
+      "due": "2026-02-01",
+      "estimate": 3,
+      "id": "00000000-0000-7000-8000-000000000003",
+      "labels": [
+        "label://bug"
+      ],
+      "meta": {
+        "a": 2
+      },
+      "number": 2,
+      "project": null,
+      "rev": 1,
+      "spaceId": "00000000-0000-7000-8000-000000000005",
+      "state": "done",
+      "title": "beta",
+      "updatedAt": "2026-01-01T00:00:00+00:00",
+      "updatedBy": "00000000-0000-7000-8000-000000000002"
+    },
+    {
+      "assignee": "user://00000000-0000-7000-8000-000000000002",
+      "body": null,
+      "closedAt": null,
+      "createdAt": "2026-01-01T00:00:00+00:00",
+      "createdBy": "00000000-0000-7000-8000-000000000002",
+      "deletedAt": null,
+      "due": null,
+      "estimate": null,
+      "id": "00000000-0000-7000-8000-000000000006",
+      "labels": [],
+      "meta": null,
+      "number": 3,
+      "project": null,
+      "rev": 1,
+      "spaceId": "00000000-0000-7000-8000-000000000005",
+      "state": "open",
+      "title": "gamma",
+      "updatedAt": "2026-01-01T00:00:00+00:00",
+      "updatedBy": "00000000-0000-7000-8000-000000000002"
+    },
+    {
+      "assignee": null,
+      "body": null,
+      "closedAt": "2025-12-24T06:30:00+00:00",
+      "createdAt": "2026-01-01T00:00:00+00:00",
+      "createdBy": "00000000-0000-7000-8000-000000000002",
+      "deletedAt": null,
+      "due": "2025-12-24",
+      "estimate": 8,
+      "id": "00000000-0000-7000-8000-000000000007",
+      "labels": null,
+      "meta": null,
+      "number": 4,
+      "project": null,
+      "rev": 1,
+      "spaceId": "00000000-0000-7000-8000-000000000005",
+      "state": "done",
+      "title": "Delta",
+      "updatedAt": "2026-01-01T00:00:00+00:00",
+      "updatedBy": "00000000-0000-7000-8000-000000000002"
+    },
+    {
+      "assignee": null,
+      "body": null,
+      "closedAt": null,
+      "createdAt": "2026-01-01T00:00:00+00:00",
+      "createdBy": "00000000-0000-7000-8000-000000000002",
+      "deletedAt": null,
+      "due": null,
+      "estimate": 3,
+      "id": "00000000-0000-7000-8000-000000000008",
+      "labels": [
+        "label://ui"
+      ],
+      "meta": [
+        1,
+        2
+      ],
+      "number": 5,
+      "project": null,
+      "rev": 1,
+      "spaceId": "00000000-0000-7000-8000-000000000005",
+      "state": "open",
+      "title": "epsilon",
+      "updatedAt": "2026-01-01T00:00:00+00:00",
+      "updatedBy": "00000000-0000-7000-8000-000000000002"
+    }
+  ]
+}

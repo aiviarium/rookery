@@ -117,6 +117,8 @@ async fn open_store(config: &ServerConfig) -> Result<rookery_store::Store, Strin
     let mut options = rookery_store::StoreOptions::new(&config.database_url);
     options.secret_key = config.secret_key.clone();
     options.blobs = config.blobs.clone();
+    // The tables of hosts are collections of Rookery's too, read through `data.*` and the change log.
+    options.system_tables = rookery_hosts::backend::system_tables();
     if config.secret_key.is_none() {
         tracing::warn!(
             "no secret key is set: secrets and the credentials of connections are refused until ROOKERY_SECRET_KEY or ROOKERY_SECRET_KEY_FILE is"

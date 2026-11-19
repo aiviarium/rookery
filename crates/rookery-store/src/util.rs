@@ -32,3 +32,44 @@ pub fn hint(token: &str) -> String {
         .rev()
         .collect()
 }
+
+/// A slug of a name for URLs: lower-case ASCII letters, digits and single dashes.
+pub fn slugify(name: &str) -> String {
+    let mut out = String::new();
+    let mut dash = false;
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+            dash = false;
+        } else if !out.is_empty() && !dash {
+            out.push('-');
+            dash = true;
+        }
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    out.truncate(48);
+    if out.is_empty() {
+        "space".to_string()
+    } else {
+        out
+    }
+}
+
+/// An identifier, quoted for SQL. Names come from validated definitions.
+pub(crate) fn quote_ident(s: &str) -> String {
+    format!("\"{}\"", s.replace('"', "\"\""))
+}
+
+/// A string cut to at most `max` bytes, on a character boundary.
+pub(crate) fn truncate_str(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        return s;
+    }
+    let mut end = max;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}

@@ -600,15 +600,19 @@ async fn write(
             .map_err(fail)?;
         report.wrote("host_cursors");
     }
+    // Key-value entries are rows of Rookery's collection `rookery/storage` now, whose revision is the
+    // row's `rev` and whose `writes` counts the sets it took.
     for (namespace, key, value, revision) in &old.kv {
         let value: Value = serde_json::from_str(value).unwrap_or(Value::String(value.clone()));
         sqlx::query(
-            "INSERT INTO rookery.kv (plugin, scope, user_id, key, value, revision) VALUES ($1, 'global', NULL, $2, $3, $4)",
+            "INSERT INTO rookery.\"storage\" (id, plugin, key, value, rev, writes)
+             VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)",
         )
         .bind(namespace)
         .bind(key)
         .bind(&value)
         .bind(revision)
+        .bind((revision - 1).max(0))
         .execute(&mut *tx)
         .await
         .map_err(fail)?;
@@ -831,6 +835,12 @@ async fn write(
         .await
         .map_err(fail)?;
     tx.commit().await.map_err(fail)?;
+    // The people the import made, or found, get their entity and personal space, as a sign-in does.
+    store
+        .users()
+        .backfill()
+        .await
+        .map_err(|e| Fail::failed(format!("indexing the people: {e}")))?;
     store.close().await;
     Ok(report)
 }
@@ -953,8 +963,26 @@ mod tests {
             2
         );
         assert_eq!(
-            count("SELECT count(*) FROM rookery.kv WHERE plugin = 'box' AND revision = 2").await,
+            count("SELECT count(*) FROM rookery.\"storage\" WHERE plugin = 'box' AND rev = 2")
+                .await,
             1
+        );
+        // The people the import made get their entity and their personal space, as a sign-in's do.
+        assert_eq!(
+            count(
+                "SELECT count(*) FROM rookery.users u WHERE NOT EXISTS (SELECT 1 FROM rookery.entities e
+                   WHERE e.scheme = 'user' AND e.id = u.id::text)"
+            )
+            .await,
+            0
+        );
+        assert_eq!(
+            count(
+                "SELECT count(*) FROM rookery.users u WHERE NOT EXISTS (SELECT 1 FROM rookery.spaces s
+                   WHERE s.owner_id = u.id AND s.personal)"
+            )
+            .await,
+            0
         );
         let url = db.url.clone();
         tokio::task::spawn_blocking(move || {
