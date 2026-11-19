@@ -3,7 +3,7 @@
 //! `view` on `env://NAME` sees a host, its state and who works there. `use` reaches its files inside
 //! its roots and its loopback ports, as the agent account. Nothing here writes as another account.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -23,8 +23,13 @@ use crate::serve::{Serve, api};
 /// The largest file `env.readFile` and `env.writeFile` carry, as a call's message is at most 12 MiB.
 pub const MAX_FILE: usize = 8 * 1024 * 1024;
 
-/// The most of each of a command's output streams `env.exec` carries.
-const MAX_OUTPUT: usize = 8 * 1024 * 1024;
+/// The most `env.exec` keeps of each output stream. It goes on reading past this, so that a
+/// command is not held up by a pipe nobody empties.
+const MAX_COLLECT: usize = 2 * 1024 * 1024;
+
+/// The most of an `env.exec` result once it is encoded for the wire. A text frame on `/ws` is at
+/// most 2 MiB, and `truncated` says when a command wrote more than this.
+const MAX_RESULT: usize = 1536 * 1024;
 
 /// How long a command has without `timeoutMs`, and the longest it may ask for.
 const EXEC_TIMEOUT: Duration = Duration::from_secs(60);
@@ -341,6 +346,15 @@ struct Output {
     stderr: Vec<u8>,
     exit_code: Option<i32>,
     lost: bool,
+    truncated: bool,
+}
+
+/// Keeps as much of a chunk as there is room for, and says whether any of it was left out.
+fn keep(target: &mut Vec<u8>, bytes: &[u8]) -> bool {
+    let room = MAX_COLLECT.saturating_sub(target.len());
+    let kept = bytes.len().min(room);
+    target.extend_from_slice(&bytes[..kept]);
+    kept == bytes.len()
 }
 
 /// Runs a process session on the host and follows its output, frame by frame and with the host's
@@ -363,21 +377,20 @@ async fn run_process(
         remote: remote.clone(),
         id: id.clone(),
     };
+    // `attached` says where the replay begins, so output the host no longer keeps is noticed.
     let frames = link_of(remote)?
         .stream(&format!(
-            "/v1/sessions/{}?since=0",
+            "/v1/sessions/{}?since=0&attached=1",
             rookery_api::client::encode(&id)
         ))
         .await
         .map_err(api::Fail::from)?;
     let (_input, mut output) = frames.split();
-    let mut written = Output {
-        stdout: vec![],
-        stderr: vec![],
-        exit_code: None,
-        lost: false,
-    };
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let mut exit_code = None;
     let mut finished = false;
+    let mut truncated = false;
     let mut access = crate::access_watch(call, crate::uri(&remote.name), need).subscribe();
     let collect = async {
         while let Some(frame) = output.next().await {
@@ -386,27 +399,27 @@ async fn run_process(
                     let Some((&stream, bytes)) = data.split_first() else {
                         continue;
                     };
-                    let target = match stream {
-                        1 => &mut written.stdout,
-                        2 => &mut written.stderr,
+                    let kept = match stream {
+                        1 => keep(&mut stdout, bytes),
+                        2 => keep(&mut stderr, bytes),
                         _ => continue,
                     };
-                    let letters = match stream {
-                        2 => "standard error",
-                        _ => "standard output",
-                    };
-                    if target.len() + bytes.len() > MAX_OUTPUT {
-                        return Err(RpcError::invalid(format!(
-                            "the command wrote more than {} MiB to {letters}",
-                            MAX_OUTPUT >> 20
-                        )));
-                    }
-                    target.extend_from_slice(bytes);
+                    truncated |= !kept;
                 }
                 Ok(rookery_api::client::Frame::Text(text)) => {
                     let said = serde_json::from_str::<serde_json::Value>(text.as_str()).ok();
-                    if let Some(exited) = said.as_ref().and_then(|v| v.get("exited")) {
-                        written.exit_code = exited["exit_code"].as_i64().map(|c| c as i32);
+                    let said = said.as_ref();
+                    if let Some(attached) = said.and_then(|v| v.get("attached")) {
+                        // The replay begins after the start when the host dropped what came first.
+                        if attached["from"].as_u64().unwrap_or(0) > 0 {
+                            truncated = true;
+                        }
+                    }
+                    if said.is_some_and(|v| v.get("dropped").is_some()) {
+                        truncated = true;
+                    }
+                    if let Some(exited) = said.and_then(|v| v.get("exited")) {
+                        exit_code = exited["exit_code"].as_i64().map(|c| c as i32);
                         finished = true;
                         return Ok(());
                     }
@@ -436,9 +449,128 @@ async fn run_process(
         }
     }
     // No exit frame: the host's controller went, and the command with it.
-    written.lost = !finished;
     drop(ended);
-    Ok(written)
+    Ok(Output {
+        stdout,
+        stderr,
+        exit_code,
+        lost: !finished,
+        truncated,
+    })
+}
+
+/// The longest prefix of `text` whose JSON encoding fits `budget` bytes, and whether it was cut.
+fn prefix_within(text: &str, budget: usize) -> (&str, bool) {
+    let encoded = |text: &str| serde_json::to_string(text).map_or(text.len(), |json| json.len());
+    if text.is_empty() || encoded(text) <= budget {
+        return (text, false);
+    }
+    let (mut low, mut high) = (0, text.len());
+    while low < high {
+        let mut middle = low + (high - low).div_ceil(2);
+        while !text.is_char_boundary(middle) {
+            middle -= 1;
+        }
+        if middle <= low {
+            break;
+        }
+        if encoded(&text[..middle]) <= budget {
+            low = middle;
+        } else {
+            high = middle - 1;
+        }
+    }
+    (&text[..low], true)
+}
+
+/// An `ExecResult`'s two streams within the bytes one message may hold: half for each at first,
+/// then whatever one leaves to the other.
+fn fit(stdout: &[u8], stderr: &[u8]) -> (String, String, bool) {
+    let stdout = String::from_utf8_lossy(stdout);
+    let stderr = String::from_utf8_lossy(stderr);
+    let half = MAX_RESULT / 2;
+    let (stderr, cut_err) = prefix_within(&stderr, half);
+    let (stdout, cut_out) = prefix_within(&stdout, MAX_RESULT.saturating_sub(encoded(stderr)));
+    let (stderr, cut_more) = prefix_within(stderr, MAX_RESULT.saturating_sub(encoded(stdout)));
+    (
+        stdout.to_owned(),
+        stderr.to_owned(),
+        cut_err || cut_out || cut_more,
+    )
+}
+
+fn encoded(text: &str) -> usize {
+    serde_json::to_string(text).map_or(text.len(), |json| json.len())
+}
+
+/// An address without the credential in it, for a log, a session or a listing.
+fn strip_userinfo(address: &str) -> String {
+    let Some((scheme, rest)) = address.split_once("://") else {
+        return address.to_owned();
+    };
+    let (authority, tail) = match rest.split_once('/') {
+        Some((authority, tail)) => (authority, Some(tail)),
+        None => (rest, None),
+    };
+    let Some((_, host)) = authority.rsplit_once('@') else {
+        return address.to_owned();
+    };
+    if host.is_empty() {
+        return address.to_owned();
+    }
+    match tail {
+        Some(tail) => format!("{scheme}://{host}/{tail}"),
+        None => format!("{scheme}://{host}"),
+    }
+}
+
+/// An HTTP address split into the address without its credential and the credential itself, so
+/// that git's argv, which a host's session list shows, holds no token.
+fn split_credentials(address: &str) -> (String, Option<String>) {
+    let Some((scheme, rest)) = address.split_once("://") else {
+        return (address.to_owned(), None);
+    };
+    if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+        return (address.to_owned(), None);
+    }
+    let (authority, tail) = match rest.split_once('/') {
+        Some((authority, tail)) => (authority, Some(tail)),
+        None => (rest, None),
+    };
+    let Some((userinfo, host)) = authority.rsplit_once('@') else {
+        return (address.to_owned(), None);
+    };
+    if host.is_empty() || userinfo.is_empty() {
+        return (address.to_owned(), None);
+    }
+    // `user:password`, or a token where the user name goes and no password.
+    let credential = match userinfo.contains(':') {
+        true => userinfo.to_owned(),
+        false => format!("{userinfo}:"),
+    };
+    let cleaned = match tail {
+        Some(tail) => format!("{scheme}://{host}/{tail}"),
+        None => format!("{scheme}://{host}"),
+    };
+    (cleaned, Some(credential))
+}
+
+/// Refuses an address whose transport is git's own way to run a command, such as `ext::sh …`.
+fn check_address(address: &str) -> Result<(), RpcError> {
+    let transport = address.split_once("::").filter(|(scheme, _)| {
+        !scheme.is_empty()
+            && !scheme.contains('/')
+            && scheme
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c))
+    });
+    match transport {
+        Some((scheme, _)) => Err(RpcError::invalid(format!(
+            "{} is not an address Rookery clones: it names the transport {scheme}, not HTTPS, SSH or a folder",
+            strip_userinfo(address)
+        ))),
+        None => Ok(()),
+    }
 }
 
 fn seconds(limit: Duration) -> String {
@@ -448,30 +580,42 @@ fn seconds(limit: Duration) -> String {
     }
 }
 
-/// Runs a command to its end as the agent account, with git's own settings: no prompt that waits
-/// for someone who is not there, and no locale in its messages.
-async fn git(
+/// Runs git to its end as the agent account, with settings of its own: no transport that runs a
+/// command of the address's choosing, no prompt that waits for someone who is not there, and no
+/// locale in its messages.
+async fn git_with(
     call: &Call,
     remote: &Arc<crate::serve::Remote>,
+    configs: &[&str],
     args: &[&str],
     cwd: Option<&str>,
     limit: Duration,
+    vars: BTreeMap<String, String>,
 ) -> Result<Output, RpcError> {
     let mut command = vec!["git".to_string()];
+    command.extend(configs.iter().map(|c| (*c).to_string()));
     command.extend(args.iter().map(|a| (*a).to_string()));
+    let mut env: BTreeMap<String, String> = [
+        // A folder on the host is what the agent already reads; `ext::`, which runs a command,
+        // is what must not pass.
+        (
+            "GIT_ALLOW_PROTOCOL".to_string(),
+            "https:ssh:file".to_string(),
+        ),
+        ("GIT_TERMINAL_PROMPT".to_string(), "0".to_string()),
+        ("LC_ALL".to_string(), "C".to_string()),
+    ]
+    .into();
+    env.extend(vars);
     let out = run_process(
         call,
         remote,
         rookery_api::StartSession {
             kind: rookery_api::SessionKind::Process,
-            command: rookery_api::CommandLine::Args(command.clone()),
+            command: rookery_api::CommandLine::Args(command),
             user: "agent".into(),
             cwd: cwd.map(str::to_owned),
-            env: [
-                ("GIT_TERMINAL_PROMPT".to_string(), "0".to_string()),
-                ("LC_ALL".to_string(), "C".to_string()),
-            ]
-            .into(),
+            env,
             input: None,
             input_b64: None,
             title: Some(format!(
@@ -501,11 +645,23 @@ async fn git(
     Ok(out)
 }
 
+/// [`git_with`] for the calls that need no setting of their own.
+async fn git(
+    call: &Call,
+    remote: &Arc<crate::serve::Remote>,
+    args: &[&str],
+    cwd: Option<&str>,
+    limit: Duration,
+) -> Result<Output, RpcError> {
+    git_with(call, remote, &[], args, cwd, limit, BTreeMap::new()).await
+}
+
 /// A folder and file name for a checkout: letters, digits, `.`, `-` and `_`.
 fn check_name(name: &str) -> Result<(), RpcError> {
     let ok = !name.is_empty()
         && name != "."
         && name != ".."
+        && !name.starts_with('-')
         && name.len() <= 200
         && name
             .chars()
@@ -634,7 +790,7 @@ done"#;
             path,
             branch: some(fields[1]),
             head: some(fields[2]),
-            url: some(fields[3]),
+            url: some(fields[3]).map(|url| strip_userinfo(&url)),
             worktree_of: (fields[5] == "1").then(|| fields[4].trim_end_matches("/.git").to_owned()),
         });
     }
@@ -646,11 +802,11 @@ done"#;
 async fn checkout_at(
     call: &Call,
     remote: &Arc<crate::serve::Remote>,
+    folder: &str,
     path: &str,
     need: Grant,
 ) -> Result<Checkout, RpcError> {
-    let folder = checkouts_folder(remote).await?;
-    checkouts_of(call, remote, &folder, need)
+    checkouts_of(call, remote, folder, need)
         .await?
         .into_iter()
         .find(|c| c.path == path)
@@ -758,14 +914,16 @@ fn register_workspaces(methods: &mut Methods) {
                 json!({"program": p.command[0], "user": p.user.as_str()}),
             )
             .await;
+            let (stdout, stderr, cut) = fit(&out.stdout, &out.stderr);
             Ok(ExecResult {
                 exit_code: out.exit_code,
                 lost: out.lost,
-                stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
-                stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+                truncated: out.truncated || cut,
+                stdout,
+                stderr,
             })
         })
-        .summary("Runs a command on a host to its end and answers its output, as the agent account or, with manage, as the operator or root. Up to an hour.")
+        .summary("Runs a command on a host to its end and answers its output, as the agent account or, with manage, as the operator or root, up to an hour. A result is at most what one message holds, and truncated says when it is not all.")
         .level(level(Grant::Use));
     methods
         .add("env.checkouts", |call: Call, p: EnvRef| async move {
@@ -775,36 +933,50 @@ fn register_workspaces(methods: &mut Methods) {
                 None => return Ok(CheckoutList { checkouts: vec![] }),
             };
             Ok(CheckoutList {
-                checkouts: checkouts_of(&call, &remote, &folder, Grant::View).await?,
+                checkouts: checkouts_of(&call, &remote, &folder, Grant::Use).await?,
             })
         })
-        .summary("The git checkouts and worktrees under a host's checkouts folder, with their branch, HEAD and remote.")
-        .level(level(Grant::View));
+        .summary("The git checkouts and worktrees under a host's checkouts folder, with their branch, HEAD and remote. A remote's credential is left out.")
+        .level(level(Grant::Use));
     methods
         .add("env.clone", |call: Call, p: CheckoutCreate| async move {
             let name = crate::name_of(&p.env).to_owned();
             let remote = linked(&call, &name).await?;
             let folder = ready_folder(&call, &remote, &checkouts_folder(&remote).await?).await?;
-            let checkout = p
-                .name
-                .clone()
-                .unwrap_or_else(|| name_from_url(&p.repository));
+            let address = p.repository.trim();
+            check_address(address)?;
+            let checkout = p.name.clone().unwrap_or_else(|| name_from_url(address));
             check_name(&checkout)?;
             let path = format!("{folder}/{checkout}");
+            // A credential in an HTTP address goes in a header from the host's environment: git's
+            // argv is what a host's session list shows.
+            let (repository, credential) = split_credentials(address);
+            let mut configs: Vec<&str> = vec![];
+            let mut vars = BTreeMap::new();
+            if let Some(credential) = credential {
+                vars.insert(
+                    "ROOKERY_GIT_AUTH".to_owned(),
+                    format!(
+                        "Authorization: Basic {}",
+                        rookery_api::b64(credential.as_bytes())
+                    ),
+                );
+                configs.push("--config-env=http.extraHeader=ROOKERY_GIT_AUTH");
+            }
             let mut args = vec!["clone", "--quiet"];
             if let Some(branch) = &p.branch {
                 check_branch(branch)?;
                 args.extend(["--branch", branch.as_str()]);
             }
-            args.extend(["--", p.repository.as_str(), path.as_str()]);
-            git(&call, &remote, &args, None, GIT_TIMEOUT).await?;
+            args.extend(["--", repository.as_str(), path.as_str()]);
+            git_with(&call, &remote, &configs, &args, None, GIT_TIMEOUT, vars).await?;
             call.audit(
                 "env.clone",
                 Some(&crate::uri(&name)),
-                json!({"repository": p.repository, "path": path}),
+                json!({"repository": strip_userinfo(address), "path": path}),
             )
             .await;
-            checkout_at(&call, &remote, &path, Grant::Use).await
+            checkout_at(&call, &remote, &folder, &path, Grant::Use).await
         })
         .summary(
             "Clones a repository into a host's checkouts folder, and answers the checkout it made.",
@@ -838,6 +1010,7 @@ fn register_workspaces(methods: &mut Methods) {
                 "--quiet",
                 "-b",
                 p.branch.as_str(),
+                "--",
                 path.as_str(),
             ];
             if let Some(base) = &p.base {
@@ -851,7 +1024,7 @@ fn register_workspaces(methods: &mut Methods) {
                 json!({"checkout": checkout, "branch": p.branch, "path": path}),
             )
             .await;
-            checkout_at(&call, &remote, &path, Grant::Use).await
+            checkout_at(&call, &remote, &folder, &path, Grant::Use).await
         })
         .summary(
             "Makes a git worktree of a checkout, on a new branch, in a host's checkouts folder.",
@@ -863,7 +1036,7 @@ fn register_workspaces(methods: &mut Methods) {
             |call: Call, p: CheckoutRemove| async move {
                 let name = crate::name_of(&p.env).to_owned();
                 let remote = linked(&call, &name).await?;
-                let folder = checkouts_folder(&remote).await?;
+                let folder = resolved(&remote, &checkouts_folder(&remote).await?).await?;
                 let path = resolved(&remote, &p.path).await?;
                 if !within(&path, &folder) {
                     return Err(RpcError::invalid(format!(
@@ -871,14 +1044,14 @@ fn register_workspaces(methods: &mut Methods) {
                         p.path
                     )));
                 }
-                let found = checkout_at(&call, &remote, &path, Grant::Use).await?;
+                let found = checkout_at(&call, &remote, &folder, &path, Grant::Use).await?;
                 match &found.worktree_of {
                     Some(main) => {
                         let mut args = vec!["-C", main.as_str(), "worktree", "remove"];
                         if p.force {
                             args.push("--force");
                         }
-                        args.push(path.as_str());
+                        args.extend(["--", path.as_str()]);
                         git(&call, &remote, &args, None, GIT_TIMEOUT).await?;
                     }
                     None => {
@@ -886,7 +1059,7 @@ fn register_workspaces(methods: &mut Methods) {
                             let status = git(
                                 &call,
                                 &remote,
-                                &["-C", path.as_str(), "status", "--porcelain"],
+                                &["-C", path.as_str(), "status", "--porcelain", "--ignored", "--"],
                                 None,
                                 GIT_TIMEOUT,
                             )
@@ -916,7 +1089,7 @@ fn register_workspaces(methods: &mut Methods) {
                 Ok(Empty {})
             },
         )
-        .summary("Removes a checkout, or a worktree through `git worktree remove`, from a host's checkouts folder. Without force, one with changes is a CONFLICT.")
+        .summary("Removes a checkout, or a worktree through `git worktree remove`, from a host's checkouts folder. Without force, one with changes is a CONFLICT, and any caller with use may force it.")
         .level(level(Grant::Use));
 }
 
@@ -1131,4 +1304,116 @@ pub fn register(methods: &mut Methods) {
         .summary("An address that opens a port of a host in a browser, on the ports' own origin, signing in to that port alone. It works once, within a minute.")
         .level(level(Grant::Use));
     register_workspaces(methods);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_address_loses_its_credential_before_it_is_shown() {
+        assert_eq!(
+            strip_userinfo("https://ada:token@example.test/acme/widgets.git"),
+            "https://example.test/acme/widgets.git"
+        );
+        assert_eq!(
+            strip_userinfo("https://token@example.test/acme/widgets.git"),
+            "https://example.test/acme/widgets.git"
+        );
+        assert_eq!(
+            strip_userinfo("ssh://git@example.test/acme/widgets.git"),
+            "ssh://example.test/acme/widgets.git"
+        );
+        // A folder, and an SSH address written as the command line writes it, have no scheme.
+        assert_eq!(strip_userinfo("/srv/repos/widgets"), "/srv/repos/widgets");
+        assert_eq!(
+            strip_userinfo("git@example.test:acme/widgets.git"),
+            "git@example.test:acme/widgets.git"
+        );
+    }
+
+    #[test]
+    fn an_http_credential_goes_in_a_header_not_in_the_address() {
+        assert_eq!(
+            split_credentials("https://ada:token@example.test/acme/widgets.git"),
+            (
+                "https://example.test/acme/widgets.git".to_owned(),
+                Some("ada:token".to_owned())
+            )
+        );
+        assert_eq!(
+            split_credentials("https://token@example.test/acme/widgets.git"),
+            (
+                "https://example.test/acme/widgets.git".to_owned(),
+                Some("token:".to_owned())
+            )
+        );
+        assert_eq!(
+            split_credentials("ssh://git@example.test/acme/widgets.git"),
+            ("ssh://git@example.test/acme/widgets.git".to_owned(), None)
+        );
+        assert_eq!(
+            split_credentials("/srv/repos/widgets"),
+            ("/srv/repos/widgets".to_owned(), None)
+        );
+    }
+
+    #[test]
+    fn a_transport_that_runs_a_command_is_refused() {
+        assert_eq!(
+            code(check_address("ext::sh -c 'echo evil'")),
+            Some(rookery_proto::ErrorCode::Invalid)
+        );
+        assert_eq!(
+            code(check_address("fd::7")),
+            Some(rookery_proto::ErrorCode::Invalid)
+        );
+        for address in [
+            "https://example.test/acme/widgets.git",
+            "ssh://git@example.test/acme/widgets.git",
+            "git@example.test:acme/widgets.git",
+            "/srv/repos/widgets",
+        ] {
+            assert_eq!(code(check_address(address)), None, "{address}");
+        }
+    }
+
+    fn code(result: Result<(), RpcError>) -> Option<rookery_proto::ErrorCode> {
+        result.err().map(|error| error.error_code())
+    }
+
+    #[test]
+    fn names_are_folders_and_branches_are_refs() {
+        assert!(check_name("widgets-1.2_x").is_ok());
+        for name in ["", ".", "..", "-escape", "../escape", "a/b", "a b"] {
+            assert!(check_name(name).is_err(), "{name}");
+        }
+        assert!(check_branch("feature/one").is_ok());
+        for branch in ["", "-main", "a..b", "a b", "a~1", "a.lock"] {
+            assert!(check_branch(branch).is_err(), "{branch}");
+        }
+        assert!(check_rev("origin/main").is_ok());
+        assert!(check_rev("HEAD~2").is_ok());
+        assert!(check_rev("-x").is_err());
+    }
+
+    #[test]
+    fn a_result_is_cut_to_what_a_message_holds() {
+        let (stdout, stderr, cut) = fit(&vec![b'a'; MAX_COLLECT], b"");
+        assert!(cut);
+        assert!(stderr.is_empty());
+        assert!(encoded(&stdout) <= MAX_RESULT, "{}", encoded(&stdout));
+        let (stdout, stderr, cut) = fit(b"one\n", b"two\n");
+        assert_eq!(
+            (stdout.as_str(), stderr.as_str(), cut),
+            ("one\n", "two\n", false)
+        );
+        // A stream that fills the budget leaves no room for the other, and that is not a cut.
+        let full = vec![b'a'; MAX_RESULT - 4];
+        let (stdout, stderr, cut) = fit(&full, b"");
+        assert_eq!(
+            (stdout.len(), stderr.as_str(), cut),
+            (full.len(), "", false)
+        );
+    }
 }

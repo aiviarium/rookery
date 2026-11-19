@@ -272,7 +272,7 @@ async fn no_session(sock: &std::path::Path, want: &str) {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn commands_and_checkouts_need_use_and_stay_in_the_hosts_folders() {
+async fn commands_need_use_and_checkouts_stay_in_the_hosts_folders() {
     let Some(host) = Rookeryd::start().await else {
         return;
     };
@@ -311,6 +311,7 @@ async fn commands_and_checkouts_need_use_and_stay_in_the_hosts_folders() {
     assert_eq!(ran["exitCode"], 0, "{ran}");
     assert_eq!(ran["stdout"].as_str().unwrap().trim(), root, "{ran}");
     assert_eq!(ran["lost"], false);
+    assert_eq!(ran["truncated"], false);
     let written = server
         .call(
             &ann,
@@ -323,18 +324,33 @@ async fn commands_and_checkouts_need_use_and_stay_in_the_hosts_folders() {
         (written["stdout"].as_str(), written["stderr"].as_str()),
         (Some("in\n"), Some("err\n"))
     );
-    assert_eq!(
-        code(
-            server
-                .call(
-                    &ann,
-                    "env.exec",
-                    json!({"env": "studio", "command": ["true"], "cwd": "/etc"})
-                )
-                .await
-        ),
-        Some(ErrorCode::Forbidden)
-    );
+
+    // The host resolves the folder: outside its roots, a `..` and a symlink that leads out are refused.
+    std::fs::create_dir_all(host.dir.path().join("outside/sub")).unwrap();
+    std::os::unix::fs::symlink(
+        host.dir.path().join("outside"),
+        host.dir.path().join("files/out"),
+    )
+    .unwrap();
+    for cwd in [
+        "/etc".to_owned(),
+        format!("{root}/../outside"),
+        format!("{root}/out/sub"),
+    ] {
+        assert_eq!(
+            code(
+                server
+                    .call(
+                        &ann,
+                        "env.exec",
+                        json!({"env": "studio", "command": ["true"], "cwd": cwd})
+                    )
+                    .await
+            ),
+            Some(ErrorCode::Forbidden),
+            "{cwd}"
+        );
+    }
     assert_eq!(
         code(
             server
@@ -372,15 +388,33 @@ async fn commands_and_checkouts_need_use_and_stay_in_the_hosts_folders() {
         ),
         Some(ErrorCode::Forbidden)
     );
-    // Mia may ask; in single-user mode the host says it cannot run as root.
-    let as_root = server
+    // Mia may ask, and in single-user mode the host says it cannot run as root.
+    assert_eq!(
+        code(
+            server
+                .call(
+                    &mia,
+                    "env.exec",
+                    json!({"env": "studio", "command": ["id", "-un"], "user": "root"})
+                )
+                .await
+        ),
+        Some(ErrorCode::Unavailable)
+    );
+
+    // Output past what a message holds comes back cut, and says so.
+    let long = server
         .call(
-            &mia,
+            &ann,
             "env.exec",
-            json!({"env": "studio", "command": ["id", "-un"], "user": "root"}),
+            json!({"env": "studio", "command": ["sh", "-c", "head -c 2000000 /dev/zero | tr '\\0' a"]}),
         )
-        .await;
-    assert_ne!(code(as_root), Some(ErrorCode::Forbidden));
+        .await
+        .unwrap();
+    assert_eq!(long["exitCode"], 0);
+    assert_eq!(long["truncated"], true, "the result did not say it was cut");
+    let kept = long["stdout"].as_str().unwrap().len();
+    assert!(kept < 1_600_000 && kept > 1_000_000, "{kept}");
 
     // A command past its deadline is TIMEOUT, and it does not run on.
     let sock = host.dir.path().join("control.sock");
@@ -398,29 +432,43 @@ async fn commands_and_checkouts_need_use_and_stay_in_the_hosts_folders() {
     );
     no_session(&sock, "sleep 57").await;
 
-    // A host with no checkouts folder yet has no checkouts.
+    // A host with no checkouts folder yet has no checkouts, which takes use to ask.
     let none = server
-        .call(&vic, "env.checkouts", json!({"env": "studio"}))
+        .call(&ann, "env.checkouts", json!({"env": "studio"}))
         .await
         .unwrap();
     assert_eq!(none["checkouts"], json!([]));
+    assert_eq!(
+        code(
+            server
+                .call(&vic, "env.checkouts", json!({"env": "studio"}))
+                .await
+        ),
+        Some(ErrorCode::Forbidden)
+    );
 
     // Cloning needs use; the checkout is under the folder the host keeps for them.
     let source = std::path::PathBuf::from(host.file("source-repo"));
     repository(&source);
-    assert_eq!(
-        code(
-            server
-                .call(
-                    &ann,
-                    "env.clone",
-                    json!({"env": "studio", "repository": source.to_str().unwrap(), "name": "../escape"})
-                )
-                .await
-        ),
-        Some(ErrorCode::Invalid),
-        "a name that is a path is refused"
-    );
+    for (name, repository, branch) in [
+        (Some("../escape"), source.to_str().unwrap(), None::<&str>),
+        (Some("-escape"), source.to_str().unwrap(), None),
+        (None, "ext::sh -c echo", None),
+        (None, source.to_str().unwrap(), Some("-main")),
+    ] {
+        let mut params = json!({"env": "studio", "repository": repository});
+        if let Some(name) = name {
+            params["name"] = json!(name);
+        }
+        if let Some(branch) = branch {
+            params["branch"] = json!(branch);
+        }
+        assert_eq!(
+            code(server.call(&ann, "env.clone", params.clone()).await),
+            Some(ErrorCode::Invalid),
+            "{params}"
+        );
+    }
     assert_eq!(
         code(
             server
@@ -468,17 +516,36 @@ async fn commands_and_checkouts_need_use_and_stay_in_the_hosts_folders() {
         ),
         Some(ErrorCode::Forbidden)
     );
+    for (checkout, branch) in [
+        (root.clone(), "escape".to_owned()),
+        (format!("{folder}/source-repo"), "-escape".to_owned()),
+    ] {
+        assert_eq!(
+            code(
+                server
+                    .call(
+                        &ann,
+                        "env.worktree",
+                        json!({"env": "studio", "checkout": checkout, "branch": branch})
+                    )
+                    .await
+            ),
+            Some(ErrorCode::Invalid),
+            "{checkout} {branch}"
+        );
+    }
+    // A symlink that leads out of the roots is the host's refusal.
     assert_eq!(
         code(
             server
                 .call(
                     &ann,
                     "env.worktree",
-                    json!({"env": "studio", "checkout": root, "branch": "escape"})
+                    json!({"env": "studio", "checkout": format!("{root}/out/sub"), "branch": "escape"})
                 )
                 .await
         ),
-        Some(ErrorCode::Invalid)
+        Some(ErrorCode::Forbidden)
     );
     let worktree = server
         .call(
@@ -496,9 +563,9 @@ async fn commands_and_checkouts_need_use_and_stay_in_the_hosts_folders() {
         Some(format!("{folder}/source-repo-ann-one").as_str())
     );
 
-    // Someone with view sees them; someone with none does not.
+    // Someone with use sees them; someone with view, or none, does not.
     let listed = server
-        .call(&vic, "env.checkouts", json!({"env": "studio"}))
+        .call(&ann, "env.checkouts", json!({"env": "studio"}))
         .await
         .unwrap();
     let names: Vec<&str> = listed["checkouts"]
@@ -508,14 +575,16 @@ async fn commands_and_checkouts_need_use_and_stay_in_the_hosts_folders() {
         .filter_map(|c| c["name"].as_str())
         .collect();
     assert_eq!(names, vec!["source-repo", "source-repo-ann-one"]);
-    assert_eq!(
-        code(
-            server
-                .call(&eve, "env.checkouts", json!({"env": "studio"}))
-                .await
-        ),
-        Some(ErrorCode::Forbidden)
-    );
+    for caller in [&vic, &eve] {
+        assert_eq!(
+            code(
+                server
+                    .call(caller, "env.checkouts", json!({"env": "studio"}))
+                    .await
+            ),
+            Some(ErrorCode::Forbidden)
+        );
+    }
 
     // A checkout with changes is not removed without force; a worktree goes either way.
     std::fs::write(format!("{folder}/source-repo/README.md"), "changed\n").unwrap();
@@ -530,6 +599,19 @@ async fn commands_and_checkouts_need_use_and_stay_in_the_hosts_folders() {
                 .await
         ),
         Some(ErrorCode::Conflict)
+    );
+    // A path the host resolves outside its roots is refused first.
+    assert_eq!(
+        code(
+            server
+                .call(
+                    &ann,
+                    "env.removeCheckout",
+                    json!({"env": "studio", "path": format!("{root}/out")})
+                )
+                .await
+        ),
+        Some(ErrorCode::Forbidden)
     );
     server
         .call(
@@ -548,7 +630,7 @@ async fn commands_and_checkouts_need_use_and_stay_in_the_hosts_folders() {
         .await
         .unwrap();
     let left = server
-        .call(&vic, "env.checkouts", json!({"env": "studio"}))
+        .call(&ann, "env.checkouts", json!({"env": "studio"}))
         .await
         .unwrap();
     assert_eq!(left["checkouts"], json!([]));
@@ -580,7 +662,7 @@ async fn commands_and_checkouts_need_use_and_stay_in_the_hosts_folders() {
     assert_eq!(
         code(running.await.unwrap()),
         Some(ErrorCode::Forbidden),
-        "a command goes on after its access is revoked"
+        "the command did not end when its access was revoked"
     );
     no_session(&sock, "sleep 58").await;
 

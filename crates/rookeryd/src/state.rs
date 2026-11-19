@@ -132,19 +132,42 @@ impl State {
     }
 
     /// Where checkouts go: the configured folder, else the first root with a
-    /// `workspaces` folder, else the first root's. `None` without a root.
+    /// `workspaces` folder, else the first root's. `None` without a root, or
+    /// when the configured folder is not one inside a root.
     pub fn workspaces(&self) -> Option<String> {
         let config = self.config();
+        let roots = self.roots();
         let configured = config.rookeryd.workspaces.trim_end_matches('/');
         if !configured.is_empty() {
-            return Some(configured.to_owned());
+            let inside = configured.starts_with('/')
+                && roots.iter().any(|root| {
+                    let root = root.trim_end_matches('/');
+                    configured == root
+                        || configured
+                            .strip_prefix(root)
+                            .is_some_and(|rest| rest.starts_with('/'))
+                });
+            return inside.then(|| configured.to_owned());
         }
-        let roots = self.roots();
         let first = roots.first()?.trim_end_matches('/');
         let existing = roots
             .iter()
             .map(|root| format!("{}/workspaces", root.trim_end_matches('/')))
             .find(|path| std::path::Path::new(path).is_dir());
         Some(existing.unwrap_or_else(|| format!("{first}/workspaces")))
+    }
+
+    /// The roots as they are, with symlinks followed: the paths a caller's
+    /// resolved path is compared with.
+    pub fn real_roots(&self) -> Vec<String> {
+        self.roots()
+            .into_iter()
+            .map(|root| {
+                std::fs::canonicalize(&root)
+                    .ok()
+                    .and_then(|path| path.to_str().map(str::to_owned))
+                    .unwrap_or(root)
+            })
+            .collect()
     }
 }

@@ -51,7 +51,7 @@ fn locate(state: &State, path: &str) -> R<(String, String)> {
 /// checkouts go.
 pub async fn paths(AppState(state): AppState<Arc<State>>) -> R<Json<api::Paths>> {
     Ok(Json(api::Paths {
-        roots: state.roots(),
+        roots: state.real_roots(),
         workspaces: state.workspaces(),
     }))
 }

@@ -256,7 +256,8 @@ wire! {
 }
 
 wire! {
-    /// The result of `env.exec`. At most 8 MiB of each output stream; more is an error.
+    /// The result of `env.exec`. It carries what fits the budget of a message, and the start of
+    /// the rest is left out when `truncated` says so.
     pub struct ExecResult {
         /// The exit code, absent when the command was killed without one.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -266,6 +267,11 @@ wire! {
         #[serde(default)]
         #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
         pub lost: bool,
+        /// It wrote more than the result carries, or the host dropped what it wrote before this
+        /// call could read it, so `stdout` and `stderr` are not all of it.
+        #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+        pub truncated: bool,
         /// As text, invalid UTF-8 replaced.
         pub stdout: String,
         pub stderr: String,

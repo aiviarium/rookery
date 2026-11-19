@@ -2149,7 +2149,7 @@
     },
     "/v1/paths": {
       "get": {
-        "description": "Host and agent level.",
+        "description": "Host level only.",
         "operationId": "get_v1_paths",
         "parameters": [],
         "responses": {

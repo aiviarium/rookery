@@ -286,6 +286,8 @@ class Connect(unittest.TestCase):
                                             token=view), 'FORBIDDEN')
         self.assertEqual(self.serve.refused('env.clone', {'env': HOST, 'repository': source,
                                                            'name': '../out'}, token=use), 'INVALID')
+        self.assertEqual(self.serve.refused('env.clone', {'env': HOST, 'repository': 'ext::sh -c echo'},
+                                            token=use), 'INVALID')
         clone = self.serve.call('env.clone', {'env': HOST, 'repository': source,
                                               'name': f'{name}-clone'}, token=use)
         self.assertEqual((clone['name'], clone['branch'], clone['env']),
@@ -296,12 +298,14 @@ class Connect(unittest.TestCase):
         self.assertEqual((worktree['branch'], worktree['worktreeOf']),
                          (f'{name}/one', clone['path']))
 
-        # Listing checkouts needs view; removing them needs use.
+        # Listing and removing checkouts need use.
         listed = [c['name'] for c in self.serve.call('env.checkouts', {'env': HOST},
-                                                     token=view)['checkouts']]
+                                                     token=use)['checkouts']]
         self.assertIn(f'{name}-clone', listed)
         self.assertIn(worktree['name'], listed)
-        self.assertEqual(self.serve.refused('env.checkouts', {'env': HOST}, token=None), None)
+        self.assertEqual(self.serve.refused('env.checkouts', {'env': HOST}, token=view), 'FORBIDDEN')
+        self.assertEqual(self.serve.refused('env.checkouts', {'env': HOST},
+                                            token=self.serve.token), None)
         self.assertEqual(self.serve.refused('env.removeCheckout', {'env': HOST, 'path': clone['path']},
                                             token=view), 'FORBIDDEN')
         self.serve.call('env.removeCheckout', {'env': HOST, 'path': worktree['path'], 'force': True},
@@ -309,7 +313,7 @@ class Connect(unittest.TestCase):
         self.serve.call('env.removeCheckout', {'env': HOST, 'path': clone['path'], 'force': True},
                         token=use)
         listed = [c['name'] for c in self.serve.call('env.checkouts', {'env': HOST},
-                                                     token=view)['checkouts']]
+                                                     token=use)['checkouts']]
         self.assertNotIn(f'{name}-clone', listed)
         self.serve.call('env.exec', {'env': HOST, 'command': ['rm', '-rf', source]}, token=use)
 

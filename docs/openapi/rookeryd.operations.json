@@ -1594,7 +1594,7 @@
         "path": "/v1/paths"
       },
       "kind": "call",
-      "level": "Host and agent level.",
+      "level": "Host level only.",
       "name": "paths",
       "portal": true,
       "result": {

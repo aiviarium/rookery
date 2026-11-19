@@ -2606,11 +2606,11 @@
   },
   {
     "name": "env.checkouts",
-    "summary": "The git checkouts and worktrees under a host's checkouts folder, with their branch, HEAD and remote.",
+    "summary": "The git checkouts and worktrees under a host's checkouts folder, with their branch, HEAD and remote. A remote's credential is left out.",
     "level": {
       "kind": "resource",
       "param": "env",
-      "grant": "view",
+      "grant": "use",
       "scheme": "env"
     },
     "params": {
@@ -2898,7 +2898,7 @@
   },
   {
     "name": "env.exec",
-    "summary": "Runs a command on a host to its end and answers its output, as the agent account or, with manage, as the operator or root. Up to an hour.",
+    "summary": "Runs a command on a host to its end and answers its output, as the agent account or, with manage, as the operator or root, up to an hour. A result is at most what one message holds, and truncated says when it is not all.",
     "level": {
       "kind": "resource",
       "param": "env",
@@ -2977,7 +2977,7 @@
     "result": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "The result of `env.exec`. At most 8 MiB of each output stream; more is an error.",
+      "description": "The result of `env.exec`. It carries what fits the budget of a message, and the start of\nthe rest is left out when `truncated` says so.",
       "properties": {
         "exitCode": {
           "description": "The exit code, absent when the command was killed without one.",
@@ -2998,6 +2998,11 @@
         "stdout": {
           "description": "As text, invalid UTF-8 replaced.",
           "type": "string"
+        },
+        "truncated": {
+          "default": false,
+          "description": "It wrote more than the result carries, or the host dropped what it wrote before this\ncall could read it, so `stdout` and `stderr` are not all of it.",
+          "type": "boolean"
         }
       },
       "required": [
@@ -3643,7 +3648,7 @@
   },
   {
     "name": "env.removeCheckout",
-    "summary": "Removes a checkout, or a worktree through `git worktree remove`, from a host's checkouts folder. Without force, one with changes is a CONFLICT.",
+    "summary": "Removes a checkout, or a worktree through `git worktree remove`, from a host's checkouts folder. Without force, one with changes is a CONFLICT, and any caller with use may force it.",
     "level": {
       "kind": "resource",
       "param": "env",
