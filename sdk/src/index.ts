@@ -106,6 +106,18 @@ export type {
   ViewId,
 } from "./types"
 export { disposable } from "./types"
+export type {
+  NOT_ON_SERVER,
+  NotificationMethod,
+  NotificationParams,
+  WireCall,
+  WireMethod,
+  WireNotifications,
+  WireParams,
+  WireResult,
+  WireTransport,
+} from "./wire"
+export { WIRE, wireCall } from "./wire"
 
 /**
  * Types generated from the plugin's manifest. rookery-env.d.ts in a plugin folder augments this interface

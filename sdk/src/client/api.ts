@@ -22,10 +22,10 @@ import type {
   CommandList,
   ConnectionCreate,
   ConnectionInfo,
-  ConnectionList,
-  ConnectionTypeInfo,
-  ConnectionTypeList,
+  ConnectionTested,
+  ConnectionType,
   ConnectionUpdate,
+  Delivered,
   DirListing,
   EnvInfo,
   EnvList,
@@ -35,22 +35,24 @@ import type {
   ExtensionList,
   FileData,
   FileWritten,
-  JobDetail,
+  JobEnd,
   JobInfo,
-  JobList,
-  JobLogItem,
-  JobOutput,
+  JobQuery,
+  LogItem,
+  LogItems,
   Manifest,
+  NotificationInfo,
+  NotificationList,
+  NotifySend,
+  NotifySent,
+  Revision,
+  Scope,
   ScreenInfo,
-  SettingEntry,
+  Setting,
   SettingScope,
-  SettingsView,
-  SettingValue,
   SpaceInfo,
   SpaceList,
-  StorageEntries,
-  StorageScope,
-  StorageValue,
+  StorageEntry,
   TerminalInfo,
   TerminalList,
 } from "../generated"
@@ -63,6 +65,14 @@ import {
   type Settings as TypedSettings,
   type ViewId,
 } from "../types"
+import {
+  type NotificationMethod,
+  type NotificationParams,
+  type WireMethod,
+  type WireParams,
+  type WireResult,
+  wireCall,
+} from "../wire"
 import { createLive, type Live } from "./live"
 import type {
   ChromeComponentProps,
@@ -71,6 +81,8 @@ import type {
   ClientStream,
   ContextProvider,
   EmbeddedViewProps,
+  EventHandler,
+  EventSubscriptionOptions,
   FieldParts,
   NavSection,
   OpenViewOptions,
@@ -112,8 +124,42 @@ export interface Workbench {
 }
 
 export interface Events {
-  subscribe(topic: string, handler: (payload: unknown, topic: string) => unknown): Promise<Disposable>
-  publish(topic: string, payload?: unknown): Promise<void>
+  /**
+   * Subscribes to events of this plugin by name, or to any event of the server by its full name.
+   *
+   * A name without a `/` is this plugin's own, so `hosts.changed` subscribes to `fleet/hosts.changed`;
+   * a name with one is taken as it is, such as `fleet/*` for everything the fleet plugin publishes.
+   * Events are at most once: when the connection is too slow for some, `onDropped` says how many and
+   * the subscriber reads again what it shows, or subscribes again if it needs what it missed.
+   */
+  subscribe(
+    names: string | readonly string[],
+    handler: EventHandler,
+    opts?: EventSubscriptionOptions,
+  ): Promise<Disposable>
+  /** Publishes an event of this plugin, `payload` being what subscribers receive. */
+  publish(name: string, payload?: unknown): Promise<Delivered>
+}
+
+/**
+ * The notifications of the server a plugin may hear, by name and typed from the wire. The server
+ * sends `events.event`, `events.dropped` and `notify.new` today; `jobs.changed` and `notify.changed`
+ * are declared for the server code that will send them.
+ */
+export interface Notifications {
+  on<M extends NotificationMethod>(method: M, fn: (params: NotificationParams<M>) => void): Disposable
+}
+
+/** The caller's notifications: the inbox the shell's bell shows. */
+export interface Notify {
+  list(query?: { unread?: boolean; before?: string; limit?: number }): Promise<NotificationList>
+  /** Marks the notifications given, or with none every one of the caller's, read. Returns the count. */
+  read(ids?: string[]): Promise<number>
+  answer(id: string, answer: string): Promise<NotificationInfo>
+  /** Mutes or unmutes a kind of notification for the caller. */
+  mute(kind: string, muted: boolean): Promise<void>
+  /** Puts a notification of this plugin in a person's inbox. */
+  send(input: Omit<NotifySend, "plugin">): Promise<NotifySent>
 }
 
 export interface LiveCollection<T = Row> extends Collection<T> {
@@ -151,42 +197,43 @@ export interface Rpc {
 }
 
 export interface Settings {
-  get<K extends SettingKey>(key: K, opts?: { space?: string }): Promise<TypedSettings[K]>
-  set<K extends SettingKey>(
-    key: K,
-    value: TypedSettings[K],
-    opts?: { scope?: SettingScope; space?: string },
-  ): Promise<void>
-  list(opts?: { space?: string }): Promise<SettingEntry[]>
-  reset(key: SettingKey, opts?: { scope?: SettingScope; space?: string }): Promise<void>
+  /** A setting of this plugin as it resolves for the caller: their own, else the global one, else the default. */
+  get<K extends SettingKey>(key: K): Promise<TypedSettings[K]>
+  /** Sets a value at one scope: the default or the global value needs an admin. */
+  set<K extends SettingKey>(key: K, value: TypedSettings[K], scope: SettingScope): Promise<void>
+  /** Every setting of this plugin, as it resolves for the caller. */
+  list(): Promise<Setting[]>
+  reset(key: SettingKey, scope: SettingScope): Promise<void>
 }
 
 export interface Storage {
-  get<T = unknown>(key: string, opts?: { scope?: StorageScope; space?: string }): Promise<T | null>
-  set(
-    key: string,
-    value: unknown,
-    opts?: { scope?: StorageScope; space?: string; expectedRevision?: number },
-  ): Promise<void>
-  list(opts?: { scope?: StorageScope; space?: string; prefix?: string }): Promise<StorageEntries["entries"]>
-  delete(key: string, opts?: { scope?: StorageScope; space?: string }): Promise<void>
+  get<T = unknown>(key: string, opts?: { scope?: Scope }): Promise<T | null>
+  set(key: string, value: unknown, opts?: { scope?: Scope; revision?: number }): Promise<Revision>
+  list(opts: { prefix: string; scope?: Scope; after?: string; limit?: number }): Promise<StorageEntry[]>
+  delete(key: string, opts?: { scope?: Scope; revision?: number }): Promise<boolean>
 }
 
+/** A job's log as it arrives: one line at a time, then how the job ended. */
 export interface JobFollower {
   dispose(): void
 }
 
 export interface Jobs {
-  enqueue(job: string, params?: Record<string, unknown>): Promise<JobInfo>
-  get(id: string): Promise<JobDetail>
-  list(query?: { state?: string; plugin?: string; limit?: number }): Promise<JobInfo[]>
-  cancel(id: string): Promise<void>
+  enqueue(kind: string, params?: unknown, opts?: { subject?: string }): Promise<JobInfo>
+  get(id: string): Promise<JobInfo>
+  list(query?: JobQuery): Promise<JobInfo[]>
+  /** Cancels a job. Queued at once, running by asking it to stop. */
+  cancel(id: string): Promise<JobInfo>
   retry(id: string): Promise<JobInfo>
-  output(id: string, opts?: { after?: number; limit?: number }): Promise<JobOutput>
+  /** The log after a cursor, at most 1000 items, and the job's state. */
+  output(id: string, opts?: { after?: number }): Promise<LogItems>
+  /**
+   * Follows a job's log from a cursor: `onItem` for each line, then `onDone` with how it ended.
+   */
   follow(
     id: string,
-    onItem: (item: JobLogItem) => void,
-    opts?: { after?: number; onDone?: (state: string) => void },
+    onItem: (item: LogItem) => void,
+    opts?: { after?: number; onDone?: (end: JobEnd) => void },
   ): Promise<JobFollower>
 }
 
@@ -222,13 +269,13 @@ export interface ClientTerminals {
 }
 
 export interface Connections {
-  types(): Promise<ConnectionTypeInfo[]>
-  list(opts?: { type?: string; space?: string }): Promise<ConnectionInfo[]>
+  types(): Promise<ConnectionType[]>
+  list(opts?: { type?: string }): Promise<ConnectionInfo[]>
   get(id: string): Promise<ConnectionInfo>
   create(input: ConnectionCreate): Promise<ConnectionInfo>
   update(input: ConnectionUpdate): Promise<ConnectionInfo>
   delete(id: string): Promise<void>
-  test(id: string): Promise<{ ok: boolean; error?: string }>
+  test(id: string): Promise<ConnectionTested>
 }
 
 export interface Spaces {
@@ -248,6 +295,10 @@ export interface Contexts {
 
 export interface Blobs {
   get(id: string): Promise<BlobInfo>
+  /**
+   * The URL a shell serves a blob from. `rookery serve` has no such route: it reads a blob's bytes
+   * with the `blobs.read` stream, which this handle does not wrap yet.
+   */
   url(id: string): string
 }
 
@@ -280,6 +331,8 @@ export interface ClientRookery {
   readonly chrome: Chrome
   readonly workbench: Workbench
   readonly events: Events
+  readonly notifications: Notifications
+  readonly notify: Notify
   readonly data: Data
   readonly streams: Streams
   readonly host: Host
@@ -356,8 +409,27 @@ export function serviceUrl(plugin: string, service: string, path = "/"): string 
   return `/svc/${encodeURIComponent(plugin)}/${encodeURIComponent(service)}${clean}`
 }
 
+/**
+ * The event names a subscription of a plugin asks for: a bare name is the plugin's own, and one with
+ * a `/` is a full name of the server, such as another plugin's or one of its prefixes.
+ */
+function eventNames(plugin: string, names: string | readonly string[]): string[] {
+  return (typeof names === "string" ? [names] : [...names]).map((name) =>
+    name.includes("/") ? name : `${plugin}/${name}`,
+  )
+}
+
+/** The bare name `events.publish` takes: the server puts the plugin's name in front of it. */
+function eventName(plugin: string, name: string): string {
+  const own = `${plugin}/`
+  return name.startsWith(own) ? name.slice(own.length) : name
+}
+
 export function createClientRookery(s: ClientScope): ClientRookery {
   const noop = () => disposable(() => {})
+  /** A call of a method the server has, with its params and result from the generated types. */
+  const call = <M extends WireMethod>(method: M, params: WireParams<M>): Promise<WireResult<M>> =>
+    wireCall(s.rt, method, params)
   return Object.freeze<ClientRookery>({
     id: s.plugin,
     manifest: s.manifest,
@@ -418,10 +490,28 @@ export function createClientRookery(s: ClientScope): ClientRookery {
         s.rt.registerStatusItem ? s.track(s.rt.registerStatusItem(s.plugin, id, component)) : noop(),
     },
     events: {
-      subscribe: async (topic, handler) => s.track(await s.rt.subscribe(topic, handler)),
-      publish: async (topic, payload) => {
-        await s.rt.call("events.publish", { topic, payload })
+      subscribe: async (names, handler, opts) =>
+        s.track(await s.rt.subscribe(eventNames(s.plugin, names), handler, opts)),
+      publish: (name, payload) =>
+        call("events.publish", { plugin: s.plugin, name: eventName(s.plugin, name), payload }),
+    },
+    notifications: {
+      on: <M extends NotificationMethod>(method: M, fn: (params: NotificationParams<M>) => void) =>
+        s.rt.onNotification(method, (params) => fn(params as NotificationParams<M>)),
+    },
+    notify: {
+      list: (query = {}) =>
+        call("notify.list", {
+          unread: query.unread ?? false,
+          ...(query.before ? { before: query.before } : {}),
+          ...(query.limit !== undefined ? { limit: query.limit } : {}),
+        }),
+      read: async (ids) => (await call("notify.read", ids ? { ids } : {})).count,
+      answer: (id, answer) => call("notify.answer", { id, answer }),
+      mute: async (kind, muted) => {
+        await call("notify.setPref", { kind, muted })
       },
+      send: (input) => call("notify.send", { plugin: s.plugin, ...input }),
     },
     data: createData(s),
     streams: {
@@ -440,65 +530,86 @@ export function createClientRookery(s: ClientScope): ClientRookery {
         s.rt.call(method, params) as Promise<T>,
     },
     settings: {
-      get: async (key, opts) =>
-        ((await s.rt.call("settings.get", { plugin: s.plugin, key, ...opts })) as SettingValue).value as any,
-      set: async (key, value, opts) => {
-        await s.rt.call("settings.set", { plugin: s.plugin, key, value, ...opts })
+      get: async <K extends SettingKey>(key: K) =>
+        (await call("settings.get", { plugin: s.plugin, key })).value as TypedSettings[K],
+      set: async (key, value, scope) => {
+        await call("settings.set", { plugin: s.plugin, key, value, scope })
       },
-      list: async (opts) =>
-        ((await s.rt.call("settings.list", { plugin: s.plugin, ...opts })) as SettingsView).entries,
-      reset: async (key, opts) => {
-        await s.rt.call("settings.reset", { plugin: s.plugin, key, ...opts })
+      list: async () => (await call("settings.list", { plugin: s.plugin })).entries,
+      reset: async (key, scope) => {
+        await call("settings.reset", { plugin: s.plugin, key, scope })
       },
     },
     storage: {
-      get: async (key, opts) =>
-        ((await s.rt.call("storage.get", { plugin: s.plugin, key, ...opts })) as StorageValue).value as any,
-      set: async (key, value, opts) => {
-        await s.rt.call("storage.set", { plugin: s.plugin, key, value, ...opts })
-      },
+      get: async <T = unknown>(key: string, opts: { scope?: Scope } = {}) =>
+        (await call("storage.get", { plugin: s.plugin, key, scope: opts.scope ?? "global" }))
+          .value as T | null,
+      set: (key, value, opts = {}) =>
+        call("storage.set", {
+          plugin: s.plugin,
+          key,
+          value,
+          scope: opts.scope ?? "global",
+          ...(opts.revision !== undefined ? { revision: opts.revision } : {}),
+        }),
       list: async (opts) =>
-        ((await s.rt.call("storage.list", { plugin: s.plugin, ...opts })) as StorageEntries).entries,
-      delete: async (key, opts) => {
-        await s.rt.call("storage.delete", { plugin: s.plugin, key, ...opts })
-      },
+        (
+          await call("storage.list", {
+            plugin: s.plugin,
+            prefix: opts.prefix,
+            scope: opts.scope ?? "global",
+            ...(opts.after ? { after: opts.after } : {}),
+            ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+          })
+        ).entries,
+      delete: async (key, opts = {}) =>
+        (
+          await call("storage.delete", {
+            plugin: s.plugin,
+            key,
+            scope: opts.scope ?? "global",
+            ...(opts.revision !== undefined ? { revision: opts.revision } : {}),
+          })
+        ).deleted,
     },
     jobs: {
-      enqueue: (job, params = {}) =>
-        s.rt.call("jobs.enqueue", { plugin: s.plugin, job, params }) as Promise<JobInfo>,
-      get: (id) => s.rt.call("jobs.get", { id }) as Promise<JobDetail>,
-      list: async (query = {}) => ((await s.rt.call("jobs.list", query)) as JobList).jobs,
-      cancel: async (id) => {
-        await s.rt.call("jobs.cancel", { id })
-      },
-      retry: (id) => s.rt.call("jobs.retry", { id }) as Promise<JobInfo>,
-      output: (id, opts = {}) => s.rt.call("jobs.output", { id, ...opts }) as Promise<JobOutput>,
+      enqueue: (kind, params = {}, opts = {}) =>
+        call("jobs.enqueue", {
+          kind,
+          params,
+          ...(opts.subject ? { subject: opts.subject } : {}),
+        }),
+      get: (id) => call("jobs.get", { id }),
+      list: async (query = {}) => (await call("jobs.list", query)).jobs,
+      cancel: (id) => call("jobs.cancel", { id }),
+      retry: (id) => call("jobs.retry", { id }),
+      output: (id, opts = {}) => call("jobs.output", { id, after: opts.after ?? 0 }),
       follow: async (id, onItem, opts = {}) => {
         const stream = await s.rt.stream("jobs.follow", { id, after: opts.after ?? 0 })
         const dec = new TextDecoder()
         let buf = ""
+        const line = (text: string) => {
+          let parsed: unknown
+          try {
+            parsed = JSON.parse(text)
+          } catch {
+            return
+          }
+          // Each line is a `LogItem`; the last one is a `JobEnd`, which has the state and no seq.
+          if (parsed && typeof parsed === "object" && "state" in parsed && !("seq" in parsed)) {
+            opts.onDone?.(parsed as JobEnd)
+          } else {
+            onItem(parsed as LogItem)
+          }
+        }
         stream.onData = (chunk) => {
           buf += dec.decode(chunk, { stream: true })
           const lines = buf.split("\n")
           buf = lines.pop() ?? ""
-          for (const line of lines) {
-            if (!line.trim()) continue
-            try {
-              const parsed = JSON.parse(line)
-              if (parsed && typeof parsed === "object" && "state" in parsed && !("seq" in parsed)) {
-                opts.onDone?.(String(parsed.state))
-              } else {
-                onItem(parsed as JobLogItem)
-              }
-            } catch {}
-          }
+          for (const l of lines) if (l.trim()) line(l)
         }
         stream.onEnd = () => {
-          if (buf.trim()) {
-            try {
-              onItem(JSON.parse(buf) as JobLogItem)
-            } catch {}
-          }
+          if (buf.trim()) line(buf)
         }
         return s.track(disposable(() => stream.close()))
       },
@@ -539,23 +650,15 @@ export function createClientRookery(s: ClientScope): ClientRookery {
       screen: (terminal) => s.rt.call("terminals.screen", { terminal }) as Promise<ScreenInfo>,
     },
     connections: {
-      types: async () => ((await s.rt.call("connections.types", {})) as ConnectionTypeList).types,
-      list: async (opts = {}) => ((await s.rt.call("connections.list", opts)) as ConnectionList).connections,
-      get: (id) => s.rt.call("connections.get", { id }) as Promise<ConnectionInfo>,
-      create: (input) =>
-        s.rt.call(
-          "connections.create",
-          input as unknown as Record<string, unknown>,
-        ) as Promise<ConnectionInfo>,
-      update: (input) =>
-        s.rt.call(
-          "connections.update",
-          input as unknown as Record<string, unknown>,
-        ) as Promise<ConnectionInfo>,
+      types: async () => (await call("connections.types", {})).types,
+      list: async (opts = {}) => (await call("connections.list", opts)).connections,
+      get: (id) => call("connections.get", { id }),
+      create: (input) => call("connections.create", input),
+      update: (input) => call("connections.update", input),
       delete: async (id) => {
-        await s.rt.call("connections.delete", { id })
+        await call("connections.delete", { id })
       },
-      test: (id) => s.rt.call("connections.test", { id }) as Promise<{ ok: boolean; error?: string }>,
+      test: (id) => call("connections.test", { id }),
     },
     spaces: {
       current: () => s.rt.space?.() ?? null,
@@ -573,7 +676,7 @@ export function createClientRookery(s: ClientScope): ClientRookery {
       switch: (id, value) => s.rt.switchContext?.(id, value),
     },
     blobs: {
-      get: (id) => s.rt.call("blobs.get", { id }) as Promise<BlobInfo>,
+      get: (id) => call("blobs.get", { id }),
       url: (id) => `/blobs/${encodeURIComponent(id)}`,
     },
     extensions: {

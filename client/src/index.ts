@@ -20,6 +20,7 @@ export type {
   CreateStreamOptions,
   DataClient,
   DataClientCollection,
+  EventSubscriptionBinding,
   Live,
   LiveQuery,
   RpcResource,
@@ -34,7 +35,7 @@ export {
   createRpcResource,
   createStream,
 } from "./bindings"
-export type { EventBus, EventHandler } from "./events"
+export type { EventBus, EventHandler, EventSubscriptionOptions } from "./events"
 export { createEventBus } from "./events"
 export type * from "./generated"
 export type { ClientState, PluginLoader, PluginLoaderOptions, ViewEntry } from "./loader"

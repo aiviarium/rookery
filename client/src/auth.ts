@@ -1,10 +1,13 @@
 // Device-session auth and sign-in flow helpers for Rookery's HTTP auth endpoints:
 // GET /auth/session, GET /auth/login, GET /auth/link/{code}, POST /auth/logout.
+
+import { wireCall } from "@rookery/sdk/wire"
 import { type Accessor, createSignal, getOwner, onCleanup } from "solid-js"
 import type { ErrorBody, Me, SignedOut, User } from "./generated"
 import type { Connection } from "./ws"
 
-export type SignInOptions = Pick<SignedOut, "devLogin" | "sso" | "local">
+/** How someone can sign in: the identity provider, local links, or the development login. */
+export type SignInOptions = Pick<SignedOut, "devLogin" | "sso" | "local" | "auth">
 
 export type SessionCheckResult =
   | { authenticated: true; user: User }
@@ -31,7 +34,7 @@ function joinUrl(baseUrl: string | undefined, path: string): string {
 /** Queries `GET /auth/session` to see whether a device session is active and which sign-in methods exist. */
 export async function fetchSession(opts: AuthFetchOptions = {}): Promise<SessionCheckResult> {
   const f = opts.fetch ?? fetch
-  const fallback: SignInOptions = { devLogin: false, local: false, sso: null }
+  const fallback: SignInOptions = { devLogin: false, local: false, sso: null, auth: "local" }
   let res: Response
   try {
     res = await f(joinUrl(opts.baseUrl, "/auth/session"), {
@@ -52,6 +55,7 @@ export async function fetchSession(opts: AuthFetchOptions = {}): Promise<Session
         devLogin: Boolean(body?.devLogin),
         local: Boolean(body?.local),
         sso: body?.sso ?? null,
+        auth: body?.auth ?? "local",
       },
       error: body?.error,
     }
@@ -67,7 +71,11 @@ export function loginUrl(
   return joinUrl(baseUrl, `/auth/login?return_to=${encodeURIComponent(returnTo)}`)
 }
 
-/** URL for development sign-in when the server offers `devLogin`. */
+/**
+ * URL for a development sign-in, for a server that offers `devLogin` in `GET /auth/session`.
+ * `rookery serve` does not: it always answers `devLogin: false`, as only a shell's own server has
+ * such a route.
+ */
 export function devLoginUrl(
   user: string,
   returnTo: string = typeof location !== "undefined" ? location.pathname + location.search : "/",
@@ -113,7 +121,10 @@ export interface SignOutOptions extends AuthFetchOptions {
   onBeforeSignOut?: () => void
 }
 
-/** Ends the current device session via `POST /auth/logout` and returns any IdP end-session redirect URL. */
+/**
+ * Ends the current device session via `POST /auth/logout`. `rookery serve` answers 204 with no body,
+ * so `redirect` is null there; it is for a shell whose server ends an identity provider session too.
+ */
 export async function signOut(opts: SignOutOptions = {}): Promise<{ redirect: string | null }> {
   opts.conn?.stop()
   opts.onBeforeSignOut?.()
@@ -123,7 +134,7 @@ export async function signOut(opts: SignOutOptions = {}): Promise<{ redirect: st
       method: "POST",
       headers: { accept: "application/json" },
     })
-    if (res.ok) {
+    if (res.ok && res.status !== 204) {
       const body = (await res.json().catch(() => null)) as { redirect?: string | null } | null
       return { redirect: body?.redirect ?? null }
     }
@@ -149,7 +160,7 @@ export function createSession(conn: Connection): SessionStore {
 
   const refresh = async (): Promise<Me | null> => {
     try {
-      const info = await conn.call<Me>("auth.me")
+      const info = await wireCall(conn, "auth.me", {})
       setMe(info)
       return info
     } catch {

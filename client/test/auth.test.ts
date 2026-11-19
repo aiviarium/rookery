@@ -35,15 +35,16 @@ describe("@rookery/client auth helpers", () => {
         if (url.pathname === "/auth/session") {
           if (mode === "ok") {
             return Response.json({
-              user: { id: "u-ada", name: "Ada", email: "ada@example.test", roles: ["admin"] },
+              user: { id: "u-ada", name: "Ada", email: "ada@example.test", admin: true },
             })
           }
           if (mode === "signed-out") {
             return Response.json(
               {
                 error: { code: "UNAUTHENTICATED", message: "sign in required" },
+                auth: "oidc",
                 devLogin: false,
-                local: true,
+                local: false,
                 sso: { name: "Example SSO", ready: true },
               },
               { status: 401 },
@@ -52,7 +53,8 @@ describe("@rookery/client auth helpers", () => {
           return new Response("down", { status: 503 })
         }
         if (url.pathname === "/auth/logout" && req.method === "POST") {
-          return Response.json({ redirect: "https://idp.example.test/logout" })
+          // `rookery serve` answers 204 with no body and no end-session redirect.
+          return new Response(null, { status: 204 })
         }
         return new Response("not found", { status: 404 })
       },
@@ -64,8 +66,9 @@ describe("@rookery/client auth helpers", () => {
     expect(signedOut.authenticated).toBe(false)
     if (!signedOut.authenticated) {
       expect(signedOut.options).toEqual({
+        auth: "oidc",
         devLogin: false,
-        local: true,
+        local: false,
         sso: { name: "Example SSO", ready: true },
       })
       expect(signedOut.error?.code).toBe("UNAUTHENTICATED")
@@ -93,7 +96,7 @@ describe("@rookery/client auth helpers", () => {
       },
     })
     expect(beforeCalled).toBe(true)
-    expect(out.redirect).toBe("https://idp.example.test/logout")
+    expect(out.redirect).toBeNull()
   })
 
   test("URL builders and parseSignInLink validate and normalize links", () => {
@@ -130,11 +133,11 @@ describe("@rookery/client auth helpers", () => {
                 jsonrpc: "2.0",
                 id: msg.id,
                 result: {
-                  user: { id: "u-dev", name: "Dev User", roles: ["admin"] },
+                  user: { id: "u-dev", name: "Dev User", admin: true },
                   principal: { kind: "user", id: "u-dev" },
-                  dev: true,
-                  localAuth: true,
-                  kernelVersion: "0.1.0",
+                  admin: true,
+                  auth: "local",
+                  version: "0.1.0",
                   apiVersion: 1,
                 },
               }),
