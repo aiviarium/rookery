@@ -633,6 +633,9 @@ def _enter_extended():
     station.env['ROOKERY_SOURCE'] = str(SCRATCH / 'source-shipped' if (SCRATCH / 'source-shipped').exists()
                                       else source_with_plugins('source-shipped', {
                                           'shipit': plugin_version('1.0.0', 'shipit', 'rookery')}))
+    # The apply runs in the server, which reads its source when it starts.
+    station.stop_server()
+    station.start_server()
     station.rookery('plugin', 'add', str(FIXTURE))
     registry.publish(plugin_version('1.0.0'))
     station.rookery('plugin', 'registry', 'add', 'git', registry.url)
@@ -845,6 +848,11 @@ def unb64(text):
 # rookery serve
 
 
+class Refused(dict):
+    """The error of a call, as {'error': …}: apart from a result that has an `error` of its own,
+    as a job's has."""
+
+
 class Serve:
     """The `rookery serve` of a workstation as a client elsewhere reaches it: over
     TCP, with an access token of a person, `ada`, who is an admin."""
@@ -882,20 +890,20 @@ class Serve:
         finally:
             connection.close()
         if isinstance(said, dict) and 'error' in said:
-            return answer.status, {'error': said['error']}
+            return answer.status, Refused({'error': said['error']})
         return answer.status, said.get('result') if isinstance(said, dict) else said
 
     def call(self, method, params=None, token=None):
         """The result of a method, or an AssertionError with its error."""
         status, answer = self.rpc(method, params, token)
-        if isinstance(answer, dict) and 'error' in answer:
+        if isinstance(answer, Refused):
             raise AssertionError(f'{method}: {status} {answer["error"]}')
         return answer
 
     def refused(self, method, params=None, token=None):
         """The error code a method is refused with, such as FORBIDDEN, or None when it is not."""
         _, answer = self.rpc(method, params, token)
-        if isinstance(answer, dict) and 'error' in answer:
+        if isinstance(answer, Refused):
             return answer['error'].get('data', {}).get('code')
         return None
 

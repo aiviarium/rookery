@@ -39,18 +39,7 @@ pub fn local_socket() -> Option<String> {
     if !cfg!(unix) {
         return None;
     }
-    let mut places = vec![];
-    if let Some(path) = variable("ROOKERY_SOCKET") {
-        places.push(std::path::PathBuf::from(path));
-    }
-    if let Some(dir) = variable("XDG_RUNTIME_DIR") {
-        places.push(std::path::PathBuf::from(dir).join("rookery/server.sock"));
-    }
-    places.push("/run/rookery/server.sock".into());
-    places
-        .into_iter()
-        .find(|path| path.exists())
-        .map(|path| format!("unix:{}", path.display()))
+    rookery_api::socket::found(&variable).map(|path| format!("unix:{}", path.display()))
 }
 
 /// The settings of this user that `rookery login` keeps.

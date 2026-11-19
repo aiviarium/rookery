@@ -17,11 +17,17 @@ struct Scratch {
     serve: Option<Child>,
     db: Option<rookery_store::testing::TestDb>,
     runtime: tokio::runtime::Runtime,
+    /// Whether the user has a runtime folder; a server in a container has none.
+    runtime_dir: bool,
 }
 
 impl Scratch {
     /// A server on a database of its own, or nothing without a Postgres to test on.
     fn new() -> Option<Scratch> {
+        Scratch::with(true)
+    }
+
+    fn with(runtime_dir: bool) -> Option<Scratch> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
@@ -37,6 +43,7 @@ impl Scratch {
             serve: None,
             db: Some(db),
             runtime,
+            runtime_dir,
         };
         scratch.serve();
         Some(scratch)
@@ -49,13 +56,15 @@ impl Scratch {
             .env_clear()
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
             .env("HOME", path.join("home"))
-            .env("XDG_RUNTIME_DIR", path.join("r"))
             .env("XDG_CONFIG_HOME", path.join("c"))
             .env("XDG_DATA_HOME", path.join("d"))
             .env("NO_COLOR", "1")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if self.runtime_dir {
+            command.env("XDG_RUNTIME_DIR", path.join("r"));
+        }
         command
     }
 
@@ -70,7 +79,10 @@ impl Scratch {
     }
 
     fn socket(&self) -> PathBuf {
-        self.dir.path().join("r/rookery/server.sock")
+        match self.runtime_dir {
+            true => self.dir.path().join("r/rookery/server.sock"),
+            false => self.dir.path().join("d/rookery/server.sock"),
+        }
     }
 
     /// Start `rookery serve` and wait until it leads.
@@ -275,4 +287,24 @@ fn json_is_the_documents_of_the_api() {
         (&shown["name"], &shown["type"]),
         (&got["name"], &got["type"])
     );
+}
+
+#[test]
+fn the_servers_machine_reaches_it_without_a_runtime_folder() {
+    // As the server's image runs it: no XDG_RUNTIME_DIR and no ROOKERY_SOCKET.
+    let Some(scratch) = Scratch::with(false) else {
+        eprintln!("skipped: ROOKERY_TEST_POSTGRES is not set");
+        return;
+    };
+    assert!(scratch.socket().exists());
+    let (code, out, err) = scratch.run(&["host", "inventory"]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&out).unwrap(),
+        json!({"all": {"hosts": {}}})
+    );
+    // The apply's enrollment key reaches the server too, which says there is no such host.
+    let (code, _, err) = scratch.run(&["tailnet-key", "nowhere"]);
+    assert_ne!(code, 0);
+    assert!(!err.contains("No rookery serve runs"), "{err}");
 }
