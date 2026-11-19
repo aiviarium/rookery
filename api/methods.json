@@ -7630,7 +7630,7 @@
           ]
         },
         "kind": {
-          "description": "The host's type: `ssh`, `managed`, `node`, `workstation` or `local`.",
+          "description": "The host's type: `ssh`, `managed`, `node` or `workstation`.",
           "type": "string"
         },
         "level": {
@@ -7716,7 +7716,7 @@
               ]
             },
             "kind": {
-              "description": "The host's type: `ssh`, `managed`, `node`, `workstation` or `local`.",
+              "description": "The host's type: `ssh`, `managed`, `node` or `workstation`.",
               "type": "string"
             },
             "level": {

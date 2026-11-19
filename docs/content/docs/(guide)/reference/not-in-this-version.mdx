@@ -1,0 +1,39 @@
+---
+title: Not in this version
+description: What this release of Rookery leaves out on purpose, what to do instead, and what an import from an older store does not bring.
+icon: CircleSlash
+---
+
+Rookery is new software. This page lists what it does not do yet, so that you do not look for it. Rookery ships no user interface: a shell on top of the same server is a separate program, with its own documentation.
+
+## Hosts and agents
+
+| Left out | What to do instead |
+| --- | --- |
+| A connector on a person's own machine, which lends the machine to a server from inside its own desktop | Save the machine as a host that Rookery reaches over SSH: `rookery host add NAME ADDRESS` ([Types of host](/docs/use/types)) |
+| The agent drivers of Rookery's predecessor, which ran the agent CLIs in the server and its plugins | A host runs `parrot serve`, and a client opens a session to it through `agents.connect` ([The server's methods](/docs/api#the-servers-methods)) |
+| An agent session started by a plugin's app service, rather than by a person | Install the agent on the host as a [plugin](/docs/extend/plugins), and start the session from a client |
+
+Rookery runs no agent itself. The agent CLIs are on the host, and a session is a stream from a client to `parrot serve` there.
+
+## The server
+
+One server leads a database. Another server on the same database waits for the leader lock and answers `503` until it has it. There are no read replicas, and a standby serves no reads while it waits. Size the one leader for every read.
+
+An installation speaks one version of the API. A client refuses a server with an older API and says to update the server first. Update the server, then its clients, then its hosts.
+
+## Plugins
+
+A plugin's host half registers methods with `rookery.rpc.handle`, and a client calls one with `plugins.rpc`. Rookery has no MCP server, so a plugin's methods and tools are not offered to an agent as MCP tools. The MCP server of a host is `box mcp`, which offers the desktop and nothing of the plugins ([box](/docs/reference/box)).
+
+## From an older store
+
+`rookery server import` brings an existing Rookery store into the server's database. It leaves out these, and its report says so:
+
+- The old server's token. Make an access token with `rookery server token --user NAME`.
+- What clients cached of a server: the state kinds `mirror` and `meta`.
+- Rows of a scope of a server's clients. Only the installation's own state comes in.
+- Jobs older than `retention_days`, and jobs that never ended.
+- The role `rookery:admin`. Set `ROOKERY_ADMINS=group:rookery:admin` to keep it.
+
+The database's own details are in [The database](/docs/use/store#from-an-older-store).
