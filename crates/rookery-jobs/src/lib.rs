@@ -11,7 +11,7 @@ use rookery_kernel::Methods;
 
 pub use jobs::{
     EnqueuePolicy, JobHandler, JobRun, MayEnqueue, Options, add_handler, remove_handler,
-    set_enqueue_policy,
+    set_enqueue_policy, wake,
 };
 
 /// Registers the methods, with the job handlers that run inside the server.

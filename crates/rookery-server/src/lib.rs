@@ -43,6 +43,7 @@ pub fn methods_with(
     rookery_facilities::register(&mut methods);
     let hosts = rookery_hosts::Registration::new();
     handlers.extend(hosts.handlers());
+    rookery_data::register(&mut methods);
     rookery_jobs::register(&mut methods, handlers, jobs);
     hosts.register(&mut methods);
     rookery_plugins::register(&mut methods);

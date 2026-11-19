@@ -1,0 +1,29 @@
+[package]
+name = "rookery-data"
+description = "The data layer's methods of rookery serve: collections, live queries, references and the plugin collections' migrations."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+rookery-proto.workspace = true
+rookery-store.workspace = true
+rookery-kernel.workspace = true
+rookery-jobs.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+async-trait = "0.1"
+futures-util.workspace = true
+
+[dev-dependencies]
+rookery-proto.workspace = true
+rookery-kernel = { workspace = true, features = ["testing"] }
+rookery-store = { workspace = true, features = ["testing"] }

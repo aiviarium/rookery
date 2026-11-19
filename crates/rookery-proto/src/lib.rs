@@ -7,6 +7,7 @@
 pub mod access;
 pub mod auth;
 pub mod context;
+pub mod data;
 pub mod env;
 pub mod error;
 pub mod facilities;

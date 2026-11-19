@@ -3202,6 +3202,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "rookery-data"
+version = "0.6.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures-util",
+ "rookery-jobs",
+ "rookery-kernel",
+ "rookery-proto",
+ "rookery-store",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "rookery-facilities"
 version = "0.6.0"
 dependencies = [
@@ -3368,6 +3386,7 @@ dependencies = [
  "rookery-api",
  "rookery-auth",
  "rookery-core",
+ "rookery-data",
  "rookery-facilities",
  "rookery-hosts",
  "rookery-jobs",

@@ -143,7 +143,7 @@ impl<'a> MigrationTx<'a> {
             .collect()
     }
 
-    /// Rows of a table a kernel release retired, parked in the `crow_legacy` schema, as JSON in a stable
+    /// Rows of a table a release of Rookery retired, parked in the `rookery_legacy` schema, as JSON in a stable
     /// order after the cursor of the page before (`None` for the first page); the cursor to go on from is
     /// the second value (`None` when there are no more). A table that is not there has no rows.
     pub async fn legacy(
@@ -161,7 +161,7 @@ impl<'a> MigrationTx<'a> {
             return Err(Error::invalid(format!("{table:?} is not a table name")));
         }
         let exists: bool = sqlx::query_scalar(
-            "SELECT to_regclass(format('crow_legacy.%I', $1::text)) IS NOT NULL",
+            "SELECT to_regclass(format('rookery_legacy.%I', $1::text)) IS NOT NULL",
         )
         .bind(table)
         .fetch_one(&mut *self.w.tx)
@@ -171,7 +171,7 @@ impl<'a> MigrationTx<'a> {
         }
         let limit = limit.clamp(1, 10_000);
         let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "SELECT ctid::text AS cursor, to_jsonb(t) AS row FROM crow_legacy.{} t \
+            "SELECT ctid::text AS cursor, to_jsonb(t) AS row FROM rookery_legacy.{} t \
              WHERE ($1::text IS NULL OR ctid > $1::tid) ORDER BY ctid LIMIT $2",
             quote_ident(table)
         )))
