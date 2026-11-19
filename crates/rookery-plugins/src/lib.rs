@@ -149,12 +149,16 @@ impl Plugins {
     /// plugins that changed or went away stop; those that start with the server start.
     pub async fn reload(self: &Arc<Self>, kernel: &Kernel) -> Result<(), RpcError> {
         let _one = self.changing.lock().await;
-        self.reload_held(kernel, false).await
+        self.reload_held(kernel, &[]).await
     }
 
-    /// [`Plugins::reload`], for a caller that holds `changing`. With `prune`, after a change of the
-    /// folder, the records of plugins that are gone go too.
-    async fn reload_held(self: &Arc<Self>, kernel: &Kernel, prune: bool) -> Result<(), RpcError> {
+    /// [`Plugins::reload`], for a caller that holds `changing`. The records of `removed`, the plugins
+    /// a change took out, go too.
+    async fn reload_held(
+        self: &Arc<Self>,
+        kernel: &Kernel,
+        removed: &[String],
+    ) -> Result<(), RpcError> {
         let manager = self.manager();
         let found = tokio::task::spawn_blocking(move || {
             manager.scan().iter().map(loaded::load).collect::<Vec<_>>()
@@ -163,7 +167,7 @@ impl Plugins {
         .map_err(|e| RpcError::internal(format!("reading the plugins: {e}")))?;
         let mut found = with_dependencies(found);
         self.apply_data(kernel, &mut found).await;
-        let missing = record::sync(&kernel.store, &found, prune).await?;
+        let missing = record::sync(&kernel.store, &found, removed).await?;
         if !missing.is_empty() {
             tracing::warn!(
                 ?missing,
@@ -258,14 +262,27 @@ impl Plugins {
 
     /// Starts a plugin's host half, and first those of the plugins it depends on. A plugin without one
     /// is active as it is.
+    /// This is the server's own doing, as at startup or after a crash, which may start one that failed.
     pub async fn activate(self: &Arc<Self>, kernel: &Kernel, id: &str) -> Result<(), RpcError> {
-        self.activate_within(kernel, id, 0).await
+        self.activate_within(kernel, id, true, 0).await
+    }
+
+    /// [`Plugins::activate`] for a caller: a plugin that failed, or one it depends on that failed,
+    /// starts again for an admin alone.
+    pub async fn activate_as(
+        self: &Arc<Self>,
+        kernel: &Kernel,
+        id: &str,
+        admin: bool,
+    ) -> Result<(), RpcError> {
+        self.activate_within(kernel, id, admin, 0).await
     }
 
     fn activate_within<'a>(
         self: &'a Arc<Self>,
         kernel: &'a Kernel,
         id: &'a str,
+        admin: bool,
         depth: usize,
     ) -> futures_util::future::BoxFuture<'a, Result<(), RpcError>> {
         Box::pin(async move {
@@ -281,10 +298,19 @@ impl Plugins {
             if plugin.host().is_none() {
                 return Ok(());
             }
+            if let (Some(PluginState::Failed), error) = self.host.state(id)
+                && !admin
+            {
+                let said = error.map(|e| e.message).unwrap_or_default();
+                return Err(RpcError::unavailable(format!(
+                    "{id} failed, and an admin starts it again: {said}"
+                )));
+            }
             if depth < 8 {
                 for dependency in plugin.dependencies().keys() {
                     if self.get(dependency).is_some_and(|d| d.host().is_some()) {
-                        self.activate_within(kernel, dependency, depth + 1).await?;
+                        self.activate_within(kernel, dependency, admin, depth + 1)
+                            .await?;
                     }
                 }
             }
@@ -305,15 +331,17 @@ impl Plugins {
         method: &str,
         params: serde_json::Value,
     ) -> Result<serde_json::Value, RpcError> {
-        if let (Some(PluginState::Failed), Some(error)) = self.host.state(plugin)
-            && !call.is_admin()
-        {
-            return Err(error_of(&error));
-        }
-        self.activate(&call.kernel, plugin).await?;
+        self.activate_as(&call.kernel, plugin, call.is_admin())
+            .await?;
         self.host
             .invoke(call, self, plugin, "rpc", method, params)
             .await
+    }
+
+    /// Stops every host half when the server stops, running their cleanups within `limit` in all. The
+    /// server awaits it before it closes the store.
+    pub async fn stop(&self, kernel: &Kernel, limit: std::time::Duration) {
+        self.host.stop_all(kernel, limit).await;
     }
 
     /// Starts the plugin system on a leader: reads the plugins, records them and starts the host halves
@@ -338,6 +366,7 @@ impl Plugins {
             .iter()
             .map(|p| (p.id.clone(), p.package.clone()))
             .collect();
+        let held_ids: Vec<String> = held.keys().cloned().collect();
         let done = tokio::task::spawn_blocking(move || {
             let done = change(&manager).map_err(|e| e.to_string());
             match refuse_taken_ids(&manager, &held) {
@@ -347,8 +376,18 @@ impl Plugins {
         })
         .await
         .map_err(|e| RpcError::internal(format!("changing the plugins: {e}")))?;
-        // What was changed before a failure is read too.
-        self.reload_held(kernel, true).await?;
+        // What was changed before a failure is read too; what it took out loses its record.
+        let after: Vec<String> = {
+            let manager = self.manager();
+            tokio::task::spawn_blocking(move || manager.scan().into_iter().map(|p| p.id).collect())
+                .await
+                .unwrap_or_default()
+        };
+        let removed: Vec<String> = held_ids
+            .into_iter()
+            .filter(|id| !after.contains(id))
+            .collect();
+        self.reload_held(kernel, &removed).await?;
         let done = done.map_err(RpcError::invalid)?;
         Ok(done)
     }

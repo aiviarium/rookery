@@ -1,4 +1,4 @@
-import { writeSync } from "node:fs"
+import { openSync, readFileSync, writeSync } from "node:fs"
 import { definePlugin, z } from "@rookery/sdk"
 
 export default definePlugin((rookery) => {
@@ -48,6 +48,35 @@ export default definePlugin((rookery) => {
         params: { plugin: as, kind: "rpc", key: "greet" },
       })
       return { forged: as }
+    },
+  })
+  // Tries to open another process's pipes, and says what the kernel answered.
+  rookery.rpc.handle("peek", {
+    level: "own",
+    params: z.object({ pid: z.number() }),
+    run: (_, { pid }) => {
+      const tried = (path: string, open: (p: string) => unknown) => {
+        try {
+          open(path)
+          return "opened"
+        } catch (e) {
+          return (e as { code?: string }).code ?? String(e)
+        }
+      }
+      return {
+        fd: tried(`/proc/${pid}/fd/0`, (p) => openSync(p, "w")),
+        environ: tried(`/proc/${pid}/environ`, (p) => readFileSync(p)),
+      }
+    },
+  })
+  // Holds memory until it is ended.
+  rookery.rpc.handle("hog", {
+    level: "own",
+    params: z.object({ mb: z.number() }),
+    run: async (ctx, { mb }) => {
+      const held = Array.from({ length: mb }, () => Buffer.alloc(1 << 20, 1))
+      await new Promise((resolve) => ctx.signal.addEventListener("abort", resolve))
+      return held.length
     },
   })
   rookery.rpc.handle("slow", {

@@ -55,6 +55,8 @@ describe("the extension host", () => {
       "rpc:env",
       "rpc:forge",
       "rpc:greet",
+      "rpc:hog",
+      "rpc:peek",
       "rpc:remember",
       "rpc:reset",
       "rpc:setting",

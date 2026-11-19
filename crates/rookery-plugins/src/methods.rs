@@ -134,7 +134,9 @@ pub fn register(methods: &mut Methods) {
                     RpcError::forbidden(format!("{} failed: an admin activates it again", p.id))
                 })?;
             }
-            plugins.activate(&call.kernel, &p.id).await?;
+            plugins
+                .activate_as(&call.kernel, &p.id, call.is_admin())
+                .await?;
             let plugin = plugins
                 .get(&p.id)
                 .ok_or_else(|| RpcError::not_found(format!("no plugin {}", p.id)))?;

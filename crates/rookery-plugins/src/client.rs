@@ -52,7 +52,7 @@ async fn serve(
                 HeaderValue::from_static("nosniff"),
             ),
         ],
-        data.to_vec(),
+        data.clone(),
     )
         .into_response()
 }

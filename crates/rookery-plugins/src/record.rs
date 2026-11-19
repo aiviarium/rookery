@@ -51,11 +51,14 @@ pub async fn rows(store: &Store) -> Result<BTreeMap<String, Row>, RpcError> {
 }
 
 /// Makes the table say what is installed: a new plugin gets a row, and one whose version or files
-/// changed a new `updated_at`. With `prune`, after a change of the folder, a plugin that is gone loses
-/// its row; without it, as when the server takes the lead and its folder may be behind, the rows of
-/// plugins not in the folder are kept and their ids given back. It writes only while this server
-/// leads (the store's fence).
-pub async fn sync(store: &Store, plugins: &[Loaded], prune: bool) -> Result<Vec<String>, RpcError> {
+/// changed a new `updated_at`. The rows of `removed`, the plugins a change took out, go. The rows of
+/// other plugins the folder lacks are kept, as on a new leader whose folder may be behind, and their
+/// ids given back. It writes only while this server leads (the store's fence).
+pub async fn sync(
+    store: &Store,
+    plugins: &[Loaded],
+    removed: &[String],
+) -> Result<Vec<String>, RpcError> {
     let mut tx = store.pool().begin().await.map_err(failed)?;
     sqlx::query("SELECT rookery.fence($1)")
         .bind(store.fence())
@@ -68,16 +71,18 @@ pub async fn sync(store: &Store, plugins: &[Loaded], prune: bool) -> Result<Vec<
             _ => failed(e),
         })?;
     let ids: Vec<String> = plugins.iter().map(|p| p.id.clone()).collect();
-    let missing: Vec<String> = if prune {
-        sqlx::query_scalar("DELETE FROM rookery.plugins WHERE NOT (id = ANY($1)) RETURNING id")
-    } else {
+    let removed: Vec<&String> = removed.iter().filter(|id| !ids.contains(id)).collect();
+    sqlx::query("DELETE FROM rookery.plugins WHERE id = ANY($1)")
+        .bind(&removed)
+        .execute(&mut *tx)
+        .await
+        .map_err(failed)?;
+    let missing: Vec<String> =
         sqlx::query_scalar("SELECT id FROM rookery.plugins WHERE NOT (id = ANY($1)) ORDER BY id")
-    }
-    .bind(&ids)
-    .fetch_all(&mut *tx)
-    .await
-    .map_err(failed)?;
-    let missing = if prune { vec![] } else { missing };
+            .bind(&ids)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(failed)?;
     for plugin in plugins {
         sqlx::query(
             "INSERT INTO rookery.plugins (id, package, version, origin, source, digest, client_hash, problem)

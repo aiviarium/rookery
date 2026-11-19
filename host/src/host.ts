@@ -28,11 +28,7 @@ export class Host {
   private readonly slots = new Map<string, Slot>()
   private nextId = 1
 
-  /** `heapMb`: the most heap a worker may use, in MiB. */
-  constructor(
-    private readonly server: ServerLink,
-    private readonly options: { heapMb?: number } = {},
-  ) {}
+  constructor(private readonly server: ServerLink) {}
 
   plugins(): string[] {
     return [...this.slots.keys()]
@@ -80,7 +76,6 @@ export class Host {
     if (!data.manifest?.host) return []
     const worker = new Worker(new URL("./worker.ts", import.meta.url), {
       workerData: { plugin: data.plugin, dir: data.dir, manifest: data.manifest } satisfies WorkerData,
-      ...(this.options.heapMb ? { resourceLimits: { maxOldGenerationSizeMb: this.options.heapMb } } : {}),
     })
     const slot: Slot = { plugin: data.plugin, worker, waiting: new Map(), stopping: false }
     this.slots.set(data.plugin, slot)
@@ -96,7 +91,6 @@ export class Host {
   async transform(t: TransformData): Promise<void> {
     const worker = new Worker(new URL("./transform.ts", import.meta.url), {
       workerData: t,
-      ...(this.options.heapMb ? { resourceLimits: { maxOldGenerationSizeMb: this.options.heapMb } } : {}),
     })
     try {
       await new Promise<void>((resolve, reject) => {

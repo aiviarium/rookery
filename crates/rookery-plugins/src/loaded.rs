@@ -45,12 +45,12 @@ pub struct ClientHalf {
     pub entry: String,
     pub styles: Option<String>,
     /// The folder served with the entry, relative to the target's folder: every file of a build, its
-    /// chunks and assets among them. Empty for the target's folder itself.
+    /// chunks and assets among them. Empty for an entry at the target's top, which is served alone.
     pub root: String,
     /// The SHA-256 of the files below, which are what is served.
     pub hash: String,
     /// Each file served, by its path relative to the target's folder.
-    pub files: Arc<BTreeMap<String, Arc<[u8]>>>,
+    pub files: Arc<BTreeMap<String, axum::body::Bytes>>,
 }
 
 impl Loaded {
@@ -279,11 +279,17 @@ fn client_half(dir: &Path, manifest: &Value) -> Result<Option<ClientHalf>, Strin
             "the client half's folder {root} leads out of the target's folder"
         ));
     }
+    // An entry at the target's top is served alone: the folder beside it holds the rest of the
+    // plugin, such as its host half, which is not for browsers.
     let mut paths = vec![];
-    walk(&dir.join(&root), Path::new(&root), &mut paths);
-    let mut files: BTreeMap<String, Arc<[u8]>> = BTreeMap::new();
+    if root.is_empty() {
+        paths.push(PathBuf::from(entry));
+    } else {
+        walk(&dir.join(&root), Path::new(&root), &mut paths);
+    }
+    let mut files: BTreeMap<String, axum::body::Bytes> = BTreeMap::new();
     let mut total = 0usize;
-    let take = |files: &mut BTreeMap<String, Arc<[u8]>>,
+    let take = |files: &mut BTreeMap<String, axum::body::Bytes>,
                 total: &mut usize,
                 path: &Path,
                 within: &Path|
@@ -295,14 +301,17 @@ fn client_half(dir: &Path, manifest: &Value) -> Result<Option<ClientHalf>, Strin
                 "{name} of the client half is a link out of its folder"
             ));
         }
-        let data = fs::read(&real).map_err(|e| format!("{name}: {e}"))?;
-        *total += data.len();
+        let size = fs::metadata(&real)
+            .map_err(|e| format!("{name}: {e}"))?
+            .len();
+        *total = total.saturating_add(usize::try_from(size).unwrap_or(usize::MAX));
         if *total > MAX_CLIENT_BYTES {
             return Err(format!(
                 "the client half's files are larger than {} MiB",
                 MAX_CLIENT_BYTES >> 20
             ));
         }
+        let data = fs::read(&real).map_err(|e| format!("{name}: {e}"))?;
         files.insert(name, data.into());
         Ok(())
     };
@@ -361,7 +370,7 @@ fn walk(dir: &Path, relative: &Path, files: &mut Vec<PathBuf>) {
 impl ClientHalf {
     /// The bytes of a file served with it, by its path relative to the target's folder, as they were
     /// when the plugin was read and hashed.
-    pub fn file(&self, path: &str) -> Option<&Arc<[u8]>> {
+    pub fn file(&self, path: &str) -> Option<&axum::body::Bytes> {
         self.files.get(path)
     }
 

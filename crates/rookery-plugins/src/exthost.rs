@@ -3,11 +3,14 @@
 //! own, and talks JSON-RPC 2.0 with the server over its standard input and output, one message a line.
 //!
 //! The pipes are the plugin's identity. A process speaks for its plugin alone: whatever it says of
-//! another plugin, such as a `plugin` field in a message, is ignored, and it never sees another
-//! plugin's traffic. It starts with an empty environment but for `PATH`, `HOME`, `LANG`, `LC_ALL`,
-//! `TZ`, `NODE_PATH` and `ROOKERY_EXTHOST_PROTOCOL`, so the server's database address and keys are not
-//! handed to it. It still runs as the server's user: a host half is code an admin installed and
-//! trusts, and keeping it from what that user can read is left to a sandbox.
+//! another plugin, such as a `plugin` field in a message, is ignored. It starts with an empty
+//! environment but for `PATH`, `HOME`, `LANG`, `LC_ALL`, `TZ`, `NODE_PATH` (the host's own packages)
+//! and `ROOKERY_EXTHOST_PROTOCOL`, so the server's database address and keys are not handed to it.
+//! The server and each host make themselves non-dumpable (`PR_SET_DUMPABLE`), which makes their
+//! `/proc/PID/fd`, `environ` and `mem` root's, so one host cannot open another's pipes or the server's
+//! memory. That is a mitigation, not a sandbox: every host runs as the server's user and reads what it
+//! can read, such as the secret key file and the configuration folder. A host half is code an admin
+//! installed and trusts; a sandbox of its own (a uid, landlock) is left to come.
 //!
 //! The server asks the process `plugins.activate`, `plugins.invoke`, `plugins.deactivate` and
 //! `plugins.transform` (a migration's transform step, see [`crate::data`]), and tells it
@@ -16,8 +19,9 @@
 //! methods, which run as the plugin on a connection of its own. It tells the server
 //! `plugins.registered`, `plugins.unregistered`, `plugins.exited` and `plugins.log`.
 //!
-//! A host half that ends, whether its worker or its whole process, or that does not stop a call past
-//! its deadline, counts against its own plugin: it is activated again with a wait that grows, up to
+//! A host half that ends, whether its worker or its whole process, that does not stop a call past
+//! its deadline, or whose process uses more memory than [`HostOptions::memory_mb`] (read from
+//! `/proc/PID/status` every [`MEMORY_CHECK`]), counts against its own plugin: it is activated again with a wait that grows, up to
 //! [`CRASHES`] times in [`CRASH_WINDOW`], after which the plugin is failed until an admin activates
 //! it or it changes. When the server stops, each host half is deactivated, which runs its cleanups.
 
@@ -54,6 +58,8 @@ pub const CANCEL_GRACE: Duration = Duration::from_secs(3);
 pub const TRANSFORM_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// The version of this protocol.
 pub const PROTOCOL: &str = "1";
+/// How often a host's memory is read.
+pub const MEMORY_CHECK: Duration = Duration::from_secs(2);
 /// What of the server's environment a host half gets.
 const KEPT_ENV: &[&str] = &["PATH", "HOME", "LANG", "LC_ALL", "TZ"];
 
@@ -64,8 +70,9 @@ pub struct HostOptions {
     pub bun: PathBuf,
     /// `host/src/main.ts`. Without it no host half runs, and a plugin with one fails to activate.
     pub entry: Option<PathBuf>,
-    /// The most memory a host half's worker may use for its heap, in MiB.
-    pub heap_mb: u32,
+    /// The most memory a plugin's host process may hold (its resident set), in MiB. One that holds
+    /// more is ended, as a crash.
+    pub memory_mb: u32,
 }
 
 impl Default for HostOptions {
@@ -73,7 +80,7 @@ impl Default for HostOptions {
         HostOptions {
             bun: PathBuf::from("bun"),
             entry: None,
-            heap_mb: 512,
+            memory_mb: 512,
         }
     }
 }
@@ -258,6 +265,37 @@ impl ExtHost {
         if let Some(proc) = proc {
             proc.link.stop();
             proc.conn.close_detached(kernel);
+            // What was active in it is not any more; it starts again when it is next used.
+            let mut slots = self.slots.lock().unwrap();
+            if let Some(slot) = slots.get_mut(plugin)
+                && slot.generation == generation
+                && slot.state == Some(PluginState::Active)
+            {
+                slot.state = Some(PluginState::Inactive);
+                slot.registrations.clear();
+            }
+        }
+    }
+
+    /// Deactivates every host half, which runs its cleanups, within `limit` in all, and ends the
+    /// processes. The server calls it when it stops, before it closes the store.
+    pub async fn stop_all(&self, kernel: &Kernel, limit: Duration) {
+        let plugins: Vec<String> = self.procs.lock().unwrap().keys().cloned().collect();
+        let all = futures_util::future::join_all(
+            plugins.iter().map(|plugin| self.deactivate(kernel, plugin)),
+        );
+        if tokio::time::timeout(limit, all).await.is_err() {
+            tracing::warn!("host halves did not finish their cleanups in time");
+        }
+        let left: Vec<(String, u64)> = self
+            .procs
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(id, p)| (id.clone(), p.link.generation()))
+            .collect();
+        for (plugin, generation) in left {
+            self.stop(kernel, &plugin, generation);
         }
     }
 
@@ -392,7 +430,18 @@ impl ExtHost {
             return Err(RpcError::not_found(format!("{plugin} has no {kind} {key}")));
         };
         match registration.level.as_deref() {
-            None | Some("own") => {}
+            // A person signed in, or the server's own machine; not another plugin.
+            Some("own") if !matches!(call.caller, Caller::Plugin(_)) => {}
+            Some("own") => {
+                return Err(RpcError::forbidden(format!(
+                    "{kind} {key} of {plugin} is for people, and the caller is a plugin"
+                )));
+            }
+            None => {
+                return Err(RpcError::forbidden(format!(
+                    "{kind} {key} of {plugin} says no level, so nobody may call it"
+                )));
+            }
             Some("admin") => call.require_admin().map_err(|_| {
                 RpcError::forbidden(format!("{kind} {key} of {plugin} is for admins"))
             })?,
@@ -660,36 +709,51 @@ async fn forward(mut rx: mpsc::Receiver<Outbound>, link: Link, plugin: String) {
     }
 }
 
+/// Makes the server non-dumpable, once: its `/proc/PID/fd`, `environ` and `mem` become root's, out of
+/// reach of the hosts, which run as the same user.
+fn undumpable() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        #[cfg(target_os = "linux")]
+        // SAFETY: prctl with PR_SET_DUMPABLE changes only a flag of this process.
+        if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+            tracing::warn!(
+                error = %std::io::Error::last_os_error(),
+                "the server could not make itself non-dumpable; hosts may read its memory"
+            );
+        }
+    });
+}
+
+/// The resident memory of a process, in MiB, from `/proc/PID/status`.
+fn resident_mb(pid: u32) -> Option<u64> {
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    let line = status.lines().find(|l| l.starts_with("VmRSS:"))?;
+    let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    Some(kb / 1024)
+}
+
 fn spawn(options: &HostOptions, entry: &Path) -> std::io::Result<Child> {
+    undumpable();
     // A plugin's folder has no node_modules of its own to find @rookery/sdk in: it gets the host
     // package's workspace's (host/src/main.ts → node_modules beside host/), which its worker inherits.
-    let mut node_path: Vec<PathBuf> = std::env::var_os("NODE_PATH")
-        .map(|p| std::env::split_paths(&p).collect())
-        .unwrap_or_default();
-    if let Some(root) = std::path::absolute(entry)
+    let node_path = std::path::absolute(entry)
         .ok()
-        .and_then(|e| e.ancestors().nth(3).map(Path::to_path_buf))
-    {
-        node_path.push(root.join("node_modules"));
-    }
+        .and_then(|e| e.ancestors().nth(3).map(|root| root.join("node_modules")))
+        .unwrap_or_default();
     let mut cmd = Command::new(&options.bun);
-    cmd.arg(entry)
-        .arg(format!("--heap-mb={}", options.heap_mb))
-        .env_clear();
+    cmd.arg(entry).env_clear();
     for name in KEPT_ENV {
         if let Some(value) = std::env::var_os(name) {
             cmd.env(name, value);
         }
     }
-    cmd.env(
-        "NODE_PATH",
-        std::env::join_paths(node_path).unwrap_or_default(),
-    )
-    .env("ROOKERY_EXTHOST_PROTOCOL", PROTOCOL)
-    .stdin(Stdio::piped())
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .kill_on_drop(true);
+    cmd.env("NODE_PATH", node_path)
+        .env("ROOKERY_EXTHOST_PROTOCOL", PROTOCOL)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
     #[cfg(target_os = "linux")]
     // SAFETY: prctl is async-signal-safe; it asks the kernel to end the child when the server ends.
     unsafe {
@@ -737,10 +801,27 @@ async fn run(
     let mut ready = Some(ready);
     let stop = link.0.stop.clone();
     let mut leaving = false;
+    let mut memory = tokio::time::interval(MEMORY_CHECK);
+    let limit = u64::from(host.options.memory_mb);
+    let pid = child.id();
+    let mut over: Option<ErrorBody> = None;
     loop {
         let line = tokio::select! {
             line = lines.next_line() => line,
             _ = stop.cancelled() => break,
+            _ = memory.tick() => {
+                if let Some(used) = pid.and_then(resident_mb).filter(|used| *used > limit) {
+                    over = Some(ErrorBody {
+                        code: ErrorCode::Unavailable,
+                        message: format!(
+                            "the extension host of {plugin} held {used} MiB, more than its {limit} MiB"
+                        ),
+                        details: None,
+                    });
+                    break;
+                }
+                continue;
+            }
             _ = kernel.shutdown.cancelled(), if !leaving => {
                 // A host half's cleanups run before the server goes; this loop reads their answer.
                 leaving = true;
@@ -798,11 +879,11 @@ async fn run(
         generation,
         "a plugin's extension host ended"
     );
-    let error = ErrorBody {
+    let error = over.unwrap_or_else(|| ErrorBody {
         code: ErrorCode::Unavailable,
         message: format!("the extension host of {plugin} ended ({status:?})"),
         details: None,
-    };
+    });
     crashed(&kernel, &plugins, &plugin, generation, Some(error));
 }
 
