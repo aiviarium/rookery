@@ -190,13 +190,7 @@ impl Store {
 
     /// A store on a pool of the caller's, with no key and no blobs.
     pub fn from_pool(pool: PgPool) -> Store {
-        Store {
-            pool,
-            key: None,
-            blobs: None,
-            fence: None,
-            data: DataState::new(1024),
-        }
+        Self::from_parts(pool, StoreOptions::new(""))
     }
 
     fn from_parts(pool: PgPool, options: StoreOptions) -> Store {

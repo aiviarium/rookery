@@ -66,6 +66,15 @@ pub trait PluginData: Send + Sync + 'static {
         declared: &'a Declared,
         transforms: Transforms,
     ) -> BoxFuture<'a, Result<(), RpcError>>;
+
+    /// Reconciles installed declarations after applying individual plugins.
+    fn reconcile<'a>(
+        &'a self,
+        _kernel: &'a Kernel,
+        _plugins: &'a [Loaded],
+    ) -> BoxFuture<'a, Result<(), RpcError>> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 /// The facility a server sets to keep plugins' data.

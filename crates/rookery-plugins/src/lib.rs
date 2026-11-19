@@ -257,6 +257,9 @@ impl Plugins {
         .map_err(|e| RpcError::internal(format!("reading the plugins: {e}")))?;
         let mut found = with_dependencies(found);
         self.apply_data(kernel, &mut found).await;
+        if let Some(layer) = kernel.get_facility::<data::DataLayer>() {
+            layer.0.reconcile(kernel, &found).await?;
+        }
         let missing = record::sync(&kernel.store, &found, removed).await?;
         if !missing.is_empty() {
             tracing::warn!(
