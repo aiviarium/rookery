@@ -665,3 +665,85 @@ async fn rookerys_own_collections_are_not_written_through_data() {
     }
     k.close().await;
 }
+
+#[tokio::test]
+async fn a_log_collection_is_appended_to_followed_and_kept_by_the_hourly_round() {
+    let k: TestKernel = test_kernel!(methods());
+    plugins::apply(
+        &k.kernel,
+        &PluginData {
+            plugin: "ai".into(),
+            collections: json!([{
+                "name": "usage",
+                "scope": "global",
+                "kind": "log",
+                "retention": { "days": 30 },
+                "fields": [{ "name": "model", "type": "text" }, { "name": "tokens", "type": "integer" }]
+            }]),
+            ..Default::default()
+        },
+        &plugins::NoTransforms,
+    )
+    .await
+    .unwrap();
+    let ai = Caller::Plugin("ai".into());
+    for tokens in [10, 20] {
+        k.call(
+            &ai,
+            "data.insert",
+            json!({ "collection": "usage", "values": { "model": "m", "tokens": tokens } }),
+        )
+        .await
+        .unwrap();
+    }
+    // A log is only appended to.
+    let first = k
+        .call(
+            &ai,
+            "data.tail",
+            json!({ "collection": "usage", "fromSeq": 0 }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first["rows"].as_array().unwrap().len(), 2);
+    let id = first["rows"][0]["id"].clone();
+    assert_eq!(
+        code(
+            k.call(
+                &ai,
+                "data.update",
+                json!({ "collection": "usage", "id": id, "patch": { "tokens": 1 } })
+            )
+            .await
+        ),
+        "INVALID"
+    );
+    let sum = k
+        .call(
+            &ai,
+            "data.aggregate",
+            json!({ "collection": "usage", "groupBy": ["model"], "measures": { "total": { "sum": "tokens" } } }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(sum["rows"][0]["total"], 30);
+    // The round makes the coming partitions and trims nothing young.
+    rookery_data::maintenance::once(&k.kernel).await;
+    k.call(
+        &ai,
+        "data.insert",
+        json!({ "collection": "usage", "values": { "model": "m", "tokens": 5 } }),
+    )
+    .await
+    .unwrap();
+    let after = k
+        .call(
+            &ai,
+            "data.tail",
+            json!({ "collection": "usage", "fromSeq": first["seq"] }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(after["rows"].as_array().unwrap().len(), 1);
+    k.close().await;
+}

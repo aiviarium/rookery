@@ -12,6 +12,7 @@ pub mod data;
 pub mod entities;
 pub mod home;
 pub mod live;
+pub mod maintenance;
 pub mod plugins;
 pub mod schedules;
 pub mod spaces;
@@ -34,6 +35,7 @@ pub fn register(methods: &mut Methods) {
     sql::register(methods);
     schedules::register(methods);
     webhooks::register(methods);
+    maintenance::register(methods);
 }
 
 pub(crate) fn parse_id(what: &str, id: &str) -> Result<Uuid, RpcError> {
