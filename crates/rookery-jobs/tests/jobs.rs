@@ -799,3 +799,69 @@ async fn a_previous_attempt_cannot_write_to_the_next_one() {
     second.progress(json!("current")).await.unwrap();
     k.close().await;
 }
+
+/// Runs a while, longer than a few renewals of its claim.
+struct Slow;
+impl JobHandler for Slow {
+    fn kind(&self) -> &'static str {
+        "test.slow"
+    }
+    fn repeatable(&self) -> bool {
+        false
+    }
+    fn run(&self, job: JobRun) -> BoxFuture<'static, Result<Value, RpcError>> {
+        Box::pin(async move {
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            job.info("done").await?;
+            Ok(json!("done"))
+        })
+    }
+}
+
+#[tokio::test]
+async fn an_attempt_outlasts_a_renewal_that_failed_once() {
+    let mut methods = Methods::default();
+    rookery_kernel::streams::register(&mut methods);
+    let options = Options {
+        lease: Duration::from_millis(300),
+        ..Options::default()
+    };
+    rookery_jobs::register(&mut methods, vec![Arc::new(Slow)], options);
+    let k: TestKernel = test_kernel!(methods);
+    // The first renewal of a claim fails, as one that lost a deadlock or its connection does.
+    sqlx::raw_sql(
+        "CREATE SEQUENCE renewals;
+         CREATE FUNCTION fail_first_renewal() RETURNS trigger LANGUAGE plpgsql AS $$
+         BEGIN
+             IF nextval('renewals') = 1 THEN
+                 RAISE EXCEPTION 'deadlock detected' USING ERRCODE = '40P01';
+             END IF;
+             RETURN NEW;
+         END $$;
+         CREATE TRIGGER fail_first_renewal BEFORE UPDATE ON rookery.jobs FOR EACH ROW
+             WHEN (OLD.state = 'running' AND NEW.state = 'running' AND NEW.claimed_until IS DISTINCT FROM OLD.claimed_until)
+             EXECUTE FUNCTION fail_first_renewal();",
+    )
+    .execute(k.kernel.store.pool())
+    .await
+    .unwrap();
+    let job = rookery_jobs::jobs::enqueue(&k.kernel, "test.slow", json!({}), None, "system:test")
+        .await
+        .unwrap();
+    let jobs = k.kernel.store.jobs();
+    let mut state = String::new();
+    for _ in 0..50 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        state = jobs.get(job.id).await.unwrap().unwrap().state;
+        if state != "queued" && state != "running" {
+            break;
+        }
+    }
+    let renewals: i64 = sqlx::query_scalar("SELECT last_value FROM renewals")
+        .fetch_one(k.kernel.store.pool())
+        .await
+        .unwrap();
+    k.close().await;
+    assert!(renewals > 1, "the claim was renewed after the failure");
+    assert_eq!(state, "succeeded", "the attempt ran to its end");
+}

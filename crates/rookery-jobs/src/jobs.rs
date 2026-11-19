@@ -606,9 +606,14 @@ async fn attempt(
             _ = beat.tick() => match kernel.store.jobs().heartbeat(job.id, &worker, lease).await {
                 Ok(true) => cancel.cancel(),
                 Ok(false) => {}
-                Err(e) => {
-                    tracing::warn!(job = %job.id, error = %e, "a job's claim was lost; its attempt stops");
+                Err(rookery_store::Error::Conflict(_)) => {
+                    tracing::warn!(job = %job.id, "a job's claim was lost; its attempt stops");
                     break None;
+                }
+                // The claim is still this worker's: nothing takes a claim over while its leader leads,
+                // so the attempt goes on and the next beat renews it.
+                Err(e) => {
+                    tracing::warn!(job = %job.id, error = %e, "renewing a job's claim failed; it is tried again");
                 }
             },
             // The server stops: the attempt is left running, for the next leader to recover.
