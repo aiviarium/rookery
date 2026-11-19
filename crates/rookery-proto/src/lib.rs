@@ -17,6 +17,7 @@ pub mod hosts;
 pub mod jobs;
 pub mod methods;
 pub mod rpc;
+pub mod schedules;
 pub mod sql;
 pub mod stream;
 pub mod terminals;

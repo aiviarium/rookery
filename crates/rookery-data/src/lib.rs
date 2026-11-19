@@ -13,8 +13,10 @@ pub mod entities;
 pub mod home;
 pub mod live;
 pub mod plugins;
+pub mod schedules;
 pub mod spaces;
 pub mod sql;
+pub mod webhooks;
 
 use rookery_kernel::{Call, Caller, Methods, RpcError};
 use rookery_proto::data::DataTarget;
@@ -30,6 +32,8 @@ pub fn register(methods: &mut Methods) {
     plugins::register(methods);
     spaces::register(methods);
     sql::register(methods);
+    schedules::register(methods);
+    webhooks::register(methods);
 }
 
 pub(crate) fn parse_id(what: &str, id: &str) -> Result<Uuid, RpcError> {

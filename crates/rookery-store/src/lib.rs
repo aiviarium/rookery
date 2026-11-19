@@ -29,6 +29,7 @@ pub mod notify;
 pub mod pins;
 pub mod recents;
 pub mod refs;
+pub mod schedules;
 pub mod seal;
 pub mod search;
 pub mod secrets;
@@ -43,6 +44,7 @@ pub mod topics;
 pub mod uri;
 pub mod users;
 pub mod util;
+pub mod webhooks;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -346,6 +348,12 @@ impl Store {
     /// Raw SQL: plugins' roles, views and raw schemas, and running their statements.
     pub fn sql(&self) -> sql::Sql<'_> {
         sql::Sql { store: self }
+    }
+    pub fn schedules(&self) -> schedules::Schedules<'_> {
+        schedules::Schedules { store: self }
+    }
+    pub fn webhooks(&self) -> webhooks::Webhooks<'_> {
+        webhooks::Webhooks { store: self }
     }
     pub fn spaces(&self) -> spaces::Spaces<'_> {
         spaces::Spaces { store: self }

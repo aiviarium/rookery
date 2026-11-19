@@ -100,6 +100,7 @@ fn kernel_routes(shell: Option<PathBuf>) -> Router<Kernel> {
         .merge(rookery_auth::routes())
         .merge(rookery_plugins::routes())
         .merge(rookery_hosts::proxy::routes())
+        .merge(rookery_data::webhooks::routes())
         .fallback(move |State(kernel): State<Kernel>, request: Request| {
             crate::shell::serve(shell.clone(), kernel, request)
         })

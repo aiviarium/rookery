@@ -38,6 +38,7 @@ import type {
   Manifest,
   Person,
   Principal,
+  ScheduleCreate,
   ScheduleInfo,
   ScreenInfo,
   SettingScope,
@@ -348,9 +349,13 @@ export interface Topics {
 }
 
 export interface Schedules {
+  /** Makes or replaces a schedule of one of the plugin's jobs, by cron expression or interval. */
+  create(params: Omit<ScheduleCreate, "plugin">): Promise<ScheduleInfo>
   list(): Promise<ScheduleInfo[]>
-  setEnabled(id: string, enabled: boolean): Promise<void>
-  fire(id: string): Promise<JobInfo>
+  setEnabled(id: string, enabled: boolean): Promise<ScheduleInfo>
+  /** Runs a schedule's job now, with more params merged in. */
+  fire(id: string, params?: Record<string, unknown>): Promise<{ job: string }>
+  remove(id: string): Promise<void>
 }
 
 export type NoticeKind = "info" | "warning" | "action"
