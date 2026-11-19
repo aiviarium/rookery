@@ -832,7 +832,8 @@ pub async fn one(
         ),
         None => None,
     };
-    Ok(upgrade.on_upgrade(move |socket| live(session, socket, since)))
+    let header = query.get("attached").is_some_and(|value| value == "1");
+    Ok(upgrade.on_upgrade(move |socket| live(session, socket, since, header)))
 }
 
 /// The frame a viewer gets for a piece of output.
@@ -843,20 +844,39 @@ fn frame(terminal: bool, stream: u8, bytes: &[u8]) -> ws::Message {
     }
 }
 
-async fn live(session: Arc<Session>, socket: ws::WebSocket, since: Option<u64>) {
+/// With `header`, a text frame comes first and says what the replay is: `snapshot` when it is the
+/// screen as it stands, else the output from the offset `from`; `frames` is how many frames it has and
+/// `next` the offset live output goes on from. A viewer that counts offsets resumes from those.
+async fn live(session: Arc<Session>, socket: ws::WebSocket, since: Option<u64>, header: bool) {
     let terminal = session.kind() == SessionKind::Terminal;
     let (mut sink, mut source) = socket.split();
     // What was written so far and the subscription are taken under one lock,
     // so nothing is missed and nothing comes twice.
-    let (replay, mut next, mut events) = session.with_log(|log, parser| {
-        let replay = match (since, parser, terminal) {
-            (None, Some(parser), true) => vec![(1, parser.screen().state_formatted())],
-            (since, _, _) => log.frames(since.unwrap_or(0)),
+    let (replay, mut next, mut events, from) = session.with_log(|log, parser| {
+        let written = log.written(MERGED);
+        let (replay, from) = match (since, parser, terminal) {
+            (None, Some(parser), true) => (vec![(1, parser.screen().state_formatted())], None),
+            (since, _, _) => {
+                let from = since.unwrap_or(0).max(log.first(MERGED)).min(written);
+                (log.frames(since.unwrap_or(0)), Some(from))
+            }
         };
-        (replay, log.written(MERGED), session.events.subscribe())
+        (replay, written, session.events.subscribe(), from)
     });
     session.viewers.fetch_add(1, Ordering::Relaxed);
     let mut open = true;
+    if header {
+        let attached = serde_json::json!({"attached": {
+            "snapshot": from.is_none(),
+            "from": from.unwrap_or(next),
+            "next": next,
+            "frames": replay.len(),
+        }});
+        open = sink
+            .send(ws::Message::Text(attached.to_string().into()))
+            .await
+            .is_ok();
+    }
     for (stream, bytes) in replay {
         open = open && sink.send(frame(terminal, stream, &bytes)).await.is_ok();
     }

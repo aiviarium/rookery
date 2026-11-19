@@ -2630,6 +2630,22 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "As a stream: the output from this byte offset instead of a terminal's screen.",
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "As a stream, 1: a text frame first, {\"attached\": {snapshot, from, next, frames}}, that says what the replay is and where live output goes on.",
+            "in": "query",
+            "name": "attached",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
