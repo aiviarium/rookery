@@ -170,4 +170,19 @@ mod tests {
         assert_eq!(ids(&old), ids(&new));
         assert_eq!(ids(&new), [("cli".to_owned(), "CLI".to_owned())]);
     }
+
+    #[test]
+    fn the_ids_rookery_keeps_are_refused() {
+        let base = tempfile::tempdir().unwrap();
+        for id in ["rookery", "sign-in"] {
+            let dir = plugin_json(base.path(), id, r#"{"apiVersion": "1", "name": "Mine"}"#);
+            let problems = check_dir(&dir).join("\n");
+            assert!(
+                problems.contains(&format!("{id} is no plugin id")),
+                "{problems}"
+            );
+            let read = crate::plugins::read(&dir).unwrap();
+            assert!(read.problem.unwrap().contains("is no plugin id"));
+        }
+    }
 }

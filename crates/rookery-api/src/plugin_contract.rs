@@ -116,6 +116,15 @@ pub fn read_dir(dir: &Path) -> Result<Read, Problem> {
     read(|name| std::fs::read(dir.join(name)).ok())
 }
 
+/// The plugin ids Rookery keeps for itself: `rookery`, under which its own settings, secrets and
+/// data are kept, and `sign-in`, whose actions are its own.
+pub const RESERVED_IDS: &[&str] = &["rookery", "sign-in"];
+
+/// Whether a plugin id is one a package may have.
+pub fn valid_plugin_id(id: &str) -> bool {
+    valid_name(id) && !RESERVED_IDS.contains(&id)
+}
+
 /// A name that is safe as a directory name and inside a remote command,
 /// such as the id of a plugin or of one of its features.
 pub fn valid_name(name: &str) -> bool {
@@ -334,12 +343,6 @@ pub fn schema_problems(schema: &str, manifest: &Value, file: &str) -> Vec<Proble
 /// Rookery versions it works with, and that target's files. It is packed
 /// the way Hatchery packs it, without a build, so what passes here installs.
 /// A `package.kdl` that cannot be read is the one problem.
-/// The ids no plugin may have: `sign-in:NAME` are Rookery's own sign-ins, and `rookery` is the
-/// server, whose secrets, settings and leases are kept under that id.
-pub fn reserved(id: &str) -> bool {
-    id == "sign-in" || id == "rookery" || id.starts_with("rookery.")
-}
-
 pub fn check_dir(dir: &Path) -> Vec<String> {
     let manifest = match hatchery::Manifest::load(dir) {
         Ok(manifest) => manifest,
@@ -350,9 +353,9 @@ pub fn check_dir(dir: &Path) -> Vec<String> {
         return vec![format!("{} has no {TARGET} target", manifest.name())];
     };
     let id = &manifest.package.id;
-    if !valid_name(id) || reserved(id) {
+    if !valid_plugin_id(id) {
         problems.push(format!(
-            "package.kdl: {id} is no plugin id: lower-case letters, digits, - and _, starting with a letter, and not sign-in or rookery"
+            "package.kdl: {id} is no plugin id: lower-case letters, digits, - and _, starting with a letter, and neither rookery nor sign-in"
         ));
     }
     if target

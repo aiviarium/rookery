@@ -368,10 +368,10 @@ pub fn read(package: &Path) -> Option<Plugin> {
         features: vec![],
         provisioners: vec![],
     };
-    // `sign-in:NAME` are rookery's own sign-ins, and `rookery` the server's.
-    plugin.problem = if !valid_name(&id) || rookery_api::plugin_contract::reserved(&id) {
+    // `sign-in:NAME` are rookery's own sign-ins.
+    plugin.problem = if !rookery_api::plugin_contract::valid_plugin_id(&id) {
         Some(format!(
-            "{id} is no plugin id: ids are lower-case letters, digits, - and _, start with a letter, and are not sign-in or rookery"
+            "{id} is no plugin id: ids are lower-case letters, digits, - and _, start with a letter, and are neither rookery nor sign-in"
         ))
     } else if target
         .manifest
