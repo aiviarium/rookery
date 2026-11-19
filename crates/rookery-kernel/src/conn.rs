@@ -32,6 +32,7 @@ const MAX_OUTBOUND_FRAMES: usize = 32;
 const MAX_OUTBOUND_BINARY: usize = 32;
 const MAX_OUTBOUND_MESSAGE: usize = 2 * 1024 * 1024;
 const MAX_PENDING_CALLS: usize = 16;
+const MAX_PENDING_CALL_BYTES: usize = 12 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct OutTx {
@@ -137,11 +138,8 @@ impl ConnHandle {
 impl ConnHandle {
     /// A connection with no socket: what the server sends on it arrives on the receiver. For tests, and
     /// for code inside the server that calls methods as a client would.
-    pub fn detached(
-        kernel: &Kernel,
-        caller: Caller,
-    ) -> (ConnHandle, mpsc::UnboundedReceiver<Outbound>) {
-        let (out, rx) = mpsc::unbounded_channel();
+    pub fn detached(kernel: &Kernel, caller: Caller) -> (ConnHandle, mpsc::Receiver<Outbound>) {
+        let (out, rx) = OutTx::channel();
         let id = kernel.conns.next.fetch_add(1, Ordering::Relaxed) + 1;
         let conn = ConnHandle(Arc::new(ConnInner {
             id,
@@ -303,6 +301,7 @@ pub async fn serve(
 
     let mut revoked = false;
     let mut calls = JoinSet::new();
+    let pending_bytes = Arc::new(Semaphore::new(MAX_PENDING_CALL_BYTES));
     loop {
         let message = tokio::select! {
             biased;
@@ -326,7 +325,15 @@ pub async fn serve(
         };
         match message {
             WsMessage::Text(text) => {
-                handle_text(&kernel, &conn, &out, &mut calls, text.as_str()).await
+                handle_text(
+                    &kernel,
+                    &conn,
+                    &out,
+                    &mut calls,
+                    &pending_bytes,
+                    text.as_str(),
+                )
+                .await
             }
             WsMessage::Binary(data) => conn.streams().deliver(&data),
             WsMessage::Close(_) => break,
@@ -359,6 +366,7 @@ async fn handle_text(
     conn: &ConnHandle,
     out: &OutTx,
     calls: &mut JoinSet<()>,
+    pending_bytes: &Arc<Semaphore>,
     text: &str,
 ) {
     let (id, method, params) = match Message::parse(text) {
@@ -375,7 +383,15 @@ async fn handle_text(
         method.as_str(),
         "streams.credit" | "streams.eof" | "streams.close"
     );
-    if !control && calls.len() >= MAX_PENDING_CALLS {
+    let permit = (!control && calls.len() < MAX_PENDING_CALLS)
+        .then(|| {
+            pending_bytes
+                .clone()
+                .try_acquire_many_owned(text.len() as u32)
+                .ok()
+        })
+        .flatten();
+    if !control && permit.is_none() {
         if let Some(id) = id {
             let response = Response::from_result(
                 id,
@@ -389,6 +405,7 @@ async fn handle_text(
     let done = kernel.methods.dispatch(call, &method, params);
     let out = out.clone();
     let finish = async move {
+        let _permit = permit;
         let result = done.await;
         if let Some(id) = id {
             out.send_text(Message::Response(Response::from_result(id, result)).to_text());

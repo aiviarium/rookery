@@ -585,6 +585,13 @@ async fn topics_deliver_in_order_with_dead_letters() {
         .publish("hosts/studio", &json!(2), "system:x")
         .await
         .unwrap();
+    assert!(topics.ack("hosts/studio", "inbox", two).await.is_err());
+    assert!(
+        topics
+            .nack("hosts/studio", "inbox", two, None, Duration::ZERO)
+            .await
+            .is_err()
+    );
     let Next::Message(m, 1) = topics.next("hosts/studio", "inbox").await.unwrap() else {
         panic!("the first message")
     };
@@ -707,4 +714,149 @@ async fn notifications_mute_and_answer() {
     assert_eq!(notify.list(user, true, None, 10).await.unwrap().len(), 0);
     assert_eq!(notify.list(user, false, None, 10).await.unwrap().len(), 2);
     db.close().await;
+}
+
+#[tokio::test]
+async fn a_cancel_request_wins_before_the_attempt_finishes() {
+    let db = test_db!();
+    let jobs = db.store.jobs();
+    let made = jobs.enqueue(job("apply", &json!({}), 1)).await.unwrap();
+    jobs.claim(&["apply".into()], "w1", Duration::from_secs(30))
+        .await
+        .unwrap()
+        .unwrap();
+    jobs.cancel(made.id).await.unwrap();
+    let done = jobs
+        .finish(made.id, "w1", Outcome::Succeeded(json!("done")))
+        .await
+        .unwrap();
+    db.close().await;
+    assert_eq!(done.state, "cancelled");
+    assert!(done.result.is_none());
+}
+
+#[tokio::test]
+async fn concurrent_log_writes_each_leave_a_line() {
+    let db = test_db!();
+    let jobs = db.store.jobs();
+    let made = jobs.enqueue(job("apply", &json!({}), 1)).await.unwrap();
+    let mut writers = tokio::task::JoinSet::new();
+    for _ in 0..32 {
+        let store = db.store.clone();
+        writers.spawn(async move { store.jobs().log(made.id, "info", "a line", None).await });
+    }
+    let mut lines = Vec::new();
+    while let Some(result) = writers.join_next().await {
+        lines.push(result.unwrap());
+    }
+    let log = jobs.log_after(made.id, 0, 100).await.unwrap();
+    db.close().await;
+    assert!(lines.iter().all(Result::is_ok), "{lines:?}");
+    assert_eq!(log.len(), 32);
+}
+
+#[tokio::test]
+async fn rekey_authenticates_rows_even_when_key_ids_match() {
+    use rookery_store::{seal::Key, secrets::Scope};
+
+    let db = test_db!();
+    let fake = |n: u32| Key::from_bytes(n.to_be_bytes().repeat(8).try_into().unwrap());
+    let old = fake(47333);
+    let new = fake(113831);
+    assert_eq!(old.id(), new.id());
+    let old_store = rookery_store::Store::connect(rookery_store::StoreOptions {
+        secret_key: Some(old.clone()),
+        ..rookery_store::StoreOptions::new(&db.url)
+    })
+    .await
+    .unwrap();
+    let new_store = rookery_store::Store::connect(rookery_store::StoreOptions {
+        secret_key: Some(new.clone()),
+        ..rookery_store::StoreOptions::new(&db.url)
+    })
+    .await
+    .unwrap();
+    old_store
+        .secrets()
+        .set("fleet", "api", Scope::Global, b"fixture")
+        .await
+        .unwrap();
+    let moved = old_store.secrets().rekey(&old, &new).await.unwrap();
+    let opened = new_store.secrets().get("fleet", "api", Scope::Global).await;
+    old_store.close().await;
+    new_store.close().await;
+    db.close().await;
+    assert_eq!(moved.secrets, 1);
+    assert_eq!(opened.unwrap().as_deref(), Some(b"fixture".as_slice()));
+}
+
+#[tokio::test]
+async fn topic_publications_commit_in_cursor_order() {
+    use rookery_store::topics::{From, Next};
+    let db = test_db!();
+    let pool = db.store.pool();
+    let topics = db.store.topics();
+    topics
+        .subscribe("fleet/hosts", "inbox", From::Start)
+        .await
+        .unwrap();
+    sqlx::raw_sql(
+        "CREATE FUNCTION rookery.delay_first_message() RETURNS trigger LANGUAGE plpgsql AS $$
+             BEGIN
+                 IF NEW.payload = '1'::jsonb THEN PERFORM pg_advisory_xact_lock(1234); END IF;
+                 RETURN NEW;
+             END
+         $$;
+         CREATE TRIGGER delay_first_message BEFORE INSERT ON rookery.topic_messages
+         FOR EACH ROW EXECUTE FUNCTION rookery.delay_first_message()",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    let mut gate = pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock(1234)")
+        .execute(&mut *gate)
+        .await
+        .unwrap();
+    let first = {
+        let store = db.store.clone();
+        tokio::spawn(async move {
+            store
+                .topics()
+                .publish("fleet/hosts", &json!(1), "plugin:fleet")
+                .await
+                .unwrap()
+        })
+    };
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND objid = 1234 AND NOT granted
+                 AND database = (SELECT oid FROM pg_database WHERE datname = current_database()))",
+            ).fetch_one(pool).await.unwrap();
+            if waiting { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    let mut second = {
+        let store = db.store.clone();
+        tokio::spawn(async move {
+            store
+                .topics()
+                .publish("fleet/hosts", &json!(2), "plugin:fleet")
+                .await
+                .unwrap()
+        })
+    };
+    let premature = tokio::time::timeout(Duration::from_millis(500), &mut second).await;
+    let visible = topics.next("fleet/hosts", "inbox").await.unwrap();
+    gate.commit().await.unwrap();
+    let first = first.await.unwrap();
+    let second = match premature {
+        Ok(second) => second.unwrap(),
+        Err(_) => second.await.unwrap(),
+    };
+    db.close().await;
+    assert!(first < second);
+    assert_eq!(visible, Next::Empty);
 }

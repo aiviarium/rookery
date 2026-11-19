@@ -30,9 +30,13 @@ pub(crate) fn time(t: DateTime<Utc>) -> String {
 
 /// A name inside a plugin's own space: `<plugin>/<name>`.
 pub(crate) fn scoped(plugin: &str, name: &str) -> Result<String, rookery_kernel::RpcError> {
-    if name.is_empty() || name.len() > 200 || name.chars().any(char::is_control) {
+    if name.is_empty()
+        || name.len() > 200
+        || name.contains('/')
+        || name.chars().any(char::is_control)
+    {
         return Err(rookery_kernel::RpcError::invalid(
-            "a name is 1 to 200 characters",
+            "a name is 1 to 200 characters without a slash",
         ));
     }
     Ok(format!("{plugin}/{name}"))

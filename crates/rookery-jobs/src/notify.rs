@@ -50,7 +50,7 @@ pub fn register(methods: &mut Methods) {
                 ));
             }
             let user = uuid("user", &p.user)?;
-            let kind = format!("{plugin}/{}", p.kind);
+            let kind = crate::scoped(&plugin, &p.kind)?;
             let sent = call
                 .store()
                 .notify()
@@ -111,11 +111,12 @@ pub fn register(methods: &mut Methods) {
     methods
         .add("notify.answer", |call: Call, p: NotifyAnswer| async move {
             let user = call.user_id()?;
-            let answered = call.store().notify().answer(user, uuid("notification", &p.id)?, &p.answer).await?;
-            if let Some(plugin) = answered.sent_by.strip_prefix("plugin:") {
-                let message = serde_json::json!({ "id": answered.id, "kind": answered.kind, "answer": p.answer, "user": user, "data": answered.data });
-                let topic = format!("{plugin}/notify.answers");
-                call.store().topics().publish(&topic, &message, &call.audit_name()).await?;
+            let answered = call
+                .store()
+                .notify()
+                .answer(user, uuid("notification", &p.id)?, &p.answer)
+                .await?;
+            if let Some(topic) = answered.answer_topic() {
                 crate::topics::wake_topic(&call.kernel, &topic);
             }
             Ok(info(answered))

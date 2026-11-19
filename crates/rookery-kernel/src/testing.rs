@@ -18,7 +18,7 @@ pub struct TestKernel {
 /// What a detached connection was sent.
 pub struct Inbox {
     pub conn: ConnHandle,
-    pub rx: mpsc::UnboundedReceiver<Outbound>,
+    pub rx: mpsc::Receiver<Outbound>,
 }
 
 impl Inbox {

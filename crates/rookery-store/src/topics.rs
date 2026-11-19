@@ -66,14 +66,33 @@ pub struct Topics<'a> {
 
 const MSG: &str = "m.seq, m.topic, m.payload, m.published_by, m.published_at";
 
+/// Allocates the cursor only after earlier publishers of this topic have committed.
+pub(crate) async fn publish_on(
+    conn: &mut sqlx::PgConnection,
+    topic: &str,
+    payload: &Value,
+    by: &str,
+) -> Result<i64> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 1128370324))")
+        .bind(topic)
+        .execute(&mut *conn)
+        .await?;
+    Ok(sqlx::query_scalar(
+        "INSERT INTO rookery.topic_messages (topic, payload, published_by) VALUES ($1, $2, $3) RETURNING seq",
+    )
+    .bind(topic)
+    .bind(payload)
+    .bind(by)
+    .fetch_one(conn)
+    .await?)
+}
+
 impl Topics<'_> {
     pub async fn publish(&self, topic: &str, payload: &Value, by: &str) -> Result<i64> {
-        Ok(sqlx::query_scalar("INSERT INTO rookery.topic_messages (topic, payload, published_by) VALUES ($1, $2, $3) RETURNING seq")
-            .bind(topic)
-            .bind(payload)
-            .bind(by)
-            .fetch_one(self.pool)
-            .await?)
+        let mut tx = self.pool.begin().await?;
+        let seq = publish_on(&mut tx, topic, payload, by).await?;
+        tx.commit().await?;
+        Ok(seq)
     }
 
     /// Makes a subscription if there is none.
@@ -145,7 +164,9 @@ impl Topics<'_> {
         }
         let done = sqlx::query(
             "UPDATE rookery.topic_subscriptions SET acked = $3, attempts = 0, not_before = NULL, last_error = NULL
-             WHERE topic = $1 AND subscription = $2 AND acked < $3",
+             WHERE topic = $1 AND subscription = $2 AND $3 = (
+                 SELECT min(seq) FROM rookery.topic_messages WHERE topic = $1 AND seq > rookery.topic_subscriptions.acked
+             )",
         )
         .bind(topic)
         .bind(subscription)
@@ -187,7 +208,9 @@ impl Topics<'_> {
         }
         let attempts: Option<i32> = sqlx::query_scalar(
             "UPDATE rookery.topic_subscriptions SET attempts = attempts + 1, last_error = $4
-             WHERE topic = $1 AND subscription = $2 AND acked < $3 RETURNING attempts",
+             WHERE topic = $1 AND subscription = $2 AND $3 = (
+                 SELECT min(seq) FROM rookery.topic_messages WHERE topic = $1 AND seq > rookery.topic_subscriptions.acked
+             ) RETURNING attempts",
         )
         .bind(topic)
         .bind(subscription)

@@ -130,7 +130,7 @@ pub fn register(methods: &mut Methods) {
             check_subscription(&p.subscription)?;
             let from = if p.from_start { From::Start } else { From::Latest };
             call.store().topics().subscribe(&topic, &p.subscription, from).await?;
-            let stream = call.conn()?.streams().open(Initiator::Peer);
+            let stream = call.conn()?.streams().open(Initiator::Peer)?;
             let id = stream.id();
             tokio::spawn(deliver(call.kernel.clone(), topic, p.subscription, stream));
             Ok(StreamOpened { stream: id, offset: None })

@@ -186,29 +186,36 @@ impl Jobs<'_> {
 
     /// Ends an attempt of a claimed job.
     pub async fn finish(&self, id: Uuid, worker: &str, outcome: Outcome) -> Result<Job> {
-        let (sql, a, b): (&str, Option<Value>, Option<f64>) = match outcome {
-            Outcome::Succeeded(result) => (
-                "state = 'succeeded', result = $3, finished_at = now()",
-                Some(result),
-                None,
-            ),
-            Outcome::Cancelled => ("state = 'cancelled', finished_at = now()", None, None),
+        let (state, result, error, retry_in) = match outcome {
+            Outcome::Succeeded(result) => ("succeeded", Some(result), None, None),
+            Outcome::Cancelled => ("cancelled", None, None, None),
             Outcome::Failed { error, retry_in } => (
-                "error = $3, state = CASE WHEN attempts < max_attempts AND NOT cancel_requested AND $4::float8 IS NOT NULL THEN 'queued' ELSE 'failed' END,
-                 run_after = CASE WHEN $4::float8 IS NOT NULL THEN now() + make_interval(secs => $4) ELSE run_after END,
-                 finished_at = CASE WHEN attempts < max_attempts AND NOT cancel_requested AND $4::float8 IS NOT NULL THEN NULL ELSE now() END",
+                "failed",
+                None,
                 Some(error),
-                retry_in.map(|d| d.as_secs_f64()),
+                retry_in.map(|duration| duration.as_secs_f64()),
             ),
         };
         sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "UPDATE rookery.jobs SET {sql}, claimed_by = NULL, claimed_until = NULL
+            "UPDATE rookery.jobs SET
+                 state = CASE WHEN cancel_requested THEN 'cancelled'
+                              WHEN attempts < max_attempts AND $6::float8 IS NOT NULL THEN 'queued'
+                              ELSE $3 END,
+                 result = CASE WHEN NOT cancel_requested THEN $4 END,
+                 error = CASE WHEN NOT cancel_requested THEN $5 END,
+                 run_after = CASE WHEN NOT cancel_requested AND attempts < max_attempts AND $6::float8 IS NOT NULL
+                                  THEN now() + make_interval(secs => $6) ELSE run_after END,
+                 finished_at = CASE WHEN NOT cancel_requested AND attempts < max_attempts AND $6::float8 IS NOT NULL
+                                    THEN NULL ELSE now() END,
+                 claimed_by = NULL, claimed_until = NULL
              WHERE id = $1 AND state = 'running' AND claimed_by = $2 RETURNING {COLS}"
         )))
         .bind(id)
         .bind(worker)
-        .bind(a)
-        .bind(b)
+        .bind(state)
+        .bind(result)
+        .bind(error)
+        .bind(retry_in)
         .fetch_optional(self.pool)
         .await?
         .ok_or_else(|| Error::Conflict("the job's claim is gone".into()))
@@ -253,11 +260,31 @@ impl Jobs<'_> {
     }
 
     pub async fn set_progress(&self, id: Uuid, progress: &Value) -> Result<()> {
+        self.update_progress(id, None, progress).await
+    }
+
+    pub async fn set_claimed_progress(
+        &self,
+        id: Uuid,
+        worker: &str,
+        progress: &Value,
+    ) -> Result<()> {
+        self.update_progress(id, Some(worker), progress).await
+    }
+
+    async fn update_progress(
+        &self,
+        id: Uuid,
+        worker: Option<&str>,
+        progress: &Value,
+    ) -> Result<()> {
         let done = sqlx::query(
-            "UPDATE rookery.jobs SET progress = $2 WHERE id = $1 AND state = 'running'",
+            "UPDATE rookery.jobs SET progress = $2 WHERE id = $1 AND state = 'running'
+             AND ($3::text IS NULL OR claimed_by = $3)",
         )
         .bind(id)
         .bind(progress)
+        .bind(worker)
         .execute(self.pool)
         .await?;
         if done.rows_affected() == 0 {
@@ -274,19 +301,57 @@ impl Jobs<'_> {
         text: &str,
         data: Option<&Value>,
     ) -> Result<i64> {
-        sqlx::query_scalar(
+        self.append_log(id, None, level, text, data).await
+    }
+
+    pub async fn log_claimed(
+        &self,
+        id: Uuid,
+        worker: &str,
+        level: &str,
+        text: &str,
+        data: Option<&Value>,
+    ) -> Result<i64> {
+        self.append_log(id, Some(worker), level, text, data).await
+    }
+
+    async fn append_log(
+        &self,
+        id: Uuid,
+        worker: Option<&str>,
+        level: &str,
+        text: &str,
+        data: Option<&Value>,
+    ) -> Result<i64> {
+        let mut tx = self.pool.begin().await?;
+        let attempt: i32 = sqlx::query_scalar(
+            "SELECT attempts FROM rookery.jobs WHERE id = $1
+               AND ($2::text IS NULL OR (state = 'running' AND claimed_by = $2))
+             FOR UPDATE",
+        )
+        .bind(id)
+        .bind(worker)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| match worker {
+            Some(_) => Error::Conflict("the job's claim is gone".into()),
+            None => Error::NotFound("no such job".into()),
+        })?;
+        // Compute the next sequence in a fresh snapshot after taking the job row lock.
+        let seq = sqlx::query_scalar(
             "INSERT INTO rookery.log_items (job_id, seq, attempt, level, text, data)
-             SELECT $1, coalesce((SELECT max(seq) FROM rookery.log_items WHERE job_id = $1), 0) + 1, j.attempts, $2, $3, $4
-             FROM rookery.jobs j WHERE j.id = $1
+             VALUES ($1, coalesce((SELECT max(seq) FROM rookery.log_items WHERE job_id = $1), 0) + 1, $2, $3, $4, $5)
              RETURNING seq",
         )
         .bind(id)
+        .bind(attempt)
         .bind(level)
         .bind(text)
         .bind(data)
-        .fetch_optional(self.pool)
-        .await?
-        .ok_or_else(|| Error::NotFound("no such job".into()))
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(seq)
     }
 
     /// A job's log items after `after`, in order.

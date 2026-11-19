@@ -25,6 +25,14 @@ pub struct Notification {
     pub answered_at: Option<DateTime<Utc>>,
 }
 
+impl Notification {
+    pub fn answer_topic(&self) -> Option<String> {
+        self.sent_by
+            .strip_prefix("plugin:")
+            .map(|plugin| format!("{plugin}/notify.answers"))
+    }
+}
+
 const COLS: &str = "id, user_id, kind, title, body, data, actions, answer, sent_by, created_at, read_at, answered_at";
 
 #[derive(Debug, Clone)]
@@ -120,12 +128,13 @@ impl Notify<'_> {
 
     /// Gives one of a notification's answers, once.
     pub async fn answer(&self, user: Uuid, id: Uuid, answer: &str) -> Result<Notification> {
+        let mut tx = self.pool.begin().await?;
         let found: Option<Notification> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "SELECT {COLS} FROM rookery.notifications WHERE id = $1 AND user_id = $2"
         )))
         .bind(id)
         .bind(user)
-        .fetch_optional(self.pool)
+        .fetch_optional(&mut *tx)
         .await?;
         let Some(found) = found else {
             return Err(Error::NotFound("no such notification".into()));
@@ -140,16 +149,24 @@ impl Notify<'_> {
                 "{answer:?} is not one of the notification's answers"
             )));
         }
-        sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        let answered: Notification = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "UPDATE rookery.notifications SET answer = $3, answered_at = now(), read_at = coalesce(read_at, now())
              WHERE id = $1 AND user_id = $2 AND answer IS NULL RETURNING {COLS}"
         )))
         .bind(id)
         .bind(user)
         .bind(answer)
-        .fetch_optional(self.pool)
+        .fetch_optional(&mut *tx)
         .await?
-        .ok_or_else(|| Error::Conflict("the notification was answered already".into()))
+        .ok_or_else(|| Error::Conflict("the notification was answered already".into()))?;
+        if let Some(topic) = answered.answer_topic() {
+            let payload = serde_json::json!({
+                "id": id, "kind": answered.kind, "answer": answer, "user": user, "data": answered.data
+            });
+            crate::topics::publish_on(&mut tx, &topic, &payload, &format!("user:{user}")).await?;
+        }
+        tx.commit().await?;
+        Ok(answered)
     }
 
     pub async fn set_pref(&self, user: Uuid, kind: &str, muted: bool) -> Result<()> {

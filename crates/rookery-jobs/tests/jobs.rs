@@ -687,3 +687,111 @@ async fn notifications_reach_a_persons_inbox_and_answers_the_plugin() {
     );
     k.close().await;
 }
+
+#[tokio::test]
+async fn a_notification_answer_is_retryable_if_topic_publication_fails() {
+    let k: TestKernel = test_kernel!(messaging());
+    let fleet = Caller::Plugin("fleet".into());
+    let ops = k.person("Ops", false).await;
+    let sent = k
+        .call(
+            &fleet,
+            "notify.send",
+            json!({"user": ops.user().unwrap().id, "kind": "apply", "title": "Apply studio?", "actions": ["approve"]}),
+        )
+        .await
+        .unwrap();
+    let answer = json!({"id": sent["notification"]["id"], "answer": "approve"});
+    let pool = k.db.store.pool();
+    sqlx::query("ALTER TABLE rookery.topic_messages ADD CONSTRAINT reject_answers CHECK (topic <> 'fleet/notify.answers')")
+        .execute(pool).await.unwrap();
+    assert_eq!(
+        code(k.call(&ops, "notify.answer", answer.clone()).await),
+        "INTERNAL"
+    );
+    sqlx::query("ALTER TABLE rookery.topic_messages DROP CONSTRAINT reject_answers")
+        .execute(pool)
+        .await
+        .unwrap();
+    let retried = k.call(&ops, "notify.answer", answer).await;
+    k.close().await;
+    assert_eq!(retried.unwrap()["answer"], "approve");
+}
+
+#[tokio::test]
+async fn a_plugin_cannot_use_a_nested_plugins_namespace() {
+    let k: TestKernel = test_kernel!(messaging());
+    let parent = Caller::Plugin("registry".into());
+    let child = Caller::Plugin("registry/fleet".into());
+    k.call(
+        &child,
+        "topics.publish",
+        json!({"topic": "hosts", "payload": "fixture"}),
+    )
+    .await
+    .unwrap();
+    let own = k
+        .call(&child, "topics.inspect", json!({"topic": "hosts"}))
+        .await
+        .unwrap();
+    let refused = k
+        .call(&parent, "topics.inspect", json!({"topic": "fleet/hosts"}))
+        .await;
+    k.close().await;
+    assert_eq!(own["messages"], 1);
+    assert_eq!(code(refused), "INVALID");
+}
+
+#[tokio::test]
+async fn a_previous_attempt_cannot_write_to_the_next_one() {
+    struct Observe(tokio::sync::mpsc::UnboundedSender<JobRun>);
+    impl JobHandler for Observe {
+        fn kind(&self) -> &'static str {
+            "test.observe"
+        }
+        fn run(&self, job: JobRun) -> BoxFuture<'static, Result<Value, RpcError>> {
+            self.0.send(job.clone()).unwrap();
+            Box::pin(async move {
+                if job.attempt == 1 {
+                    return Err(RpcError::unavailable("try again"));
+                }
+                job.cancelled().await;
+                Ok(Value::Null)
+            })
+        }
+    }
+    let (tx, mut runs) = tokio::sync::mpsc::unbounded_channel();
+    let mut methods = Methods::default();
+    rookery_jobs::register(
+        &mut methods,
+        vec![Arc::new(Observe(tx))],
+        Options {
+            backoff: Duration::ZERO,
+            ..Options::default()
+        },
+    );
+    let k: TestKernel = test_kernel!(methods);
+    let admin = k.person("Maria", true).await;
+    k.call(&admin, "jobs.enqueue", json!({"kind": "test.observe"}))
+        .await
+        .unwrap();
+    let first = runs.recv().await.unwrap();
+    let second = runs.recv().await.unwrap();
+    assert_eq!((first.attempt, second.attempt), (1, 2));
+    assert_eq!(
+        first.info("stale").await.unwrap_err().error_code().as_str(),
+        "CONFLICT"
+    );
+    assert_eq!(
+        first
+            .progress(json!("stale"))
+            .await
+            .unwrap_err()
+            .error_code()
+            .as_str(),
+        "CONFLICT"
+    );
+    second.info("current").await.unwrap();
+    second.progress(json!("current")).await.unwrap();
+    k.close().await;
+}

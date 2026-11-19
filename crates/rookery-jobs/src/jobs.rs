@@ -78,6 +78,7 @@ pub struct JobRun {
     pub attempt: i32,
     pub subject: Option<String>,
     cancel: CancellationToken,
+    worker: String,
 }
 
 impl JobRun {
@@ -87,7 +88,7 @@ impl JobRun {
             .kernel
             .store
             .jobs()
-            .log(self.id, level, text, data.as_ref())
+            .log_claimed(self.id, &self.worker, level, text, data.as_ref())
             .await?;
         signals(&self.kernel).changed(self.id);
         Ok(seq)
@@ -102,7 +103,7 @@ impl JobRun {
         self.kernel
             .store
             .jobs()
-            .set_progress(self.id, &progress)
+            .set_claimed_progress(self.id, &self.worker, &progress)
             .await?;
         signals(&self.kernel).changed(self.id);
         Ok(())
@@ -261,7 +262,14 @@ async fn plugins_job(call: &Call, plugin: Option<&str>, id: &str) -> Result<Job,
     let id = Uuid::parse_str(id)
         .map_err(|_| RpcError::invalid(format!("{id:?} is not the id of a job")))?;
     match call.store().jobs().get(id).await? {
-        Some(job) if job.kind.starts_with(&format!("{plugin}/")) => Ok(job),
+        Some(job)
+            if job
+                .kind
+                .rsplit_once('/')
+                .is_some_and(|(owner, _)| owner == plugin) =>
+        {
+            Ok(job)
+        }
         _ => Err(RpcError::not_found("no such job of the plugin")),
     }
 }
@@ -356,7 +364,7 @@ pub fn register(methods: &mut Methods, handlers: Vec<Arc<dyn JobHandler>>, optio
     methods
         .add("jobs.follow", |call: Call, p: JobFollow| async move {
             let job = visible(&call, &p.id).await?;
-            let stream = call.conn()?.streams().open(Initiator::Peer);
+            let stream = call.conn()?.streams().open(Initiator::Peer)?;
             let id = stream.id();
             tokio::spawn(follow(call.kernel.clone(), job.id, p.after, stream));
             Ok(StreamOpened { stream: id, offset: Some(p.after.max(0) as u64) })
@@ -524,20 +532,15 @@ async fn work(kernel: Kernel) {
         let woken = signals.wake.notified();
         tokio::pin!(woken);
         woken.as_mut().enable();
+        let claim = format!("{worker}:{}", Uuid::now_v7());
         match kernel
             .store
             .jobs()
-            .claim(&kinds, &worker, registry.options.lease)
+            .claim(&kinds, &claim, registry.options.lease)
             .await
         {
             Ok(Some(job)) => {
-                tokio::spawn(attempt(
-                    kernel.clone(),
-                    registry.clone(),
-                    worker.clone(),
-                    job,
-                    slot,
-                ));
+                tokio::spawn(attempt(kernel.clone(), registry.clone(), claim, job, slot));
                 continue;
             }
             Ok(None) => drop(slot),
@@ -590,6 +593,7 @@ async fn attempt(
         attempt: job.attempts,
         subject: job.subject.clone(),
         cancel: cancel.clone(),
+        worker: worker.clone(),
     };
     let lease = registry.options.lease;
     let mut beat = tokio::time::interval(lease / 3);
@@ -618,7 +622,10 @@ async fn attempt(
         Ok(result) => Outcome::Succeeded(result),
         Err(e) => {
             let retry_in = handler.repeatable().then(|| {
-                registry.options.backoff * 2u32.saturating_pow((job.attempts - 1).max(0) as u32)
+                registry
+                    .options
+                    .backoff
+                    .saturating_mul(2u32.saturating_pow((job.attempts - 1).max(0) as u32))
             });
             Outcome::Failed {
                 error: serde_json::to_value(e.body()).expect("an error serializes"),

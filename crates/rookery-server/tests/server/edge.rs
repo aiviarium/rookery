@@ -581,3 +581,21 @@ async fn concurrent_setup_links_create_only_the_first_admin() {
     served.stop().await;
     assert_eq!(statuses, [303, 410]);
 }
+
+#[tokio::test]
+async fn blobs_fit_through_both_rpc_transports() {
+    use base64::Engine;
+    let blobs = tempfile::tempdir().unwrap();
+    let served = served!(|config: &mut rookery_server::ServerConfig| {
+        config.blobs = Some(blobs.path().to_path_buf());
+    });
+    let token = served.first_admin("Maria").await;
+    let bytes = vec![0; 8 * 1024 * 1024];
+    let put = json!({"contentType": "application/octet-stream", "data": base64::engine::general_purpose::STANDARD.encode(&bytes)});
+    let http = served.rpc(&token, "blobs.put", put.clone()).await;
+    let mut socket = connect(&served, &token).await;
+    let ws = call(&mut socket, 1, "blobs.put", put).await;
+    served.stop().await;
+    assert_eq!(http.unwrap()["size"], bytes.len());
+    assert_eq!(ws["result"]["size"], bytes.len());
+}

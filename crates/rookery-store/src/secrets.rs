@@ -196,21 +196,22 @@ impl Secrets<'_> {
             ("connections", &mut done.connections),
         ] {
             let rows: Vec<SealedRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                "SELECT id, key_id, nonce, ciphertext FROM rookery.{table} WHERE key_id IS NOT NULL AND key_id <> $1 FOR UPDATE"
+                "SELECT id, key_id, nonce, ciphertext FROM rookery.{table} WHERE key_id IS NOT NULL FOR UPDATE"
             )))
-            .bind(new.id())
             .fetch_all(&mut *tx)
             .await?;
             for r in rows {
                 let aad = row(table, r.id);
-                let plain = old.open(
-                    &aad,
-                    &Sealed {
-                        key_id: r.key_id,
-                        nonce: r.nonce,
-                        ciphertext: r.ciphertext,
-                    },
-                )?;
+                let current = Sealed {
+                    key_id: r.key_id,
+                    nonce: r.nonce,
+                    ciphertext: r.ciphertext,
+                };
+                // A key ID narrows the search, but only AEAD authentication identifies the key.
+                if current.key_id == new.id() && new.open(&aad, &current).is_ok() {
+                    continue;
+                }
+                let plain = old.open(&aad, &current)?;
                 let sealed = new.seal(&aad, &plain)?;
                 sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE rookery.{table} SET key_id = $2, nonce = $3, ciphertext = $4 WHERE id = $1")))
                     .bind(r.id)

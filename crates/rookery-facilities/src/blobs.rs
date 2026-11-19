@@ -65,7 +65,7 @@ pub fn register(methods: &mut Methods) {
         .add("blobs.read", |call: Call, p: IdRef| async move {
             let blob = readable(&call, &p.id).await?;
             let bytes = call.store().blobs().read(&blob).await?;
-            let stream = call.conn()?.streams().open(Initiator::Peer);
+            let stream = call.conn()?.streams().open(Initiator::Peer)?;
             let id = stream.id();
             tokio::spawn(async move {
                 if stream.write(&bytes).await.is_ok() {
