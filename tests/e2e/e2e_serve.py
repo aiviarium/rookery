@@ -288,15 +288,23 @@ class Connect(unittest.TestCase):
         if not has_vnc:
             rfb = (
                 'import socket, struct\n'
+                'def exact(c, n):\n'
+                ' b = b""\n'
+                ' while len(b) < n:\n'
+                '  chunk = c.recv(n - len(b))\n'
+                '  if not chunk: raise EOFError()\n'
+                '  b += chunk\n'
+                ' return b\n'
                 's = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n'
                 's.bind(("127.0.0.1", 5901)); s.listen(4)\n'
                 'while True:\n'
                 ' c, _ = s.accept()\n'
                 ' try:\n'
-                '  c.sendall(b"RFB 003.008\\n"); c.recv(12)\n'
-                '  c.sendall(b"\\x01\\x01"); c.recv(1)\n'
-                '  c.sendall(b"\\x00\\x00\\x00\\x00"); c.recv(1)\n'
+                '  c.sendall(b"RFB 003.008\\n"); exact(c, 12)\n'
+                '  c.sendall(b"\\x01\\x01"); exact(c, 1)\n'
+                '  c.sendall(b"\\x00\\x00\\x00\\x00"); exact(c, 1)\n'
                 '  c.sendall(struct.pack("!HH", 800, 600) + b"\\x00" * 20); c.recv(1)\n'
+                ' except (OSError, EOFError): pass\n'
                 ' finally: c.close()\n'
             )
             vnc_session = self.serve.call('hosts.sessions.open', {
