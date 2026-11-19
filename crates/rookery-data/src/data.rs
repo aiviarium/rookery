@@ -97,6 +97,7 @@ pub fn register(methods: &mut Methods) {
 /// key answers as the first did, and another request with it is `INVALID`. Keys are the caller's own.
 async fn keyed<T, F>(
     call: &Call,
+    plugin: &str,
     method: &str,
     key: Option<&str>,
     params: &impl serde::Serialize,
@@ -115,7 +116,9 @@ where
     use sha2::Digest;
     let hash = sha2::Sha256::digest(format!("{method}\n{request}").as_bytes());
     let key = rookery_store::idempotency::Key {
-        scope: call.audit_name(),
+        // The caller's own keys, for the plugin the write is to: two callers' keys never meet, nor one
+        // caller's keys for two plugins.
+        scope: format!("{}\n{plugin}", call.audit_name()),
         key: key.to_owned(),
         request_hash: hash.iter().map(|b| format!("{b:02x}")).collect(),
     };
@@ -250,6 +253,7 @@ async fn insert(call: Call, p: DataInsert) -> Result<DataRow, RpcError> {
     let (plugin, caller) = write_target(&call, &p.target).await?;
     let out = keyed(
         &call,
+        &plugin,
         "data.insert",
         p.idempotency_key.as_deref(),
         &p,
@@ -270,6 +274,7 @@ async fn upsert(call: Call, p: DataUpsert) -> Result<DataRow, RpcError> {
     let (plugin, caller) = write_target(&call, &p.target).await?;
     let out = keyed(
         &call,
+        &plugin,
         "data.upsert",
         p.idempotency_key.as_deref(),
         &p,
@@ -292,6 +297,7 @@ async fn update(call: Call, p: DataUpdate) -> Result<DataRow, RpcError> {
     let field_ops = ops(&p.ops)?;
     let out = keyed(
         &call,
+        &plugin,
         "data.update",
         p.idempotency_key.as_deref(),
         &p,
@@ -320,6 +326,7 @@ async fn delete(call: Call, p: DataRowRef) -> Result<DataRow, RpcError> {
     let id = parse_id("id", &p.id)?;
     let out = keyed(
         &call,
+        &plugin,
         "data.delete",
         p.idempotency_key.as_deref(),
         &p,
@@ -340,6 +347,7 @@ async fn restore(call: Call, p: DataRowRef) -> Result<DataRow, RpcError> {
     let id = parse_id("id", &p.id)?;
     let out = keyed(
         &call,
+        &plugin,
         "data.restore",
         p.idempotency_key.as_deref(),
         &p,
@@ -360,6 +368,7 @@ async fn purge(call: Call, p: DataRowRef) -> Result<DataRow, RpcError> {
     let id = parse_id("id", &p.id)?;
     keyed(
         &call,
+        &plugin,
         "data.purge",
         p.idempotency_key.as_deref(),
         &p,
@@ -462,6 +471,7 @@ async fn batch(call: Call, p: DataBatch) -> Result<DataBatchResult, RpcError> {
         .map_err(|e| RpcError::invalid(e.to_string()))?;
     let out = keyed(
         &call,
+        &plugin,
         "data.batch",
         p.idempotency_key.as_deref(),
         &p,
@@ -502,6 +512,7 @@ async fn import(call: Call, p: DataImport) -> Result<DataImportResult, RpcError>
             .map_err(|e| RpcError::invalid(format!("import: {e}")))?;
     let out = keyed(
         &call,
+        &plugin,
         "data.import",
         p.idempotency_key.as_deref(),
         &p,

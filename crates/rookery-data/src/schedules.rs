@@ -21,6 +21,8 @@ use rookery_store::schedules::{NewSchedule, Schedule, ScheduleQuery, next_run_in
 use crate::{parse_id, rpc, time};
 
 const TICK: Duration = Duration::from_secs(1);
+/// The shortest time between two runs of a schedule.
+pub const MIN_INTERVAL_SECS: i64 = 60;
 
 pub fn register(methods: &mut Methods) {
     methods.on_started(|kernel| {
@@ -84,6 +86,7 @@ pub fn info(s: &Schedule) -> ScheduleInfo {
         timezone: s.timezone.clone(),
         missed: s.missed.clone(),
         enabled: s.enabled,
+        paused_reason: s.paused_reason.clone(),
         declared: s.declared,
         user: s.on_behalf_of.map(|u| u.to_string()),
         next_run_at: s.next_run_at.map(time),
@@ -103,15 +106,27 @@ fn check_timing(
             "{what} has a cron expression or everySecs, one of the two"
         )));
     }
-    if every.is_some_and(|e| e < 1) {
+    if every.is_some_and(|e| e < MIN_INTERVAL_SECS) {
         return Err(RpcError::invalid(format!(
-            "{what}: everySecs is at least 1"
+            "{what}: everySecs is at least {MIN_INTERVAL_SECS}"
         )));
     }
     let tz = tz.unwrap_or("UTC");
     parse_tz(tz).map_err(|e| RpcError::invalid(format!("{what}: {e}")))?;
-    next_run_in(cron, every, tz, Utc::now())
+    // The next runs of a cron expression, a minute apart at least.
+    let mut at = next_run_in(cron, every, tz, Utc::now())
         .map_err(|e| RpcError::invalid(format!("{what}: {e}")))?;
+    for _ in 0..8 {
+        let Ok(next) = next_run_in(cron, every, tz, at) else {
+            break;
+        };
+        if (next - at).num_seconds() < MIN_INTERVAL_SECS {
+            return Err(RpcError::invalid(format!(
+                "{what} runs more often than once every {MIN_INTERVAL_SECS} s"
+            )));
+        }
+        at = next;
+    }
     Ok(())
 }
 
@@ -294,6 +309,14 @@ async fn tick(kernel: Kernel) {
             _ = kernel.shutdown.cancelled() => return,
             _ = tokio::time::sleep(TICK) => {}
         }
+        match kernel.store.schedules().pause_lost(Utc::now()).await {
+            Ok(paused) => {
+                for s in &paused {
+                    told_paused(&kernel, s).await;
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "checking who schedules run as failed"),
+        }
         match kernel.store.schedules().enqueue_due(Utc::now()).await {
             Ok(jobs) if !jobs.is_empty() => {
                 tracing::debug!(jobs = jobs.len(), "schedules fired");
@@ -302,5 +325,37 @@ async fn tick(kernel: Kernel) {
             Ok(_) => {}
             Err(e) => tracing::warn!(error = %e, "firing schedules failed"),
         }
+    }
+}
+
+/// Tells the person a schedule ran as, or was made for, that the server paused it.
+async fn told_paused(kernel: &Kernel, s: &Schedule) {
+    tracing::info!(schedule = %s.id, reason = ?s.paused_reason, "a schedule was paused");
+    let owner = s
+        .principal
+        .strip_prefix("user:")
+        .and_then(|u| uuid::Uuid::parse_str(u).ok())
+        .or(s.on_behalf_of);
+    let Some(user) = owner else { return };
+    let title = format!(
+        "The schedule {} was paused",
+        s.title.as_deref().unwrap_or(&s.name)
+    );
+    let data = serde_json::json!({ "schedule": s.id.to_string(), "plugin": s.plugin });
+    if let Err(e) = kernel
+        .store
+        .notify()
+        .send(rookery_store::notify::New {
+            user,
+            kind: "rookery/schedulePaused",
+            title: &title,
+            body: s.paused_reason.as_deref(),
+            data: Some(&data),
+            actions: None,
+            sent_by: "system:rookery",
+        })
+        .await
+    {
+        tracing::warn!(error = %e, "telling of a paused schedule failed");
     }
 }

@@ -1,6 +1,10 @@
-//! Signature schemes. Each returns what replays are recognised by: the provider's delivery id where it
-//! sends one, otherwise the signature itself when it covers a timestamp (a replay inside the tolerance
-//! has the same signature; one outside it is refused as too old).
+//! Signature schemes. Each returns what replays are recognised by: a hash of the scheme and of what the
+//! signature covers, never of anything the sender may change without the secret. Where the signature
+//! covers a timestamp, that is the timestamp and the body (or the signed delivery id of the `standard`
+//! scheme): a replay inside the tolerance has the same key, one outside it is refused as too old. Where it
+//! covers the body alone (GitHub, `hmac` without a timestamp header), it is the body, which the server
+//! refuses again for as long as it keeps keys ([`REPLAY_KEPT_SECS`]): a provider's unsigned delivery id
+//! does not tell two deliveries apart. `none` signs nothing and has no key.
 
 use axum::http::HeaderMap;
 use base64::Engine;
@@ -9,13 +13,30 @@ use hmac::{Hmac, KeyInit, Mac};
 use rookery_proto::schedules::{WebhookScheme, WebhookVerify};
 
 const DEFAULT_TOLERANCE: i64 = 300;
+/// How long the keys of accepted deliveries are kept, and a body that a signature without a timestamp
+/// covers is refused again: a week.
+pub const REPLAY_KEPT_SECS: i64 = 7 * 24 * 3600;
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Verified {
-    /// What a replay of this delivery would share with it.
+    /// What a replay of this delivery would share with it: a hash of what its signature covers.
     pub replay_key: Option<String>,
-    /// The provider's id of the delivery, when it sends one.
+    /// The provider's id of the delivery, when it sends one. Only told to the job: unless the
+    /// signature covers it, anyone may change it.
     pub delivery_id: Option<String>,
+}
+
+/// The replay key of a delivery whose signature covers `parts`.
+fn replay_key(scheme: &str, parts: &[&[u8]]) -> Option<String> {
+    use sha2::Digest;
+    let mut h = sha2::Sha256::new();
+    h.update(scheme.as_bytes());
+    for p in parts {
+        // Each part with its length, so that two splits of the same bytes differ.
+        h.update((p.len() as u64).to_be_bytes());
+        h.update(p);
+    }
+    Some(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
 #[derive(Clone, Copy)]
@@ -129,10 +150,9 @@ pub fn verify(
             if !matches(Alg::Sha256, key()?, &[body], &sig) {
                 return Err(BAD.into());
             }
-            let id = header(headers, "x-github-delivery").map(str::to_string);
             Ok(Verified {
-                replay_key: id.as_ref().map(|i| format!("id:{i}")),
-                delivery_id: id,
+                replay_key: replay_key("github", &[body]),
+                delivery_id: header(headers, "x-github-delivery").map(str::to_string),
             })
         }
         WebhookScheme::Stripe => {
@@ -154,8 +174,8 @@ pub fn verify(
                     .is_some_and(|b| matches(Alg::Sha256, key, &[ts.as_bytes(), b".", body], &b))
             });
             match hit {
-                Some(s) => Ok(Verified {
-                    replay_key: Some(format!("sig:{s}")),
+                Some(_) => Ok(Verified {
+                    replay_key: replay_key("stripe", &[ts.as_bytes(), body]),
                     delivery_id: None,
                 }),
                 None => Err(BAD.into()),
@@ -178,7 +198,7 @@ pub fn verify(
                 return Err(BAD.into());
             }
             Ok(Verified {
-                replay_key: Some(format!("sig:{hex}")),
+                replay_key: replay_key("slack", &[ts.as_bytes(), body]),
                 delivery_id: None,
             })
         }
@@ -209,8 +229,9 @@ pub fn verify(
             if !ok {
                 return Err(BAD.into());
             }
+            // The id is signed: a provider's retry of a message, with a new timestamp, is the same key.
             Ok(Verified {
-                replay_key: Some(format!("id:{id}")),
+                replay_key: replay_key("standard", &[id.as_bytes()]),
                 delivery_id: Some(id.to_string()),
             })
         }
@@ -252,10 +273,9 @@ pub fn verify(
                 .as_deref()
                 .and_then(|h| header(headers, &h.to_ascii_lowercase()))
                 .map(str::to_string);
-            let replay_key = match (&id, ts) {
-                (Some(i), _) => Some(format!("id:{i}")),
-                (None, Some(_)) => Some(format!("sig:{sig}")),
-                (None, None) => None,
+            let replay_key = match ts {
+                Some(t) => replay_key("hmac", &[t.as_bytes(), body]),
+                None => replay_key("hmac", &[body]),
             };
             Ok(Verified {
                 replay_key,
@@ -300,7 +320,20 @@ mod tests {
             ("x-github-delivery", "d-1".into()),
         ]);
         let ok = verify(&v, Some(KEY), &h, body, NOW).unwrap();
-        assert_eq!(ok.replay_key.as_deref(), Some("id:d-1"));
+        assert_eq!(ok.replay_key, replay_key("github", &[body]));
+        assert_eq!(ok.delivery_id.as_deref(), Some("d-1"));
+        // The delivery id is not signed: another one is the same delivery.
+        let other = headers(&[
+            (
+                "x-hub-signature-256",
+                sig.to_uppercase().replace("SHA256=", "sha256="),
+            ),
+            ("x-github-delivery", "d-2".into()),
+        ]);
+        assert_eq!(
+            verify(&v, Some(KEY), &other, body, NOW).unwrap().replay_key,
+            ok.replay_key
+        );
         assert_eq!(verify(&v, Some(b"wrong"), &h, body, NOW).unwrap_err(), BAD);
         assert!(verify(&v, Some(KEY), &h, b"Hello, World?", NOW).is_err());
         assert!(
@@ -317,9 +350,13 @@ mod tests {
         let s = hex(&sign("sha256", KEY, &[t.as_bytes(), b".", body]));
         let v = decl(serde_json::json!({ "scheme": "stripe", "secret": { "secret": "s" } }));
         let h = headers(&[("stripe-signature", format!("t={t},v1=deadbeef,v1={s}"))]);
+        let key = verify(&v, Some(KEY), &h, body, NOW).unwrap().replay_key;
+        assert_eq!(key, replay_key("stripe", &[t.as_bytes(), body]));
+        // The same signature in upper case is the same delivery.
+        let upper = headers(&[("stripe-signature", format!("t={t},v1={}", s.to_uppercase()))]);
         assert_eq!(
-            verify(&v, Some(KEY), &h, body, NOW).unwrap().replay_key,
-            Some(format!("sig:{s}"))
+            verify(&v, Some(KEY), &upper, body, NOW).unwrap().replay_key,
+            key
         );
         assert!(
             verify(&v, Some(KEY), &h, body, NOW + 301)
@@ -346,8 +383,8 @@ mod tests {
         ]);
         let ok = verify(&v, Some(format!("whsec_{key}").as_bytes()), &h, body, NOW).unwrap();
         assert_eq!(
-            (ok.replay_key.as_deref(), ok.delivery_id.as_deref()),
-            (Some("id:msg_1"), Some("msg_1"))
+            (ok.replay_key, ok.delivery_id.as_deref()),
+            (replay_key("standard", &[b"msg_1"]), Some("msg_1"))
         );
     }
 
@@ -360,12 +397,10 @@ mod tests {
         }));
         let s = hex(&sign("sha1", KEY, &[body]));
         let h = headers(&[("x-sig", format!("sha1={s}")), ("x-id", "7".into())]);
+        let ok = verify(&v, Some(KEY), &h, body, NOW).unwrap();
         assert_eq!(
-            verify(&v, Some(KEY), &h, body, NOW)
-                .unwrap()
-                .replay_key
-                .as_deref(),
-            Some("id:7")
+            (ok.replay_key, ok.delivery_id.as_deref()),
+            (replay_key("hmac", &[body]), Some("7"))
         );
         let v = decl(serde_json::json!({
             "scheme": "hmac", "secret": { "secret": "s" }, "algorithm": "sha512", "encoding": "base64",
@@ -373,10 +408,10 @@ mod tests {
         }));
         let t = NOW.to_string();
         let s = B64.encode(sign("sha512", KEY, &[t.as_bytes(), b".", body]));
-        let h = headers(&[("x-signature", s.clone()), ("x-ts", t)]);
+        let h = headers(&[("x-signature", s.clone()), ("x-ts", t.clone())]);
         assert_eq!(
             verify(&v, Some(KEY), &h, body, NOW).unwrap().replay_key,
-            Some(format!("sig:{s}"))
+            replay_key("hmac", &[t.as_bytes(), body])
         );
         assert!(verify(&v, Some(KEY), &h, b"other", NOW).is_err());
         assert_eq!(

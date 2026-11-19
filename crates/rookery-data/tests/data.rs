@@ -794,5 +794,20 @@ async fn a_retried_write_with_its_idempotency_key_writes_once() {
         .await
         .unwrap();
     assert_eq!(count["count"], 3);
+    // One caller's key for another plugin is another key.
+    plugins::apply(
+        &k.kernel,
+        &PluginData {
+            plugin: "tasks".into(),
+            collections: json!([{ "name": "settings", "scope": "global", "fields": [{ "name": "key", "type": "text" }] }]),
+            ..Default::default()
+        },
+        &plugins::NoTransforms,
+    )
+    .await
+    .unwrap();
+    let mut elsewhere = insert("k1", "c");
+    elsewhere["plugin"] = json!("tasks");
+    k.call(&admin, "data.insert", elsewhere).await.unwrap();
     k.close().await;
 }

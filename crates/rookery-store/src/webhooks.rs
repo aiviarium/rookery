@@ -1,7 +1,7 @@
-//! Webhook deliveries: every request to `/hooks/<plugin>/<name>`, accepted or refused, with the job
-//! an accepted one enqueued. Replays are recognised by a key (the provider's delivery id, or the
-//! signature for schemes that sign a timestamp): a second delivery with the key of an accepted one
-//! enqueues nothing and points at the first job.
+//! Webhook deliveries: every accepted request to `/hooks/<plugin>/<name>` with the job it enqueued, and
+//! the refused ones counted per minute. Replays are recognised by a key, a hash of what the delivery's
+//! signature covers: a second delivery with the key of an accepted one enqueues nothing and points at the
+//! first job, for as long as the accepted delivery is kept.
 
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -27,16 +27,26 @@ pub struct Delivery {
     pub received_at: DateTime<Utc>,
 }
 
+/// The requests to a webhook refused in one minute with one status.
+#[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
+pub struct Refusals {
+    pub plugin: String,
+    pub hook: String,
+    pub minute: DateTime<Utc>,
+    pub status: i32,
+    pub count: i64,
+    pub reason: String,
+    pub bytes: i32,
+}
+
 /// What [`Webhooks::accept`] did.
 #[derive(Debug, Clone)]
 pub enum Accepted {
     /// A new delivery; the job was enqueued.
     New { delivery: Delivery, job: Box<Job> },
-    /// A replay of an accepted delivery; nothing was enqueued. `job` is the first delivery's job.
-    Duplicate {
-        delivery: Delivery,
-        job: Option<Uuid>,
-    },
+    /// A replay of an accepted delivery; nothing was enqueued or recorded. `job` is the first delivery's
+    /// job.
+    Duplicate { job: Option<Uuid> },
 }
 
 pub struct Webhooks<'a> {
@@ -45,7 +55,7 @@ pub struct Webhooks<'a> {
 
 impl<'a> Webhooks<'a> {
     /// Records an accepted delivery and enqueues its job in one transaction, unless a delivery
-    /// with the same replay key was accepted before.
+    /// with the same replay key was accepted before. A replay is counted with the refusals, by the caller.
     pub async fn accept(
         &self,
         plugin: &str,
@@ -96,48 +106,44 @@ impl<'a> Webhooks<'a> {
                 .fetch_optional(&mut *tx)
                 .await?
                 .flatten();
-                let delivery: Delivery = sqlx::query_as(
-                    "INSERT INTO rookery.webhook_deliveries (id, plugin, hook, outcome, status, reason, replay_key, job_id, bytes) \
-                     VALUES ($1, $2, $3, 'duplicate', 200, 'a delivery with this id was accepted before', $4, $5, $6) \
-                     RETURNING *",
-                )
-                .bind(id)
-                .bind(plugin)
-                .bind(hook)
-                .bind(replay_key)
-                .bind(first)
-                .bind(bytes as i32)
-                .fetch_one(&mut *tx)
-                .await?;
                 tx.commit().await?;
-                Ok(Accepted::Duplicate {
-                    delivery,
-                    job: first,
-                })
+                Ok(Accepted::Duplicate { job: first })
             }
         }
     }
 
-    /// Records a refused delivery.
-    pub async fn refuse(
-        &self,
-        plugin: &str,
-        hook: &str,
-        status: u16,
-        reason: &str,
-        bytes: usize,
-    ) -> Result<Delivery> {
-        Ok(sqlx::query_as(
-            "INSERT INTO rookery.webhook_deliveries (id, plugin, hook, outcome, status, reason, bytes) \
-             VALUES ($1, $2, $3, 'refused', $4, $5, $6) RETURNING *",
+    /// Records how many requests to a webhook were refused in a minute with a status: `count` is the
+    /// minute's count so far, and replaces a smaller one.
+    pub async fn refused(&self, r: &Refusals) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO rookery.webhook_refusals (plugin, hook, minute, status, count, reason, bytes) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7) \
+             ON CONFLICT (plugin, hook, minute, status) DO UPDATE SET \
+                count = GREATEST(rookery.webhook_refusals.count, EXCLUDED.count), \
+                reason = EXCLUDED.reason, bytes = EXCLUDED.bytes",
         )
-        .bind(new_id())
+        .bind(&r.plugin)
+        .bind(&r.hook)
+        .bind(r.minute)
+        .bind(r.status)
+        .bind(r.count)
+        .bind(&r.reason)
+        .bind(r.bytes)
+        .execute(self.store.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// The refusals of a webhook, newest minute first.
+    pub async fn refusals(&self, plugin: &str, hook: &str, limit: i64) -> Result<Vec<Refusals>> {
+        Ok(sqlx::query_as(
+            "SELECT * FROM rookery.webhook_refusals WHERE plugin = $1 AND hook = $2 \
+             ORDER BY minute DESC, status LIMIT $3",
+        )
         .bind(plugin)
         .bind(hook)
-        .bind(status as i32)
-        .bind(reason)
-        .bind(bytes as i32)
-        .fetch_one(self.store.pool())
+        .bind(limit.clamp(1, 1000))
+        .fetch_all(self.store.pool())
         .await?)
     }
 
@@ -159,14 +165,23 @@ impl<'a> Webhooks<'a> {
         .await?)
     }
 
-    /// Deletes deliveries received before `before`.
-    pub async fn purge(&self, before: DateTime<Utc>) -> Result<u64> {
-        Ok(
-            sqlx::query("DELETE FROM rookery.webhook_deliveries WHERE received_at < $1")
-                .bind(before)
-                .execute(self.store.pool())
-                .await?
-                .rows_affected(),
+    /// Deletes deliveries and refusals from before `before`. An accepted delivery, whose key refuses its
+    /// replays, is kept for `keys` at least.
+    pub async fn purge(&self, before: DateTime<Utc>, keys: chrono::Duration) -> Result<u64> {
+        let deliveries = sqlx::query(
+            "DELETE FROM rookery.webhook_deliveries WHERE received_at < $1 \
+             AND (outcome <> 'accepted' OR replay_key IS NULL OR received_at < now() - $2::interval)",
         )
+        .bind(before)
+        .bind(format!("{} seconds", keys.num_seconds()))
+        .execute(self.store.pool())
+        .await?
+        .rows_affected();
+        let refusals = sqlx::query("DELETE FROM rookery.webhook_refusals WHERE minute < $1")
+            .bind(before)
+            .execute(self.store.pool())
+            .await?
+            .rows_affected();
+        Ok(deliveries + refusals)
     }
 }

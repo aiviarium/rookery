@@ -10,6 +10,10 @@ job: string, params: Record<string, unknown>, cron?: string, everySecs?: number,
  */
 missed: string, enabled: boolean, 
 /**
+ * Why the server paused it: who its jobs run as lost the right to make it.
+ */
+pausedReason?: string, 
+/**
  * Declared in the manifest; otherwise created at runtime.
  */
 declared: boolean, 

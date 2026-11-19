@@ -24,6 +24,8 @@ use crate::util::new_id;
 pub const MISSED_AFTER: chrono::Duration = chrono::Duration::seconds(90);
 /// `missed: all` fires at most this many runs it caught up on.
 pub const MAX_CATCH_UP: usize = 100;
+/// Schedules a plugin has at most, declared and made.
+pub const MAX_PER_PLUGIN: i64 = 100;
 
 #[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
 pub struct Schedule {
@@ -43,6 +45,8 @@ pub struct Schedule {
     pub on_behalf_of: Option<Uuid>,
     pub space_id: Option<Uuid>,
     pub enabled: bool,
+    /// Why the server paused it, if it did.
+    pub paused_reason: Option<String>,
     pub declared: bool,
     pub next_run_at: Option<DateTime<Utc>>,
     pub last_run_at: Option<DateTime<Utc>>,
@@ -197,7 +201,29 @@ impl Schedules<'_> {
         let tz = s.timezone.clone().unwrap_or_else(|| "UTC".into());
         let missed = check_missed(s.missed.as_deref())?;
         let next = next_run_in(s.cron.as_deref(), s.interval_secs, &tz, Utc::now())?;
-        Ok(sqlx::query_as(
+        let mut tx = self.store.pool().begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext('rookery.schedules.' || $1))")
+            .bind(&s.plugin)
+            .execute(&mut *tx)
+            .await?;
+        let (count, exists): (i64, bool) = sqlx::query_as(
+            "SELECT count(*), coalesce(bool_or(name = $2 AND space_id IS NOT DISTINCT FROM $3
+                 AND on_behalf_of IS NOT DISTINCT FROM $4), false)
+             FROM rookery.schedules WHERE plugin = $1",
+        )
+        .bind(&s.plugin)
+        .bind(&s.name)
+        .bind(s.space_id)
+        .bind(s.on_behalf_of)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !exists && count >= MAX_PER_PLUGIN {
+            return Err(Error::invalid(format!(
+                "{} has {MAX_PER_PLUGIN} schedules, as many as a plugin may",
+                s.plugin
+            )));
+        }
+        let made = sqlx::query_as(
             "INSERT INTO rookery.schedules (id, plugin, name, title, kind, params, subject, cron, interval_secs,
                  timezone, missed, principal, on_behalf_of, space_id, enabled, declared, next_run_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
@@ -205,7 +231,7 @@ impl Schedules<'_> {
                  params = EXCLUDED.params, subject = EXCLUDED.subject, cron = EXCLUDED.cron,
                  interval_secs = EXCLUDED.interval_secs, timezone = EXCLUDED.timezone, missed = EXCLUDED.missed,
                  principal = EXCLUDED.principal, enabled = EXCLUDED.enabled, declared = EXCLUDED.declared,
-                 next_run_at = EXCLUDED.next_run_at, updated_at = now()
+                 next_run_at = EXCLUDED.next_run_at, paused_reason = NULL, updated_at = now()
              RETURNING *",
         )
         .bind(new_id())
@@ -225,8 +251,10 @@ impl Schedules<'_> {
         .bind(s.enabled)
         .bind(declared)
         .bind(next)
-        .fetch_one(self.store.pool())
-        .await?)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(made)
     }
 
     /// Makes a plugin's declared schedules what its manifest says: new ones are made, changed ones
@@ -337,7 +365,9 @@ impl Schedules<'_> {
             s.next_run_at
         };
         Ok(sqlx::query_as(
-            "UPDATE rookery.schedules SET enabled = $2, next_run_at = $3, updated_at = now() WHERE id = $1 RETURNING *",
+            "UPDATE rookery.schedules SET enabled = $2, next_run_at = $3,
+                 paused_reason = CASE WHEN $2 THEN NULL ELSE paused_reason END, updated_at = now()
+             WHERE id = $1 RETURNING *",
         )
         .bind(id)
         .bind(enabled)
@@ -384,6 +414,27 @@ impl Schedules<'_> {
     }
 
     /// Enqueues the jobs of every enabled schedule due at `now`, and moves each to its next run.
+    /// Pauses the due schedules whose jobs would run as someone who may no longer make them: a person who
+    /// is no admin any more or whose account is off, or the person a plugin made one for, whose account is
+    /// off. Returns them, for their owners to be told.
+    pub async fn pause_lost(&self, now: DateTime<Utc>) -> Result<Vec<Schedule>> {
+        Ok(sqlx::query_as(
+            "UPDATE rookery.schedules s SET enabled = false, updated_at = now(), paused_reason = CASE
+                 WHEN s.principal LIKE 'user:%' THEN 'the person it runs as is no admin with an account that is on'
+                 ELSE 'the account of the person it was made for is off' END
+             WHERE s.enabled AND s.next_run_at <= $1 AND (
+                 (s.principal LIKE 'user:%' AND NOT EXISTS (
+                     SELECT 1 FROM rookery.users u
+                     WHERE 'user:' || u.id::text = s.principal AND u.role = 'admin' AND u.disabled_at IS NULL))
+                 OR (s.on_behalf_of IS NOT NULL AND EXISTS (
+                     SELECT 1 FROM rookery.users u WHERE u.id = s.on_behalf_of AND u.disabled_at IS NOT NULL)))
+             RETURNING *",
+        )
+        .bind(now)
+        .fetch_all(self.store.pool())
+        .await?)
+    }
+
     pub async fn enqueue_due(&self, now: DateTime<Utc>) -> Result<Vec<Job>> {
         let mut tx = self.store.pool().begin().await?;
         let due: Vec<Schedule> = sqlx::query_as(

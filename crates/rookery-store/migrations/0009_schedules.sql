@@ -22,6 +22,8 @@ CREATE TABLE rookery.schedules (
     on_behalf_of  uuid REFERENCES rookery.users (id) ON DELETE CASCADE,
     space_id      uuid,
     enabled       boolean NOT NULL DEFAULT true,
+    -- Why the server paused it: who it runs as lost the right to.
+    paused_reason text,
     -- Declared in its plugin's manifest, rather than made while the server runs.
     declared      boolean NOT NULL DEFAULT false,
     next_run_at   timestamptz,
@@ -53,3 +55,17 @@ CREATE TABLE rookery.webhook_deliveries (
 CREATE INDEX webhook_deliveries_hook ON rookery.webhook_deliveries (plugin, hook, received_at DESC);
 CREATE UNIQUE INDEX webhook_deliveries_replay ON rookery.webhook_deliveries (plugin, hook, replay_key)
     WHERE replay_key IS NOT NULL AND outcome = 'accepted';
+
+-- Refused requests, counted per webhook, minute and status rather than kept one by one: anyone may send
+-- them.
+CREATE TABLE rookery.webhook_refusals (
+    plugin text NOT NULL,
+    hook   text NOT NULL,
+    minute timestamptz NOT NULL,
+    status integer NOT NULL,
+    count  bigint NOT NULL,
+    -- The last reason of the minute, and the size of its body.
+    reason text NOT NULL,
+    bytes  integer NOT NULL DEFAULT 0,
+    PRIMARY KEY (plugin, hook, minute, status)
+);

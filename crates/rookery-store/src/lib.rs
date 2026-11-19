@@ -226,6 +226,19 @@ impl Store {
         self.fence
     }
 
+    /// Whether the leader's epoch is still this store's: true for a store that is not fenced.
+    pub async fn still_leads(&self) -> Result<bool> {
+        if self.fence.is_none() {
+            return Ok(true);
+        }
+        Ok(
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM rookery.leader WHERE epoch = $1)")
+                .bind(self.fence)
+                .fetch_one(&self.pool)
+                .await?,
+        )
+    }
+
     /// The same store with another sealing key, or none.
     pub fn with_key(&self, key: Option<seal::Key>) -> Store {
         Store {

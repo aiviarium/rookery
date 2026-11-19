@@ -153,6 +153,17 @@ pub struct Jobs<'a> {
 }
 
 impl Jobs<'_> {
+    /// How many jobs of a kind are queued, counting to `at_most`.
+    pub async fn queued(&self, kind: &str, at_most: i64) -> Result<i64> {
+        Ok(sqlx::query_scalar(
+            "SELECT count(*) FROM (SELECT 1 FROM rookery.jobs WHERE state = 'queued' AND kind = $1 LIMIT $2) q",
+        )
+        .bind(kind)
+        .bind(at_most)
+        .fetch_one(self.pool)
+        .await?)
+    }
+
     pub async fn enqueue(&self, job: NewJob<'_>) -> Result<Job> {
         let mut conn = self.pool.acquire().await?;
         enqueue_on(&mut conn, &job, self.fence).await

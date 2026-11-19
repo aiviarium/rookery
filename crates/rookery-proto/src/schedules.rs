@@ -199,6 +199,10 @@ pub struct ScheduleInfo {
     /// `once`, `skip` or `all`.
     pub missed: String,
     pub enabled: bool,
+    /// Why the server paused it: who its jobs run as lost the right to make it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub paused_reason: Option<String>,
     /// Declared in the manifest; otherwise created at runtime.
     pub declared: bool,
     /// The user it runs on behalf of.
@@ -304,9 +308,14 @@ pub struct WebhookSecretSet {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct DeliveryInfo {
+    /// The delivery's id; for refusals, which are counted per minute, the minute's.
     pub id: String,
-    /// `accepted`, `duplicate` or `refused`.
+    /// `accepted`, or `refused` and `duplicate` (a replay), which are counted per minute and status.
     pub outcome: String,
+    /// How many requests of the minute were refused with this status.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional, type = "number"))]
+    pub count: Option<i64>,
     pub status: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]

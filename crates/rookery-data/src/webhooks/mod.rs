@@ -1,10 +1,15 @@
 //! Webhooks: `POST /hooks/<plugin>/<name>` for a webhook a plugin declares (`contributes.webhooks`),
 //! which the plugin system sets with [`set_webhooks`] when it loads.
 //!
-//! The server verifies a delivery the way the webhook declares ([`verify`]), refuses replays where the
-//! scheme gives a delivery id or a signed timestamp, records the delivery, enqueues the webhook's job,
-//! `<plugin>/<job>`, with the body, and answers `202` at once: no plugin code runs while the sender
-//! waits. The job is enqueued as the plugin.
+//! The server verifies a delivery the way the webhook declares ([`verify`]), refuses replays by a hash of
+//! what the signature covers, records the delivery, enqueues the webhook's job, `<plugin>/<job>`, with the
+//! body, and answers `202` at once: no plugin code runs while the sender waits. The job is enqueued as the
+//! plugin.
+//!
+//! Anyone may send requests, so refused ones and replays are counted per webhook, minute and status, and
+//! written at most once a second each, not kept one by one. A webhook with `scheme: none`, which anyone
+//! may trigger, takes [`NONE_PER_MINUTE`] deliveries a minute and enqueues while fewer than
+//! [`NONE_QUEUED`] of its jobs wait; beyond that it answers `429` and enqueues nothing.
 //!
 //! The secret is a global secret of the plugin (`{ "secret": "<name>" }`, which its host half or an
 //! admin with `webhooks.setSecret` sets), or a field of the credential of the plugin's global connection
@@ -13,10 +18,12 @@
 mod verify;
 
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock};
+use std::time::{Duration, Instant};
 
 use axum::Router;
-use axum::body::Bytes;
+use axum::body::Body;
+use axum::extract::DefaultBodyLimit;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -33,16 +40,34 @@ use serde_json::{Map, Value, json};
 
 use crate::{rpc, time};
 
-pub use verify::{Verified, sign, verify};
+pub use verify::{REPLAY_KEPT_SECS, Verified, sign, verify};
 
 const DEFAULT_MAX_BYTES: u32 = 1 << 20;
 const MAX_BYTES: u32 = 16 << 20;
+/// Deliveries a minute a webhook with `scheme: none` takes.
+pub const NONE_PER_MINUTE: u32 = 120;
+/// Jobs of a webhook with `scheme: none` that may wait at once.
+pub const NONE_QUEUED: i64 = 1000;
 /// Headers never handed to the job.
 const HIDDEN: &[&str] = &["authorization", "cookie", "proxy-authorization"];
 
 /// The webhooks of each plugin, by their name after `<plugin>.`.
 #[derive(Default)]
 struct Hooks(RwLock<HashMap<String, Vec<(String, WebhookContribution)>>>);
+
+/// The refusals of this minute, per webhook and status, until they are written.
+#[derive(Default)]
+struct Refused(Mutex<HashMap<(String, String, u16), Counted>>);
+
+struct Counted {
+    minute: i64,
+    count: i64,
+    written: Option<Instant>,
+}
+
+/// The deliveries of this minute of each webhook with `scheme: none`.
+#[derive(Default)]
+struct Unsigned(Mutex<HashMap<(String, String), (i64, u32)>>);
 
 /// Sets the webhooks a plugin declares, replacing those it had; refuses a declaration that cannot work.
 pub fn set_webhooks(
@@ -164,7 +189,11 @@ pub fn register(methods: &mut Methods) {
 
 /// The route of the webhooks, for the edge.
 pub fn routes() -> Router<Kernel> {
-    Router::new().route("/hooks/{plugin}/{name}", post(receive))
+    // The body is read against the webhook's own maxBytes, so that a body too large is counted.
+    Router::new().route(
+        "/hooks/{plugin}/{name}",
+        post(receive).layer(DefaultBodyLimit::disable()),
+    )
 }
 
 /// The secret a webhook verifies with, if it is set.
@@ -222,23 +251,85 @@ async fn refuse(
     reason: String,
     bytes: usize,
 ) -> Response {
-    tracing::info!(webhook = %format!("{plugin}.{name}"), %reason, "a webhook delivery was refused");
-    if let Err(e) = kernel
-        .store
-        .webhooks()
-        .refuse(plugin, name, status.as_u16(), &reason, bytes)
-        .await
-    {
-        tracing::warn!(error = %e, "recording a refused webhook delivery failed");
-    }
+    count(kernel, plugin, name, status, &reason, bytes).await;
     reply(status, json!({ "error": reason }))
+}
+
+/// Counts a refused request (or a replay) in its minute, and writes the count at most once a second.
+async fn count(
+    kernel: &Kernel,
+    plugin: &str,
+    name: &str,
+    status: StatusCode,
+    reason: &str,
+    bytes: usize,
+) {
+    let now = Utc::now();
+    let minute = now.timestamp() / 60;
+    let (write, first) = {
+        let counts = kernel.facility::<Refused>();
+        let mut counts = counts.0.lock().unwrap();
+        let c = counts
+            .entry((plugin.to_owned(), name.to_owned(), status.as_u16()))
+            .or_insert(Counted {
+                minute,
+                count: 0,
+                written: None,
+            });
+        if c.minute != minute {
+            *c = Counted {
+                minute,
+                count: 0,
+                written: None,
+            };
+        }
+        c.count += 1;
+        let due = c
+            .written
+            .is_none_or(|w| w.elapsed() >= Duration::from_secs(1));
+        if due {
+            c.written = Some(Instant::now());
+        }
+        (due.then_some(c.count), c.count == 1)
+    };
+    if first {
+        tracing::info!(webhook = %format!("{plugin}.{name}"), status = status.as_u16(), %reason, "a webhook refused a request; more this minute are counted");
+    }
+    let Some(count) = write else { return };
+    let r = rookery_store::webhooks::Refusals {
+        plugin: plugin.to_owned(),
+        hook: name.to_owned(),
+        minute: chrono::DateTime::from_timestamp(minute * 60, 0).unwrap_or(now),
+        status: i32::from(status.as_u16()),
+        count,
+        reason: reason.to_owned(),
+        bytes: i32::try_from(bytes).unwrap_or(i32::MAX),
+    };
+    if let Err(e) = kernel.store.webhooks().refused(&r).await {
+        tracing::warn!(error = %e, "counting refused webhook requests failed");
+    }
+}
+
+/// Whether a webhook with `scheme: none` may take one more delivery this minute.
+fn unsigned_allowed(kernel: &Kernel, plugin: &str, name: &str) -> bool {
+    let minute = Utc::now().timestamp() / 60;
+    let taken = kernel.facility::<Unsigned>();
+    let mut taken = taken.0.lock().unwrap();
+    let t = taken
+        .entry((plugin.to_owned(), name.to_owned()))
+        .or_insert((minute, 0));
+    if t.0 != minute {
+        *t = (minute, 0);
+    }
+    t.1 += 1;
+    t.1 <= NONE_PER_MINUTE
 }
 
 async fn receive(
     State(kernel): State<Kernel>,
     Path((plugin, name)): Path<(String, String)>,
     headers: HeaderMap,
-    body: Bytes,
+    body: Body,
 ) -> Response {
     let id = format!("{plugin}.{name}");
     let Some(hook) = find(&kernel, &plugin, &name) else {
@@ -247,14 +338,34 @@ async fn receive(
             json!({ "error": format!("no webhook {id}") }),
         );
     };
+    let limit = hook.max_bytes.unwrap_or(DEFAULT_MAX_BYTES) as usize;
+    let declared = headers
+        .get("content-length")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(0);
+    let body = match axum::body::to_bytes(body, limit).await {
+        Ok(b) if declared <= limit => b,
+        _ => {
+            return refuse(
+                &kernel,
+                &plugin,
+                &name,
+                StatusCode::PAYLOAD_TOO_LARGE,
+                format!("the body is larger than the webhook's {limit} bytes"),
+                declared.max(limit + 1),
+            )
+            .await;
+        }
+    };
     let bytes = body.len();
-    if bytes > hook.max_bytes.unwrap_or(DEFAULT_MAX_BYTES) as usize {
+    if hook.verify.scheme == WebhookScheme::None && !unsigned_allowed(&kernel, &plugin, &name) {
         return refuse(
             &kernel,
             &plugin,
             &name,
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "the body is too large".into(),
+            StatusCode::TOO_MANY_REQUESTS,
+            format!("the webhook takes {NONE_PER_MINUTE} deliveries a minute"),
             bytes,
         )
         .await;
@@ -340,6 +451,29 @@ async fn receive(
         .unwrap_or(&hook.job);
     let kind = format!("{plugin}/{job_name}");
     let by = format!("plugin:{plugin}");
+    if hook.verify.scheme == WebhookScheme::None {
+        match kernel.store.jobs().queued(&kind, NONE_QUEUED).await {
+            Ok(n) if n < NONE_QUEUED => {}
+            Ok(_) => {
+                return refuse(
+                    &kernel,
+                    &plugin,
+                    &name,
+                    StatusCode::TOO_MANY_REQUESTS,
+                    format!("{NONE_QUEUED} jobs of the webhook wait already"),
+                    bytes,
+                )
+                .await;
+            }
+            Err(e) => {
+                tracing::error!(webhook = %id, error = %e, "counting a webhook's jobs failed");
+                return reply(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    json!({ "error": "the delivery could not be kept: send it again" }),
+                );
+            }
+        }
+    }
     let job = NewJob {
         kind: &kind,
         params: &params,
@@ -358,7 +492,16 @@ async fn receive(
             rookery_jobs::wake(&kernel);
             reply(StatusCode::ACCEPTED, json!({ "job": job.id }))
         }
-        Ok(Accepted::Duplicate { job, .. }) => {
+        Ok(Accepted::Duplicate { job }) => {
+            count(
+                &kernel,
+                &plugin,
+                &name,
+                StatusCode::OK,
+                "a replay of an accepted delivery",
+                bytes,
+            )
+            .await;
             reply(StatusCode::OK, json!({ "duplicate": true, "job": job }))
         }
         Err(e) => {
@@ -375,6 +518,7 @@ fn delivery_info(d: &Delivery) -> DeliveryInfo {
     DeliveryInfo {
         id: d.id.to_string(),
         outcome: d.outcome.clone(),
+        count: None,
         status: d.status,
         reason: d.reason.clone(),
         job_id: d.job_id.map(|j| j.to_string()),
@@ -393,12 +537,40 @@ async fn list(kernel: &Kernel) -> Result<WebhookList, RpcError> {
     };
     let mut out = Vec::new();
     for (plugin, name, w) in declared {
-        let deliveries = kernel
+        let mut deliveries: Vec<DeliveryInfo> = kernel
             .store
             .webhooks()
             .list(Some(&plugin), Some(&name), 20)
             .await
+            .map_err(rpc)?
+            .iter()
+            .map(delivery_info)
+            .collect();
+        let refusals = kernel
+            .store
+            .webhooks()
+            .refusals(&plugin, &name, 20)
+            .await
             .map_err(rpc)?;
+        deliveries.extend(refusals.into_iter().map(|r| {
+            DeliveryInfo {
+                id: format!("{}:{}", r.minute.timestamp(), r.status),
+                outcome: if r.status == 200 {
+                    "duplicate"
+                } else {
+                    "refused"
+                }
+                .into(),
+                count: Some(r.count),
+                status: r.status,
+                reason: Some(r.reason),
+                job_id: None,
+                bytes: r.bytes,
+                received_at: time(r.minute),
+            }
+        }));
+        deliveries.sort_by(|a, b| b.received_at.cmp(&a.received_at));
+        deliveries.truncate(20);
         let ready = w.verify.scheme == WebhookScheme::None
             || secret(kernel, &plugin, &w).await.ok().flatten().is_some();
         out.push(WebhookInfo {
@@ -416,7 +588,7 @@ async fn list(kernel: &Kernel) -> Result<WebhookList, RpcError> {
                 SecretSource::Connection { connection, .. } => format!("connection {connection}"),
             }),
             ready,
-            deliveries: deliveries.iter().map(delivery_info).collect(),
+            deliveries,
         });
     }
     out.sort_by(|a, b| a.id.cmp(&b.id));
