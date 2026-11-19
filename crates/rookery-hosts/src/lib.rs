@@ -8,11 +8,15 @@
 
 pub mod backend;
 pub mod db;
+pub mod env;
 pub mod events;
 pub mod locks;
 pub mod methods;
+pub mod proxy;
 pub mod runner;
 pub mod serve;
+pub mod terminals;
+pub mod vnc;
 
 use std::sync::{Arc, OnceLock};
 
@@ -107,6 +111,9 @@ impl Registration {
     /// Adds the methods, and the start of the hosts when the server leads.
     pub fn register(self, methods: &mut Methods) {
         methods::register(methods);
+        env::register(methods);
+        terminals::register(methods);
+        terminals::wrap_access(methods);
         let runner = self.runner;
         methods.on_started(move |kernel| start(kernel.clone(), runner.clone()));
     }

@@ -44,6 +44,7 @@ The server takes its settings from the environment:
 | `ROOKERY_BUN` | The Bun program that runs plugins' host halves, `bun` unless set. Rookery's image has it |
 | `ROOKERY_EXTHOST` | The extension host's entry. Unless it's set, `host/dist/main.js` of Rookery's provisioning source. Without one no plugin's host half starts |
 | `ROOKERY_EXTHOST_MEMORY_MB` | The memory a plugin's host process may hold before it's ended, 512 MiB unless set |
+| `ROOKERY_PORTS_URL` | Where the hosts' ports open in a browser, such as `https://ports.rookery.example`, with a wildcard name and certificate for it. Unless set, a server at a `localhost` or `127.0.0.1` address opens them under `localhost`, and any other refuses them |
 
 A setting of the installation, such as `retention_days`, is changed with `rookery config set` and kept in the database. The variables above are the machine's, and its service manager gives them.
 
@@ -145,6 +146,12 @@ The command line has these as `rookery job list`, `show`, `logs -f`, `wait` and 
 A changed job is an event of the server's own plugin id, `rookery/jobs.changed`, with the job in `job`. A host that changes tells `rookery/hosts.changed`, and a resource tells `rookery/resources.changed`. A shell subscribes to them with `events.subscribe`, and a client half with `rookery.events.subscribe("rookery/hosts.changed", …)` ([Server events](/docs/extend/plugins#server-events)).
 
 A message a host keeps on its channel reaches its owner and managers as a notification of the kind `rookery/host.message`, and their connections hear `notify.new`. A plugin sends notifications of its own with `notify.send`. A job sends no notification when it ends: follow `rookery/jobs.changed`, or the job's stream.
+
+## Ports and desktops in a browser
+
+A port on a host's loopback opens at `/env/NAME/port/PORT/` for someone with `use` on the host. The server sends the browser on to the port's own address under `ROOKERY_PORTS_URL`, such as `https://3000-HOSTID.ports.rookery.example/`, with a link that works once. That address is the port's alone: the page it shows cannot reach the server with your session, and the server checks your `use` on every request to it. Give the name a wildcard record and certificate, and pick a domain apart from the server's own, such as `rookery-ports.example`, so that the pages of ports don't share cookies with it.
+
+A workstation's desktop is a WebSocket at `/env/NAME/desktop` for a viewer such as noVNC, from the server's own pages and with `use` on the host. The server reads the VNC password on the host and completes the handshake with it, so the password never reaches the browser.
 
 ## Who gets in
 

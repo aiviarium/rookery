@@ -31,7 +31,18 @@ chrono.workspace = true
 tracing.workspace = true
 libc.workspace = true
 tempfile.workspace = true
+# The port and desktop proxies.
+axum.workspace = true
+hyper = { workspace = true, features = ["client", "http1"] }
+hyper-util = { workspace = true, features = ["client-legacy", "http1", "tokio"] }
+tower-service = "0.3"
+# The VNC password's challenge, and the versions of files.
+des = "0.8"
+sha2 = "0.11"
+hex = "0.4"
+rand = "0.9"
 
 [dev-dependencies]
 rookery-store = { workspace = true, features = ["testing"] }
 rookery-kernel = { workspace = true, features = ["testing"] }
+tower = { version = "0.5", features = ["util"] }
