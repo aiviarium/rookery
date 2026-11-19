@@ -63,6 +63,7 @@ HOSTS = {
         'e2e_serve.Methods',
         'e2e_serve.Streams',
         'e2e_serve.Grants',
+        'e2e_serve.Connect',
         'e2e_serve.SetUp',
         'e2e_client.Client',
         'e2e_client.AccessToken',
@@ -97,7 +98,8 @@ SHARDS = {
     # it. On `forge` beside them, the bare host: the ways rookery logs in, and
     # the provisioners, which need no host.
     'studio': ['e2e_apply.Apply', 'e2e_host', 'e2e_secrets', 'e2e_local', 'e2e_controller.OnAWorkstation',
-               'e2e_serve.Methods', 'e2e_serve.Streams', 'e2e_serve.Grants', 'e2e_serve.SetUp',
+               'e2e_serve.Methods', 'e2e_serve.Streams', 'e2e_serve.Grants', 'e2e_serve.Connect',
+               'e2e_serve.SetUp',
                'e2e_client.Client', 'e2e_client.AccessToken', 'e2e_restore',
                'e2e_access', 'e2e_provisioners'],
     # The most applies of any state, on `studio`; on `forge` beside it, rookery's
