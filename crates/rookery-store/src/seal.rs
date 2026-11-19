@@ -35,6 +35,11 @@ pub struct Sealed {
 
 /// The associated data of a row.
 pub fn row(table: &str, id: Uuid) -> Vec<u8> {
+    named_row(table, &id.to_string())
+}
+
+/// The associated data of a row with a text id.
+pub fn named_row(table: &str, id: &str) -> Vec<u8> {
     format!("rookery.{table}|{id}").into_bytes()
 }
 

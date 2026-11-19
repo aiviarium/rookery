@@ -49,6 +49,9 @@ pub struct NewJob<'a> {
     pub run_after: Option<DateTime<Utc>>,
     pub subject: Option<&'a str>,
     pub enqueued_by: &'a str,
+    /// A caller's token: a job of the same kind, subject and `params.action` with it already is
+    /// returned in place of a new one.
+    pub token: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -94,9 +97,10 @@ impl Jobs<'_> {
         if !(1..=100).contains(&job.max_attempts) {
             return Err(Error::Invalid("maxAttempts is 1 to 100".into()));
         }
-        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "INSERT INTO rookery.jobs (id, kind, params, state, max_attempts, run_after, subject, enqueued_by)
-             SELECT $1, $2, $3, 'queued', $4, coalesce($5, now()), $6, $7 WHERE rookery.fence($8) RETURNING {COLS}"
+        let made: Option<Job> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO rookery.jobs (id, kind, params, state, max_attempts, run_after, subject, enqueued_by, token)
+             SELECT $1, $2, $3, 'queued', $4, coalesce($5, now()), $6, $7, $8 WHERE rookery.fence($9)
+             ON CONFLICT DO NOTHING RETURNING {COLS}"
         )))
         .bind(new_id())
         .bind(job.kind)
@@ -105,9 +109,80 @@ impl Jobs<'_> {
         .bind(job.run_after)
         .bind(job.subject)
         .bind(job.enqueued_by)
+        .bind(job.token)
         .bind(self.fence)
-        .fetch_one(self.pool)
+        .fetch_optional(self.pool)
+        .await?;
+        match (made, job.token) {
+            (Some(made), _) => Ok(made),
+            (None, Some(token)) => self
+                .by_token(job.kind, job.subject, job.params["action"].as_str(), token)
+                .await?
+                .ok_or_else(|| {
+                    Error::Conflict("a job with the token was removed meanwhile".into())
+                }),
+            (None, None) => Err(Error::Conflict("the job was not made".into())),
+        }
+    }
+
+    /// The job a caller's token started, of a kind, subject and `params.action`.
+    pub async fn by_token(
+        &self,
+        kind: &str,
+        subject: Option<&str>,
+        action: Option<&str>,
+        token: &str,
+    ) -> Result<Option<Job>> {
+        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {COLS} FROM rookery.jobs WHERE kind = $1 AND subject IS NOT DISTINCT FROM $2
+               AND params->>'action' IS NOT DISTINCT FROM $3 AND token = $4"
+        )))
+        .bind(kind)
+        .bind(subject)
+        .bind(action)
+        .bind(token)
+        .fetch_optional(self.pool)
         .await?)
+    }
+
+    /// The session on a host a job follows, and how far its output was copied.
+    pub async fn set_session(&self, id: Uuid, session: &str, offset: i64) -> Result<()> {
+        sqlx::query("UPDATE rookery.jobs SET session = $2, session_offset = $3 WHERE id = $1 AND rookery.fence($4)")
+            .bind(id)
+            .bind(session)
+            .bind(offset)
+            .bind(self.fence)
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn session(&self, id: Uuid) -> Result<Option<(String, i64)>> {
+        let row: Option<(Option<String>, Option<i64>)> =
+            sqlx::query_as("SELECT session, session_offset FROM rookery.jobs WHERE id = $1")
+                .bind(id)
+                .fetch_optional(self.pool)
+                .await?;
+        Ok(row.and_then(|(session, offset)| Some((session?, offset.unwrap_or(0)))))
+    }
+
+    /// Moves the jobs of one subject to another, as when a host is renamed.
+    pub async fn move_subject(&self, from: &str, to: &str) -> Result<u64> {
+        let done = sqlx::query("UPDATE rookery.jobs SET subject = $2 WHERE subject = $1")
+            .bind(from)
+            .bind(to)
+            .execute(self.pool)
+            .await?;
+        Ok(done.rows_affected())
+    }
+
+    /// Removes the jobs that ended before `cutoff`, with their logs.
+    pub async fn prune(&self, cutoff: DateTime<Utc>) -> Result<u64> {
+        let done = sqlx::query("DELETE FROM rookery.jobs WHERE finished_at < $1")
+            .bind(cutoff)
+            .execute(self.pool)
+            .await?;
+        Ok(done.rows_affected())
     }
 
     pub async fn get(&self, id: Uuid) -> Result<Option<Job>> {

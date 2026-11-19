@@ -128,6 +128,32 @@ impl Access<'_> {
         .await?)
     }
 
+    /// Moves the grants and the owner of a resource to another, as when a host is renamed.
+    pub async fn move_resource(&self, from: &str, to: &str) -> Result<()> {
+        check_resource(to)?;
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM rookery.grants WHERE resource = $1")
+            .bind(to)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM rookery.owners WHERE resource = $1")
+            .bind(to)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE rookery.grants SET resource = $2 WHERE resource = $1")
+            .bind(from)
+            .bind(to)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE rookery.owners SET resource = $2 WHERE resource = $1")
+            .bind(from)
+            .bind(to)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     /// Removes every grant and the owner of a resource, such as when it is removed.
     pub async fn forget(&self, resource: &str) -> Result<()> {
         sqlx::query("DELETE FROM rookery.grants WHERE resource = $1")
