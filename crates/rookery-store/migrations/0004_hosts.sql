@@ -19,10 +19,11 @@ CREATE TABLE rookery.hosts (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
--- The host keys a host was seen with, and the keys it trusts. What is kept of a host goes with it;
--- checked at commit, so a batch writes a host and its rows in any order.
+-- The host keys a host was seen with, and the keys it trusts. A host's first contact, as when it is
+-- adopted, records them before its profile is saved, so no key ties them to rookery.hosts: they go
+-- with their host by the trigger below.
 CREATE TABLE rookery.host_access (
-    host       text PRIMARY KEY REFERENCES rookery.hosts (id) ON DELETE CASCADE ON UPDATE CASCADE DEFERRABLE INITIALLY DEFERRED,
+    host       text PRIMARY KEY,
     value      jsonb NOT NULL,
     updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -73,6 +74,18 @@ CREATE TABLE rookery.host_messages (
     done       boolean NOT NULL DEFAULT false,
     UNIQUE (host, id)
 );
+
+-- What is kept of a host goes with it. The messages and the channel's cursor are a linked host's
+-- alone, so they reference it, checked at commit so that a batch writes a host and its rows in any
+-- order.
+CREATE FUNCTION rookery.host_gone() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    DELETE FROM rookery.host_access WHERE host = OLD.id;
+    RETURN OLD;
+END
+$$;
+
+CREATE TRIGGER hosts_gone AFTER DELETE ON rookery.hosts FOR EACH ROW EXECUTE FUNCTION rookery.host_gone();
 
 CREATE INDEX host_messages_topic ON rookery.host_messages (host, topic);
 CREATE INDEX host_messages_time ON rookery.host_messages (time);

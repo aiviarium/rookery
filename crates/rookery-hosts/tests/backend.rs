@@ -252,3 +252,31 @@ async fn a_server_that_does_not_lead_writes_nothing() {
     .await
     .unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_host_is_known_before_it_is_saved_and_forgotten_with_it() {
+    let Some(db) = TestDb::new().await else {
+        eprintln!("skipped: ROOKERY_TEST_POSTGRES is not set");
+        return;
+    };
+    let s = on(&db);
+    tokio::task::spawn_blocking(move || {
+        let own = store::OWN;
+        // A first contact records the host's keys before its profile is saved, as adopting does.
+        s.write(
+            kind::ACCESS,
+            own,
+            HOST,
+            b"{\"host_keys\":[\"ssh-ed25519 AAAA\"]}",
+        )
+        .unwrap();
+        s.write_labelled(kind::PROFILE, own, HOST, "studio", b"{\"type\":\"ssh\"}")
+            .unwrap();
+        assert!(s.read(kind::ACCESS, own, HOST).unwrap().is_some());
+        // Removed, nothing of it is left.
+        s.forget(kind::PROFILE, own, HOST).unwrap();
+        assert!(s.read(kind::ACCESS, own, HOST).unwrap().is_none());
+    })
+    .await
+    .unwrap();
+}
