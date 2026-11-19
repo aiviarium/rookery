@@ -54,6 +54,8 @@ describe("the extension host", () => {
       "job:echo.build",
       "job:echo.wait",
       "job:echo.wipe",
+      "rpc:ask",
+      "rpc:contributions",
       "rpc:crash",
       "rpc:env",
       "rpc:forge",
@@ -68,6 +70,7 @@ describe("the extension host", () => {
       "rpc:setting",
       "rpc:slow",
       "rpc:stuck",
+      "service:greeter",
     ])
     expect(activated.registrations.find((r: any) => r.key === "greet").params.properties.name.type).toBe(
       "string",

@@ -5,6 +5,8 @@
 // in `rookery-proto` fails `bun run check` at the call site. A method outside it is one the server
 // does not have yet, which `sdk/test/wire.test.ts` keeps honest against `api/methods.json`.
 import type {
+  AppServiceList,
+  AppServiceStatus,
   BlobInfo,
   BlobRef,
   ConnectionCreate,
@@ -24,6 +26,7 @@ import type {
   EventSubscribed,
   EventsDropped,
   EventUnsubscribe,
+  ExtensionList,
   HostInfo,
   IdRef,
   JobChanged,
@@ -100,12 +103,19 @@ export const WIRE = {
   "notify.read": {} as WireCall<NotifyRead, Count>,
   "notify.send": {} as WireCall<NotifySend, NotifySent>,
   "notify.setPref": {} as WireCall<NotifyPref, Empty>,
+  "extensions.list": {} as WireCall<{ point: string }, ExtensionList>,
   "plugins.activate": {} as WireCall<{ id: string }, PluginInfo>,
   "plugins.list": {} as WireCall<Empty, PluginList>,
   "plugins.rpc": {} as WireCall<
     { plugin: string; method: string; params?: Record<string, unknown> },
     unknown
   >,
+  "services.call": {} as WireCall<
+    { plugin: string; service: string; method: string; params?: Record<string, unknown> },
+    unknown
+  >,
+  "services.list": {} as WireCall<{ plugin?: string }, AppServiceList>,
+  "services.status": {} as WireCall<{ plugin: string; service: string }, AppServiceStatus>,
   "settings.get": {} as WireCall<SettingRef, SettingValue>,
   "settings.list": {} as WireCall<SettingsOf, SettingList>,
   "settings.reset": {} as WireCall<SettingReset, Empty>,
@@ -204,9 +214,6 @@ export const NOT_ON_SERVER = [
   // The plugin system and the extension host.
   "commands.list",
   "commands.run",
-  "extensions.list",
-  "services.list",
-  "services.status",
   // The data layer and its live queries, which `createCollection` and `createLive` call.
   "data.aggregate",
   "data.batch",
