@@ -28,7 +28,7 @@ To seal everything again under a new key, stop every `rookery serve` on the data
 rookery server secrets rekey --write-new-key /etc/rookery/secret.key.new
 ```
 
-It opens the values with the key of `ROOKERY_SECRET_KEY_FILE` and writes them sealed with the new one, in one transaction. Then point `ROOKERY_SECRET_KEY_FILE` at the new file and start the server.
+It opens the values with the key of `ROOKERY_SECRET_KEY_FILE` and writes them sealed with the new one, in one transaction. `--new-key-file FILE` takes a key you made instead. Then point `ROOKERY_SECRET_KEY_FILE` at the new file and start the server.
 
 <Callout type="warn" title="Back the key file up apart from the database">
   The sealed values cannot be read without the key. Keep a copy of the key file somewhere other than the backups of the database, so that one stolen backup doesn't give away the secrets. Keep the old key as long as you keep backups from before a rekey.
@@ -69,6 +69,7 @@ rookery server import --from ~/.local/share/rookery/rookery.db --key-file ~/.con
 | --- | --- |
 | `--from` | The store's SQLite file, or a `postgres://` URL without its password, which goes in `PGPASSWORD` |
 | `--from-file` | A file whose first line is the store's file or URL, password and all |
+| `--if-not-imported` | Succeed without doing anything when this database had its import already |
 | `--key-file` | The old store's key file, when it was encrypted. Without it, the server's own key is tried |
 | `--owner` | The account that owns every imported host, made as an admin when there is none of that name. Without it, the server's one admin |
 

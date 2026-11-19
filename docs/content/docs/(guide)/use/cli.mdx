@@ -30,7 +30,7 @@ rookery login https://rookery.example.ts.net   # signs in through the browser, t
 rookery logout                               # forgets them again
 ```
 
-`rookery login` also takes a [sign-in link](/docs/use/server#with-a-sign-in-link), or an access token from `--token-file FILE` or `--token-stdin`. A token never goes on the command line, where other users of the machine could read it. A command can also use a server once: `rookery --server URL --token-file FILE ls`.
+`rookery login` signs in through the browser, then keeps the server: it opens `/auth/desktop` with a loopback redirect and a PKCE challenge, and keeps the device session it gets. `--no-browser` asks for a sign-in link instead. It also takes a [sign-in link](/docs/use/server#with-a-sign-in-link), or an access token from `--token-file FILE` or `--token-stdin`. A token never goes on the command line, where other users of the machine could read it. A command can also use a server once: `rookery --server URL --token-file FILE ls`.
 
 ## Hosts
 
@@ -90,6 +90,11 @@ What changes a host runs as a job of the server, such as an apply or a roll-out.
 | See one job | `rookery job show ID` |
 | Read its log, and go on as it writes | `rookery job logs ID -f` |
 | Wait for it, and take its status | `rookery job wait ID` |
+| Stop it | `rookery job stop ID` |
+
+A job's kind says what started it: `hosts.act` for an action of a host, `hosts.session` for a command on one, `provisioners.act`, `resources.act` and `installation.act` for those subjects. A job is `queued`, `running`, `succeeded`, `failed` or `cancelled`. A failed job runs again while attempts are left, unless it is one that is not safe to repeat, such as an apply. Its log is kept for `retention_days`, 90 days unless set.
+
+A job's end is an event, `rookery/jobs.changed`, rather than a notification. A shell follows it, or the job's stream. [`rookery serve`](/docs/extend/serve#jobs) has the kinds and the methods.
 
 ## Actions
 
@@ -152,9 +157,14 @@ See [Secrets](/docs/use/secrets) and [Registries](/docs/use/registries).
 | See the plugins | `rookery plugin list` |
 | See what one brings | `rookery plugin show github` |
 | Install one | `rookery plugin add example/tools` from the plugin registries, or an egg or package folder of this machine, which is sent to the server |
+| Check a package without installing it | `rookery plugin check ./tools` ([Checking a plugin](/docs/extend/writing-plugins#checking-a-plugin)) |
 | Add a plugin registry | `rookery plugin registry add git https://github.com/example/rookery-plugins.git` |
+| Turn off the registry that comes with Rookery | `rookery plugin registry disable rookery` |
 | Check for newer versions | `rookery plugin update --check` |
 | Update them | `rookery plugin update`, then `rookery rollout` |
+| Remove one | `rookery plugin remove tools` |
+
+The server installs a package from its registries, fetches an `https` address itself, or takes the egg that `rookery plugin add` packs from your folder and sends. It never installs a path of its own machine.
 
 ## Ports, services and messages
 
@@ -172,10 +182,12 @@ See [Secrets](/docs/use/secrets) and [Registries](/docs/use/registries).
 | What | Command |
 | --- | --- |
 | Run it | `rookery serve`, with its settings in the environment ([`rookery serve`](/docs/extend/serve)) |
-| A sign-in link for the first admin | `rookery server setup-key` ([A Rookery server](/docs/use/server#with-a-sign-in-link)) |
-| An access token of an account | `rookery server token --user NAME` |
+| A sign-in link for the first admin | `rookery server setup-key` ([A Rookery server](/docs/use/server#the-first-admin)) |
+| An access token of an account | `rookery server token --user NAME`, with `--admin` to make a new account an admin |
 | Bring in an older store | `rookery server import --from FILE\|URL` ([The database](/docs/use/store#from-an-older-store)) |
 | Seal the secrets with a new key | `rookery server secrets rekey` ([The database](/docs/use/store#the-secret-key)) |
+| Build the server's image | `rookery server image` |
+| Run the server on a machine with Docker | `rookery server deploy [USER@]HOST` ([A Rookery server](/docs/use/server#run-it-as-a-program)) |
 | The server's settings | `rookery config list`, `rookery config set KEY VALUE` |
 | Update Rookery itself | `rookery update` ([Updates](/docs/use/updates#rookery-itself)) |
 

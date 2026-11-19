@@ -13,7 +13,7 @@ Rookery is the successor of berth. It doesn't read anything under berth's names,
 | The program `berth`, the controller `berthd` | `rookery`, `rookeryd` |
 | `~/.config/berth`, `~/.local/share/berth` | `~/.config/rookery`, `~/.local/share/rookery` |
 | `~/Library/Application Support/berth` on macOS, `%LOCALAPPDATA%\berth` on Windows | The same folders named `rookery` |
-| The store `berth.db` | `rookery.db` |
+| The store `berth.db` | Nothing: the server keeps its state in PostgreSQL. Profiles come back with `rookery host import`, and secrets are set again |
 | Environment variables `BERTH_*` | `ROOKERY_*` |
 | Profile settings `devbox_*` | `rookery_*` |
 | A plugin's `berth` key in `package.json`, the package names `berth-plugin-*`, `BERTH_ARG_*` in its actions | A Hatchery package with a `rookery` target, with that key's content under `contributes` in `rookery/plugin.json` ([Writing a plugin](/docs/extend/writing-plugins)), and `ROOKERY_ARG_*` |
@@ -40,29 +40,23 @@ On a berth server, run this from a client connected to it. Keep a copy of the da
 
 ## 2. Move the client
 
-Quit berth, install Rookery ([Install](/docs/start/install)) and move the folders:
+Quit berth, install Rookery ([Install](/docs/start/install)) and move the settings folder:
 
 ```bash
 mv ~/.config/berth ~/.config/rookery
-mv ~/.local/share/berth ~/.local/share/rookery
-cd ~/.local/share/rookery && for f in berth.db*; do mv "$f" "rookery${f#berth}"; done
 ```
 
-`store.key`, `serve.token` and the SSH key keep their names. Check `~/.config/rookery/config.json` for paths that still name `berth`, such as `store` or `store_key`, and rename `BERTH_*` variables in your shell's configuration. On macOS and Windows, rename the settings folder in the same way. Then remove the `berth` program.
+Check `~/.config/rookery/config.json` for paths that still name `berth`, such as `source`, and rename `BERTH_*` variables in your shell's configuration. The hosts and their profiles are not in that folder: they come back in step 4. Keep a copy of berth's data folder until then, and remove the `berth` program once it has served its purpose.
 
-## 3. Move the server
+On macOS and Windows, rename the settings folder in the same way.
 
-Stop the container, move its folder, and give the store its new name:
+## 3. Start the server
 
-```bash
-docker stop berth && docker rm berth
-sudo mv /srv/berth /srv/rookery
-sudo mv /srv/rookery/config/berth /srv/rookery/config/rookery
-sudo mv /srv/rookery/data/berth /srv/rookery/data/rookery
-cd /srv/rookery/data/rookery && for f in berth.db*; do sudo mv "$f" "rookery${f#berth}"; done
-```
+Rookery's server keeps its state in PostgreSQL, and brings a host in from the profile the host keeps or from a file ([A Rookery server](/docs/use/server)). Start one with the [compose file](/docs/use/server#run-it-with-compose), which runs its database, or with `rookery serve` on a machine that has one, with `ROOKERY_DATABASE_URL` and the key of `ROOKERY_SECRET_KEY_FILE` set.
 
-Start it again with the [server recipe](https://github.com/aiviarium/rookery/tree/main/recipes/rookery-server) or the image `ghcr.io/aiviarium/rookery`, with `ROOKERY_*` for any `BERTH_*` variable you gave it. With OAuth, rename the roles and the client in your identity provider. The clients connect again with the same address and token.
+A berth data folder is not read. Keep it as a copy until the profiles are back, then remove it. A store of an older *Rookery* is another matter: `rookery server import` brings one into the server's database ([The database](/docs/use/store#from-an-older-store)).
+
+With OAuth, rename the roles and the client in your identity provider. The clients connect again with the new server's address, and sign in with [a link](/docs/use/server#with-a-sign-in-link).
 
 ## 4. Bring the profiles back
 

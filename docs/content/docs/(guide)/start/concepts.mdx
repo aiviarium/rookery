@@ -4,26 +4,26 @@ description: The parts of Rookery, where each one runs, and the words the rest o
 icon: Network
 ---
 
-Rookery has a side on your machine and a side on each host. Your machine installs and manages hosts. Each host runs a small controller, and the agents run there.
+Rookery has a side on the machine you work from, a server that keeps the state, and a side on each host. Your machine installs and manages hosts. Each host runs a small controller, and the agents run there.
 
 ```text
- your machine                                  a host
-┌──────────────────────────┐   SSH    ┌──────────────────────────────────┐
-│ rookery  (CLI)           │ ───────▶ │ rookeryd        root daemon, API   │
-│ profiles, secrets        │          │ box           for the agent      │
-│ rookery serve (local API)  │          │ desktop, plugins and their agents │
-└──────────────────────────┘          └──────────────────────────────────┘
+ your machine          a server            a host
+┌────────────────┐       ┌────────────────────┐       ┌─────────────────────────────┐
+│ rookery  (CLI) │ ────▶ │ rookery serve      │ ────▶ │ rookeryd   root daemon, API │
+│ signs in, runs │       │ PostgreSQL: hosts, │       │ box        for the agent    │
+│ commands       │       │ profiles, secrets  │       │ desktop, plugins, agents    │
+└────────────────┘       └────────────────────┘       └─────────────────────────────┘
 ```
 
 ## The parts
 
 | Part | Runs on | Does |
 | --- | --- | --- |
-| `rookery` | your machine | Keeps a profile per host and installs it. Manages hosts afterwards from its commands |
+| `rookery` | your machine | Signs in to a server and runs its commands. Every command calls the server's API, and the server keeps the profiles |
 | The role | the host, once per install or apply | The Ansible role that sets up the host. Every install method runs it |
 | `rookeryd` | the host, as root | Runs actions, sessions and services and answers the [API](/docs/api/host) |
 | `box` | the host, for the agent | Desktop control, actions the agent may run, the channel and services, from the agent's side ([box](/docs/reference/box)) |
-| `rookery serve` | your machine or a server | One API over all hosts, with an inbox and a key-value store. Other machines running Rookery can use its hosts ([A Rookery server](/docs/use/server)) |
+| `rookery serve` | your machine or a server | The server: the hosts, their profiles, secrets, jobs and plugins in PostgreSQL. Other machines running Rookery can use its hosts ([A Rookery server](/docs/use/server)) |
 | Plugin | both | Coding agents, provisioners, other software, actions and services, switched on per host ([Plugins](/docs/extend/plugins)) |
 
 Rookery's own files and settings on a host carry its name, such as `/etc/rookery` and the `rookery_` variables.
@@ -35,7 +35,7 @@ Rookery's own files and settings on a host carry its name, such as `/etc/rookery
 | Host | Anything Rookery reaches and logs in to, such as a laptop, server, VM or container |
 | Provisioner | A plugin's way to create the machine for a host, such as a container on Docker or a VM on Incus. See [Provisioners](/docs/deploy/provisioners) |
 | Type | What Rookery does with a host: `ssh` only logs in, `managed` adds Rookery's controller, `workstation` applies the whole profile. See [Host types](/docs/use/types) |
-| Profile | The JSON document that describes one host, from what to install to how it is reached, or a template to start one from. Rookery keeps it in its store. See [Profile](/docs/reference/profile) |
+| Profile | The JSON document that describes one host, from what to install to how it is reached, or a template to start one from. The server keeps it. See [Profile](/docs/reference/profile) |
 | Target | The kind of machine a host is installed on, such as a laptop, a cloud machine or a container. A profile says it as `target` |
 | Operator | Your account on the host, `ops` by default, for SSH and Cockpit |
 | Agent | The account the coding agents, which plugins install, work in, `agent` by default. The virtual desktop runs as this account. Its sudo rights are its [privileges](/docs/use/accounts) |

@@ -1,10 +1,10 @@
 ---
 title: Profile
-description: The fields of a host profile, which Rookery keeps in its store, and what each one does.
+description: The fields of a host profile, which the server keeps, and what each one does.
 icon: FileBraces
 ---
 
-A profile is a JSON document that describes one host. Rookery keeps it in its store and writes it from the set-up. The fields below can also be edited by hand: write the profile to a file, change it and save it back.
+A profile is a JSON document that describes one host. The server keeps it, and Rookery writes it from the set-up. The fields below can also be edited by hand: write the profile to a file, change it and save it back.
 
 ```bash
 rookery host export studio > studio.json
@@ -66,7 +66,7 @@ The operator always has sudo without a password and logs in over SSH with keys o
 
 ### The key of Rookery itself
 
-Each installation makes an ed25519 key of its own the first time it needs one: the key `rookery` of its [key ring](/docs/use/accounts#keys). It keeps the key in its [store](/docs/use/store). An installation restored from the store gets the same key back. The operator of a host always takes it along with the keys in the profile, so the Rookery that set a host up can always log in to it without a key of yours. That matters most for a [Rookery server](/docs/use/server), which has no keys until you give it some. A host that logs in with another key of the ring, `key:NAME`, takes that key too. During a [rotation](/docs/use/accounts#rekeying) the operator takes the new key as well.
+Each installation makes an ed25519 key of its own the first time it needs one: the key `rookery` of its [key ring](/docs/use/accounts#keys). It keeps the key in the [database](/docs/use/store). An installation restored from the store gets the same key back. The operator of a host always takes it along with the keys in the profile, so the Rookery that set a host up can always log in to it without a key of yours. That matters most for a [Rookery server](/docs/use/server), which has no keys until you give it some. A host that logs in with another key of the ring, `key:NAME`, takes that key too. During a [rotation](/docs/use/accounts#rekeying) the operator takes the new key as well.
 
 `rookery key show rookery` prints the public half. With a Rookery server set, it prints the server's key.
 
@@ -170,7 +170,7 @@ After an apply as the operator, Rookery writes what the role made true: `sudo` b
 
 ## Install (`builder`)
 
-How Rookery installs the host. These settings stay on your machine.
+How Rookery installs the host. These settings belong to the machine Rookery runs on.
 
 <TypeTable
   type={{
@@ -183,7 +183,7 @@ How Rookery installs the host. These settings stay on your machine.
 
 ## Beside the profile
 
-Rookery keeps more of a host in its store, beside the profile:
+Rookery keeps more of a host in the server's database, beside the profile:
 
 | What | Holds | How to see it |
 | --- | --- | --- |
@@ -192,4 +192,4 @@ Rookery keeps more of a host in its store, beside the profile:
 
 `rookery host credentials` prints an account and its password to a line, and only to a terminal unless `--show` is given. For a Rookery server's host it asks the server, which keeps them. `rookery host remove HOST` forgets the profile and both of these at once. A machine Rookery created for the host is left as it is, and its record stays as a resource with no host, unless `--destroy` destroys the machine too ([Removing a host](/docs/use/lifecycle#removing-a-host)). `rookery host duplicate` copies neither to the new host.
 
-Secrets and registries a host gets are listed in the profile by name (`secrets`, `registries`). Their values stay in Rookery's store.
+Secrets and registries a host gets are listed in the profile by name (`secrets`, `registries`). Their values stay in the server's database.

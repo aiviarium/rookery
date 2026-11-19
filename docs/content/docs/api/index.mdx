@@ -19,7 +19,7 @@ Every method of the server has a name, such as `hosts.list` or `jobs.follow`, an
 
 | Way | For |
 | --- | --- |
-| `GET /ws` | A WebSocket for many calls and streams at once. Crow and the `rookery` command line use it |
+| `GET /ws` | A WebSocket for many calls and streams at once. A shell and the `rookery` command line use it |
 | `POST /rpc` | One call per request, for scripts. Methods that open a stream are refused there |
 | The unix socket | `/ws` and `/rpc` on the server's own machine, `server.sock` in Rookery's runtime folder or `ROOKERY_SOCKET`. Its caller is the machine's admin |
 
