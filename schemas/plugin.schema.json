@@ -1843,7 +1843,7 @@
           }
         },
         "jobs": {
-          "description": "Background work. The host half registers each with rookery.jobs.register(id, { params, run }).",
+          "description": "Background work. Each is a kind of job of the server's, PLUGIN/NAME, which the host half runs with rookery.jobs.handle(id, { params, run }).",
           "type": "array",
           "items": {
             "type": "object",
@@ -1912,6 +1912,14 @@
               "result": {
                 "description": "The shape of the job's result, a JSON Schema. `rookery gen` writes the result type of a service's handler from it.",
                 "type": "object"
+              },
+              "enqueue": {
+                "description": "Who may enqueue one besides an admin: own (the default), anyone signed in and the plugin itself; plugin, the plugin alone; admin, admins alone. A job is recorded with its caller as enqueuedBy.",
+                "enum": [
+                  "own",
+                  "plugin",
+                  "admin"
+                ]
               }
             }
           }

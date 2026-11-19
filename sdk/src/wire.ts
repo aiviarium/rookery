@@ -5,6 +5,8 @@
 // in `rookery-proto` fails `bun run check` at the call site. A method outside it is one the server
 // does not have yet, which `sdk/test/wire.test.ts` keeps honest against `api/methods.json`.
 import type {
+  AppServiceList,
+  AppServiceStatus,
   BlobInfo,
   BlobRef,
   ConnectionCreate,
@@ -24,6 +26,8 @@ import type {
   EventSubscribed,
   EventsDropped,
   EventUnsubscribe,
+  ExtensionList,
+  HostInfo,
   IdRef,
   JobChanged,
   JobEnqueue,
@@ -99,12 +103,19 @@ export const WIRE = {
   "notify.read": {} as WireCall<NotifyRead, Count>,
   "notify.send": {} as WireCall<NotifySend, NotifySent>,
   "notify.setPref": {} as WireCall<NotifyPref, Empty>,
+  "extensions.list": {} as WireCall<{ point: string }, ExtensionList>,
   "plugins.activate": {} as WireCall<{ id: string }, PluginInfo>,
   "plugins.list": {} as WireCall<Empty, PluginList>,
   "plugins.rpc": {} as WireCall<
     { plugin: string; method: string; params?: Record<string, unknown> },
     unknown
   >,
+  "services.call": {} as WireCall<
+    { plugin: string; service: string; method: string; params?: Record<string, unknown> },
+    unknown
+  >,
+  "services.list": {} as WireCall<{ plugin?: string }, AppServiceList>,
+  "services.status": {} as WireCall<{ plugin: string; service: string }, AppServiceStatus>,
   "settings.get": {} as WireCall<SettingRef, SettingValue>,
   "settings.list": {} as WireCall<SettingsOf, SettingList>,
   "settings.reset": {} as WireCall<SettingReset, Empty>,
@@ -143,26 +154,47 @@ export function wireCall<M extends WireMethod>(
 /**
  * The notifications of `rookery serve`, with the generated types of their params.
  *
- * `jobs.changed` and `notify.changed` are the prototype's; no code in `rookery serve` sends either
- * yet, so a listener hears nothing until the server does.
+ * `notify.changed` is the prototype's; no code in `rookery serve` sends it yet. What changed among
+ * hosts, resources and jobs comes as events of the server instead: see [`ServerEvents`].
  */
 export interface WireNotifications {
   "events.event": EventNotice
   "events.dropped": EventsDropped
   "notify.new": NotifyNew
-  "jobs.changed": JobChanged
   "notify.changed": NotifyChanged
 }
 
 /**
+ * The events `rookery serve` publishes, under its own plugin id `rookery`, with their payloads. A
+ * plugin subscribes to them by these names, as to any other plugin's events (`events.subscribe`), and
+ * gets those about what it may see.
+ */
+export interface ServerEvents {
+  /** A saved host was added, changed or removed. `info` is the host as `hosts.get` gives it. */
+  "rookery/hosts.changed": {
+    host: string
+    info: HostInfo | null
+    change: string
+    from?: string | null
+    removed: boolean
+  }
+  /** A resource of a provisioner was made, changed or removed. */
+  "rookery/resources.changed": { resource: string; provisioner: string; kind: string; change: string }
+  /** A job was enqueued, ran, or ended. */
+  "rookery/jobs.changed": JobChanged
+}
+
+/** The name of an event `rookery serve` publishes. */
+export type ServerEventName = keyof ServerEvents
+
+/**
  * The notifications the client listens for, for a test that checks the names it listens to. The last
- * five are what the prototype sent and no code in `rookery serve` sends yet.
+ * four are what the prototype sent and no code in `rookery serve` sends yet, but `plugins.changed`.
  */
 export const NOTIFICATIONS = [
   "events.event",
   "events.dropped",
   "notify.new",
-  "jobs.changed",
   "notify.changed",
   "data.changed",
   "plugins.changed",
@@ -182,9 +214,6 @@ export const NOT_ON_SERVER = [
   // The plugin system and the extension host.
   "commands.list",
   "commands.run",
-  "extensions.list",
-  "services.list",
-  "services.status",
   // The data layer and its live queries, which `createCollection` and `createLive` call.
   "data.aggregate",
   "data.batch",

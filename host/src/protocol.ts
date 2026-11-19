@@ -6,7 +6,7 @@ import type { Invoke, LogLevel, Registration } from "@rookery/sdk/runtime/host"
 export type ToWorker =
   | { type: "activate"; id: number }
   | { type: "invoke"; id: number; invoke: Invoke }
-  | { type: "cancel"; callId: string }
+  | { type: "cancel"; callId: string; reason?: string }
   | { type: "notify"; method: string; params: unknown }
   | { type: "deactivate"; id: number }
   | { type: "result"; id: number; result?: unknown; error?: ErrorBody }
