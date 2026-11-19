@@ -391,6 +391,7 @@ fn job<'a>(kind: &'a str, params: &'a serde_json::Value, attempts: i32) -> NewJo
         run_after: None,
         subject: Some("env://studio"),
         enqueued_by: "user:a",
+        token: None,
     }
 }
 

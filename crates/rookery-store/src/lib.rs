@@ -97,6 +97,15 @@ impl Store {
         Ok(Store::from_parts(pool, options))
     }
 
+    /// A store on a pool of the caller's, with no key and no blobs.
+    pub fn from_pool(pool: PgPool) -> Store {
+        Store {
+            pool,
+            key: None,
+            blobs: None,
+        }
+    }
+
     fn from_parts(pool: PgPool, options: StoreOptions) -> Store {
         Store {
             pool,
