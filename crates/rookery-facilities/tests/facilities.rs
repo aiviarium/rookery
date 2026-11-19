@@ -537,6 +537,89 @@ async fn storage_is_a_plugins_with_revisions() {
     k.close().await;
 }
 
+/// A made-up service on `addr` that answers 200, or sends every request to `to`.
+async fn service(addr: &str, to: Option<String>) -> String {
+    use axum::response::IntoResponse;
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let app = axum::Router::new().fallback(move || {
+        let to = to.clone();
+        async move {
+            match to {
+                Some(to) => axum::response::Redirect::temporary(&to).into_response(),
+                None => axum::http::StatusCode::OK.into_response(),
+            }
+        }
+    });
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    url
+}
+
+/// Makes a connection of `caller`'s own to `url` and tests it.
+async fn test(k: &TestKernel, caller: Caller, url: String) -> Value {
+    let made = k
+        .call(
+            &caller,
+            "connections.create",
+            json!({"type": "http", "name": format!("svc-{}", uuid::Uuid::now_v7()), "scope": "user", "config": {"url": url}}),
+        )
+        .await
+        .unwrap();
+    k.call(&caller, "connections.test", json!({"id": made["id"]}))
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn testing_a_connection_does_not_reach_internal_addresses() {
+    let inside = service("127.0.0.2:0", None).await;
+    let hop = service("127.0.0.1:0", Some(format!("{inside}/"))).await;
+
+    let k: TestKernel = test_kernel!(methods());
+    let ops = k.person("Ops", false).await;
+    for url in [
+        inside.clone(),
+        hop.clone(),
+        "http://localhost:9/".to_owned(),
+        "http://[::1]:9/".to_owned(),
+        "http://169.254.169.254/latest/meta-data/".to_owned(),
+    ] {
+        let tested = test(&k, ops.clone(), url.clone()).await;
+        assert_eq!(tested["ok"], false, "{url}: {tested}");
+        assert!(
+            tested["message"]
+                .as_str()
+                .unwrap()
+                .contains("ROOKERY_OUTBOUND_ALLOW"),
+            "{url}: {tested}"
+        );
+    }
+    k.close().await;
+
+    // Allowed, the first hop answers, but the redirect to an address that is not allowed is refused.
+    let k: TestKernel = test_kernel!(methods(), |config| {
+        config.outbound_allow =
+            rookery_kernel::outbound::AddrRange::parse_list("127.0.0.1").unwrap();
+    });
+    let ops = k.person("Ops", false).await;
+    let tested = test(&k, ops.clone(), hop).await;
+    assert_eq!(tested["ok"], false, "{tested}");
+    assert!(
+        tested["message"].as_str().unwrap().contains("127.0.0.2"),
+        "{tested}"
+    );
+    k.close().await;
+
+    let k: TestKernel = test_kernel!(methods(), |config| {
+        config.outbound_allow =
+            rookery_kernel::outbound::AddrRange::parse_list("127.0.0.0/8").unwrap();
+    });
+    let ops = k.person("Ops", false).await;
+    let tested = test(&k, ops, inside).await;
+    assert_eq!(tested["ok"], true, "{tested}");
+    k.close().await;
+}
+
 #[tokio::test]
 async fn connections_keep_credentials_sealed() {
     // A made-up registry that wants Basic ops:made-up-password.
@@ -555,7 +638,11 @@ async fn connections_keep_credentials_sealed() {
     );
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
 
-    let k: TestKernel = test_kernel!(methods());
+    // The made-up registry is on this machine, which an installation allows for its own network.
+    let k: TestKernel = test_kernel!(methods(), |config| {
+        config.outbound_allow =
+            rookery_kernel::outbound::AddrRange::parse_list("127.0.0.1").unwrap();
+    });
     let admin = k.person("Maria", true).await;
     let ops = k.person("Ops", false).await;
     let types = k.call(&ops, "connections.types", json!({})).await.unwrap();

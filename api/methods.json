@@ -2268,7 +2268,7 @@
   },
   {
     "name": "connections.test",
-    "summary": "Asks the service whether it answers with the connection's credential.",
+    "summary": "Asks the service whether it answers with the connection's credential. Internal addresses are refused unless ROOKERY_OUTBOUND_ALLOW allows them.",
     "level": {
       "kind": "self"
     },
@@ -2468,7 +2468,7 @@
   },
   {
     "name": "events.publish",
-    "summary": "Sends an event of the plugin to the connections subscribed now, at most once.",
+    "summary": "Sends an event of the plugin to the connections subscribed now, at most once: a connection too slow for it loses it, and later hears events.dropped.",
     "level": {
       "kind": "plugin"
     },
@@ -2510,6 +2510,13 @@
       "properties": {
         "delivered": {
           "description": "How many connections it reached.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "dropped": {
+          "default": 0,
+          "description": "How many subscribed connections it did not reach, as they were too slow.",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
@@ -3847,7 +3854,7 @@
   },
   {
     "name": "leases.acquire",
-    "summary": "Takes a lease that is free or expired, with a new fence; CONFLICT while another holds it.",
+    "summary": "Takes a lease that is free or expired, with a new fence; CONFLICT while another worker holds it.",
     "level": {
       "kind": "plugin"
     },
@@ -3879,6 +3886,14 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "worker": {
+          "default": null,
+          "description": "The worker that holds it, such as a replica's id. Without one, the connection on `/ws` is the\nworker, and its leases are released when it closes.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -3944,6 +3959,14 @@
         },
         "plugin": {
           "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "worker": {
+          "default": null,
+          "description": "For `leases.release`: the worker that acquired it, as `leases.acquire` named it.",
           "type": [
             "string",
             "null"
@@ -4034,6 +4057,14 @@
             "string",
             "null"
           ]
+        },
+        "worker": {
+          "default": null,
+          "description": "For `leases.release`: the worker that acquired it, as `leases.acquire` named it.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -4084,6 +4115,14 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "worker": {
+          "default": null,
+          "description": "The worker that holds it, such as a replica's id. Without one, the connection on `/ws` is the\nworker, and its leases are released when it closes.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [

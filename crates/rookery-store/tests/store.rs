@@ -186,3 +186,114 @@ async fn links_work_once() {
     assert!(links.consume(&code).await.unwrap().is_none());
     db.close().await;
 }
+
+#[tokio::test]
+async fn writes_of_a_deposed_leader_are_refused() {
+    use std::time::Duration;
+    let db = test_db!();
+    let mut conn = db.store.pool().acquire().await.unwrap();
+    let first = rookery_store::leader::take(&mut conn).await.unwrap();
+    let old = db.store.fenced(first);
+    let params = serde_json::json!({});
+    let new = || rookery_store::jobs::NewJob {
+        kind: "test.echo",
+        params: &params,
+        max_attempts: 3,
+        run_after: None,
+        subject: None,
+        enqueued_by: "user:x",
+    };
+    let kinds = vec!["test.echo".to_owned()];
+    let job = old.jobs().enqueue(new()).await.unwrap();
+    old.jobs()
+        .claim(&kinds, "server:old", Duration::from_secs(30))
+        .await
+        .unwrap()
+        .unwrap();
+    let lease = old
+        .leases()
+        .acquire("fleet/sync", "plugin:fleet/w1", Duration::from_secs(30))
+        .await
+        .unwrap();
+
+    // Another server takes the lock: the old leader's writes fail, whatever they are.
+    let second = rookery_store::leader::take(&mut conn).await.unwrap();
+    assert_eq!(second, first + 1);
+    assert_eq!(
+        rookery_store::leader::epoch(&mut conn).await.unwrap(),
+        Some(second)
+    );
+    let deposed = |e: rookery_store::Error| {
+        assert!(e.is_deposed(), "{e}");
+        assert_eq!(
+            rookery_proto::RpcError::from(e).error_code().as_str(),
+            "UNAVAILABLE"
+        );
+    };
+    deposed(
+        old.jobs()
+            .heartbeat(job.id, "server:old", Duration::from_secs(30))
+            .await
+            .unwrap_err(),
+    );
+    deposed(
+        old.jobs()
+            .finish(
+                job.id,
+                "server:old",
+                rookery_store::jobs::Outcome::Succeeded(serde_json::json!(1)),
+            )
+            .await
+            .unwrap_err(),
+    );
+    deposed(
+        old.jobs()
+            .log_claimed(job.id, "server:old", "info", "late", None)
+            .await
+            .unwrap_err(),
+    );
+    deposed(old.jobs().enqueue(new()).await.unwrap_err());
+    deposed(
+        old.leases()
+            .renew(
+                "fleet/sync",
+                "plugin:fleet/w1",
+                lease.fence,
+                Duration::from_secs(30),
+            )
+            .await
+            .unwrap_err(),
+    );
+    deposed(
+        old.leases()
+            .acquire("fleet/other", "plugin:fleet/w1", Duration::from_secs(30))
+            .await
+            .unwrap_err(),
+    );
+    assert_eq!(
+        db.store.jobs().get(job.id).await.unwrap().unwrap().state,
+        "running",
+        "the refused writes changed nothing"
+    );
+
+    // The new leader's writes go through, and it ends what the old one left running.
+    let new_leader = db.store.fenced(second);
+    let recovered = new_leader
+        .jobs()
+        .recover(&kinds, &[], "server:new")
+        .await
+        .unwrap();
+    assert_eq!(recovered[0].state, "queued");
+    new_leader
+        .leases()
+        .renew(
+            "fleet/sync",
+            "plugin:fleet/w1",
+            lease.fence,
+            Duration::from_secs(30),
+        )
+        .await
+        .unwrap();
+    drop(conn);
+    db.close().await;
+}

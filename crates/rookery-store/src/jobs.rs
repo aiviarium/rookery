@@ -85,6 +85,8 @@ pub enum Outcome {
 
 pub struct Jobs<'a> {
     pub(crate) pool: &'a PgPool,
+    /// The leader's epoch every write names: see [`crate::leader`].
+    pub(crate) fence: Option<i64>,
 }
 
 impl Jobs<'_> {
@@ -94,7 +96,7 @@ impl Jobs<'_> {
         }
         Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "INSERT INTO rookery.jobs (id, kind, params, state, max_attempts, run_after, subject, enqueued_by)
-             VALUES ($1, $2, $3, 'queued', $4, coalesce($5, now()), $6, $7) RETURNING {COLS}"
+             SELECT $1, $2, $3, 'queued', $4, coalesce($5, now()), $6, $7 WHERE rookery.fence($8) RETURNING {COLS}"
         )))
         .bind(new_id())
         .bind(job.kind)
@@ -103,6 +105,7 @@ impl Jobs<'_> {
         .bind(job.run_after)
         .bind(job.subject)
         .bind(job.enqueued_by)
+        .bind(self.fence)
         .fetch_one(self.pool)
         .await?)
     }
@@ -146,11 +149,13 @@ impl Jobs<'_> {
                  claimed_until = now() + make_interval(secs => $3), started_at = coalesce(started_at, now())
              WHERE id = (SELECT id FROM rookery.jobs WHERE state = 'queued' AND kind = ANY ($1) AND run_after <= now()
                          ORDER BY run_after, id LIMIT 1 FOR UPDATE SKIP LOCKED)
+               AND rookery.fence($4)
              RETURNING {COLS}"
         )))
         .bind(kinds)
         .bind(worker)
         .bind(lease.as_secs_f64())
+        .bind(self.fence)
         .fetch_optional(self.pool)
         .await?)
     }
@@ -174,11 +179,12 @@ impl Jobs<'_> {
     ) -> Result<bool> {
         sqlx::query_scalar(
             "UPDATE rookery.jobs SET claimed_until = now() + make_interval(secs => $3)
-             WHERE id = $1 AND state = 'running' AND claimed_by = $2 RETURNING cancel_requested",
+             WHERE id = $1 AND state = 'running' AND claimed_by = $2 AND rookery.fence($4) RETURNING cancel_requested",
         )
         .bind(id)
         .bind(worker)
         .bind(lease.as_secs_f64())
+        .bind(self.fence)
         .fetch_optional(self.pool)
         .await?
         .ok_or_else(|| Error::Conflict("the job's claim is gone".into()))
@@ -208,7 +214,7 @@ impl Jobs<'_> {
                  finished_at = CASE WHEN NOT cancel_requested AND attempts < max_attempts AND $6::float8 IS NOT NULL
                                     THEN NULL ELSE now() END,
                  claimed_by = NULL, claimed_until = NULL
-             WHERE id = $1 AND state = 'running' AND claimed_by = $2 RETURNING {COLS}"
+             WHERE id = $1 AND state = 'running' AND claimed_by = $2 AND rookery.fence($7) RETURNING {COLS}"
         )))
         .bind(id)
         .bind(worker)
@@ -216,6 +222,7 @@ impl Jobs<'_> {
         .bind(result)
         .bind(error)
         .bind(retry_in)
+        .bind(self.fence)
         .fetch_optional(self.pool)
         .await?
         .ok_or_else(|| Error::Conflict("the job's claim is gone".into()))
@@ -228,9 +235,10 @@ impl Jobs<'_> {
                  cancel_requested = true,
                  state = CASE WHEN state = 'queued' THEN 'cancelled' ELSE state END,
                  finished_at = CASE WHEN state = 'queued' THEN now() ELSE finished_at END
-             WHERE id = $1 RETURNING {COLS}"
+             WHERE id = $1 AND rookery.fence($2) RETURNING {COLS}"
         )))
         .bind(id)
+        .bind(self.fence)
         .fetch_optional(self.pool)
         .await?
         .ok_or_else(|| Error::NotFound("no such job".into()))
@@ -251,9 +259,10 @@ impl Jobs<'_> {
         sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "UPDATE rookery.jobs SET state = 'queued', max_attempts = attempts + 1, cancel_requested = false, run_after = now(),
                  finished_at = NULL, error = NULL, result = NULL
-             WHERE id = $1 AND state IN ('failed', 'cancelled') RETURNING {COLS}"
+             WHERE id = $1 AND state IN ('failed', 'cancelled') AND rookery.fence($2) RETURNING {COLS}"
         )))
         .bind(id)
+        .bind(self.fence)
         .fetch_optional(self.pool)
         .await?
         .ok_or_else(|| Error::Conflict("the job changed meanwhile".into()))
@@ -280,11 +289,12 @@ impl Jobs<'_> {
     ) -> Result<()> {
         let done = sqlx::query(
             "UPDATE rookery.jobs SET progress = $2 WHERE id = $1 AND state = 'running'
-             AND ($3::text IS NULL OR claimed_by = $3)",
+             AND ($3::text IS NULL OR claimed_by = $3) AND rookery.fence($4)",
         )
         .bind(id)
         .bind(progress)
         .bind(worker)
+        .bind(self.fence)
         .execute(self.pool)
         .await?;
         if done.rows_affected() == 0 {
@@ -326,11 +336,12 @@ impl Jobs<'_> {
         let mut tx = self.pool.begin().await?;
         let attempt: i32 = sqlx::query_scalar(
             "SELECT attempts FROM rookery.jobs WHERE id = $1
-               AND ($2::text IS NULL OR (state = 'running' AND claimed_by = $2))
+               AND ($2::text IS NULL OR (state = 'running' AND claimed_by = $2)) AND rookery.fence($3)
              FOR UPDATE",
         )
         .bind(id)
         .bind(worker)
+        .bind(self.fence)
         .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(|| match worker {
@@ -375,21 +386,62 @@ impl Jobs<'_> {
         once: &[String],
         worker: &str,
     ) -> Result<Vec<Job>> {
-        let error = serde_json::json!({ "code": "UNAVAILABLE", "message": "the server running it stopped" });
+        self.end_claims(kinds, once, Ok(worker), "the server running it stopped")
+            .await
+    }
+
+    /// Ends the attempts of `kinds` whose claim ran out, as their worker stopped renewing it, but those
+    /// in `running`, which this server runs and renews itself: a job of a kind in `once` fails as
+    /// interrupted, another runs again while it has attempts left.
+    pub async fn reclaim_expired(
+        &self,
+        kinds: &[String],
+        once: &[String],
+        running: &[Uuid],
+    ) -> Result<Vec<Job>> {
+        self.end_claims(
+            kinds,
+            once,
+            Err(running),
+            "the attempt was interrupted: its claim ran out",
+        )
+        .await
+    }
+
+    /// Ends running attempts: those of other workers than `Ok(worker)`, or those whose claim ran out but
+    /// the jobs in `Err(running)`.
+    async fn end_claims(
+        &self,
+        kinds: &[String],
+        once: &[String],
+        which: std::result::Result<&str, &[Uuid]>,
+        why: &str,
+    ) -> Result<Vec<Job>> {
+        let (worker, running) = match which {
+            Ok(worker) => (Some(worker), &[][..]),
+            Err(running) => (None, running),
+        };
+        let error = serde_json::json!({ "code": "UNAVAILABLE", "message": why });
         Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "UPDATE rookery.jobs SET
                  state = CASE WHEN kind = ANY ($2) OR attempts >= max_attempts OR cancel_requested THEN
                               CASE WHEN cancel_requested THEN 'cancelled' ELSE 'failed' END ELSE 'queued' END,
                  error = CASE WHEN cancel_requested THEN error ELSE $4 END,
                  finished_at = CASE WHEN kind = ANY ($2) OR attempts >= max_attempts OR cancel_requested THEN now() END,
+                 run_after = least(run_after, now()),
                  claimed_by = NULL, claimed_until = NULL
-             WHERE state = 'running' AND kind = ANY ($1) AND claimed_by IS DISTINCT FROM $3
+             WHERE state = 'running' AND kind = ANY ($1)
+               AND CASE WHEN $3::text IS NULL THEN claimed_until < now() AND id <> ALL ($6)
+                        ELSE claimed_by IS DISTINCT FROM $3 END
+               AND rookery.fence($5)
              RETURNING {COLS}"
         )))
         .bind(kinds)
         .bind(once)
         .bind(worker)
         .bind(error)
+        .bind(self.fence)
+        .bind(running)
         .fetch_all(self.pool)
         .await?)
     }

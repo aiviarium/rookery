@@ -12,6 +12,7 @@ pub mod error;
 pub mod jobs;
 pub mod kv;
 pub mod layout;
+pub mod leader;
 pub mod leases;
 pub mod links;
 mod migrate;
@@ -64,6 +65,8 @@ pub struct Store {
     pool: PgPool,
     key: Option<Arc<seal::Key>>,
     blobs: Option<Arc<PathBuf>>,
+    /// The leader's epoch its writes to jobs and leases name, or `None` for a store that leads nothing.
+    fence: Option<i64>,
 }
 
 impl Store {
@@ -102,7 +105,22 @@ impl Store {
             pool,
             key: options.secret_key.map(Arc::new),
             blobs: options.blobs.map(Arc::new),
+            fence: None,
         }
+    }
+
+    /// The same store, whose writes to jobs and leases fail with `UNAVAILABLE` once the leader's epoch
+    /// is no longer `epoch`.
+    pub fn fenced(&self, epoch: i64) -> Store {
+        Store {
+            fence: Some(epoch),
+            ..self.clone()
+        }
+    }
+
+    /// The epoch this store's writes name.
+    pub fn fence(&self) -> Option<i64> {
+        self.fence
     }
 
     /// The same store with another sealing key, or none.
@@ -175,10 +193,16 @@ impl Store {
         layout::Layout { pool: &self.pool }
     }
     pub fn jobs(&self) -> jobs::Jobs<'_> {
-        jobs::Jobs { pool: &self.pool }
+        jobs::Jobs {
+            pool: &self.pool,
+            fence: self.fence,
+        }
     }
     pub fn leases(&self) -> leases::Leases<'_> {
-        leases::Leases { pool: &self.pool }
+        leases::Leases {
+            pool: &self.pool,
+            fence: self.fence,
+        }
     }
     pub fn topics(&self) -> topics::Topics<'_> {
         topics::Topics { pool: &self.pool }

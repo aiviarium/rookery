@@ -352,13 +352,13 @@ async fn leases_go_to_one_holder_at_a_time() {
         .call(
             &fleet,
             "leases.acquire",
-            json!({"name": "sync", "ttlMs": 30000}),
+            json!({"name": "sync", "ttlMs": 30000, "worker": "w1"}),
         )
         .await
         .unwrap();
     assert_eq!(
         (lease["fence"].as_i64(), lease["holder"].as_str()),
-        (Some(1), Some("plugin:fleet"))
+        (Some(1), Some("plugin:fleet/w1"))
     );
     // An admin acting for the plugin is another holder.
     assert_eq!(
@@ -366,7 +366,7 @@ async fn leases_go_to_one_holder_at_a_time() {
             k.call(
                 &admin,
                 "leases.acquire",
-                json!({"plugin": "fleet", "name": "sync", "ttlMs": 1000})
+                json!({"plugin": "fleet", "name": "sync", "ttlMs": 1000, "worker": "w1"})
             )
             .await
         ),
@@ -377,7 +377,7 @@ async fn leases_go_to_one_holder_at_a_time() {
             k.call(
                 &ops,
                 "leases.acquire",
-                json!({"plugin": "fleet", "name": "sync", "ttlMs": 1000})
+                json!({"plugin": "fleet", "name": "sync", "ttlMs": 1000, "worker": "w1"})
             )
             .await
         ),
@@ -387,14 +387,14 @@ async fn leases_go_to_one_holder_at_a_time() {
     k.call(
         &Caller::Plugin("agents".into()),
         "leases.acquire",
-        json!({"name": "sync", "ttlMs": 1000}),
+        json!({"name": "sync", "ttlMs": 1000, "worker": "w1"}),
     )
     .await
     .unwrap();
     k.call(
         &fleet,
         "leases.renew",
-        json!({"name": "sync", "ttlMs": 30000, "fence": 1}),
+        json!({"name": "sync", "ttlMs": 30000, "fence": 1, "worker": "w1"}),
     )
     .await
     .unwrap();
@@ -403,7 +403,7 @@ async fn leases_go_to_one_holder_at_a_time() {
             k.call(
                 &fleet,
                 "leases.renew",
-                json!({"name": "sync", "ttlMs": 30000, "fence": 7})
+                json!({"name": "sync", "ttlMs": 30000, "fence": 7, "worker": "w1"})
             )
             .await
         ),
@@ -412,7 +412,7 @@ async fn leases_go_to_one_holder_at_a_time() {
     k.call(
         &fleet,
         "leases.release",
-        json!({"name": "sync", "fence": 1}),
+        json!({"name": "sync", "fence": 1, "worker": "w1"}),
     )
     .await
     .unwrap();
@@ -420,7 +420,7 @@ async fn leases_go_to_one_holder_at_a_time() {
         .call(
             &admin,
             "leases.acquire",
-            json!({"plugin": "fleet", "name": "sync", "ttlMs": 1000}),
+            json!({"plugin": "fleet", "name": "sync", "ttlMs": 1000, "worker": "w1"}),
         )
         .await
         .unwrap();
@@ -431,7 +431,7 @@ async fn leases_go_to_one_holder_at_a_time() {
         .unwrap();
     assert_eq!(
         seen["lease"]["holder"],
-        format!("user:{}", admin.user().unwrap().id)
+        format!("user:{}/w1", admin.user().unwrap().id)
     );
     k.close().await;
 }
@@ -557,7 +557,7 @@ async fn events_reach_those_subscribed_now() {
         )
         .await
         .unwrap();
-    assert_eq!(sent, json!({"delivered": 2}));
+    assert_eq!(sent, json!({"delivered": 2, "dropped": 0}));
     assert_eq!(
         mine.notification("events.event").await["payload"]["host"],
         "studio"
@@ -576,7 +576,7 @@ async fn events_reach_those_subscribed_now() {
         )
         .await
         .unwrap();
-    assert_eq!(only, json!({"delivered": 1}));
+    assert_eq!(only, json!({"delivered": 1, "dropped": 0}));
     k.call_on(
         &theirs,
         "events.unsubscribe",
@@ -600,7 +600,7 @@ async fn events_reach_those_subscribed_now() {
         k.call(&fleet, "events.publish", json!({"name": "x"}))
             .await
             .unwrap(),
-        json!({"delivered": 0})
+        json!({"delivered": 0, "dropped": 0})
     );
     assert_eq!(
         code(
@@ -864,4 +864,246 @@ async fn an_attempt_outlasts_a_renewal_that_failed_once() {
     k.close().await;
     assert!(renewals > 1, "the claim was renewed after the failure");
     assert_eq!(state, "succeeded", "the attempt ran to its end");
+}
+
+#[tokio::test]
+async fn two_workers_of_a_plugin_hold_a_lease_one_at_a_time() {
+    let k: TestKernel = test_kernel!(messaging());
+    let fleet = Caller::Plugin("fleet".into());
+    let first = k.connect(&fleet);
+    let second = k.connect(&fleet);
+    let acquire = json!({"name": "sync", "ttlMs": 30000});
+    let held = k
+        .call_on(&first, "leases.acquire", acquire.clone())
+        .await
+        .unwrap();
+    assert_eq!(held["fence"], 1);
+    assert!(
+        held["holder"]
+            .as_str()
+            .unwrap()
+            .starts_with("plugin:fleet/conn:"),
+        "{held}"
+    );
+    // The same worker keeps its fence; another connection of the plugin is another worker.
+    assert_eq!(
+        k.call_on(&first, "leases.acquire", acquire.clone())
+            .await
+            .unwrap()["fence"],
+        1
+    );
+    assert_eq!(
+        code(k.call_on(&second, "leases.acquire", acquire.clone()).await),
+        "CONFLICT"
+    );
+    assert_eq!(
+        code(
+            k.call_on(
+                &second,
+                "leases.renew",
+                json!({"name": "sync", "ttlMs": 30000, "fence": 1})
+            )
+            .await
+        ),
+        "CONFLICT"
+    );
+    assert_eq!(
+        code(
+            k.call(
+                &fleet,
+                "leases.acquire",
+                json!({"name": "sync", "ttlMs": 30000, "worker": "replica-2"})
+            )
+            .await
+        ),
+        "CONFLICT",
+        "a named worker is another holder too"
+    );
+    assert_eq!(
+        code(k.call(&fleet, "leases.acquire", acquire.clone()).await),
+        "INVALID",
+        "with no connection, a call names its worker"
+    );
+
+    // The first worker's connection closes: its lease is released, and the next holder gets a new fence.
+    k.kernel.methods.connection_closed(&k.kernel, &first.conn);
+    let taken = loop {
+        match k.call_on(&second, "leases.acquire", acquire.clone()).await {
+            Ok(taken) => break taken,
+            Err(e) if e.error_code().as_str() == "CONFLICT" => {
+                tokio::time::sleep(Duration::from_millis(20)).await
+            }
+            Err(e) => panic!("{e:?}"),
+        }
+    };
+    assert_eq!(taken["fence"], 2);
+    let renewed = k
+        .call(
+            &fleet,
+            "leases.acquire",
+            json!({"name": "sync", "ttlMs": 10, "worker": "replica-2"}),
+        )
+        .await;
+    assert_eq!(code(renewed), "CONFLICT");
+    k.call_on(
+        &second,
+        "leases.release",
+        json!({"name": "sync", "fence": 2}),
+    )
+    .await
+    .unwrap();
+    let named = k
+        .call(
+            &fleet,
+            "leases.acquire",
+            json!({"name": "sync", "ttlMs": 30000, "worker": "replica-2"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        (named["fence"].as_i64(), named["holder"].as_str()),
+        (Some(3), Some("plugin:fleet/replica-2"))
+    );
+    k.close().await;
+}
+
+#[tokio::test]
+async fn a_claim_that_ran_out_is_reclaimed_by_the_leader() {
+    let mut methods = Methods::default();
+    rookery_kernel::streams::register(&mut methods);
+    let options = Options {
+        backoff: Duration::ZERO,
+        lease: Duration::from_millis(300),
+        ..Options::default()
+    };
+    rookery_jobs::register(&mut methods, handlers(), options);
+    let k: TestKernel = test_kernel!(methods);
+    let admin = k.person("Maria", true).await;
+    let mut inbox = k.connect(&admin);
+    // A first job ends, so the worker is past its start and what follows is a reclaim.
+    let first = k
+        .call(&admin, "jobs.enqueue", json!({"kind": "test.echo"}))
+        .await
+        .unwrap();
+    follow(&k, &mut inbox, &first["id"], 0).await;
+
+    // Two jobs a worker claimed and then stopped renewing, as one whose server hung.
+    let jobs = k.db.store.jobs();
+    let params = json!({"n": 1});
+    let mut stale = Vec::new();
+    for (kind, max_attempts) in [("test.echo", 3), ("test.apply", 1)] {
+        let job = jobs
+            .enqueue(rookery_store::jobs::NewJob {
+                kind,
+                params: &params,
+                max_attempts,
+                run_after: Some(chrono::Utc::now() + chrono::Duration::hours(1)),
+                subject: None,
+                enqueued_by: "user:x",
+            })
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE rookery.jobs SET state = 'running', attempts = 1, claimed_by = 'server:hung',
+                 claimed_until = now() - interval '1 second', started_at = now() WHERE id = $1",
+        )
+        .bind(job.id)
+        .execute(k.db.store.pool())
+        .await
+        .unwrap();
+        stale.push(job.id);
+    }
+
+    // One safe to repeat runs again within its attempts.
+    let echo = Value::String(stale[0].to_string());
+    let lines = follow(&k, &mut inbox, &echo, 0).await;
+    assert_eq!(lines.last().unwrap()["state"], "succeeded", "{lines:?}");
+    let echo = jobs.get(stale[0]).await.unwrap().unwrap();
+    assert_eq!((echo.attempts, echo.result), (2, Some(params.clone())));
+
+    // One not safe to repeat fails as interrupted, for a person to run again.
+    let apply = Value::String(stale[1].to_string());
+    let lines = follow(&k, &mut inbox, &apply, 0).await;
+    let end = lines.last().unwrap();
+    assert_eq!(end["state"], "failed", "{lines:?}");
+    assert!(
+        end["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("interrupted"),
+        "{end}"
+    );
+    assert_eq!(jobs.get(stale[1]).await.unwrap().unwrap().attempts, 1);
+    k.close().await;
+}
+
+#[tokio::test]
+async fn a_burst_of_events_drops_what_does_not_fit_and_keeps_the_connection() {
+    let k: TestKernel = test_kernel!(messaging());
+    let ops = k.person("Ops", false).await;
+    let fleet = Caller::Plugin("fleet".into());
+    let mut slow = k.connect(&ops);
+    let subscribed = k
+        .call_on(&slow, "events.subscribe", json!({"names": ["fleet/*"]}))
+        .await
+        .unwrap();
+    // Every host goes offline at once, and nobody reads the socket meanwhile.
+    let (mut delivered, mut dropped) = (0, 0);
+    for n in 0..200 {
+        let sent = k
+            .call(
+                &fleet,
+                "events.publish",
+                json!({"name": "host.changed", "payload": {"host": format!("host-{n}"), "online": false}}),
+            )
+            .await
+            .unwrap();
+        delivered += sent["delivered"].as_u64().unwrap();
+        dropped += sent["dropped"].as_u64().unwrap();
+    }
+    assert_eq!(delivered + dropped, 200);
+    assert!(delivered > 0 && dropped > 0, "{delivered} {dropped}");
+    assert!(!slow.conn.is_closed(), "the connection stays");
+    // A reply or a control notification still has room.
+    slow.conn.notify("test.control", json!({}));
+
+    // The client reads what came, then hears how many it missed.
+    let (mut events, mut missed, mut control) = (0, 0, false);
+    while missed < dropped {
+        let next = tokio::time::timeout(Duration::from_secs(5), slow.rx.recv())
+            .await
+            .expect("the drops are told")
+            .expect("the connection is open");
+        let rookery_kernel::conn::Outbound::Text(text) = next else {
+            continue;
+        };
+        let Ok(rookery_proto::Message::Notification(n)) = rookery_proto::Message::parse(&text)
+        else {
+            continue;
+        };
+        match n.method.as_str() {
+            "events.event" => events += 1,
+            "test.control" => control = true,
+            "events.dropped" => {
+                assert_eq!(n.params["subscription"], subscribed["subscription"]);
+                missed += n.params["dropped"].as_u64().unwrap();
+            }
+            other => panic!("{other}"),
+        }
+    }
+    assert_eq!((events, missed, control), (delivered, dropped, true));
+    // Afterwards events reach it again.
+    let sent = k
+        .call(
+            &fleet,
+            "events.publish",
+            json!({"name": "host.changed", "payload": {}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        (sent["delivered"].as_u64(), sent["dropped"].as_u64()),
+        (Some(1), Some(0))
+    );
+    k.close().await;
 }

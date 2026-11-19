@@ -31,6 +31,9 @@ const MAX_OUTBOUND_FRAMES: usize = 32;
 /// own share keeps it from taking the room of replies and notifications.
 const MAX_OUTBOUND_BINARY: usize = 32;
 const MAX_OUTBOUND_MESSAGE: usize = 2 * 1024 * 1024;
+/// Room of the queue that notifications which may be dropped leave free, for replies and control
+/// notifications: what binary data may take, and a few frames more.
+const KEEP_FREE: usize = MAX_OUTBOUND_BINARY + 8;
 const MAX_PENDING_CALLS: usize = 16;
 const MAX_PENDING_CALL_BYTES: usize = 12 * 1024 * 1024;
 
@@ -68,6 +71,15 @@ impl OutTx {
         if text.len() > MAX_OUTBOUND_MESSAGE || self.tx.try_send(Outbound::Text(text)).is_err() {
             self.overflow.cancel();
         }
+    }
+
+    /// Queues a text frame only while the queue keeps room for replies; returns whether it did. It never
+    /// ends the connection.
+    fn offer_text(&self, text: String) -> bool {
+        if text.len() > MAX_OUTBOUND_MESSAGE || self.tx.capacity() <= KEEP_FREE {
+            return false;
+        }
+        self.tx.try_send(Outbound::Text(text)).is_ok()
     }
 
     pub(crate) async fn send_binary(&self, bytes: Vec<u8>) -> Result<(), crate::RpcError> {
@@ -125,6 +137,20 @@ impl ConnHandle {
     }
     pub fn notify(&self, method: &str, params: impl Serialize) {
         send_notification(&self.0.out, method, params);
+    }
+
+    /// A notification that may be dropped, such as an event: it is sent only while the socket keeps up,
+    /// and a slow one loses it instead of closing. Returns whether it was queued.
+    pub fn offer(&self, method: &str, params: impl Serialize) -> bool {
+        let params = serde_json::to_value(params).expect("notification params serialize");
+        self.0
+            .out
+            .offer_text(Message::Notification(Notification::new(method, params)).to_text())
+    }
+
+    /// Whether the connection has ended.
+    pub fn is_closed(&self) -> bool {
+        self.0.out.tx.is_closed() || self.0.out.overflow.is_cancelled()
     }
     fn session(&self) -> Option<Uuid> {
         match &self.0.caller {

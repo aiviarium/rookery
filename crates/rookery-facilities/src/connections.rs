@@ -1,6 +1,7 @@
 //! `connections.*`: credentials of outside services. A connection has a type, a plain config and a
 //! sealed credential. Rookery's own types are here; plugins will declare more.
 
+use rookery_kernel::outbound::{self, AddrRange};
 use rookery_kernel::{Call, Caller, Empty, Level, Methods, RpcError};
 use rookery_proto::IdRef;
 use rookery_proto::facilities::{
@@ -11,6 +12,7 @@ use rookery_proto::facilities::{
 use rookery_store::connections::{Change, Connection};
 use rookery_store::secrets::Scope;
 use serde_json::{Value, json};
+use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver};
 
 use crate::{own_user, parse_id, time};
 
@@ -112,17 +114,58 @@ async fn changeable(call: &Call, id: &str) -> Result<Connection, RpcError> {
 }
 
 /// Asks the service whether it answers with the credential.
+/// Resolves a name as ureq does, and keeps only the addresses a member may make the server reach: see
+/// [`rookery_kernel::outbound`]. Every hop goes through it, redirects too.
+#[derive(Debug)]
+struct Outside {
+    allow: Vec<AddrRange>,
+}
+
+impl Resolver for Outside {
+    fn resolve(
+        &self,
+        uri: &ureq::http::Uri,
+        config: &ureq::config::Config,
+        timeout: ureq::unversioned::transport::NextTimeout,
+    ) -> Result<ResolvedSocketAddrs, ureq::Error> {
+        let found = DefaultResolver::default().resolve(uri, config, timeout)?;
+        let mut kept = self.empty();
+        let mut refused = None;
+        for addr in found.iter() {
+            match outbound::refusal(addr.ip(), &self.allow) {
+                None => kept.push(*addr),
+                Some(why) => refused = refused.or(Some(why)),
+            }
+        }
+        match refused {
+            Some(why) if kept.is_empty() => Err(ureq::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                why,
+            ))),
+            _ => Ok(kept),
+        }
+    }
+}
+
 async fn probe(
     url: String,
     credential: Option<String>,
     basic_user: Option<String>,
+    allow: Vec<AddrRange>,
 ) -> ConnectionTested {
     tokio::task::spawn_blocking(move || {
-        let agent: ureq::Agent = ureq::Agent::config_builder()
+        let config = ureq::Agent::config_builder()
             .http_status_as_error(false)
             .timeout_global(Some(std::time::Duration::from_secs(10)))
-            .build()
-            .into();
+            // A proxy would reach the address for the server, past the check of the resolver.
+            .proxy(None)
+            .max_redirects(5)
+            .build();
+        let agent = ureq::Agent::with_parts(
+            config,
+            ureq::unversioned::transport::DefaultConnector::default(),
+            Outside { allow },
+        );
         let mut request = agent.get(&url);
         if let Some(secret) = &credential {
             let value = match &basic_user {
@@ -311,9 +354,15 @@ pub fn register(methods: &mut Methods) {
                 .get("username")
                 .and_then(Value::as_str)
                 .map(str::to_owned);
-            Ok(probe(url, credential, user).await)
+            Ok(probe(
+                url,
+                credential,
+                user,
+                call.kernel.config.outbound_allow.clone(),
+            )
+            .await)
         })
-        .summary("Asks the service whether it answers with the connection's credential.")
+        .summary("Asks the service whether it answers with the connection's credential. Internal addresses are refused unless ROOKERY_OUTBOUND_ALLOW allows them.")
         .level(Level::Own);
     methods
         .add(

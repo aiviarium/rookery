@@ -175,6 +175,11 @@ wire! {
         #[serde(default)]
         #[cfg_attr(feature = "ts", ts(optional, type = "number"))]
         pub fence: Option<i64>,
+        /// The worker that holds it, such as a replica's id. Without one, the connection on `/ws` is the
+        /// worker, and its leases are released when it closes.
+        #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        pub worker: Option<String>,
     }
 }
 
@@ -188,6 +193,10 @@ wire! {
         #[serde(default)]
         #[cfg_attr(feature = "ts", ts(optional, type = "number"))]
         pub fence: Option<i64>,
+        /// For `leases.release`: the worker that acquired it, as `leases.acquire` named it.
+        #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        pub worker: Option<String>,
     }
 }
 
@@ -389,9 +398,24 @@ wire! {
 }
 
 wire! {
+    /// The params of an `events.dropped` notification: events of a subscription that did not fit on a
+    /// slow connection were dropped. Events are at most once; a client that needs what it missed reads
+    /// it again, or subscribes again.
+    pub struct EventsDropped {
+        pub subscription: String,
+        /// How many were dropped since the last `events.dropped` of the subscription.
+        #[cfg_attr(feature = "ts", ts(type = "number"))]
+        pub dropped: u64,
+    }
+}
+
+wire! {
     pub struct Delivered {
         /// How many connections it reached.
         pub delivered: usize,
+        /// How many subscribed connections it did not reach, as they were too slow.
+        #[serde(default)]
+        pub dropped: usize,
     }
 }
 

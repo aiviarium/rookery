@@ -3,4 +3,8 @@
 /**
  * `leases.release` and `leases.inspect`.
  */
-export type LeaseRef = { plugin?: string, name: string, fence?: number, };
+export type LeaseRef = { plugin?: string, name: string, fence?: number, 
+/**
+ * For `leases.release`: the worker that acquired it, as `leases.acquire` named it.
+ */
+worker?: string, };
