@@ -11,9 +11,11 @@ doctest = false
 
 [features]
 # The TypeScript bindings in client/src/generated, written by the test `bindings`.
-ts = ["dep:ts-rs"]
+ts = ["dep:ts-rs", "rookery-api/ts"]
 
 [dependencies]
+# The types of hosts that the host protocol shares, such as actions and sessions.
+rookery-api = { workspace = true, features = ["schema"] }
 serde.workspace = true
 serde_json.workspace = true
 schemars.workspace = true

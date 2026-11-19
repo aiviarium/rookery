@@ -48,6 +48,7 @@ pub fn register(methods: &mut Methods) {
     let manage = || Level::Resource {
         param: "resource".into(),
         grant: Grant::Manage,
+        scheme: None,
     };
     methods
         .add("access.grant", |call: Call, p: AccessGrant| async move {

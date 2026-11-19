@@ -1,0 +1,37 @@
+[package]
+name = "rookery-hosts"
+description = "Hosts inside rookery serve: their tables, links held by the leader, the key ring, host actions and apply as jobs, provisioning, and the methods hosts.*, keys.* and the rest of Rookery's own."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+rookery-api = { workspace = true, features = ["client", "plugins", "schema"] }
+rookery-core.workspace = true
+# The checks of a set-up, which the host actions share with the command line.
+rookery-setup.workspace = true
+rookery-proto.workspace = true
+rookery-store.workspace = true
+rookery-kernel.workspace = true
+rookery-jobs.workspace = true
+rookery-facilities.workspace = true
+tokio.workspace = true
+tokio-util = { version = "0.7", default-features = false }
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+sqlx.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+libc.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+rookery-store = { workspace = true, features = ["testing"] }
+rookery-kernel = { workspace = true, features = ["testing"] }

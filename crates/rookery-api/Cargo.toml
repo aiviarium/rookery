@@ -10,6 +10,10 @@ description = "Wire types and client for rookeryd and rookery serve"
 serde.workspace = true
 serde_json.workspace = true
 utoipa.workspace = true
+# The JSON Schema of the types, for the method report of rookery serve.
+schemars = { workspace = true, optional = true }
+# Their TypeScript types, in client/src/generated.
+ts-rs = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true }
 hyper-util = { workspace = true, optional = true }
@@ -22,6 +26,8 @@ jsonschema = { version = "0.61", default-features = false, optional = true }
 
 [features]
 default = ["client"]
+schema = ["dep:schemars"]
+ts = ["dep:ts-rs", "schema"]
 # The client over a byte stream; without it only the types and tables remain,
 # which is all the shared screens take.
 # The contract of a plugin: the schema of rookery.json and Rookery's checks.

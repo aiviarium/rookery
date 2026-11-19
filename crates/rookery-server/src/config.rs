@@ -34,6 +34,11 @@ pub struct ServerConfig {
     /// The Unix socket of the CLI on this machine: `ROOKERY_SOCKET`, or `server.sock` in rookery's
     /// runtime folder.
     pub socket: Option<PathBuf>,
+    /// Rookery's folders of configuration and data, which the hosts' files are written to: the key
+    /// ring, known hosts and the plugins. Without them the server has no hosts.
+    pub paths: Option<rookery_core::paths::Paths>,
+    /// How long provisioners may take and how a new machine is waited for, which tests make quick.
+    pub provision: fn() -> rookery_core::provision::Options,
 }
 
 /// What is wrong with the configuration, said for a person.
@@ -201,11 +206,19 @@ impl ServerConfig {
             outbound_allow,
             shell_dir: get("ROOKERY_SHELL_DIR").map(PathBuf::from),
             socket: default_socket(var),
+            paths: None,
+            provision: Default::default,
         })
     }
 
+    /// From the environment, with the folders of the user it runs as.
     pub fn from_env() -> Result<ServerConfig, ConfigError> {
-        ServerConfig::from_vars(&|name| std::env::var(name).ok())
+        let mut config = ServerConfig::from_vars(&|name| std::env::var(name).ok())?;
+        config.paths = Some(
+            rookery_core::paths::Paths::locate()
+                .map_err(|e| ConfigError(format!("rookery's folders: {e}")))?,
+        );
+        Ok(config)
     }
 }
 

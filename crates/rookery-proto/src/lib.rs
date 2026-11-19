@@ -9,6 +9,7 @@ pub mod auth;
 pub mod context;
 pub mod error;
 pub mod facilities;
+pub mod hosts;
 pub mod jobs;
 pub mod methods;
 pub mod rpc;
