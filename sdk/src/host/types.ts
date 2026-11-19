@@ -37,6 +37,7 @@ import type {
   TopicPayloads,
   Settings as TypedSettings,
 } from "../types"
+import type { ServerEventName, ServerEvents } from "../wire"
 
 export interface Logger {
   debug(message: string, fields?: Record<string, unknown>): void
@@ -108,7 +109,17 @@ export interface Extensions {
 }
 
 export interface Events {
+  /** Publishes an event of this plugin, `PLUGIN/topic` to subscribers. */
   publish(topic: string, payload?: unknown): Promise<void>
+  /**
+   * Subscribes to an event of the server by its full name, such as `rookery/jobs.changed`, with its
+   * payload typed, or to this plugin's own by a name without a `/`, or to another plugin's by its full
+   * name.
+   */
+  subscribe<K extends ServerEventName>(
+    topic: K,
+    handler: (payload: ServerEvents[K], topic: string) => unknown,
+  ): Promise<Disposable>
   subscribe(topic: string, handler: (payload: unknown, topic: string) => unknown): Promise<Disposable>
 }
 
