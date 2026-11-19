@@ -146,7 +146,7 @@ impl DataState {
                 options.sql_role_tag.clone(),
                 options.database_read_url.clone(),
                 options.service_database_url.clone(),
-                options.sql_limits.clone().unwrap_or_default(),
+                options.sql_limits.unwrap_or_default(),
             ),
             log_partitions: Default::default(),
         })
