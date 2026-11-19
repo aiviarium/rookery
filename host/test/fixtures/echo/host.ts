@@ -97,6 +97,39 @@ export default definePlugin((rookery) => {
     },
   })
   rookery.rpc.handle("crash", { level: "own", run: () => process.exit(3) })
+  // Jobs its manifest may declare: echo.build, echo.wait and echo.wipe.
+  rookery.jobs.handle("echo.build", {
+    params: z.object({ n: z.number() }),
+    run: async (job, { n }) => {
+      await job.progress(1, 2, "halfway")
+      await job.log(`building ${n}`)
+      return { built: n * 2, attempt: job.attempt, kind: job.context.name }
+    },
+  })
+  rookery.jobs.handle("echo.wait", {
+    run: (job) =>
+      new Promise((_, reject) => job.signal.addEventListener("abort", () => reject(job.signal.reason))),
+  })
+  rookery.jobs.handle("echo.wipe", { run: () => ({ wiped: true }) })
+  // Events of its own, by a name without a `/`.
+  const heard: string[] = []
+  rookery.rpc.handle("listen", {
+    level: "own",
+    run: async () => {
+      await rookery.events.subscribe("pinged", (_, name) => {
+        heard.push(name)
+      })
+      return { listening: true }
+    },
+  })
+  rookery.rpc.handle("ping", {
+    level: "own",
+    run: async () => {
+      await rookery.events.publish("pinged", { at: 1 })
+      return { pinged: true }
+    },
+  })
+  rookery.rpc.handle("heard", { level: "own", run: () => ({ heard }) })
   rookery.onDispose(async () => {
     await rookery.storage.set("disposed", true)
   })

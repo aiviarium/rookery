@@ -13,6 +13,8 @@ import type {
   Ctx,
   HostCommandDef,
   HostPlugin,
+  JobDef,
+  JobHandle,
   Lease,
   Logger,
   NoticeKind,
@@ -25,7 +27,7 @@ export type LogLevel = "debug" | "info" | "warn" | "error"
 
 /** Something a host half registered, as the server knows it. */
 export interface Registration {
-  kind: "rpc" | "command"
+  kind: "rpc" | "command" | "job"
   key: string
   /** For `rpc`: who may call it. */
   level?: "own" | "admin"
@@ -110,14 +112,17 @@ function unavailable<T extends object>(name: string): T {
 
 /** A handler's params, read with its schema: what does not fit is INVALID. */
 function parse(h: Handler, input: unknown): unknown {
-  if (!h.params) return input
+  return h.params ? parseWith(h.params, `${h.kind} ${h.key}`, input) : input
+}
+
+function parseWith(schema: { parse(input: unknown): unknown }, what: string, input: unknown): unknown {
   try {
-    return h.params.parse(input ?? {})
+    return schema.parse(input ?? {})
   } catch (e) {
     const issues = (e as { issues?: unknown })?.issues
     throw new RookeryError(
       "INVALID",
-      `params of ${h.kind} ${h.key}: ${(e as Error)?.message ?? e}`,
+      `params of ${what}: ${(e as Error)?.message ?? e}`,
       issues ? { issues } : undefined,
     )
   }
@@ -213,8 +218,15 @@ export class HostRuntime {
     }
   }
 
-  cancel(callId: string) {
-    this.running.get(callId)?.abort(new RookeryError("TIMEOUT", "the call was cancelled"))
+  /** `plugins.cancel`: the deadline passed (`timeout`), or someone cancelled the job (`cancelled`). */
+  cancel(callId: string, reason?: string) {
+    this.running
+      .get(callId)
+      ?.abort(
+        reason === "cancelled"
+          ? new RookeryError("UNAVAILABLE", "the job was cancelled")
+          : new RookeryError("TIMEOUT", "the call was cancelled"),
+      )
   }
 
   /** `plugins.notify`: what the server sent the plugin's connection. */
@@ -278,9 +290,12 @@ function createApi(rt: HostRuntime): Rookery {
       publish: async (topic, payload) => {
         await rt.call("events.publish", { name: topic, payload: payload ?? null })
       },
-      subscribe: async (topic, handler) => {
+      // A name without a `/` is this plugin's own; one with it, such as `rookery/hosts.changed`, is taken
+      // as it is.
+      subscribe: async (topic: string, handler: (payload: any, name: string) => unknown) => {
+        const name = topic.includes("/") ? topic : `${plugin}/${topic}`
         const { subscription } = await rt.call<{ subscription: string }>("events.subscribe", {
-          names: [topic],
+          names: [name],
         })
         rt.events.set(subscription, handler)
         return disposable(() => {
@@ -352,12 +367,46 @@ function createApi(rt: HostRuntime): Rookery {
       },
     },
     jobs: {
-      handle: () => {
-        throw new RookeryError(
-          "UNAVAILABLE",
-          "rookery.jobs.handle is not available to host halves in this version of Rookery",
-        )
-      },
+      // A job the manifest declares (`contributes.jobs`), run here when the server runs one of its kind.
+      handle: (name, def: JobDef) =>
+        rt.register({
+          kind: "job",
+          key: name,
+          run: (
+            ctx,
+            p: {
+              params?: unknown
+              job: { id: string; attempt: number; maxAttempts: number; kind: string; subject?: string | null }
+            },
+          ) => {
+            const params = def.params ? parseWith(def.params, `job ${name}`, p.params ?? {}) : p.params
+            const handle: JobHandle = {
+              id: p.job.id,
+              attempt: p.job.attempt,
+              signal: ctx.signal,
+              context: {
+                id: p.job.id,
+                name: p.job.kind,
+                attempt: p.job.attempt,
+                maxAttempts: p.job.maxAttempts,
+              },
+              progress: async (done, total, message) => {
+                await rt.call("jobs.progress", {
+                  id: p.job.id,
+                  progress: {
+                    done,
+                    ...(total !== undefined ? { total } : {}),
+                    ...(message ? { message } : {}),
+                  },
+                })
+              },
+              log: async (message, level = "info") => {
+                await rt.call("jobs.log", { id: p.job.id, level, text: message })
+              },
+            }
+            return def.run(handle, params)
+          },
+        }),
       enqueue: (kind, params = {}) => rt.call("jobs.enqueue", { kind, params }) as Promise<any>,
       get: (id) => rt.call("jobs.get", { id }) as Promise<any>,
       cancel: async (id) => {

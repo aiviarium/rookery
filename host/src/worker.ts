@@ -64,7 +64,7 @@ port.on("message", async (m: ToWorker) => {
       }
       return
     case "cancel":
-      runtime.cancel(m.callId)
+      runtime.cancel(m.callId, m.reason)
       return
     case "notify":
       runtime.notified(m.method, m.params)
