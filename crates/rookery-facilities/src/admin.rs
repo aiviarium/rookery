@@ -57,7 +57,7 @@ pub fn register(methods: &mut Methods) {
             let id = parse_id("user", &p.id)?;
             let user = call.store().users().set_role(id, p.admin).await?;
             // Their connections end, and come back with the role they have now.
-            call.kernel.conns.refresh_user(&p.id);
+            call.kernel.conns.refresh_user(&id.to_string());
             call.audit(
                 "user.setRole",
                 Some(&format!("user://{id}")),
@@ -73,7 +73,7 @@ pub fn register(methods: &mut Methods) {
             let id = parse_id("user", &p.id)?;
             let user = call.store().users().set_disabled(id, p.disabled).await?;
             if p.disabled {
-                call.kernel.conns.revoke_user(&p.id);
+                call.kernel.conns.revoke_user(&id.to_string());
             }
             call.audit("user.setDisabled", Some(&format!("user://{id}")), serde_json::json!({ "disabled": p.disabled })).await;
             Ok(user_info(user))

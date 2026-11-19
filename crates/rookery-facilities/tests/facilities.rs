@@ -150,13 +150,14 @@ async fn admins_manage_people() {
         code(k.call(&ops, "admin.users", json!({})).await),
         "FORBIDDEN"
     );
-    // A disabled person's connections end.
+    let alternate = id(&ops).replace('-', "");
+    // A disabled person's connections end even with a different spelling of the same UUID.
     let inbox = k.connect(&ops);
     let off = k
         .call(
             &admin,
             "admin.setDisabled",
-            json!({"id": id(&ops), "disabled": true}),
+            json!({"id": alternate, "disabled": true}),
         )
         .await
         .unwrap();
@@ -181,16 +182,18 @@ async fn admins_manage_people() {
     )
     .await
     .unwrap();
+    let inbox = k.connect(&ops);
     assert_eq!(
         k.call(
             &admin,
             "admin.setRole",
-            json!({"id": id(&ops), "admin": true})
+            json!({"id": alternate, "admin": true})
         )
         .await
         .unwrap()["admin"],
         true
     );
+    assert!(inbox.conn.ended());
     k.close().await;
 }
 

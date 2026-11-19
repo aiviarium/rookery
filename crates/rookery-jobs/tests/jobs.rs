@@ -571,7 +571,8 @@ async fn events_reach_those_subscribed_now() {
         .call(
             &fleet,
             "events.publish",
-            json!({"name": "host.changed", "user": ops.user().unwrap().id}),
+            // Any spelling of the person's id.
+            json!({"name": "host.changed", "user": ops.user().unwrap().id.to_uppercase()}),
         )
         .await
         .unwrap();
@@ -622,10 +623,13 @@ async fn notifications_reach_a_persons_inbox_and_answers_the_plugin() {
     let ops = k.person("Ops", false).await;
     let ops_id = ops.user().unwrap().id.clone();
     let mut live = k.connect(&ops);
-    let send = json!({"user": ops_id, "kind": "apply", "title": "Apply studio?", "actions": ["approve", "deny"], "data": {"host": "studio"}});
+    let send = json!({"user": ops_id.replace('-', ""), "kind": "apply", "title": "Apply studio?", "actions": ["approve", "deny"], "data": {"host": "studio"}});
     let sent = k.call(&fleet, "notify.send", send.clone()).await.unwrap();
     let id = sent["notification"]["id"].clone();
-    assert_eq!(live.notification("notify.new").await["id"], id);
+    let new = tokio::time::timeout(Duration::from_secs(5), live.notification("notify.new"))
+        .await
+        .expect("the person's connection hears of it, whatever the spelling of their id");
+    assert_eq!(new["id"], id);
     let listed = k
         .call(&ops, "notify.list", json!({"unread": true}))
         .await

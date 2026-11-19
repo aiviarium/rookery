@@ -64,8 +64,18 @@ pub fn register(methods: &mut Methods) {
         .add("events.publish", |call: Call, p: EventPublish| async move {
             let plugin = call.plugin(p.plugin.as_deref())?;
             let name = scoped(&plugin, &p.name)?;
+            // Connections name their person by the id's one spelling.
+            let user = p
+                .user
+                .as_deref()
+                .map(|id| {
+                    uuid::Uuid::parse_str(id)
+                        .map(|id| id.to_string())
+                        .map_err(|_| RpcError::invalid(format!("{id:?} is not the id of a user")))
+                })
+                .transpose()?;
             Ok(Delivered {
-                delivered: publish(&call.kernel, &name, &p.payload, p.user.as_deref()),
+                delivered: publish(&call.kernel, &name, &p.payload, user.as_deref()),
             })
         })
         .summary("Sends an event of the plugin to the connections subscribed now, at most once.")

@@ -66,7 +66,9 @@ pub fn register(methods: &mut Methods) {
                 .await?
                 .map(info);
             if let Some(sent) = &sent {
-                call.kernel.conns.notify_user(&p.user, "notify.new", sent);
+                call.kernel
+                    .conns
+                    .notify_user(&user.to_string(), "notify.new", sent);
             }
             Ok(NotifySent { notification: sent })
         })
