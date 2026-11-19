@@ -187,6 +187,68 @@ async fn enqueue(
     .await
 }
 
+/// Checks and locks the accounts before a job can be enqueued under their authority.
+async fn pause_if_lost(conn: &mut sqlx::PgConnection, s: &Schedule) -> Result<bool> {
+    let principal = s.principal.strip_prefix("user:");
+    let actor = principal.and_then(|id| Uuid::parse_str(id).ok());
+    if principal.is_none() && s.on_behalf_of.is_none() {
+        return Ok(false);
+    }
+    let accounts: Vec<(Uuid, String, bool)> = sqlx::query_as(
+        "SELECT id, role, disabled_at IS NOT NULL FROM rookery.users
+         WHERE id = $1 OR id = $2 ORDER BY id FOR SHARE",
+    )
+    .bind(actor)
+    .bind(s.on_behalf_of)
+    .fetch_all(&mut *conn)
+    .await?;
+    let reason = if principal.is_some()
+        && !accounts
+            .iter()
+            .any(|(id, role, disabled)| Some(*id) == actor && role == "admin" && !disabled)
+    {
+        "the person it runs as is no admin with an account that is on"
+    } else if accounts
+        .iter()
+        .any(|(id, _, disabled)| Some(*id) == s.on_behalf_of && *disabled)
+    {
+        "the account of the person it was made for is off"
+    } else {
+        return Ok(false);
+    };
+
+    sqlx::query("UPDATE rookery.schedules SET enabled = false, updated_at = now(), paused_reason = $2 WHERE id = $1")
+        .bind(s.id)
+        .bind(reason)
+        .execute(&mut *conn)
+        .await?;
+    if let Some((owner, _, _)) = accounts
+        .iter()
+        .find(|(id, _, _)| Some(*id) == actor.or(s.on_behalf_of))
+    {
+        let title = format!(
+            "The schedule {} was paused",
+            s.title.as_deref().unwrap_or(&s.name)
+        );
+        let data = serde_json::json!({ "schedule": s.id.to_string(), "plugin": s.plugin });
+        crate::notify::send_on(
+            conn,
+            crate::notify::New {
+                user: *owner,
+                kind: "rookery/schedulePaused",
+                title: &title,
+                body: Some(reason),
+                data: Some(&data),
+                actions: None,
+                sent_by: "system:rookery",
+            },
+        )
+        .await?;
+    }
+    tracing::info!(schedule = %s.id, %reason, "a schedule was paused");
+    Ok(true)
+}
+
 pub struct Schedules<'a> {
     pub(crate) store: &'a Store,
 }
@@ -385,16 +447,28 @@ impl Schedules<'_> {
             > 0)
     }
 
-    /// Fires a schedule now, whether or not it is due or enabled, with `extra` merged into its params,
-    /// such as a webhook's delivery. Its timing stays.
+    /// Fires an enabled schedule now with `extra` merged into its params. Its timing stays.
     pub async fn fire(&self, id: Uuid, extra: Option<&Value>) -> Result<Job> {
         let mut tx = self.store.pool().begin().await?;
+        sqlx::query("SELECT rookery.fence($1)")
+            .bind(self.store.fence())
+            .execute(&mut *tx)
+            .await?;
         let s: Schedule =
             sqlx::query_as("SELECT * FROM rookery.schedules WHERE id = $1 FOR UPDATE")
                 .bind(id)
                 .fetch_optional(&mut *tx)
                 .await?
                 .ok_or_else(|| Error::not_found("no such schedule"))?;
+        if !s.enabled {
+            return Err(Error::forbidden("the schedule is paused"));
+        }
+        if pause_if_lost(&mut tx, &s).await? {
+            tx.commit().await?;
+            return Err(Error::forbidden(
+                "the schedule was paused because its principal lost access",
+            ));
+        }
         let mut params = object(&s.params);
         if let (Some(p), Some(Value::Object(e))) = (params.as_object_mut(), extra) {
             for (k, v) in e {
@@ -413,30 +487,13 @@ impl Schedules<'_> {
         Ok(job)
     }
 
-    /// Enqueues the jobs of every enabled schedule due at `now`, and moves each to its next run.
-    /// Pauses the due schedules whose jobs would run as someone who may no longer make them: a person who
-    /// is no admin any more or whose account is off, or the person a plugin made one for, whose account is
-    /// off. Returns them, for their owners to be told.
-    pub async fn pause_lost(&self, now: DateTime<Utc>) -> Result<Vec<Schedule>> {
-        Ok(sqlx::query_as(
-            "UPDATE rookery.schedules s SET enabled = false, updated_at = now(), paused_reason = CASE
-                 WHEN s.principal LIKE 'user:%' THEN 'the person it runs as is no admin with an account that is on'
-                 ELSE 'the account of the person it was made for is off' END
-             WHERE s.enabled AND s.next_run_at <= $1 AND (
-                 (s.principal LIKE 'user:%' AND NOT EXISTS (
-                     SELECT 1 FROM rookery.users u
-                     WHERE 'user:' || u.id::text = s.principal AND u.role = 'admin' AND u.disabled_at IS NULL))
-                 OR (s.on_behalf_of IS NOT NULL AND EXISTS (
-                     SELECT 1 FROM rookery.users u WHERE u.id = s.on_behalf_of AND u.disabled_at IS NOT NULL)))
-             RETURNING *",
-        )
-        .bind(now)
-        .fetch_all(self.store.pool())
-        .await?)
-    }
-
+    /// Enqueues each due schedule's jobs, or pauses it and notifies its owner if it lost its authority.
     pub async fn enqueue_due(&self, now: DateTime<Utc>) -> Result<Vec<Job>> {
         let mut tx = self.store.pool().begin().await?;
+        sqlx::query("SELECT rookery.fence($1)")
+            .bind(self.store.fence())
+            .execute(&mut *tx)
+            .await?;
         let due: Vec<Schedule> = sqlx::query_as(
             "SELECT * FROM rookery.schedules WHERE enabled AND next_run_at <= $1 ORDER BY next_run_at LIMIT 1000
              FOR UPDATE SKIP LOCKED",
@@ -446,6 +503,9 @@ impl Schedules<'_> {
         .await?;
         let mut jobs = Vec::new();
         for s in due {
+            if pause_if_lost(&mut tx, &s).await? {
+                continue;
+            }
             let due_at = s.next_run_at.unwrap_or(now);
             let late = now - due_at > MISSED_AFTER;
             let mut runs: Vec<DateTime<Utc>> = Vec::new();

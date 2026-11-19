@@ -3,7 +3,7 @@
 
 use chrono::{DateTime, Utc};
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
 use crate::error::{Error, Result};
@@ -50,39 +50,44 @@ pub struct Notify<'a> {
     pub(crate) pool: &'a PgPool,
 }
 
+pub(crate) async fn send_on(conn: &mut PgConnection, new: New<'_>) -> Result<Option<Notification>> {
+    let muted: Option<bool> = sqlx::query_scalar(
+        "SELECT muted FROM rookery.notification_prefs WHERE user_id = $1 AND kind = $2",
+    )
+    .bind(new.user)
+    .bind(new.kind)
+    .fetch_optional(&mut *conn)
+    .await?;
+    if muted == Some(true) {
+        return Ok(None);
+    }
+    let made = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "INSERT INTO rookery.notifications (id, user_id, kind, title, body, data, actions, sent_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING {COLS}"
+    )))
+    .bind(new_id())
+    .bind(new.user)
+    .bind(new.kind)
+    .bind(new.title)
+    .bind(new.body)
+    .bind(new.data)
+    .bind(new.actions.map(|a| serde_json::json!(a)))
+    .bind(new.sent_by)
+    .fetch_one(&mut *conn)
+    .await;
+    match made {
+        Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("23503") => {
+            Err(Error::NotFound("no such user".into()))
+        }
+        other => Ok(Some(other?)),
+    }
+}
+
 impl Notify<'_> {
     /// Puts a notification in a person's inbox; `None` when they muted its kind.
     pub async fn send(&self, new: New<'_>) -> Result<Option<Notification>> {
-        let muted: Option<bool> = sqlx::query_scalar(
-            "SELECT muted FROM rookery.notification_prefs WHERE user_id = $1 AND kind = $2",
-        )
-        .bind(new.user)
-        .bind(new.kind)
-        .fetch_optional(self.pool)
-        .await?;
-        if muted == Some(true) {
-            return Ok(None);
-        }
-        let made = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "INSERT INTO rookery.notifications (id, user_id, kind, title, body, data, actions, sent_by)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING {COLS}"
-        )))
-        .bind(new_id())
-        .bind(new.user)
-        .bind(new.kind)
-        .bind(new.title)
-        .bind(new.body)
-        .bind(new.data)
-        .bind(new.actions.map(|a| serde_json::json!(a)))
-        .bind(new.sent_by)
-        .fetch_one(self.pool)
-        .await;
-        match made {
-            Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("23503") => {
-                Err(Error::NotFound("no such user".into()))
-            }
-            other => Ok(Some(other?)),
-        }
+        let mut conn = self.pool.acquire().await?;
+        send_on(&mut conn, new).await
     }
 
     /// The newest first; with `unread`, only those not read.

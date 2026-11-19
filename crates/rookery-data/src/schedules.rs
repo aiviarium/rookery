@@ -5,7 +5,7 @@
 //! `<plugin>/<job>`, as the plugin. An admin makes schedules of the server's own kinds too, such as
 //! `apply` with the subject `env://studio`, enqueued as the admin. A firing while the schedule's last job
 //! is still open starts no second one, and runs missed while no server ran follow the schedule's `missed`
-//! policy. `schedules.fire` runs one now, whether or not it is due or enabled.
+//! policy. `schedules.fire` runs an enabled schedule now.
 
 use std::time::Duration;
 
@@ -52,7 +52,7 @@ pub fn register(methods: &mut Methods) {
         .level(Level::Own);
     methods
         .add("schedules.fire", fire)
-        .summary("Runs a schedule's job now, whether or not it is due or enabled, with more params merged in.")
+        .summary("Runs an enabled schedule's job now, with more params merged in.")
         .level(Level::Own);
     methods
         .add(
@@ -309,13 +309,13 @@ async fn tick(kernel: Kernel) {
             _ = kernel.shutdown.cancelled() => return,
             _ = tokio::time::sleep(TICK) => {}
         }
-        match kernel.store.schedules().pause_lost(Utc::now()).await {
-            Ok(paused) => {
-                for s in &paused {
-                    told_paused(&kernel, s).await;
-                }
+        match kernel.store.still_leads().await {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(e) => {
+                tracing::warn!(error = %e, "checking schedule leadership failed");
+                continue;
             }
-            Err(e) => tracing::warn!(error = %e, "checking who schedules run as failed"),
         }
         match kernel.store.schedules().enqueue_due(Utc::now()).await {
             Ok(jobs) if !jobs.is_empty() => {
@@ -325,37 +325,5 @@ async fn tick(kernel: Kernel) {
             Ok(_) => {}
             Err(e) => tracing::warn!(error = %e, "firing schedules failed"),
         }
-    }
-}
-
-/// Tells the person a schedule ran as, or was made for, that the server paused it.
-async fn told_paused(kernel: &Kernel, s: &Schedule) {
-    tracing::info!(schedule = %s.id, reason = ?s.paused_reason, "a schedule was paused");
-    let owner = s
-        .principal
-        .strip_prefix("user:")
-        .and_then(|u| uuid::Uuid::parse_str(u).ok())
-        .or(s.on_behalf_of);
-    let Some(user) = owner else { return };
-    let title = format!(
-        "The schedule {} was paused",
-        s.title.as_deref().unwrap_or(&s.name)
-    );
-    let data = serde_json::json!({ "schedule": s.id.to_string(), "plugin": s.plugin });
-    if let Err(e) = kernel
-        .store
-        .notify()
-        .send(rookery_store::notify::New {
-            user,
-            kind: "rookery/schedulePaused",
-            title: &title,
-            body: s.paused_reason.as_deref(),
-            data: Some(&data),
-            actions: None,
-            sent_by: "system:rookery",
-        })
-        .await
-    {
-        tracing::warn!(error = %e, "telling of a paused schedule failed");
     }
 }

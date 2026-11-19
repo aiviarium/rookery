@@ -126,7 +126,7 @@ async fn schedules_fire_their_jobs_once_at_a_time_and_belong_to_who_made_them() 
         1,
         "one job at a time"
     );
-    // Paused, then run by hand with more params; another plugin sees none of it.
+    // A paused schedule cannot run by hand. After it resumes, more params can be passed in.
     let id = s["id"].clone();
     let paused = k
         .call(
@@ -148,6 +148,18 @@ async fn schedules_fire_their_jobs_once_at_a_time_and_belong_to_who_made_them() 
             .unwrap()
             .is_empty()
     );
+    assert_eq!(
+        code(k.call(&admin, "schedules.fire", json!({ "id": id })).await),
+        "FORBIDDEN"
+    );
+    assert_eq!(jobs_of(&k, "notes/sync").await.len(), 1);
+    k.call(
+        &notes,
+        "schedules.setEnabled",
+        json!({ "id": id, "enabled": true }),
+    )
+    .await
+    .unwrap();
     k.call(
         &admin,
         "schedules.fire",
@@ -488,5 +500,139 @@ async fn a_plugin_has_at_most_a_hundred_schedules() {
     )
     .await
     .unwrap();
+    k.close().await;
+}
+
+#[tokio::test]
+async fn firing_rechecks_the_schedules_principal_before_its_next_run() {
+    let k: TestKernel = test_kernel!(methods());
+    let admin = k.person("Maria", true).await;
+    let root = k.person("Root", true).await;
+    let s = k
+        .call(
+            &admin,
+            "schedules.create",
+            json!({
+                "name": "weekly", "plugin": "notes", "job": "sync", "everySecs": 604800
+            }),
+        )
+        .await
+        .unwrap();
+    let user = admin.user().unwrap().id.parse().unwrap();
+    k.db.store.users().set_role(user, false).await.unwrap();
+    assert_eq!(
+        code(
+            k.call(&root, "schedules.fire", json!({ "id": s["id"] }))
+                .await
+        ),
+        "FORBIDDEN"
+    );
+    assert!(jobs_of(&k, "notes/sync").await.is_empty());
+    let id = s["id"].as_str().unwrap().parse().unwrap();
+    assert!(
+        !k.db
+            .store
+            .schedules()
+            .get(id)
+            .await
+            .unwrap()
+            .unwrap()
+            .enabled
+    );
+    assert_eq!(
+        k.db.store
+            .notify()
+            .list(user, false, None, 10)
+            .await
+            .unwrap()[0]
+            .kind,
+        "rookery/schedulePaused"
+    );
+    k.close().await;
+}
+
+#[tokio::test]
+async fn a_stale_leader_cannot_pause_or_notify_about_a_schedule() {
+    let k: TestKernel = test_kernel!(methods());
+    let user = k.person("Maria", true).await;
+    let _root = k.person("Root", true).await;
+    let s = k
+        .call(
+            &user,
+            "schedules.create",
+            json!({
+                "name": "weekly", "plugin": "notes", "job": "sync", "everySecs": 604800
+            }),
+        )
+        .await
+        .unwrap();
+    let user = user.user().unwrap().id.parse().unwrap();
+    k.db.store.users().set_role(user, false).await.unwrap();
+    let mut conn = k.db.store.pool().acquire().await.unwrap();
+    let old = rookery_store::leader::take(&mut conn).await.unwrap();
+    let current = rookery_store::leader::take(&mut conn).await.unwrap();
+    drop(conn);
+    // A time past the schedule's due date without making the test kernel's background tick act on it.
+    let then = chrono::Utc::now() + chrono::Duration::days(8);
+    let stale = k.db.store.fenced(old);
+    let err = stale.schedules().enqueue_due(then).await.unwrap_err();
+    assert_eq!(err.code(), rookery_proto::ErrorCode::Unavailable);
+    let id = s["id"].as_str().unwrap().parse().unwrap();
+    assert!(stale.schedules().get(id).await.unwrap().unwrap().enabled);
+    assert!(
+        stale
+            .notify()
+            .list(user, false, None, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        k.db.store
+            .fenced(current)
+            .schedules()
+            .enqueue_due(then)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(!stale.schedules().get(id).await.unwrap().unwrap().enabled);
+    assert_eq!(
+        stale.notify().list(user, false, None, 10).await.unwrap()[0].kind,
+        "rookery/schedulePaused"
+    );
+    k.close().await;
+}
+
+#[tokio::test]
+async fn an_unsigned_webhook_with_a_full_queue_does_not_read_the_body() {
+    let k: TestKernel = test_kernel!(methods());
+    let mut hook = github("unused");
+    hook.verify.scheme = WebhookScheme::None;
+    hook.verify.secret = None;
+    rookery_data::webhooks::set_webhooks(&k.kernel, "code", vec![hook]).unwrap();
+    sqlx::query(
+        "INSERT INTO rookery.jobs (id, kind, params, state, enqueued_by)
+         SELECT gen_random_uuid(), 'code/delivery', '{}', 'queued', 'plugin:code'
+         FROM generate_series(1, $1)",
+    )
+    .bind(rookery_data::webhooks::NONE_QUEUED)
+    .execute(k.db.store.pool())
+    .await
+    .unwrap();
+    let unread = futures_util::stream::poll_fn(
+        |_| -> std::task::Poll<Option<Result<&'static str, std::io::Error>>> {
+            panic!("the full queue should be rejected before polling the body")
+        },
+    );
+    let req = Request::post("/hooks/code/push")
+        .body(Body::from_stream(unread))
+        .unwrap();
+    let response = rookery_data::webhooks::routes()
+        .with_state(k.kernel.clone())
+        .oneshot(req)
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     k.close().await;
 }

@@ -42,6 +42,8 @@ pub struct Refusals {
 /// What [`Webhooks::accept`] did.
 #[derive(Debug, Clone)]
 pub enum Accepted {
+    /// The job queue is full; nothing was accepted.
+    Full,
     /// A new delivery; the job was enqueued.
     New { delivery: Delivery, job: Box<Job> },
     /// A replay of an accepted delivery; nothing was enqueued or recorded. `job` is the first delivery's
@@ -63,8 +65,21 @@ impl<'a> Webhooks<'a> {
         replay_key: Option<&str>,
         bytes: usize,
         job: &NewJob<'_>,
+        queue_limit: Option<i64>,
     ) -> Result<Accepted> {
         let mut tx = self.store.pool().begin().await?;
+        if let Some(limit) = queue_limit {
+            // Concurrent deliveries of the same kind recheck capacity before they enqueue.
+            sqlx::query(
+                "SELECT pg_advisory_xact_lock(hashtextextended('rookery.webhook.queue:' || $1, 0))",
+            )
+            .bind(job.kind)
+            .execute(&mut *tx)
+            .await?;
+            if crate::jobs::queued_on(&mut tx, job.kind, limit).await? >= limit {
+                return Ok(Accepted::Full);
+            }
+        }
         let id = new_id();
         let inserted: Option<Delivery> = sqlx::query_as(
             "INSERT INTO rookery.webhook_deliveries (id, plugin, hook, outcome, status, replay_key, bytes) \

@@ -344,6 +344,46 @@ async fn receive(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(0);
+    let unsigned = hook.verify.scheme == WebhookScheme::None;
+    if unsigned && !unsigned_allowed(&kernel, &plugin, &name) {
+        return refuse(
+            &kernel,
+            &plugin,
+            &name,
+            StatusCode::TOO_MANY_REQUESTS,
+            format!("the webhook takes {NONE_PER_MINUTE} deliveries a minute"),
+            declared,
+        )
+        .await;
+    }
+    let job_name = hook
+        .job
+        .strip_prefix(&format!("{plugin}/"))
+        .unwrap_or(&hook.job);
+    let kind = format!("{plugin}/{job_name}");
+    if unsigned {
+        match kernel.store.jobs().queued(&kind, NONE_QUEUED).await {
+            Ok(n) if n < NONE_QUEUED => {}
+            Ok(_) => {
+                return refuse(
+                    &kernel,
+                    &plugin,
+                    &name,
+                    StatusCode::TOO_MANY_REQUESTS,
+                    format!("{NONE_QUEUED} jobs of the webhook wait already"),
+                    declared,
+                )
+                .await;
+            }
+            Err(e) => {
+                tracing::error!(webhook = %id, error = %e, "counting a webhook's jobs failed");
+                return reply(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    json!({ "error": "the delivery could not be kept: send it again" }),
+                );
+            }
+        }
+    }
     let body = match axum::body::to_bytes(body, limit).await {
         Ok(b) if declared <= limit => b,
         _ => {
@@ -359,17 +399,6 @@ async fn receive(
         }
     };
     let bytes = body.len();
-    if hook.verify.scheme == WebhookScheme::None && !unsigned_allowed(&kernel, &plugin, &name) {
-        return refuse(
-            &kernel,
-            &plugin,
-            &name,
-            StatusCode::TOO_MANY_REQUESTS,
-            format!("the webhook takes {NONE_PER_MINUTE} deliveries a minute"),
-            bytes,
-        )
-        .await;
-    }
     let secret = match secret(&kernel, &plugin, &hook).await {
         Ok(s) => s,
         Err(e) => {
@@ -445,35 +474,7 @@ async fn receive(
         "body": parsed.clone().unwrap_or(Value::String(text.clone())),
         "text": if parsed.is_some() { Value::Null } else { Value::String(text) },
     });
-    let job_name = hook
-        .job
-        .strip_prefix(&format!("{plugin}/"))
-        .unwrap_or(&hook.job);
-    let kind = format!("{plugin}/{job_name}");
     let by = format!("plugin:{plugin}");
-    if hook.verify.scheme == WebhookScheme::None {
-        match kernel.store.jobs().queued(&kind, NONE_QUEUED).await {
-            Ok(n) if n < NONE_QUEUED => {}
-            Ok(_) => {
-                return refuse(
-                    &kernel,
-                    &plugin,
-                    &name,
-                    StatusCode::TOO_MANY_REQUESTS,
-                    format!("{NONE_QUEUED} jobs of the webhook wait already"),
-                    bytes,
-                )
-                .await;
-            }
-            Err(e) => {
-                tracing::error!(webhook = %id, error = %e, "counting a webhook's jobs failed");
-                return reply(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    json!({ "error": "the delivery could not be kept: send it again" }),
-                );
-            }
-        }
-    }
     let job = NewJob {
         kind: &kind,
         params: &params,
@@ -485,9 +486,27 @@ async fn receive(
     match kernel
         .store
         .webhooks()
-        .accept(&plugin, &name, verified.replay_key.as_deref(), bytes, &job)
+        .accept(
+            &plugin,
+            &name,
+            verified.replay_key.as_deref(),
+            bytes,
+            &job,
+            unsigned.then_some(NONE_QUEUED),
+        )
         .await
     {
+        Ok(Accepted::Full) => {
+            refuse(
+                &kernel,
+                &plugin,
+                &name,
+                StatusCode::TOO_MANY_REQUESTS,
+                format!("{NONE_QUEUED} jobs of the webhook wait already"),
+                bytes,
+            )
+            .await
+        }
         Ok(Accepted::New { job, .. }) => {
             rookery_jobs::wake(&kernel);
             reply(StatusCode::ACCEPTED, json!({ "job": job.id }))
