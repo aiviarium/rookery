@@ -264,6 +264,9 @@ class Connect(unittest.TestCase):
 
     def test_the_desktop_is_for_use(self):
         use, view = self.people['use'], self.people['view']
+        # View sees a picture of it, and only use the desktop itself.
+        picture = self.serve.call('hosts.desktop.screenshot', {'host': HOST}, token=view)
+        self.assertTrue(base64.b64decode(picture['base64']).startswith(b'\x89PNG'), picture.get('content_type'))
         with self.assertRaises(PermissionError):
             WebSocket(self.serve.port, f'/env/{HOST}/desktop', protocols=['binary'],
                       headers={'Authorization': f'Bearer {view}'})
