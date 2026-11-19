@@ -43,9 +43,9 @@ jobs:
           ALL: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
         run: python3 ci/plan.py ${ALL:+--all}
 
-  # rookery is built once, here, for the shards of the end-to-end tests. It is
-  # first in the file so that a run asks for its runner before those of the
-  # checks: the shards wait for it, and nothing else does.
+  # rookery is built once, here, for the shards of the end-to-end tests. It
+  # comes first in the file because the shards wait for it and nothing else
+  # does, and a run asks for its runner before those of the checks.
   build:
     needs: plan
     if: needs.plan.outputs.shards != '[]'
