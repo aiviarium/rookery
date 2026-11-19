@@ -74,7 +74,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.rust-tests != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     # The store's tests run on PostgreSQL too. The password is made up: the
     # database is reachable from this job alone.
     services:
@@ -96,6 +96,11 @@ jobs:
       # The SSH tests start an sshd of their own.
       - name: Install sshd
         run: command -v sshd >/dev/null || [ -x /usr/sbin/sshd ] || { sudo apt-get update -q && sudo apt-get install -y --no-install-recommends openssh-server; }
+      # nextest ends a test that hangs after two minutes (.config/nextest.toml), and runs the test
+      # programs side by side.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9
       - run: ci/checks.sh rust-tests plugin-check
       - uses: ./.github/actions/rust-save
         with:
