@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::time;
 
-fn info(n: Notification) -> NotificationInfo {
+pub fn info(n: Notification) -> NotificationInfo {
     let actions = n
         .actions
         .as_ref()

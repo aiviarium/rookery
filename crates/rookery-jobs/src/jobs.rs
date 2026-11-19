@@ -48,6 +48,12 @@ pub trait JobHandler: Send + Sync + 'static {
         3
     }
 
+    /// Whether an attempt that failed with `error` runs again, while attempts are left. An attempt
+    /// the server stopped during runs again whatever this says.
+    fn retries(&self, _error: &RpcError) -> bool {
+        true
+    }
+
     fn run(&self, job: JobRun) -> BoxFuture<'static, Result<Value, RpcError>>;
 }
 
@@ -221,6 +227,19 @@ pub async fn enqueue(
     subject: Option<&str>,
     by: &str,
 ) -> Result<Job, RpcError> {
+    enqueue_with_token(kernel, kind, params, subject, by, None).await
+}
+
+/// [`enqueue`] with a caller's token: the job the same token started for the same kind, subject and
+/// `params.action` is returned in place of a new one.
+pub async fn enqueue_with_token(
+    kernel: &Kernel,
+    kind: &str,
+    params: Value,
+    subject: Option<&str>,
+    by: &str,
+    token: Option<&str>,
+) -> Result<Job, RpcError> {
     let registry = registry(kernel)?;
     let handler = registry
         .handlers
@@ -244,18 +263,76 @@ pub async fn enqueue(
             run_after: None,
             subject,
             enqueued_by: by,
+            token,
         })
         .await?;
     signals(kernel).wake.notify_one();
+    announce(kernel, &job);
     Ok(job)
 }
 
-/// The job, if the caller may see it: the one who enqueued it, or an admin.
+/// Tells the connections subscribed to `jobs.changed` that a job changed: those of its enqueuer, the
+/// admins, and those who see its subject.
+pub fn announce(kernel: &Kernel, job: &Job) {
+    let (kernel, job) = (kernel.clone(), job.clone());
+    tokio::spawn(async move {
+        let payload = serde_json::json!({ "job": info(job.clone()) });
+        let checker = kernel.clone();
+        crate::events::publish_where(&kernel, "jobs.changed", &payload, |caller| {
+            let (kernel, job) = (checker.clone(), job.clone());
+            async move {
+                let call = Call::new(kernel, caller, None);
+                if call.is_admin() || job.enqueued_by == call.audit_name() {
+                    return true;
+                }
+                match &job.subject {
+                    Some(subject) => holds(&call, subject, rookery_kernel::Grant::View)
+                        .await
+                        .unwrap_or(false),
+                    None => false,
+                }
+            }
+        })
+        .await;
+    });
+}
+
+/// Whether the caller holds `grant` on a resource, by the kernel's check of levels.
+async fn holds(
+    call: &Call,
+    resource: &str,
+    grant: rookery_kernel::Grant,
+) -> Result<bool, RpcError> {
+    match call.kernel.methods.access() {
+        Some(check) => check(call.clone(), resource.to_owned(), grant).await,
+        None => Ok(false),
+    }
+}
+
+/// The job, if the caller may see it: the one who enqueued it, an admin, or one who holds view on its
+/// subject.
 async fn visible(call: &Call, id: &str) -> Result<Job, RpcError> {
+    visible_at(call, id, rookery_kernel::Grant::View).await
+}
+
+/// The job, if the caller may act on it: the one who enqueued it, an admin, or one who holds `grant`
+/// on its subject.
+async fn visible_at(call: &Call, id: &str, grant: rookery_kernel::Grant) -> Result<Job, RpcError> {
     let id = Uuid::parse_str(id)
         .map_err(|_| RpcError::invalid(format!("{id:?} is not the id of a job")))?;
     match call.store().jobs().get(id).await? {
         Some(job) if call.is_admin() || job.enqueued_by == call.audit_name() => Ok(job),
+        Some(job) => match &job.subject {
+            Some(subject) if holds(call, subject, grant).await? => Ok(job),
+            // One who sees it is told what it needs.
+            Some(subject) if holds(call, subject, rookery_kernel::Grant::View).await? => {
+                Err(RpcError::forbidden(format!(
+                    "this needs {} on {subject}",
+                    rookery_kernel::methods::grant_name(grant)
+                )))
+            }
+            _ => Err(RpcError::not_found("no such job")),
+        },
         _ => Err(RpcError::not_found("no such job")),
     }
 }
@@ -333,8 +410,13 @@ pub fn register(methods: &mut Methods, handlers: Vec<Arc<dyn JobHandler>>, optio
                 .map(Uuid::parse_str)
                 .transpose()
                 .map_err(|_| RpcError::invalid("before is the id of a job"))?;
+            // Those who see a subject see all of its jobs.
+            let sees_subject = match &p.subject {
+                Some(subject) => holds(&call, subject, rookery_kernel::Grant::View).await?,
+                None => false,
+            };
             let filter = Filter {
-                enqueued_by: (!call.is_admin()).then_some(me.as_str()),
+                enqueued_by: (!call.is_admin() && !sees_subject).then_some(me.as_str()),
                 state: state.as_deref(),
                 kind: p.kind.as_deref(),
                 subject: p.subject.as_deref(),
@@ -378,13 +460,14 @@ pub fn register(methods: &mut Methods, handlers: Vec<Arc<dyn JobHandler>>, optio
         .level(Level::Own);
     methods
         .add("jobs.cancel", |call: Call, p: JobRef| async move {
-            let job = visible(&call, &p.id).await?;
+            let job = visible_at(&call, &p.id, rookery_kernel::Grant::Manage).await?;
             let job = call.store().jobs().cancel(job.id).await?;
             let signals = signals(&call.kernel);
             if let Some(token) = signals.running.lock().unwrap().get(&job.id) {
                 token.cancel();
             }
             signals.changed(job.id);
+            announce(&call.kernel, &job);
             call.audit(
                 "job.cancel",
                 job.subject.as_deref(),
@@ -399,9 +482,10 @@ pub fn register(methods: &mut Methods, handlers: Vec<Arc<dyn JobHandler>>, optio
         .level(Level::Own);
     methods
         .add("jobs.retry", |call: Call, p: JobRef| async move {
-            let job = visible(&call, &p.id).await?;
+            let job = visible_at(&call, &p.id, rookery_kernel::Grant::Manage).await?;
             let job = call.store().jobs().retry(job.id).await?;
             signals(&call.kernel).wake.notify_one();
+            announce(&call.kernel, &job);
             call.audit(
                 "job.retry",
                 job.subject.as_deref(),
@@ -621,6 +705,13 @@ async fn attempt(
         .unwrap()
         .insert(job.id, cancel.clone());
     signals.changed(job.id);
+    announce(
+        &kernel,
+        &Job {
+            state: "running".into(),
+            ..job.clone()
+        },
+    );
     let run = JobRun {
         kernel: kernel.clone(),
         id: job.id,
@@ -662,7 +753,7 @@ async fn attempt(
         _ if cancel.is_cancelled() => Outcome::Cancelled,
         Ok(result) => Outcome::Succeeded(result),
         Err(e) => {
-            let retry_in = handler.repeatable().then(|| {
+            let retry_in = (handler.repeatable() && handler.retries(&e)).then(|| {
                 registry
                     .options
                     .backoff
@@ -679,6 +770,7 @@ async fn attempt(
             if finished.state == "queued" {
                 signals.wake.notify_one();
             }
+            announce(&kernel, &finished);
         }
         Err(e) => tracing::warn!(job = %job.id, error = %e, "recording a job's outcome failed"),
     }
