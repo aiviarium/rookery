@@ -88,9 +88,9 @@ UNITS = {
     'ts': dict(only=TS_PATHS),
 }
 
-# The shards that apply nothing but the first apply: they test rookery's own
-# code, so they run for any change rookery is built from.
-SMOKE = {'studio', 'restore', 'forge'}
+# The shard that applies nothing but the first apply: it tests rookery's own
+# code, so it runs for any change rookery is built from.
+SMOKE = {'studio'}
 
 
 def files():
@@ -160,7 +160,7 @@ def plan(found, event, seen):
     shards = []
     for name in e2e.SHARDS:
         shard = unit(f'e2e-{name}', found['e2e']) if name in SMOKE else unit(f'e2e-{name}', role, role_also)
-        shard.update(shard=name, host=e2e.host_of_shard(name))
+        shard.update(shard=name, hosts=e2e.hosts_of_shard(name))
         shards.append(shard)
     todo = lambda item: item['key'] not in seen  # noqa: E731
     result = {item['name']: json.dumps(item) if todo(item) else '' for item in jobs}

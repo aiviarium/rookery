@@ -7,9 +7,9 @@
 #   ci/run.sh e2e [TEST…]       build rookery, start a test host and run the
 #                               end-to-end tests against it (names as in
 #                               unittest: e2e_serve, e2e_serve.Grants)
-#   ci/run.sh e2e --shard NAME  the same for the tests of one shard, on a
-#                               fresh host, as a CI job runs them (see SHARDS
-#                               in tests/e2e/run.py)
+#   ci/run.sh e2e --shard NAME  the same for the tests of one shard, on fresh
+#                               hosts, as a CI job runs them (see SHARDS in
+#                               tests/e2e/run.py)
 #   ci/run.sh all               check, then e2e
 #   ci/run.sh boot [cloud|iso]  boot real installs in QEMU and test them; needs
 #                               KVM and takes a while (see ci/boot.sh)
@@ -149,10 +149,10 @@ e2e() {
   fi
   e2e_down
   trap e2e_down EXIT
-  # A shard needs its own host alone, and Headscale beside studio.
+  # A shard needs its own hosts alone, and Headscale beside studio.
   local hosts=(studio forge)
   if [[ ${1:-} == --shard ]]; then
-    hosts=("$(python3 tests/e2e/run.py --host-of "${2:-}")") || return 1
+    hosts=($(python3 tests/e2e/run.py --hosts-of "${2:-}")) || return 1
   fi
   # The servers of the tests keep their state in the database service.
   local services=("${hosts[@]}" database)

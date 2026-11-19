@@ -43,10 +43,74 @@ jobs:
           ALL: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
         run: python3 ci/plan.py ${ALL:+--all}
 
+  # rookery is built once, here, for the shards of the end-to-end tests. It
+  # comes first in the file because the shards wait for it and nothing else
+  # does, and a run asks for its runner before those of the checks.
+  build:
+    needs: plan
+    if: needs.plan.outputs.shards != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/rust
+        with:
+          cache: build
+      # Once more if the build itself fails, which is a runner that stopped
+      # rather than a change that does not compile: the shards wait for this
+      # one artifact.
+      - name: Build rookery
+        run: |
+          for attempt in 1 2; do
+            cargo build --locked -p rookery && exit 0
+            echo "cargo build failed (attempt $attempt of 2)" >&2
+          done
+          exit 1
+      # rookery, and the rookeryd and box it puts into the role's files. A tar
+      # keeps their modes, which an artifact does not.
+      - name: Pack what the shards test
+        run: tar -cf "$RUNNER_TEMP/e2e-rookery.tar" target/debug/rookery provision/ansible/roles/rookery/files/bin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: e2e-rookery
+          path: ${{ runner.temp }}/e2e-rookery.tar
+          retention-days: 1
+          if-no-files-found: error
+      - uses: ./.github/actions/rust-save
+        with:
+          cache: build
+
+  # The test host's and the runner's images, built beside rookery. Only this
+  # job saves their layers, so the shards do not race to save the same keys.
+  # The shards build them again from those layers, which is quicker than
+  # carrying two images of 1.3 GB to each of them.
+  images:
+    needs: plan
+    if: needs.plan.outputs.shards != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ci/host.Dockerfile
+          cache-from: type=gha,scope=rookery-ci-host
+          cache-to: type=gha,scope=rookery-ci-host,mode=max
+          outputs: type=cacheonly
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ci/runner.Dockerfile
+          cache-from: type=gha,scope=rookery-ci-runner
+          cache-to: type=gha,scope=rookery-ci-runner,mode=max
+          outputs: type=cacheonly
+
   # Quick enough to run always.
   lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 8
     env:
       VALE_VERSION: 3.25.1
     steps:
@@ -74,7 +138,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.rust-tests != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 12
     # The store's tests run on PostgreSQL too. The password is made up: the
     # database is reachable from this job alone.
     services:
@@ -118,7 +182,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.clippy != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/rust
@@ -136,7 +200,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.python-tests != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
@@ -157,7 +221,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.ts != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -169,66 +233,17 @@ jobs:
         with:
           unit: ${{ needs.plan.outputs.ts }}
 
-  # rookery is built once, here, for the shards of the end-to-end tests.
-  build:
-    needs: plan
-    if: needs.plan.outputs.shards != '[]'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/rust
-        with:
-          cache: build
-      - run: cargo build --locked -p rookery
-      # rookery, and the rookeryd and box it puts into the role's files. A tar
-      # keeps their modes, which an artifact does not.
-      - name: Pack what the shards test
-        run: tar -cf "$RUNNER_TEMP/e2e-rookery.tar" target/debug/rookery provision/ansible/roles/rookery/files/bin
-      - uses: actions/upload-artifact@v4
-        with:
-          name: e2e-rookery
-          path: ${{ runner.temp }}/e2e-rookery.tar
-          retention-days: 1
-          if-no-files-found: error
-      - uses: ./.github/actions/rust-save
-        with:
-          cache: build
-
-  # The test host's and the runner's images, built beside rookery. Only this
-  # job saves their layers, so the shards do not race to save the same keys.
-  images:
-    needs: plan
-    if: needs.plan.outputs.shards != '[]'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ci/host.Dockerfile
-          cache-from: type=gha,scope=rookery-ci-host
-          cache-to: type=gha,scope=rookery-ci-host,mode=max
-          outputs: type=cacheonly
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ci/runner.Dockerfile
-          cache-from: type=gha,scope=rookery-ci-runner
-          cache-to: type=gha,scope=rookery-ci-runner,mode=max
-          outputs: type=cacheonly
-
-  # Each shard of the end-to-end tests (SHARDS of tests/e2e/run.py) on a
-  # fresh test host, in a job of its own.
+  # Each shard of the end-to-end tests (SHARDS of tests/e2e/run.py) in a job of
+  # its own, on fresh test hosts. A shard holds the tests of both hosts where it
+  # can, which then run side by side, so a run asks the runners for four jobs
+  # and not nine.
   # They build the images from the cache that the images job keeps, so they start when rookery is
   # built and do not wait for that job.
   e2e:
     needs: [plan, build]
     if: needs.plan.outputs.shards != '[]'
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:

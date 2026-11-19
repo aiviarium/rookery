@@ -128,7 +128,7 @@ With only Docker or Podman, `ci/run.sh` runs the same checks in an image that ha
 ```bash
 ci/run.sh check [CHECK…]   # fmt, shell-syntax, ansible-syntax, vale, python-tests, rust-tests, plugin-check, clippy
 ci/run.sh e2e [TEST…]      # the end-to-end tests, such as e2e_serve.Grants
-ci/run.sh e2e --shard NAME # the tests of one shard on a fresh host, as a CI job runs them
+ci/run.sh e2e --shard NAME # the tests of one shard on fresh hosts, as a CI job runs them
 ci/run.sh shell            # a shell in the dev container
 ci/run.sh boot cloud|iso   # real installs in QEMU, with KVM; slow
 ```
@@ -148,7 +148,7 @@ That engine starts with Docker when the run is complete, names `e2e_provisioners
 
 `tests/e2e/run.py` says which test cases run on which host and in what order. Test cases that look at the same state of a host follow each other, so the state is applied once (see the shared states in `tests/e2e/harness.py`). A run ends with the time of each test and test case and the number of playbook runs. The test hosts' logs from a failed run are in `build/ci/logs/`.
 
-CI runs the checks on the runner itself, each in a job of its own, and the end-to-end tests as shards. A shard is a part of a host's list that keeps the test cases of each shared state together (`SHARDS` in `tests/e2e/run.py`). Each runs in a job of its own on a fresh host, where its first test case makes the state it needs. A test case in no list, or in no shard, stops the run before it starts.
+CI runs the checks on the runner itself, each in a job of its own, and the end-to-end tests as shards. A shard is a part of the lists that keeps the test cases of each shared state together (`SHARDS` in `tests/e2e/run.py`); one may hold the tests of both hosts, which then run side by side, so that a run asks the runners for fewer jobs. Each runs in a job of its own on fresh hosts, where its first test case makes the state it needs. A test case in no list, or in no shard, stops the run before it starts.
 
 `ci/plan.py` decides what a run does. Each unit has a key, a hash of the files it depends on and of the week. A unit that passed leaves a marker under its key in GitHub's cache, and a later run with the same files skips it. The lint job always runs.
 
