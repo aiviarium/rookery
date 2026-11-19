@@ -432,10 +432,12 @@ impl Methods {
         );
         let name = def.name;
         Box::pin(async move {
-            let run = async {
+            let actor = call.audit_name();
+            // Writes to Rookery's typed tables record the caller in their history.
+            let run = rookery_store::actor::scope(actor, async {
                 allowed(&call, &level, &params, access).await?;
                 handler(call.clone(), params).await
-            };
+            });
             match tokio::time::timeout_at(deadline, run).await {
                 Ok(done) => done,
                 Err(_) => Err(RpcError::timeout(format!(

@@ -5,6 +5,7 @@
 
 pub mod access;
 pub mod activity;
+pub mod actor;
 pub mod audit;
 pub mod auth;
 pub mod blobs;
@@ -136,6 +137,8 @@ impl Store {
         migrate::run(&store.pool).await?;
         store.reload().await?;
         store.collections().install_system(&tables).await?;
+        // People from before the data layer, or brought in by an import, get their entity and space.
+        store.users().backfill().await?;
         Ok(store)
     }
 

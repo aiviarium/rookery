@@ -196,6 +196,7 @@ impl<'a> MigrationTx<'a> {
             principal: "system:rookery".into(),
             space,
             admin: true,
+            admin_of: None,
         }
     }
 

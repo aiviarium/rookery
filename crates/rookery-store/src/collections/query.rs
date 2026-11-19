@@ -142,7 +142,9 @@ pub(crate) async fn plan_read(
     trashed: bool,
 ) -> Result<ReadPlan> {
     let need = coll.def.access.read;
-    coll.def.access.check_admin(&coll.def.name, caller)?;
+    coll.def
+        .access
+        .check_admin(&coll.plugin, &coll.def.name, caller)?;
     let scope_sql = match coll.def.scope {
         Scope::Global => ScopeSql::All,
         Scope::Space => match spaces {
@@ -165,7 +167,7 @@ pub(crate) async fn plan_read(
         typed_check: None,
         trashed,
     };
-    if caller.admin || coll.def.scope == Scope::User {
+    if caller.admin_on(&coll.plugin) || coll.def.scope == Scope::User {
         return Ok(plan);
     }
     if coll.is_typed() {
@@ -244,17 +246,29 @@ pub(crate) fn push_read_where(
         });
     }
     if let Some(level) = plan.typed_check {
-        qb.push(" AND (t._owner IS NOT DISTINCT FROM ");
+        // The rows the caller owns, and those on the resources the caller reaches, each found through the
+        // table's indexes on `_owner` and `_resource`. The reachable resources are worked out once: view
+        // is held on every one of them, and a higher level is checked on each resource, not each row.
+        qb.push(" AND (t._owner = ");
         qb.push_bind(caller.user);
-        qb.push("::uuid AND t._owner IS NOT NULL OR (t._resource IS NOT NULL AND rookery.effective_level(t._resource, ");
+        qb.push("::uuid OR t._resource = ANY(ARRAY(SELECT r FROM rookery.reachable(");
         qb.push_bind(caller.user);
-        qb.push("::uuid, (SELECT rookery.principals_of(");
+        qb.push("::uuid, rookery.principals_of(");
         qb.push_bind(caller.user);
         qb.push("::uuid, ");
         qb.push_bind(caller.actor());
-        qb.push("))) >= ");
-        qb.push_bind(level.as_i16());
-        qb.push("))");
+        qb.push(")) AS r");
+        if level > Level::View {
+            qb.push(" WHERE rookery.effective_level(r, ");
+            qb.push_bind(caller.user);
+            qb.push("::uuid, rookery.principals_of(");
+            qb.push_bind(caller.user);
+            qb.push("::uuid, ");
+            qb.push_bind(caller.actor());
+            qb.push(")) >= ");
+            qb.push_bind(level.as_i16());
+        }
+        qb.push(")))");
     }
     if let (Some(level), Some(e)) = (plan.row_check, &coll.def.entity) {
         if plan.inherits.is_none() {

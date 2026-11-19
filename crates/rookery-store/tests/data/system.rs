@@ -371,3 +371,165 @@ async fn the_old_key_value_and_layout_tables_move_into_the_collections() {
     assert!(gone.is_none());
     db.close().await;
 }
+
+/// At a realistic size, 100k jobs over 5,000 hosts: one statement writes or deletes 20k rows with the trigger
+/// in a moment, and a member with view on 50 hosts reads and counts theirs without the other rows' cost.
+#[tokio::test]
+async fn typed_tables_scale_to_many_rows_and_bulk_writes() {
+    let Some(db) = TestDb::new().await else {
+        return;
+    };
+    let ops = db.user("ops").await;
+    let pool = db.store.pool();
+    let insert = |n: i32| {
+        sqlx::query(
+            "INSERT INTO rookery.jobs (id, kind, params, state, subject, enqueued_by)
+             SELECT gen_random_uuid(), 'apply', '{}', 'succeeded', 'env://h' || (i % 5000), 'system:rookery'
+             FROM generate_series(1, $1) i",
+        )
+        .bind(n)
+        .execute(pool)
+    };
+    let head = db.store.feed().head();
+    let t = std::time::Instant::now();
+    insert(20_000).await.unwrap();
+    let bulk = t.elapsed();
+    let t = std::time::Instant::now();
+    sqlx::query("DELETE FROM rookery.jobs")
+        .execute(pool)
+        .await
+        .unwrap();
+    let delete = t.elapsed();
+    assert!(
+        bulk < Duration::from_secs(5) && delete < Duration::from_secs(5),
+        "a bulk insert took {bulk:?} and a bulk delete {delete:?}"
+    );
+    let logged: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM rookery.changes WHERE plugin = 'rookery' AND collection = 'jobs' AND seq > $1",
+    )
+    .bind(head)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(logged, 40_000, "each row written is in the change log");
+    insert(100_000).await.unwrap();
+    sqlx::query(
+        "INSERT INTO rookery.grants (resource, principal, level, created_by)
+         SELECT 'env://h' || i, $1, 1, 'system:test' FROM generate_series(1, 50) i",
+    )
+    .bind(format!("user:{ops}"))
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO rookery.grants (resource, principal, level, created_by)
+         SELECT 'env://h' || (i % 5000), 'user:' || gen_random_uuid(), 1, 'system:test'
+         FROM generate_series(1, 20000) i ON CONFLICT DO NOTHING",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query("ANALYZE").execute(pool).await.unwrap();
+    let data = db.store.data("rookery");
+    let member = Caller::user(ops);
+    let query = |v: Value| serde_json::from_value::<Query>(v).unwrap();
+    let t = std::time::Instant::now();
+    let page = data
+        .find(&member, "jobs", &query(json!({ "limit": 50 })))
+        .await
+        .unwrap();
+    let count = data
+        .count(&member, "jobs", &Query::default())
+        .await
+        .unwrap();
+    let one = data
+        .find(
+            &member,
+            "jobs",
+            &query(json!({ "limit": 50, "where": { "subject": "env://h7" } })),
+        )
+        .await
+        .unwrap();
+    let reads = t.elapsed();
+    println!("bulk insert {bulk:?}, bulk delete {delete:?}, three reads {reads:?}");
+    assert_eq!(page.rows.len(), 50);
+    // 100k jobs over 5,000 hosts: 20 a host, 50 hosts.
+    assert_eq!(count, 1_000);
+    assert_eq!(one.rows.len(), 20);
+    assert!(
+        reads < Duration::from_secs(1),
+        "three reads of a member took {reads:?}"
+    );
+    db.close().await;
+}
+
+/// A typed table's history names who wrote, from the call's actor, and the system without one.
+#[tokio::test]
+async fn the_history_of_typed_tables_names_the_actor() {
+    let Some(db) = TestDb::new().await else {
+        return;
+    };
+    let settings = db.store.settings();
+    rookery_store::actor::scope("user:ada".into(), async {
+        db.store.access().create_group("ops", None).await.unwrap();
+    })
+    .await;
+    settings
+        .set(
+            "notes",
+            "theme",
+            rookery_store::settings::Scope::Global,
+            &json!("dark"),
+            "user:bob",
+        )
+        .await
+        .unwrap();
+    db.store.access().create_group("dev", None).await.unwrap();
+    let principals: Vec<(String, String)> = sqlx::query_as(
+        "SELECT collection, principal FROM rookery.history WHERE plugin = 'rookery'
+         AND collection IN ('groups', 'settings') ORDER BY id",
+    )
+    .fetch_all(db.store.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        principals,
+        [
+            ("groups".to_string(), "user:ada".to_string()),
+            ("settings".to_string(), "user:bob".to_string()),
+            ("groups".to_string(), "system:rookery".to_string()),
+        ]
+    );
+    db.close().await;
+}
+
+/// People written into the table without signing in, as an upgrade or an import leaves them, get their
+/// entity, its grant and their personal space, and the entity holds no email.
+#[tokio::test]
+async fn people_from_before_get_their_entity_and_space() {
+    let Some(db) = TestDb::new().await else {
+        return;
+    };
+    let id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO rookery.users (id, issuer, subject, name, email, role) VALUES ($1, 'test', 'old', 'Old', 'old@example.test', 'member')",
+    )
+    .bind(id)
+    .execute(db.store.pool())
+    .await
+    .unwrap();
+    assert_eq!(db.store.users().backfill().await.unwrap(), 1);
+    assert_eq!(db.store.users().backfill().await.unwrap(), 0);
+    let entity = db
+        .store
+        .entities()
+        .get(&Caller::user(db.user("eve").await), &format!("user://{id}"))
+        .await
+        .unwrap()
+        .expect("everyone sees a person's entity");
+    assert_eq!(entity.title, "Old");
+    assert_eq!(entity.subtitle, None);
+    let personal = db.store.spaces().personal(id).await.unwrap();
+    assert_eq!(personal.owner_id, Some(id));
+    db.close().await;
+}

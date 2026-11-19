@@ -157,8 +157,13 @@ impl AccessDef {
     }
 
     /// Refuses a caller who is not an admin when the collection is for admins.
-    pub(crate) fn check_admin(&self, name: &str, caller: &crate::caller::Caller) -> Result<()> {
-        if self.admin && !caller.admin {
+    pub(crate) fn check_admin(
+        &self,
+        plugin: &str,
+        name: &str,
+        caller: &crate::caller::Caller,
+    ) -> Result<()> {
+        if self.admin && !caller.admin_on(plugin) {
             return Err(Error::forbidden(format!(
                 "the collection {name} is for admins"
             )));

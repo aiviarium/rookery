@@ -56,12 +56,16 @@ impl fmt::Display for Level {
 ///   `system:<part>`, `local:socket`.
 /// - `space` is the current space, which space-scoped collections need.
 /// - `admin` lets the caller do everything.
+/// - `admin_of` lets it do everything with one plugin's collections, as a plugin may with its own. It
+///   counts for nothing else: a reference into another plugin's collection, or the entity index, reads
+///   as the plain caller.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Caller {
     pub user: Option<Uuid>,
     pub principal: String,
     pub space: Option<Uuid>,
     pub admin: bool,
+    pub admin_of: Option<String>,
 }
 
 impl Caller {
@@ -72,6 +76,7 @@ impl Caller {
             principal: format!("user:{id}"),
             space: None,
             admin: false,
+            admin_of: None,
         }
     }
     /// A plugin, or another principal, acting for a person.
@@ -81,6 +86,7 @@ impl Caller {
             principal: principal.into(),
             space: None,
             admin: false,
+            admin_of: None,
         }
     }
     /// A plugin acting for itself, with no person, such as its own job.
@@ -90,6 +96,7 @@ impl Caller {
             principal: format!("plugin:{id}"),
             space: None,
             admin: false,
+            admin_of: None,
         }
     }
     /// The server itself: an admin, for migrations and maintenance.
@@ -99,6 +106,7 @@ impl Caller {
             principal: "system:rookery".into(),
             space: None,
             admin: true,
+            admin_of: None,
         }
     }
     pub fn in_space(mut self, space: Uuid) -> Self {
@@ -112,6 +120,15 @@ impl Caller {
     pub fn as_admin(mut self) -> Self {
         self.admin = true;
         self
+    }
+    /// The caller administers the collections of `plugin`, and nothing else.
+    pub fn admin_of(mut self, plugin: impl Into<String>) -> Self {
+        self.admin_of = Some(plugin.into());
+        self
+    }
+    /// Whether the caller may do everything with the collections of `plugin`.
+    pub fn admin_on(&self, plugin: &str) -> bool {
+        self.admin || self.admin_of.as_deref() == Some(plugin)
     }
     /// The principal writes record.
     pub fn actor(&self) -> String {

@@ -243,35 +243,42 @@ impl Access<'_> {
     // ── groups ──────────────────────────────────────────────────────────────────────────────────
 
     pub async fn create_group(&self, name: &str, claim: Option<&str>) -> Result<Group> {
-        let made = sqlx::query_as(
+        let mut tx = crate::actor::begin(self.pool).await?;
+        let made: Result<Group> = sqlx::query_as(
             "INSERT INTO rookery.groups (id, name, claim) VALUES ($1, $2, $3) RETURNING id, name, claim, 0::bigint AS members",
         )
         .bind(new_id())
         .bind(name)
         .bind(claim)
-        .fetch_one(self.pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(Error::from);
         match made {
             Err(e) if e.is_unique_violation() => Err(Error::Conflict(format!(
                 "there is a group {name} or one with that claim"
             ))),
-            other => other,
+            Err(e) => Err(e),
+            Ok(group) => {
+                tx.commit().await?;
+                Ok(group)
+            }
         }
     }
 
     pub async fn delete_group(&self, id: Uuid) -> Result<()> {
+        let mut tx = crate::actor::begin(self.pool).await?;
         let done = sqlx::query("DELETE FROM rookery.groups WHERE id = $1")
             .bind(id)
-            .execute(self.pool)
+            .execute(&mut *tx)
             .await?;
         if done.rows_affected() == 0 {
             return Err(Error::NotFound("no such group".into()));
         }
         sqlx::query("DELETE FROM rookery.grants WHERE principal = $1")
             .bind(format!("group:{id}"))
-            .execute(self.pool)
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         Ok(())
     }
 

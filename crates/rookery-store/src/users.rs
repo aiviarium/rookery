@@ -77,11 +77,37 @@ impl Users<'_> {
         .fetch_one(&mut *tx)
         .await?;
         index_user(&mut tx, &row.user, row.inserted).await?;
-        if row.inserted {
-            crate::spaces::ensure_personal(&mut tx, &row.user).await?;
-        }
+        crate::spaces::ensure_personal(&mut tx, &row.user).await?;
         tx.commit().await?;
         Ok((row.user, row.inserted))
+    }
+
+    /// Gives every person who lacks them their entity `user://<id>`, its grant and their personal space:
+    /// people from before the data layer, and those an import writes into `rookery.users` itself. Returns
+    /// how many it brought up to date. An import runs it after its last user.
+    pub async fn backfill(&self) -> Result<u64> {
+        #[derive(sqlx::FromRow)]
+        struct Missing {
+            #[sqlx(flatten)]
+            user: User,
+            unindexed: bool,
+        }
+        let missing: Vec<Missing> = sqlx::query_as(AssertSqlSafe(format!(
+            "SELECT * FROM (SELECT {COLS}, NOT EXISTS (SELECT 1 FROM rookery.entities e
+                                WHERE e.scheme = 'user' AND e.id = u.id::text) AS unindexed
+                            FROM rookery.users u) m
+             WHERE unindexed OR NOT EXISTS (SELECT 1 FROM rookery.spaces s WHERE s.owner_id = m.id AND s.personal)"
+        )))
+        .fetch_all(self.pool)
+        .await?;
+        for Missing { user, unindexed } in &missing {
+            let mut tx = self.pool.begin().await?;
+            // The grant comes with the entity, so a grant an admin took away stays away.
+            index_user(&mut tx, user, *unindexed).await?;
+            crate::spaces::ensure_personal(&mut tx, user).await?;
+            tx.commit().await?;
+        }
+        Ok(missing.len() as u64)
     }
 
     pub async fn get(&self, id: Uuid) -> Result<Option<User>> {
@@ -126,7 +152,7 @@ impl Users<'_> {
 
     /// Sets the org role. The last admin who is not disabled cannot stop being one.
     pub async fn set_role(&self, id: Uuid, admin: bool) -> Result<User> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::actor::begin(self.pool).await?;
         // One change of roles at a time, so two admins cannot each remove the other.
         sqlx::query("LOCK TABLE rookery.users IN SHARE ROW EXCLUSIVE MODE")
             .execute(&mut *tx)
@@ -159,7 +185,7 @@ impl Users<'_> {
     /// Turns an account off or on. A disabled account's sessions and tokens stop working; the last admin
     /// cannot be disabled.
     pub async fn set_disabled(&self, id: Uuid, disabled: bool) -> Result<User> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = crate::actor::begin(self.pool).await?;
         sqlx::query("LOCK TABLE rookery.users IN SHARE ROW EXCLUSIVE MODE")
             .execute(&mut *tx)
             .await?;
@@ -196,16 +222,15 @@ impl Users<'_> {
 }
 
 /// A person's entity, `user://<id>`, which mentions and references name. Everyone may see it, and it
-/// is private: what hangs below it, such as a person's own rows, does not inherit that.
-async fn index_user(conn: &mut sqlx::PgConnection, user: &User, created: bool) -> Result<()> {
+/// is private: what hangs below it, such as a person's own rows, does not inherit that. It holds the name
+/// and nothing else: emails are for admins, through `users.*`.
+async fn index_user(conn: &mut sqlx::PgConnection, user: &User, grant: bool) -> Result<()> {
     let uri = crate::uri::user_uri(user.id);
     crate::entities::upsert(
         &mut *conn,
         &crate::entities::EntityRecord {
             uri: uri.clone(),
             title: user.name.clone(),
-            subtitle: user.email.clone(),
-            search_text: user.email.clone(),
             owner_id: Some(user.id),
             private: true,
             ..Default::default()
@@ -213,7 +238,7 @@ async fn index_user(conn: &mut sqlx::PgConnection, user: &User, created: bool) -
         None,
     )
     .await?;
-    if created {
+    if grant {
         sqlx::query(
             "INSERT INTO rookery.grants (resource, principal, level, created_by) VALUES ($1, 'everyone', 1, 'system:rookery') ON CONFLICT DO NOTHING",
         )

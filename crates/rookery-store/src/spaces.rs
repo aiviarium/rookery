@@ -60,7 +60,7 @@ impl<'a> Spaces<'a> {
         if new.kind.is_empty() || new.kind == "personal" {
             return Err(Error::invalid("a space needs a kind other than personal"));
         }
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = crate::actor::begin_as(self.store.pool(), &caller.actor()).await?;
         let slug = free_slug(&mut tx, "", new.slug.as_deref().unwrap_or(&new.name)).await?;
         let s: Space = sqlx::query_as(
             "INSERT INTO rookery.spaces (id, kind, name, slug, owner_id, data) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
@@ -187,7 +187,7 @@ impl<'a> Spaces<'a> {
 
     /// Renames a space. Needs `manage`.
     pub async fn rename(&self, caller: &Caller, space: Uuid, name: &str) -> Result<Space> {
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = crate::actor::begin_as(self.store.pool(), &caller.actor()).await?;
         crate::access::require(&mut tx, caller, &space_uri(space), Level::Manage).await?;
         let s: Space = sqlx::query_as(
             "UPDATE rookery.spaces SET name = $2, updated_at = now() WHERE id = $1 RETURNING *",
@@ -204,7 +204,7 @@ impl<'a> Spaces<'a> {
 
     /// Archives (or unarchives) a space. Needs `manage`.
     pub async fn set_archived(&self, caller: &Caller, space: Uuid, archived: bool) -> Result<()> {
-        let mut tx = self.store.pool().begin().await?;
+        let mut tx = crate::actor::begin_as(self.store.pool(), &caller.actor()).await?;
         crate::access::require(&mut tx, caller, &space_uri(space), Level::Manage).await?;
         sqlx::query(
             "UPDATE rookery.spaces SET archived_at = CASE WHEN $2 THEN now() ELSE NULL END, updated_at = now() WHERE id = $1",

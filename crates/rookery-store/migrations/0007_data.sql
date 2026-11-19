@@ -316,3 +316,30 @@ CREATE INDEX pins_space ON rookery.pins (space_id) WHERE space_id IS NOT NULL;
 -- Settings are a collection of Rookery's too, and a row of one needs an id.
 ALTER TABLE rookery.settings ADD COLUMN id uuid NOT NULL DEFAULT gen_random_uuid();
 CREATE UNIQUE INDEX settings_id ON rookery.settings (id);
+
+-- The level reading an entity of a collection's row needs, from the collection's access: 1 view, 2 use,
+-- 3 manage, 4 for admins only. The entity index and everything that reads through it (search, activity,
+-- recents, mentions) hold rows to it, as data.* does.
+CREATE FUNCTION rookery.collection_need(p_plugin text, p_collection text) RETURNS smallint
+LANGUAGE sql STABLE AS $$
+    SELECT coalesce((
+        SELECT CASE WHEN coalesce((c -> 'access' ->> 'admin')::boolean, false) THEN 4
+                    WHEN c -> 'access' ->> 'read' = 'manage' THEN 3
+                    WHEN c -> 'access' ->> 'read' = 'use' THEN 2
+                    ELSE 1 END
+        FROM rookery.plugin_schemas s, jsonb_array_elements(s.collections) c
+        WHERE s.plugin = p_plugin AND c ->> 'name' = p_collection
+    ), 1)::smallint
+$$;
+
+-- The level reading an entity needs: its collection's, or for an entity attached to a row (a document) the
+-- row's collection's. Other entities need view.
+CREATE FUNCTION rookery.entity_need(p_plugin text, p_collection text, p_parent text) RETURNS smallint
+LANGUAGE sql STABLE AS $$
+    SELECT CASE
+        WHEN p_collection IS NOT NULL THEN rookery.collection_need(p_plugin, p_collection)
+        WHEN p_parent IS NULL THEN 1::smallint
+        ELSE coalesce((SELECT rookery.collection_need(pe.plugin, pe.collection) FROM rookery.entities pe
+                       WHERE pe.uri = p_parent AND pe.collection IS NOT NULL), 1::smallint)
+    END
+$$;

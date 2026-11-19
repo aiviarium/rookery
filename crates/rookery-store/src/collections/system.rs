@@ -10,8 +10,10 @@
 //! A typed table is read through a view, `rookery."v_<name>"`, that gives it the columns every
 //! collection has (`id`, `space_id`, `user_id`, `created_at`, `updated_at`, `rev`, ...), its other
 //! columns as fields named in camel case, and `_resource` and `_owner`, which its rows' access is
-//! checked on. Its writes reach the change log and history through a trigger that runs at commit,
-//! whichever code made them, and that tells the change feed with `NOTIFY rookery_changes`.
+//! checked on, each with an index of its own. Its writes reach the change log and history through
+//! triggers that run once per statement over the rows it wrote, whichever code made them, and that tell
+//! the change feed with `NOTIFY rookery_changes`, once per transaction. The history names the actor that
+//! [`crate::actor`] set for the transaction.
 
 use std::sync::Arc;
 
@@ -64,6 +66,16 @@ pub struct SystemTable {
 impl SystemTable {
     fn view(&self) -> String {
         format!("rookery.{}", quote_ident(&format!("v_{}", self.name)))
+    }
+
+    /// The view's `_resource`: the URI a row's access is checked on.
+    fn resource_sql(&self) -> String {
+        format!("({})::text", self.resource.unwrap_or("NULL"))
+    }
+
+    /// The view's `_owner`: the person who holds manage on a row.
+    fn owner_sql(&self) -> String {
+        format!("({})::uuid", self.owner.unwrap_or("NULL"))
     }
 
     fn check(&self) -> Result<()> {
@@ -351,8 +363,12 @@ pub(crate) async fn register(conn: &mut PgConnection, t: &SystemTable) -> Result
         fields.push(FieldDef::named(&api, ty));
     }
     let id_col = format!("t.{}", quote_ident(t.id));
+    let id_is_uuid = columns.iter().any(|(c, ty)| c == t.id && ty == "uuid");
     let id = if t.hashed_id {
         format!("md5({id_col}::text)::uuid")
+    } else if id_is_uuid {
+        // The column itself, so that reads by id and in id order use the table's key.
+        id_col.clone()
     } else {
         format!("{id_col}::text::uuid")
     };
@@ -365,14 +381,14 @@ pub(crate) async fn register(conn: &mut PgConnection, t: &SystemTable) -> Result
         "CREATE VIEW {view} AS SELECT {id} AS id, NULL::uuid AS space_id, {user} AS user_id,
              ({created}) AS created_at, ({updated}) AS updated_at, NULL::uuid AS created_by,
              NULL::uuid AS updated_by, t.rev AS rev, NULL::timestamptz AS deleted_at, NULL::tsvector AS _search,
-             {fields}{comma} ({resource})::text AS _resource, ({owner})::uuid AS _owner
+             {fields}{comma} {resource} AS _resource, {owner} AS _owner
          FROM {table} t",
         created = t.created_at,
         updated = t.updated_at,
         fields = selects.join(", "),
         comma = if selects.is_empty() { "" } else { "," },
-        resource = t.resource.unwrap_or("NULL"),
-        owner = t.owner.unwrap_or("NULL"),
+        resource = t.resource_sql(),
+        owner = t.owner_sql(),
     );
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP VIEW IF EXISTS {view}")))
         .execute(&mut *conn)
@@ -380,23 +396,62 @@ pub(crate) async fn register(conn: &mut PgConnection, t: &SystemTable) -> Result
     sqlx::query(sqlx::AssertSqlSafe(sql))
         .execute(&mut *conn)
         .await?;
+    // Reads of a member find the rows on the resources they reach and the rows they own through these,
+    // rather than by checking every row.
+    for (suffix, expr) in [
+        ("resource", t.resource.map(|_| t.resource_sql())),
+        ("owner", t.owner.map(|_| t.owner_sql())),
+    ] {
+        let Some(expr) = expr else { continue };
+        let bare = bare_columns(&expr);
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "CREATE INDEX IF NOT EXISTS {} ON {table} (({bare}))",
+            quote_ident(&format!("{}_rookery_{suffix}", t.table)),
+        )))
+        .execute(&mut *conn)
+        .await?;
+    }
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "DROP TRIGGER IF EXISTS rookery_capture ON {table}"
+    )))
+    .execute(&mut *conn)
+    .await?;
+    let args = format!(
+        "'{PLUGIN}', '{name}', '{id}', '{hashed}', '{user}', '{history}', '{omit}'",
+        name = t.name,
+        id = t.id,
+        hashed = if t.hashed_id { 1 } else { 0 },
+        user = t.user.unwrap_or(""),
+        history = if t.history { 1 } else { 0 },
+        omit = t.omit.join(","),
+    );
     for (trigger, sql) in [
         (
             "rookery_rev",
             format!("CREATE TRIGGER rookery_rev BEFORE UPDATE ON {table} FOR EACH ROW EXECUTE FUNCTION rookery.bump_rev()"),
         ),
+        // One trigger per kind of write, as a trigger with transition tables has one event. Each runs
+        // once per statement, over all the rows it wrote.
         (
             "rookery_capture",
             format!(
-                "CREATE CONSTRAINT TRIGGER rookery_capture AFTER INSERT OR UPDATE OR DELETE ON {table}
-                 DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
-                 EXECUTE FUNCTION rookery.capture('{PLUGIN}', '{name}', '{id}', '{hashed}', '{user}', '{history}', '{omit}')",
-                name = t.name,
-                id = t.id,
-                hashed = if t.hashed_id { 1 } else { 0 },
-                user = t.user.unwrap_or(""),
-                history = if t.history { 1 } else { 0 },
-                omit = t.omit.join(","),
+                "CREATE TRIGGER rookery_capture AFTER INSERT ON {table}
+                 REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION rookery.capture({args})"
+            ),
+        ),
+        (
+            "rookery_capture_update",
+            format!(
+                "CREATE TRIGGER rookery_capture_update AFTER UPDATE ON {table}
+                 REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT
+                 EXECUTE FUNCTION rookery.capture({args})"
+            ),
+        ),
+        (
+            "rookery_capture_delete",
+            format!(
+                "CREATE TRIGGER rookery_capture_delete AFTER DELETE ON {table}
+                 REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION rookery.capture({args})"
             ),
         ),
     ] {
@@ -417,6 +472,28 @@ pub(crate) async fn register(conn: &mut PgConnection, t: &SystemTable) -> Result
     Ok(def)
 }
 
+/// An expression over the table's columns as `t`, for an index, which names them bare.
+fn bare_columns(expr: &str) -> String {
+    let mut out = String::with_capacity(expr.len());
+    let bytes = expr.as_bytes();
+    let mut quoted = false;
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if c == b'\'' {
+            quoted = !quoted;
+        }
+        let starts_word = i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_');
+        if !quoted && c == b't' && starts_word && bytes.get(i + 1) == Some(&b'.') {
+            i += 2;
+            continue;
+        }
+        out.push(c as char);
+        i += 1;
+    }
+    out
+}
+
 /// The functions the triggers of typed tables run. Made at every start, so that they follow this build.
 pub(crate) async fn functions(conn: &mut PgConnection) -> Result<()> {
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
@@ -435,39 +512,60 @@ BEGIN
 END
 $f$;
 
--- At commit, for each row a statement wrote: the change log entry, in commit order under the lock the
--- collections take, the history when the table keeps it, and a notice to the change feed.
+-- After each statement, for the rows it wrote: the change log entries, a range of the change log's order
+-- under the lock the collections take, the history when the table keeps it, and a notice to the change
+-- feed, which Postgres sends once per transaction as every notice is the same.
 -- Arguments: plugin, collection, id column, whether the id is hashed, user column, history, omitted columns.
 CREATE OR REPLACE FUNCTION rookery.capture() RETURNS trigger LANGUAGE plpgsql AS $f$
 DECLARE
-    before jsonb := CASE WHEN TG_OP <> 'INSERT' THEN to_jsonb(OLD) END;
-    after jsonb := CASE WHEN TG_OP <> 'DELETE' THEN to_jsonb(NEW) END;
-    r jsonb := coalesce(after, before);
-    key text := r ->> TG_ARGV[2];
-    rid uuid := CASE WHEN TG_ARGV[3] = '1' THEN md5(key)::uuid ELSE key::uuid END;
-    uid uuid := CASE WHEN TG_ARGV[4] <> '' THEN (r ->> TG_ARGV[4])::uuid END;
-    omit text[] := string_to_array(TG_ARGV[6], ',');
-    rev bigint := coalesce((r ->> 'rev')::bigint, 1);
-    s bigint;
-    diff jsonb;
+    pairs jsonb[];
+    n bigint;
+    last bigint;
+    omit text[] := coalesce(string_to_array(TG_ARGV[6], ','), '{{}}');
     actor text := coalesce(nullif(current_setting('rookery.actor', true), ''), 'system:rookery');
 BEGIN
-    PERFORM pg_advisory_xact_lock({lock});
-    UPDATE rookery.change_counter SET seq = seq + 1 RETURNING seq INTO s;
-    INSERT INTO rookery.changes (seq, plugin, collection, id, op, rev, space_id, user_id)
-    VALUES (s, TG_ARGV[0], TG_ARGV[1], rid, lower(TG_OP), rev, NULL, uid);
-    IF TG_ARGV[5] = '1' THEN
-        SELECT coalesce(jsonb_object_agg(rookery.camel(k), jsonb_build_array(before -> k, after -> k)), '{{}}')
-        INTO diff
-        FROM (SELECT jsonb_object_keys(coalesce(before, '{{}}') || coalesce(after, '{{}}')) AS k) keys
-        WHERE k <> 'rev' AND NOT (k = ANY (coalesce(omit, '{{}}')))
-          AND (before -> k) IS DISTINCT FROM (after -> k);
-        IF TG_OP <> 'UPDATE' OR diff <> '{{}}' THEN
-            INSERT INTO rookery.history (plugin, collection, row_id, rev, op, changes, principal)
-            VALUES (TG_ARGV[0], TG_ARGV[1], rid, rev, lower(TG_OP), diff, actor);
-        END IF;
+    IF TG_OP = 'INSERT' THEN
+        SELECT array_agg(jsonb_build_array(NULL, to_jsonb(r))) INTO pairs FROM new_rows r;
+    ELSIF TG_OP = 'DELETE' THEN
+        SELECT array_agg(jsonb_build_array(to_jsonb(r), NULL)) INTO pairs FROM old_rows r;
+    ELSE
+        SELECT array_agg(jsonb_build_array(o.j, w.j)) INTO pairs
+        FROM (SELECT to_jsonb(r) AS j FROM old_rows r) o
+        FULL JOIN (SELECT to_jsonb(r) AS j FROM new_rows r) w ON (o.j ->> TG_ARGV[2]) = (w.j ->> TG_ARGV[2]);
     END IF;
-    PERFORM pg_notify('{channel}', s::text);
+    n := coalesce(array_length(pairs, 1), 0);
+    IF n = 0 THEN
+        RETURN NULL;
+    END IF;
+    PERFORM pg_advisory_xact_lock({lock});
+    UPDATE rookery.change_counter SET seq = seq + n RETURNING seq INTO last;
+    INSERT INTO rookery.changes (seq, plugin, collection, id, op, rev, space_id, user_id)
+    SELECT last - n + w.i, TG_ARGV[0], TG_ARGV[1],
+           CASE WHEN TG_ARGV[3] = '1' THEN md5(w.r ->> TG_ARGV[2])::uuid ELSE (w.r ->> TG_ARGV[2])::uuid END,
+           CASE WHEN w.before IS NULL THEN 'insert' WHEN w.after IS NULL THEN 'delete' ELSE 'update' END,
+           coalesce((w.r ->> 'rev')::bigint, 1), NULL,
+           CASE WHEN TG_ARGV[4] <> '' THEN (w.r ->> TG_ARGV[4])::uuid END
+    FROM (SELECT p.i, b, a, coalesce(a, b) AS r, b AS before, a AS after
+          FROM unnest(pairs) WITH ORDINALITY AS p(v, i),
+               LATERAL (SELECT nullif(p.v -> 0, 'null'::jsonb) AS b, nullif(p.v -> 1, 'null'::jsonb) AS a) x) w;
+    IF TG_ARGV[5] = '1' THEN
+        INSERT INTO rookery.history (plugin, collection, row_id, rev, op, changes, principal)
+        SELECT TG_ARGV[0], TG_ARGV[1],
+               CASE WHEN TG_ARGV[3] = '1' THEN md5(w.r ->> TG_ARGV[2])::uuid ELSE (w.r ->> TG_ARGV[2])::uuid END,
+               coalesce((w.r ->> 'rev')::bigint, 1),
+               CASE WHEN w.b IS NULL THEN 'insert' WHEN w.a IS NULL THEN 'delete' ELSE 'update' END,
+               d.diff, actor
+        FROM (SELECT b, a, coalesce(a, b) AS r
+              FROM unnest(pairs) AS p(v),
+                   LATERAL (SELECT nullif(p.v -> 0, 'null'::jsonb) AS b, nullif(p.v -> 1, 'null'::jsonb) AS a) x) w,
+             LATERAL (
+                 SELECT coalesce(jsonb_object_agg(rookery.camel(k), jsonb_build_array(w.b -> k, w.a -> k)), '{{}}') AS diff
+                 FROM jsonb_object_keys(coalesce(w.b, '{{}}') || coalesce(w.a, '{{}}')) AS k
+                 WHERE k <> 'rev' AND NOT (k = ANY (omit)) AND (w.b -> k) IS DISTINCT FROM (w.a -> k)
+             ) d
+        WHERE w.b IS NULL OR w.a IS NULL OR d.diff <> '{{}}';
+    END IF;
+    PERFORM pg_notify('{channel}', '');
     RETURN NULL;
 END
 $f$;
@@ -511,6 +609,10 @@ pub(crate) async fn adopt_tables(store: &crate::Store) -> Result<()> {
         sqlx::query_scalar::<_, Option<String>>("SELECT to_regclass($1)::text").bind(name)
     };
     if exists("rookery.kv").fetch_one(&mut *tx).await?.is_some() {
+        // A server of the version before that still runs writes nothing between the copy and the drop.
+        sqlx::query("LOCK TABLE rookery.kv IN ACCESS EXCLUSIVE MODE")
+            .execute(&mut *tx)
+            .await?;
         for (scope, table) in [("global", "storage"), ("user", "\"storageUser\"")] {
             sqlx::query(sqlx::AssertSqlSafe(format!(
                 "INSERT INTO rookery.{table} (id, user_id, created_at, updated_at, rev, plugin, key, value)
@@ -529,6 +631,9 @@ pub(crate) async fn adopt_tables(store: &crate::Store) -> Result<()> {
         .await?
         .is_some()
     {
+        sqlx::query("LOCK TABLE rookery.layouts IN ACCESS EXCLUSIVE MODE")
+            .execute(&mut *tx)
+            .await?;
         sqlx::query(
             "INSERT INTO rookery.\"userLayouts\" (id, user_id, created_at, updated_at, rev, name, value)
              SELECT gen_random_uuid(), user_id, updated_at, updated_at, revision, name, value FROM rookery.layouts",

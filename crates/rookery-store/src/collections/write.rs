@@ -143,7 +143,9 @@ pub(crate) struct RowScope {
 }
 
 pub(crate) fn write_scope(coll: &Collection, caller: &Caller) -> Result<RowScope> {
-    coll.def.access.check_admin(&coll.def.name, caller)?;
+    coll.def
+        .access
+        .check_admin(&coll.plugin, &coll.def.name, caller)?;
     Ok(match coll.def.scope {
         Scope::Global => RowScope {
             space: None,
@@ -161,7 +163,7 @@ pub(crate) fn write_scope(coll: &Collection, caller: &Caller) -> Result<RowScope
 }
 
 pub(crate) fn checks_access(coll: &Collection, caller: &Caller) -> bool {
-    !caller.admin && coll.def.scope != Scope::User
+    !caller.admin_on(&coll.plugin) && coll.def.scope != Scope::User
 }
 
 /// The text of a field value: strings as they are, rich text as plain text.

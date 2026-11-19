@@ -65,13 +65,11 @@ pub struct Entity {
     pub deleted_at: Option<DateTime<Utc>>,
 }
 
-/// `e` is visible (view) to the caller with user `$u` and principal string `$p`: either its
-/// parent is a root the caller can see and it is not private, or the full walk says so.
+/// `e` is visible to the caller with user `$u` and principal string `$p`: the caller is an admin, or the
+/// plugin the entity is of; or it holds the level the entity needs ([`need_sql`]): through a parent that is
+/// a root the caller can see, when view is enough and the entity is not private, or by the full walk.
 pub(crate) fn visible_sql(u: &str, p: &str, admin: &str) -> String {
-    format!(
-        "({admin} OR (NOT e.private AND e.parent IN (SELECT rookery.visible_roots({u}, rookery.principals_of({u}, {p})))) \
-          OR rookery.effective_level(e.uri, {u}, rookery.principals_of({u}, {p})) >= 1)"
-    )
+    visible(u, p, admin, "TRUE")
 }
 
 /// Like [`visible_sql`] for a scan over many entities, most of which the caller may not see: a row that
@@ -79,11 +77,25 @@ pub(crate) fn visible_sql(u: &str, p: &str, admin: &str) -> String {
 /// and ownership (`reach`, which the query must define with [`reach_cte`]; it is built once, and only when
 /// a row needs it). Without that, every invisible match costs a walk up its parents.
 pub(crate) fn visible_scan_sql(u: &str, p: &str, admin: &str) -> String {
+    visible(u, p, admin, "e.uri IN (SELECT uri FROM reach)")
+}
+
+fn visible(u: &str, p: &str, admin: &str, reachable: &str) -> String {
     format!(
-        "({admin} OR (NOT e.private AND e.parent IN (SELECT rookery.visible_roots({u}, rookery.principals_of({u}, {p})))) \
-          OR (e.uri IN (SELECT uri FROM reach) \
-              AND rookery.effective_level(e.uri, {u}, rookery.principals_of({u}, {p})) >= 1))"
+        "({admin} OR ('plugin:' || e.plugin) = {p} OR (SELECT CASE \
+            WHEN n.v > 3 THEN false \
+            WHEN n.v = 1 AND NOT e.private \
+                 AND e.parent IN (SELECT rookery.visible_roots({u}, rookery.principals_of({u}, {p}))) THEN true \
+            ELSE {reachable} AND rookery.effective_level(e.uri, {u}, rookery.principals_of({u}, {p})) >= n.v END \
+          FROM (SELECT {need} AS v) n))",
+        need = need_sql("e"),
     )
+}
+
+/// The level reading the entity `alias` needs: its collection's read level, or its parent row's for a
+/// document, and 4 when only admins may read it.
+pub(crate) fn need_sql(alias: &str) -> String {
+    format!("rookery.entity_need({alias}.plugin, {alias}.collection, {alias}.parent)")
 }
 
 /// The `reach` CTE that [`visible_scan_sql`] reads. Empty for admins, who see everything.
