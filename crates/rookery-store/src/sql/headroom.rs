@@ -1,4 +1,4 @@
-//! Connection slots (docs/data.md, "Raw SQL / Connection slots").
+//! Connection slots (docs/content/docs/(guide)/use/raw-sql.mdx, "Connection slots").
 //!
 //! Each plugin role may hold 10 connections. Postgres has `max_connections` slots for the whole server, minus
 //! `superuser_reserved_connections` (for superusers) and, since 16, `reserved_connections` (for roles that are
@@ -6,7 +6,7 @@
 //! slot: then the kernel's own pool, and every other application on the server, cannot connect. A role's limit
 //! cannot express a share of the server, so the kernel's protection is a reserve only it may use: a
 //! `reserved_connections` at least the size of its pool and `pg_use_reserved_connections` for its database
-//! user (`deploy/postgres/init.sh` does both). The kernel reads the numbers at start and says what is short.
+//! user (the docs on raw SQL say how). The kernel reads the numbers at start and says what is short.
 
 use super::Sql;
 use super::provision::CONNECTION_LIMIT;
@@ -57,7 +57,7 @@ impl Headroom {
                 "plugin roles may hold {may_hold} connections ({} x {CONNECTION_LIMIT}) of the {} that ordinary roles \
                  share, and the kernel's own pool (up to {kernel_pool}) has only {} reserved for it: set \
                  reserved_connections to at least {kernel_pool} and GRANT pg_use_reserved_connections to the kernel's \
-                 database user (docs/data.md, \"Raw SQL / Connection slots\")",
+                 database user (Rookery's docs on raw SQL, \"Connection slots\")",
                 self.plugin_roles,
                 self.ordinary(),
                 self.kernel_reserve(),

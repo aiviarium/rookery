@@ -53,7 +53,8 @@ pub struct TestDb {
     name: String,
     server: String,
     blobs: std::path::PathBuf,
-    tag: String,
+    /// The role tag of the database's raw SQL roles.
+    pub tag: String,
 }
 
 /// Taken while a role is made for a database that does not exist yet, which the sweep of orphan roles
@@ -71,6 +72,26 @@ impl TestDb {
     /// A fresh, migrated database, or `None` when there is no Postgres to test on.
     pub async fn new() -> Option<TestDb> {
         TestDb::new_with(|_| {}).await
+    }
+
+    /// Raw SQL's time limits for a test: these four, and the watchdog's margins a tenth of the defaults.
+    pub fn limits(
+        statement: std::time::Duration,
+        tx_total: std::time::Duration,
+        tx_idle: std::time::Duration,
+        idle_in_transaction: std::time::Duration,
+    ) -> crate::sql::exec::Limits {
+        use std::time::Duration;
+        crate::sql::exec::Limits {
+            statement,
+            tx_total,
+            tx_idle,
+            idle_in_transaction,
+            slack: Duration::from_millis(200),
+            terminate_after: Duration::from_millis(500),
+            registration_grace: Duration::from_millis(200),
+            ..Default::default()
+        }
     }
 
     /// A fresh database whose raw SQL has these time limits.

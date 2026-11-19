@@ -1,4 +1,4 @@
-//! Parameters in and values out of raw SQL (docs/platform-split.md, "Raw SQL / Through the kernel").
+//! Parameters in and values out of raw SQL.
 //!
 //! Parameters are always bound: the statement is parsed first so that Postgres says what type each `$n` has
 //! (`where space_id = $1` makes `$1` a `uuid`), and the value is then encoded as that type in binary. No

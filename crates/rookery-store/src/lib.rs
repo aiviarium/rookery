@@ -69,8 +69,6 @@ pub struct StoreOptions {
     /// `ROOKERY_DATABASE_ROLE_TAG`: puts this deployment's raw SQL roles in a namespace of their own, as
     /// Postgres roles are shared by every database of a server.
     pub sql_role_tag: Option<String>,
-    /// `ROOKERY_DATABASE_READ_URL`: a read replica `sql.query` with `replica` runs on.
-    pub database_read_url: Option<String>,
     /// `ROOKERY_SERVICE_DATABASE_URL`: the host and port plugins' services reach Postgres at, when they are
     /// not the server's.
     pub service_database_url: Option<String>,
@@ -93,7 +91,6 @@ impl StoreOptions {
             feed_capacity: 4096,
             system_tables: Vec::new(),
             sql_role_tag: None,
-            database_read_url: None,
             service_database_url: None,
             sql_limits: None,
         }
@@ -120,6 +117,8 @@ pub(crate) struct DataState {
     /// table before another plugin's apply committed cannot write its older view over a newer one.
     pub reload_lock: tokio::sync::Mutex<()>,
     pub feed: feed::FeedState,
+    /// The channel the triggers of typed tables tell the change feed on, once Rookery's collections are made.
+    pub channel: std::sync::RwLock<Option<String>>,
     /// Raw SQL: the plugins' pools, their open transactions and the deployment's settings for it.
     pub sql: sql::State,
     /// Rookery's typed tables registered as collections, which a reload keeps.
@@ -142,9 +141,9 @@ impl DataState {
             reload_lock: tokio::sync::Mutex::new(()),
             feed: feed::FeedState::new(feed_capacity),
             system: Default::default(),
+            channel: Default::default(),
             sql: sql::State::new(
                 options.sql_role_tag.clone(),
-                options.database_read_url.clone(),
                 options.service_database_url.clone(),
                 options.sql_limits.unwrap_or_default(),
             ),

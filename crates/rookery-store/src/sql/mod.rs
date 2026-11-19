@@ -1,4 +1,4 @@
-//! Raw SQL for plugins (docs/platform-split.md, "Raw SQL"; docs/data.md for plugin authors).
+//! Raw SQL for plugins (docs/content/docs/(guide)/use/raw-sql.mdx).
 //!
 //! A plugin that declares `"database": { "sql": true }` gets a Postgres role, a schema of its own and read
 //! views over its collections:
@@ -46,26 +46,19 @@ pub use names::Names;
 /// The state raw SQL keeps in the store: pools, open transactions and the deployment's settings for it.
 pub(crate) struct State {
     pub tag: Option<String>,
-    pub read_url: Option<String>,
     pub service_url: Option<String>,
     pub limits: exec::Limits,
-    pub pools: Mutex<HashMap<(String, bool), PgPool>>,
+    pub pools: Mutex<HashMap<String, PgPool>>,
     pub txs: Mutex<HashMap<String, Arc<exec::Tx>>>,
-    /// The commands of statements whose plan named a write, by statement text: a statement's command does not
-    /// change, so `query` asks the planner once and audits every write it sees.
-    pub writes: Mutex<HashMap<String, String>>,
+    /// The commands of statements whose plan named a write, by plugin and statement text: a statement's
+    /// command does not change, so `query` asks the planner once and audits every write it sees.
+    pub writes: Mutex<HashMap<(String, String), String>>,
 }
 
 impl State {
-    pub fn new(
-        tag: Option<String>,
-        read_url: Option<String>,
-        service_url: Option<String>,
-        limits: exec::Limits,
-    ) -> State {
+    pub fn new(tag: Option<String>, service_url: Option<String>, limits: exec::Limits) -> State {
         State {
             tag,
-            read_url,
             service_url,
             limits,
             pools: Mutex::new(HashMap::new()),
@@ -96,7 +89,7 @@ impl Sql<'_> {
     pub async fn forget(&self, plugin: &str) {
         let pools: Vec<PgPool> = {
             let mut p = self.store.data.sql.pools.lock().expect("pools lock");
-            let keys: Vec<_> = p.keys().filter(|(n, _)| n == plugin).cloned().collect();
+            let keys: Vec<_> = p.keys().filter(|n| *n == plugin).cloned().collect();
             keys.iter().filter_map(|k| p.remove(k)).collect()
         };
         let txs: Vec<Arc<exec::Tx>> = {

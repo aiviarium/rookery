@@ -32983,7 +32983,7 @@
         }
       },
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "`sql.begin`: the options of a transaction. With `lease`, it commits only while the caller still holds that\nlease with that token (docs/data.md, \"Raw SQL\"; docs/platform-split.md, \"Leases / Fencing\"); otherwise it is\nrolled back and the commit is `CONFLICT` with `details.condition` `lease`, as a fenced batch gives.",
+      "description": "`sql.begin`: the options of a transaction. With `lease`, it commits only while the caller still holds that\nlease with that token; otherwise it is\nrolled back and the commit is `CONFLICT` with `details.condition` `lease`, as a fenced batch gives.",
       "properties": {
         "lease": {
           "anyOf": [
@@ -33132,16 +33132,12 @@
     },
     "params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "`sql.query` and `sql.queryStream`. With `replica`, the statement runs on the read replica\n(`ROOKERY_DATABASE_READ_URL`) when the deployment has one.",
+      "description": "`sql.query` and `sql.queryStream`. Raw SQL runs on the primary.",
       "properties": {
         "params": {
           "default": [],
           "items": true,
           "type": "array"
-        },
-        "replica": {
-          "default": false,
-          "type": "boolean"
         },
         "sql": {
           "type": "string"
@@ -33203,16 +33199,12 @@
     "stream": true,
     "params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "`sql.query` and `sql.queryStream`. With `replica`, the statement runs on the read replica\n(`ROOKERY_DATABASE_READ_URL`) when the deployment has one.",
+      "description": "`sql.query` and `sql.queryStream`. Raw SQL runs on the primary.",
       "properties": {
         "params": {
           "default": [],
           "items": true,
           "type": "array"
-        },
-        "replica": {
-          "default": false,
-          "type": "boolean"
         },
         "sql": {
           "type": "string"
@@ -33388,7 +33380,7 @@
     },
     "params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "`sql.txPublish`: a topic message in a transaction (docs/data.md, \"Durable topics / Publishing with a write\").\nThe topic must be one the plugin declares and the payload must satisfy its schema when this call is made; the\nmessage is written and numbered when the transaction commits, and not at all when it rolls back.",
+      "description": "`sql.txPublish`: a topic message in a transaction.\nThe topic must be one the plugin declares and the payload must satisfy its schema when this call is made; the\nmessage is written and numbered when the transaction commits, and not at all when it rolls back.",
       "properties": {
         "payload": true,
         "topic": {

@@ -3,7 +3,7 @@
 //!
 //! Only privileges granted to the role itself count. What every role has through `PUBLIC` (Postgres's
 //! defaults: `CONNECT` and `TEMPORARY` on the database, `USAGE` on `public` and on the built-in languages
-//! and types, `EXECUTE` on functions) cannot be taken from one role and is listed in docs/data.md.
+//! and types, `EXECUTE` on functions) cannot be taken from one role and is listed in docs/content/docs/(guide)/use/raw-sql.mdx.
 
 use std::collections::BTreeSet;
 

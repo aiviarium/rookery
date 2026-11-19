@@ -1,6 +1,5 @@
 //! A plugin's SQL migrations: `migrations/sql/0001_init.sql`, `0002_add_scores.sql`, ... run in order, each
-//! exactly once, in its own transaction, as the plugin's role (docs/platform-split.md, "Raw SQL / SQL
-//! migrations").
+//! exactly once, in its own transaction, as the plugin's role.
 //!
 //! - What ran is recorded in `rookery.plugin_sql_migrations` with each file's checksum. A file that was applied
 //!   and has changed stops the plugin from loading.
@@ -130,9 +129,8 @@ pub fn pending<'a>(
 }
 
 const MARKER: &str = "_rookery_migrations";
-/// Statement time a migration gets: longer than the role's 30 s, for index builds and backfills.
-const MIGRATION_TIMEOUT: &str = "10min";
-/// [`MIGRATION_TIMEOUT`] in seconds: what the watchdog allows a migration's statement.
+/// Statement time a migration gets by default: longer than the role's 30 s, for index builds and
+/// backfills. The watchdog holds a migration's session to it too ([`super::exec::Limits::migration`]).
 pub(crate) const MIGRATION_TIMEOUT_SECS: u64 = 600;
 
 impl Sql<'_> {
@@ -249,7 +247,8 @@ impl Sql<'_> {
                 .map_err(|e| fail(map_error(e)))?;
             let step = async {
                 conn.execute(sqlx::AssertSqlSafe(format!(
-                    "SET LOCAL statement_timeout = '{MIGRATION_TIMEOUT}'"
+                    "SET LOCAL statement_timeout = {}",
+                    self.limits().migration.as_millis()
                 )))
                 .await?;
                 // The simple query protocol: a file is several statements, and it has no parameters.

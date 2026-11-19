@@ -1,4 +1,4 @@
-//! The kernel's advisory locks belong to the kernel (docs/data.md, "Raw SQL / Before first use").
+//! The kernel's advisory locks belong to the kernel (raw SQL page of the docs (docs/content/docs/(guide)/use/raw-sql.mdx, "Before first use").
 //!
 //! The kernel serialises work with Postgres advisory locks: every collection write takes the change log's
 //! ordering lock, plugin loads, topics, blobs, logs, leases, jobs and the catalog have theirs, and the leader
@@ -32,7 +32,7 @@ const ADVISORY: &str =
     "p.pronamespace = 'pg_catalog'::regnamespace AND p.proname LIKE '%advisory%'";
 
 /// Revokes `EXECUTE` on every advisory lock function from `PUBLIC` and grants it to the current user. The same
-/// statement is in `deploy/postgres/init.sh` and `docs/data.md`.
+/// statement is in docs/content/docs/(guide)/use/raw-sql.mdx.
 pub const SEAL_SQL: &str = r#"DO $seal$
 DECLARE f record;
 BEGIN
@@ -47,7 +47,7 @@ END
 $seal$"#;
 
 /// [`SEAL_SQL`] granting the functions to `kernel_role` instead of the current user: what an operator runs as a
-/// superuser (the deployment's compose file names its kernel role `crow`).
+/// superuser (the docs name it `rookery`).
 pub fn seal_statement(kernel_role: &str) -> String {
     SEAL_SQL.replace(
         "f.sig, current_user",
@@ -130,7 +130,7 @@ impl Sql<'_> {
         };
         Err(Error::Unavailable(format!(
             "raw SQL is unavailable until a database superuser seals the advisory locks of database {db}: {what}. \
-             Run once, connected to {} as a superuser, the statement in docs/data.md (\"Raw SQL / Before first use\"): \
+             Run once, connected to {} as a superuser, the statement under \"Before first use\" in Rookery's docs on raw SQL (use/raw-sql): \
              REVOKE EXECUTE ON the pg_catalog pg_advisory_* and pg_try_advisory_* functions FROM PUBLIC and GRANT it to the \
              kernel's user. Deployments that do not use raw SQL are not affected",
             quote_ident(&db)

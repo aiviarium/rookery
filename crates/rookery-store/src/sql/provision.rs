@@ -1,5 +1,5 @@
 //! Creating, reconciling and revoking a plugin's role, schemas, views and grants
-//! (docs/platform-split.md, "Raw SQL / The role"). Everything here runs as the kernel's database user, in one
+//! (docs/content/docs/(guide)/use/raw-sql.mdx, "The role"). Everything here runs as the kernel's database user, in one
 //! transaction per plugin, under an advisory lock so two kernels on a database agree.
 //!
 //! The kernel never reads or runs anything in a plugin's raw schema (`x_<plugin>`) as itself: a view or
@@ -282,7 +282,7 @@ impl Sql<'_> {
         // to disk, and a role's statements may run 30 s on a few connections. Only a superuser, or a user granted
         // `SET` on the parameter (`GRANT SET ON PARAMETER temp_file_limit`, Postgres 15 and later), can set it,
         // and then the role cannot change it back. Best effort: where the kernel may not, the server's own
-        // `temp_file_limit` in postgresql.conf is the limit (docs/data.md, "Raw SQL / What is not prevented").
+        // `temp_file_limit` in postgresql.conf is the limit (docs/content/docs/(guide)/use/raw-sql.mdx, "What is not prevented").
         {
             let mut sp = sqlx::Acquire::begin(&mut *tx).await?;
             let set = sqlx::query(sqlx::AssertSqlSafe(format!(
@@ -430,6 +430,19 @@ impl Sql<'_> {
         if !self.is_enabled(plugin).await? {
             return Ok(false);
         }
+        // First the role can log in no more and its sessions end, each on its own: a session that holds a
+        // lock on a table, or one that catches its cancels, would hold up the drops below otherwise.
+        let ours = self.owns_role(plugin, &names.role).await?;
+        if ours {
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "ALTER ROLE {} NOLOGIN",
+                quote_ident(&names.role)
+            )))
+            .execute(self.store.pool())
+            .await?;
+        }
+        self.forget(plugin).await;
+        self.terminate_sessions(&names.role).await;
         let mut tx = self.store.pool().begin().await?;
         lock_plugin(&mut tx, plugin).await?;
         lock_catalog(&mut tx).await?;
@@ -439,35 +452,18 @@ impl Sql<'_> {
             .await?
             .rows_affected()
             > 0;
-        let exists: bool =
-            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)")
-                .bind(&names.role)
-                .fetch_one(&mut *tx)
-                .await?;
-        if exists {
-            let database: String = sqlx::query_scalar("SELECT current_database()::text")
-                .fetch_one(&mut *tx)
-                .await?;
-            let comment: Option<String> = sqlx::query_scalar(
-                "SELECT shobj_description(oid, 'pg_authid') FROM pg_roles WHERE rolname = $1",
-            )
-            .bind(&names.role)
-            .fetch_one(&mut *tx)
+        if ours {
+            let role = quote_ident(&names.role);
+            sqlx::query(sqlx::AssertSqlSafe(format!(
+                "ALTER ROLE {role} NOLOGIN PASSWORD NULL CONNECTION LIMIT 0"
+            )))
+            .execute(&mut *tx)
             .await?;
-            // Only a role this deployment made is touched.
-            if comment.as_deref() == Some(marker(&database, plugin).as_str()) {
-                let role = quote_ident(&names.role);
-                sqlx::query(sqlx::AssertSqlSafe(format!(
-                    "ALTER ROLE {role} NOLOGIN PASSWORD NULL CONNECTION LIMIT 0"
-                )))
-                .execute(&mut *tx)
-                .await?;
-                let current = current_grants(&mut tx, &names.role).await?;
-                for g in &current {
-                    sqlx::query(sqlx::AssertSqlSafe(g.revoke_sql(&names.role).to_string()))
-                        .execute(&mut *tx)
-                        .await?;
-                }
+            let current = current_grants(&mut tx, &names.role).await?;
+            for g in &current {
+                sqlx::query(sqlx::AssertSqlSafe(g.revoke_sql(&names.role).to_string()))
+                    .execute(&mut *tx)
+                    .await?;
             }
         }
         sqlx::query(sqlx::AssertSqlSafe(format!(
@@ -477,9 +473,41 @@ impl Sql<'_> {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        self.forget(plugin).await;
+        // Any session that logged in between the two.
         self.terminate_sessions(&names.role).await;
         Ok(had)
+    }
+
+    /// Whether the role exists and is one this deployment made for the plugin: only those are touched.
+    async fn owns_role(&self, plugin: &str, role: &str) -> Result<bool> {
+        let pool = self.store.pool();
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)")
+                .bind(role)
+                .fetch_one(pool)
+                .await?;
+        if !exists {
+            return Ok(false);
+        }
+        let database: String = sqlx::query_scalar("SELECT current_database()::text")
+            .fetch_one(pool)
+            .await?;
+        let comment: Option<String> = sqlx::query_scalar(
+            "SELECT shobj_description(oid, 'pg_authid') FROM pg_roles WHERE rolname = $1",
+        )
+        .bind(role)
+        .fetch_one(pool)
+        .await?;
+        Ok(comment.as_deref() == Some(marker(&database, plugin).as_str()))
+    }
+
+    /// The plugins that have raw SQL.
+    pub async fn plugins(&self) -> Result<Vec<String>> {
+        Ok(
+            sqlx::query_scalar("SELECT plugin FROM rookery.plugin_sql ORDER BY plugin")
+                .fetch_all(self.store.pool())
+                .await?,
+        )
     }
 
     /// Revokes raw SQL from every plugin that has it and is not in `keep`: a plugin that was removed, or
@@ -591,7 +619,7 @@ impl Sql<'_> {
         let _ = url.set_port(Some(port));
         let _ = url.set_username(&names.role);
         let _ = url.set_password(Some(&password));
-        url.set_path(own.get_database().unwrap_or("crow"));
+        url.set_path(own.get_database().unwrap_or("rookery"));
         Ok(Some(url.to_string()))
     }
 

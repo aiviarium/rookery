@@ -52,7 +52,7 @@ async fn migrations_run_in_order_once_and_as_the_role() {
     let q = db
         .store
         .sql()
-        .query("alpha", "select who() as w", &[], false)
+        .query("alpha", "select who() as w", &[])
         .await
         .unwrap();
     assert_eq!(q.rows[0]["w"], owner);

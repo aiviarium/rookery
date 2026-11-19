@@ -547,11 +547,22 @@ impl<'a> Collections<'a> {
     }
 }
 
+/// How long the server's own DDL over a plugin's tables waits for a lock, such as one a plugin's raw SQL
+/// holds on a table it reads: past it, the change fails and can be tried again, instead of waiting behind a
+/// statement the watchdog is about to end.
+pub const DDL_LOCK_TIMEOUT: &str = "10s";
+
+/// Serialises the changes of one plugin's tables, and bounds the waits for their locks after it.
 pub(crate) async fn lock_plugin(conn: &mut PgConnection, plugin: &str) -> Result<()> {
     sqlx::query("SELECT pg_advisory_xact_lock(hashtext('rookery.plugin:' || $1))")
         .bind(plugin)
-        .execute(conn)
+        .execute(&mut *conn)
         .await?;
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SET LOCAL lock_timeout = '{DDL_LOCK_TIMEOUT}'"
+    )))
+    .execute(conn)
+    .await?;
     Ok(())
 }
 

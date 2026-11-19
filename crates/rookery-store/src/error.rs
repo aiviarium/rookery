@@ -169,6 +169,8 @@ impl Error {
             Error::Database(e) => match db_code(self).as_deref() {
                 Some("23505") | Some("40001") | Some("40P01") => ErrorCode::Conflict,
                 Some("57014") => ErrorCode::Timeout,
+                // A lock the server waited for past its lock_timeout: try again.
+                Some("55P03") => ErrorCode::Unavailable,
                 Some(c) if c.starts_with("22") || c == "23503" || c == "23502" || c == "23514" => {
                     ErrorCode::Invalid
                 }

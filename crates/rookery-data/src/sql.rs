@@ -229,7 +229,7 @@ async fn query(call: Call, p: SqlQuery) -> Result<SqlRows, RpcError> {
     let rows = call
         .store()
         .sql()
-        .query(&plugin, &p.sql, &p.params, p.replica)
+        .query(&plugin, &p.sql, &p.params)
         .await
         .map_err(rpc)?;
     // A statement that returns rows can still write (`insert ... returning`); its plan says so.
@@ -257,7 +257,7 @@ async fn query_stream(call: Call, p: SqlQuery) -> Result<SqlStreamed, RpcError> 
     let (columns, mut rows, command) = match call
         .store()
         .sql()
-        .query_stream(&plugin, &p.sql, &p.params, p.replica)
+        .query_stream(&plugin, &p.sql, &p.params)
         .await
     {
         Ok(r) => r,

@@ -25,8 +25,7 @@ pub struct SqlStatement {
     pub params: Vec<Value>,
 }
 
-/// `sql.query` and `sql.queryStream`. With `replica`, the statement runs on the read replica
-/// (`ROOKERY_DATABASE_READ_URL`) when the deployment has one.
+/// `sql.query` and `sql.queryStream`. Raw SQL runs on the primary.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
@@ -35,8 +34,6 @@ pub struct SqlQuery {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(type = "Array<unknown>"))]
     pub params: Vec<Value>,
-    #[serde(default)]
-    pub replica: bool,
 }
 
 /// A result column: its name and the Postgres type name (`int4`, `text`, `bytea`, `vector`, ...).
@@ -87,7 +84,7 @@ pub struct SqlTx {
 }
 
 /// `sql.begin`: the options of a transaction. With `lease`, it commits only while the caller still holds that
-/// lease with that token (docs/data.md, "Raw SQL"; docs/platform-split.md, "Leases / Fencing"); otherwise it is
+/// lease with that token; otherwise it is
 /// rolled back and the commit is `CONFLICT` with `details.condition` `lease`, as a fenced batch gives.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -119,7 +116,7 @@ pub struct SqlTxStatement {
     pub params: Vec<Value>,
 }
 
-/// `sql.txPublish`: a topic message in a transaction (docs/data.md, "Durable topics / Publishing with a write").
+/// `sql.txPublish`: a topic message in a transaction.
 /// The topic must be one the plugin declares and the payload must satisfy its schema when this call is made; the
 /// message is written and numbered when the transaction commits, and not at all when it rolls back.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]

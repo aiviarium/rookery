@@ -4,7 +4,7 @@
 
 use std::time::Duration;
 
-use rookery_store::sql::exec::Limits;
+use rookery_proto::ErrorCode;
 use rookery_store::testing::TestDb;
 use sqlx::{Connection, Executor, PgConnection};
 
@@ -110,7 +110,7 @@ async fn no_advisory_function_is_open_to_the_role_on_any_path() {
     let sql = w.db.store.sql();
     let mut c = direct(&w.db, "alpha").await;
     for (sig, call) in &calls {
-        let e = sql.query("alpha", call, &[], false).await.unwrap_err();
+        let e = sql.query("alpha", call, &[]).await.unwrap_err();
         assert_eq!(
             e.code(),
             rookery_proto::ErrorCode::Forbidden,
@@ -389,12 +389,12 @@ fn open_all() -> &'static str {
 /// the kernel registered itself, by backend PID and start time.
 #[tokio::test]
 async fn the_watchdog_does_not_exempt_sessions_by_application_name() {
-    let Some(db) = TestDb::new_with_limits(Limits {
-        statement: Duration::from_secs(2),
-        tx_total: Duration::from_secs(2),
-        tx_idle: Duration::from_millis(500),
-        idle_in_transaction: Duration::from_millis(300),
-    })
+    let Some(db) = TestDb::new_with_limits(TestDb::limits(
+        Duration::from_secs(2),
+        Duration::from_secs(2),
+        Duration::from_millis(500),
+        Duration::from_millis(300),
+    ))
     .await
     else {
         return;
@@ -412,7 +412,7 @@ async fn the_watchdog_does_not_exempt_sessions_by_application_name() {
     // Idle in a transaction past the (shortened) limit: the watchdog ends it, whatever it calls itself.
     c.execute("begin").await.unwrap();
     c.execute("select 1").await.unwrap();
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
     let ended = sql.enforce_limits().await.unwrap();
     let still_there = c.execute("select 1").await.is_ok();
     assert!(
@@ -426,7 +426,7 @@ async fn the_watchdog_does_not_exempt_sessions_by_application_name() {
         .unwrap();
     c.execute("set statement_timeout = 0").await.unwrap();
     let slow = tokio::spawn(async move { c.execute("select pg_sleep(30)").await.map(|_| ()) });
-    tokio::time::sleep(Duration::from_millis(4500)).await;
+    tokio::time::sleep(Duration::from_millis(2500)).await;
     sql.enforce_limits().await.unwrap();
     let r = tokio::time::timeout(Duration::from_secs(5), slow)
         .await
@@ -444,12 +444,12 @@ async fn the_watchdog_does_not_exempt_sessions_by_application_name() {
 /// runs longer than a statement may.
 #[tokio::test]
 async fn one_kernels_watchdog_leaves_another_kernels_sessions_and_migration_alone() {
-    let Some(db) = TestDb::new_with_limits(Limits {
-        statement: Duration::from_millis(500),
-        tx_total: Duration::from_secs(2),
-        tx_idle: Duration::from_millis(500),
-        idle_in_transaction: Duration::from_millis(300),
-    })
+    let Some(db) = TestDb::new_with_limits(TestDb::limits(
+        Duration::from_millis(500),
+        Duration::from_secs(2),
+        Duration::from_millis(500),
+        Duration::from_millis(300),
+    ))
     .await
     else {
         return;
@@ -544,7 +544,14 @@ async fn the_role_cannot_read_another_plugins_column_statistics() {
 #[tokio::test]
 async fn a_plugin_without_direct_cannot_keep_a_session_it_opened_after_resetting_its_own_password()
 {
-    let Some(db) = TestDb::new().await else {
+    let Some(db) = TestDb::new_with_limits(TestDb::limits(
+        Duration::from_secs(30),
+        Duration::from_secs(30),
+        Duration::from_secs(10),
+        Duration::from_secs(15),
+    ))
+    .await
+    else {
         return;
     };
     setup(&db, "alpha", false).await;
@@ -575,7 +582,7 @@ async fn a_plugin_without_direct_cannot_keep_a_session_it_opened_after_resetting
             .expect("a role can always change its own password and log in with it");
         c.execute("select 1").await.unwrap();
         // Past the registration grace the watchdog ends it: the kernel did not open this session.
-        tokio::time::sleep(Duration::from_millis(2300)).await;
+        tokio::time::sleep(Duration::from_millis(400)).await;
         let done = sql.enforce().await.unwrap();
         assert_eq!(done.foreign.len(), 1, "round {round}: {done:?}");
         assert_eq!(done.foreign[0].plugin, "alpha");
@@ -614,7 +621,7 @@ async fn a_plugin_without_direct_cannot_keep_a_session_it_opened_after_resetting
     );
     // `direct: true`: the plugin's services connect with the credential, and nothing is ended or written.
     let _c = direct(&db, "beta").await;
-    tokio::time::sleep(Duration::from_millis(2300)).await;
+    tokio::time::sleep(Duration::from_millis(400)).await;
     assert!(sql.enforce().await.unwrap().foreign.is_empty());
     let mut c = direct(&db, "beta").await;
     sql.enforce().await.unwrap();
@@ -718,7 +725,6 @@ async fn discard_all_clears_session_state_on_pool_return() {
                 "alpha",
                 "select to_regclass('pg_temp.leak')::text as t, current_setting('work_mem') as w",
                 &[],
-                false,
             )
             .await
             .unwrap();
@@ -876,5 +882,113 @@ async fn the_kernel_knows_whether_plugin_roles_can_starve_its_pool() {
     let real = db.store.sql().connection_headroom().await.unwrap();
     assert_eq!(real.plugin_roles, 2);
     assert!(real.max_connections >= 100 && real.kernel_is_superuser);
+    db.close().await;
+}
+
+/// A statement that catches its own cancel (`EXCEPTION WHEN query_canceled`) keeps running after it: the
+/// watchdog ends its session a little later, so it holds no locks or snapshot, and disabling the plugin, whose
+/// `DROP SCHEMA` would wait for it, completes.
+const TRAPS_CANCEL: &str = "DO $$ BEGIN LOOP BEGIN PERFORM pg_sleep(100); \
+     EXCEPTION WHEN query_canceled THEN NULL; END; END LOOP; END $$";
+
+async fn sessions_of(db: &TestDb, plugin: &str) -> i64 {
+    let role = db.store.sql().names(plugin).unwrap().role;
+    sqlx::query_scalar(
+        "select count(*) from pg_stat_activity where usename = $1 and state = 'active'",
+    )
+    .bind(role)
+    .fetch_one(db.store.pool())
+    .await
+    .unwrap()
+}
+
+/// Runs the watchdog until the plugin's role runs nothing, for at most `within`.
+async fn watch_until_quiet(db: &TestDb, plugin: &str, within: Duration) -> bool {
+    let until = std::time::Instant::now() + within;
+    while std::time::Instant::now() < until {
+        db.store.sql().enforce_limits().await.unwrap();
+        if sessions_of(db, plugin).await == 0 {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    false
+}
+
+#[tokio::test]
+async fn a_statement_that_traps_its_cancel_is_ended_and_disabling_completes() {
+    let Some(db) = TestDb::new_with_limits(TestDb::limits(
+        Duration::from_millis(500),
+        Duration::from_secs(2),
+        Duration::from_millis(500),
+        Duration::from_millis(500),
+    ))
+    .await
+    else {
+        return;
+    };
+    setup(&db, "alpha", false).await;
+    let sql = db.store.sql();
+    let e = tokio::time::timeout(
+        Duration::from_secs(5),
+        sql.execute("alpha", TRAPS_CANCEL, &[]),
+    )
+    .await
+    .expect("the kernel's clock ends the call")
+    .unwrap_err();
+    assert_eq!(e.code(), ErrorCode::Timeout, "{e}");
+    assert!(
+        watch_until_quiet(&db, "alpha", Duration::from_secs(5)).await,
+        "the session that caught its cancel still runs"
+    );
+
+    // Again, and disable while it runs: the role's sessions are ended before its schema is dropped.
+    let s2 = db.store.clone();
+    let running = tokio::spawn(async move { s2.sql().execute("alpha", TRAPS_CANCEL, &[]).await });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(sessions_of(&db, "alpha").await, 1);
+    let disabled = tokio::time::timeout(Duration::from_secs(15), sql.disable("alpha"))
+        .await
+        .expect("disable waited on the plugin's statement");
+    assert!(disabled.unwrap());
+    assert!(running.await.unwrap().is_err());
+    assert_eq!(sessions_of(&db, "alpha").await, 0);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn a_migration_that_traps_its_cancel_is_ended() {
+    let Some(db) = TestDb::new_with_limits(rookery_store::sql::exec::Limits {
+        migration: Duration::from_millis(500),
+        ..TestDb::limits(
+            Duration::from_millis(500),
+            Duration::from_secs(2),
+            Duration::from_millis(500),
+            Duration::from_millis(500),
+        )
+    })
+    .await
+    else {
+        return;
+    };
+    setup(&db, "alpha", false).await;
+    let files = rookery_store::sql::migrations::order(vec![(
+        "0001_forever.sql".to_string(),
+        format!("{TRAPS_CANCEL};"),
+    )])
+    .unwrap();
+    let s2 = db.store.clone();
+    let migrating = tokio::spawn(async move { s2.sql().migrate("alpha", &files).await });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(sessions_of(&db, "alpha").await, 1, "the migration runs");
+    assert!(
+        watch_until_quiet(&db, "alpha", Duration::from_secs(5)).await,
+        "the migration that caught its cancel still runs"
+    );
+    let ran = tokio::time::timeout(Duration::from_secs(5), migrating)
+        .await
+        .expect("the migration returned")
+        .unwrap();
+    assert!(ran.is_err(), "{ran:?}");
     db.close().await;
 }

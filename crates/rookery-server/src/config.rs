@@ -22,6 +22,11 @@ pub struct ServerConfig {
     pub secret_key: Option<rookery_store::seal::Key>,
     /// `ROOKERY_BLOBS`: the folder blobs are kept in.
     pub blobs: Option<PathBuf>,
+    /// `ROOKERY_DATABASE_ROLE_TAG`: a namespace of this deployment's raw SQL roles, when several deployments
+    /// share a Postgres server.
+    pub sql_role_tag: Option<String>,
+    /// `ROOKERY_SERVICE_DATABASE_URL`: where plugins' services reach Postgres, when not where the server does.
+    pub service_database_url: Option<String>,
     pub auth: AuthMode,
     pub oidc: Option<Oidc>,
     /// `ROOKERY_ADMINS`, apart by commas.
@@ -205,6 +210,8 @@ impl ServerConfig {
             public_url: public_url.trim_end_matches('/').to_owned(),
             secret_key,
             blobs: get("ROOKERY_BLOBS").map(PathBuf::from),
+            sql_role_tag: get("ROOKERY_DATABASE_ROLE_TAG"),
+            service_database_url: get("ROOKERY_SERVICE_DATABASE_URL"),
             auth,
             oidc,
             admins,

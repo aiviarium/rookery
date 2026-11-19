@@ -1,4 +1,4 @@
-//! Idempotent writes (docs/platform-split.md, "Idempotent writes"). A caller that may retry a write (an app
+//! Idempotent writes. A caller that may retry a write (an app
 //! service over rookery.v1, with `crow-idempotency-key`) runs it inside [`scope`]. The collection write it reaches
 //! takes the key and records it, with the request's hash and the rows it wrote, in `rookery.idempotency` in the
 //! same transaction. A repeat within 24 hours writes nothing and answers with the recorded rows; the same key

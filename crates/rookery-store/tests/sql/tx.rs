@@ -1,4 +1,4 @@
-//! SQL transactions with a lease (docs/data.md, "Raw SQL"): they commit only while the caller still holds the
+//! SQL transactions with a lease: they commit only while the caller still holds the
 //! lease with its token, and their writes roll back when it is refused. The lease table is the kernel's, so the
 //! check runs on the kernel's own connection, never the plugin's role's.
 
@@ -271,7 +271,7 @@ async fn a_lease_that_is_not_the_callers_is_not_opened() {
     db.close().await;
 }
 
-/// A topic message in a transaction (docs/data.md, "Durable topics / Publishing with a write"): written and
+/// A topic message in a transaction: written and
 /// numbered when the transaction commits, at most once, with the rest of the transaction; gone on rollback, and
 /// not written at all when a lease refuses the commit. The write runs on the kernel's connection, never the
 /// plugin role's.
@@ -409,7 +409,7 @@ async fn a_transaction_caps_the_messages_it_carries() {
     db.close().await;
 }
 
-/// The one window the design states (docs/data.md, "Raw SQL"): when the kernel's own transaction dies after the
+/// The one window the design states: when the kernel's own transaction dies after the
 /// plugin's transaction committed, the plugin's data stays committed while the caller sees a failed commit. The
 /// test finds the kernel connection by the lock it holds on the lease row and ends it, with the plugin's COMMIT
 /// held open by a deferred trigger, which is exactly the state a dying kernel would leave.

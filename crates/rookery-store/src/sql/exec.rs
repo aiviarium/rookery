@@ -1,4 +1,4 @@
-//! Running a plugin's SQL (docs/platform-split.md, "Raw SQL / Through the kernel").
+//! Running a plugin's SQL through the kernel (docs/content/docs/(guide)/use/raw-sql.mdx, "Limits").
 //!
 //! Every statement runs on a connection that logged in as the plugin's role (see the module docs of
 //! [`crate::sql`]), with parameters bound from the types Postgres inferred for the statement. Limits, in
@@ -57,6 +57,17 @@ pub struct Limits {
     pub tx_idle: Duration,
     /// The role's `idle_in_transaction_session_timeout`, which the watchdog also holds sessions to.
     pub idle_in_transaction: Duration,
+    /// How long the server's own migrations of a plugin's raw schema may run.
+    pub migration: Duration,
+    /// How far past a limit the watchdog lets a session go before it cancels the statement.
+    pub slack: Duration,
+    /// How long after its cancel a session that is still running is ended: a cancel is an error that
+    /// plpgsql can catch, an end is not.
+    pub terminate_after: Duration,
+    /// How long a session the server did not register may live on a role without `database.direct`
+    /// before the watchdog ends it: a connection the server opened registers within milliseconds, and
+    /// this is the room for that (and for another server's registration) to be visible.
+    pub registration_grace: Duration,
 }
 
 impl Default for Limits {
@@ -66,6 +77,10 @@ impl Default for Limits {
             tx_total: Duration::from_secs(30),
             tx_idle: Duration::from_secs(10),
             idle_in_transaction: Duration::from_secs(15),
+            migration: Duration::from_secs(super::migrations::MIGRATION_TIMEOUT_SECS),
+            slack: Duration::from_secs(2),
+            terminate_after: Duration::from_secs(3),
+            registration_grace: Duration::from_secs(2),
         }
     }
 }
@@ -83,10 +98,6 @@ const POOL_SIZE: u32 = 5;
 /// `pg_stat_activity`: a session sets its own name, so nothing is decided by it (the watchdog goes by the
 /// sessions the kernel registered, see [`Sql::register_session`]).
 pub const MIGRATION_APP: &str = "rookery-sql-migration";
-/// How long a session the kernel did not register may live on a role without `database.direct` before the
-/// watchdog ends it: a connection the kernel opened registers itself within milliseconds of connecting, and this
-/// is the room for that (and for another kernel's registration) to be visible.
-pub const REGISTRATION_GRACE: Duration = Duration::from_secs(2);
 const APP: &str = "rookery-sql";
 
 /// A result column: its name and its Postgres type, as the lower case name (`int4`, `text[]`, `bytea`).
@@ -279,9 +290,10 @@ impl Sql<'_> {
         self.store.data.sql.limits
     }
 
-    /// The pool of a plugin whose connections log in as its role (`replica`: on `ROOKERY_DATABASE_READ_URL`).
-    pub(crate) async fn pool(&self, plugin: &str, replica: bool) -> Result<PgPool> {
-        let key = (plugin.to_string(), replica);
+    /// The pool of a plugin whose connections log in as its role, on the primary: raw SQL has no replica,
+    /// since the watchdog reaches only the server's own database.
+    pub(crate) async fn pool(&self, plugin: &str) -> Result<PgPool> {
+        let key = plugin.to_string();
         if let Some(p) = self
             .store
             .data
@@ -297,19 +309,7 @@ impl Sql<'_> {
             Error::not_found(format!("plugin {plugin} has no raw SQL (database.sql)"))
         })?;
         let names = self.names(plugin)?;
-        let base: PgConnectOptions = if replica {
-            self.store
-                .data
-                .sql
-                .read_url
-                .as_deref()
-                .ok_or_else(|| {
-                    Error::invalid("no read replica is configured (ROOKERY_DATABASE_READ_URL)")
-                })?
-                .parse()?
-        } else {
-            (*self.store.pool().connect_options()).clone()
-        };
+        let base: PgConnectOptions = (*self.store.pool().connect_options()).clone();
         let vector_schema = self.vector_schema().await?;
         let options = role_options(
             base,
@@ -321,19 +321,16 @@ impl Sql<'_> {
         );
         // Every connection the kernel opens as the plugin's role is written down (pid and start time) before any
         // statement of the plugin runs on it: the watchdog tells the kernel's own sessions from a session the
-        // plugin opened itself by that. The replica is another server, which the watchdog does not reach.
+        // plugin opened itself by that.
         let kernel_pool = self.store.pool().clone();
         let role = names.role.clone();
-        let register = !replica;
         let pool = PgPoolOptions::new()
             .max_connections(POOL_SIZE)
             .after_connect(move |conn, _| {
                 let kernel_pool = kernel_pool.clone();
                 let role = role.clone();
                 Box::pin(async move {
-                    if register {
-                        register_session(&kernel_pool, conn, &role, "pool").await?;
-                    }
+                    register_session(&kernel_pool, conn, &role, "pool").await?;
                     Ok(())
                 })
             })
@@ -356,22 +353,14 @@ impl Sql<'_> {
 
     /// A connection of the plugin's pool. A refused password (the role changed its own, or it was rotated by
     /// hand) is put right once: the credential is set again from the sealed one.
-    pub(crate) async fn connection(
-        &self,
-        plugin: &str,
-        replica: bool,
-    ) -> Result<PoolConnection<Postgres>> {
-        let pool = self.pool(plugin, replica).await?;
+    pub(crate) async fn connection(&self, plugin: &str) -> Result<PoolConnection<Postgres>> {
+        let pool = self.pool(plugin).await?;
         match pool.acquire().await {
             Ok(c) => Ok(c),
-            Err(sqlx::Error::Database(d)) if d.code().as_deref() == Some("28P01") && !replica => {
+            Err(sqlx::Error::Database(d)) if d.code().as_deref() == Some("28P01") => {
                 self.restore_password(plugin).await?;
                 self.forget(plugin).await;
-                self.pool(plugin, replica)
-                    .await?
-                    .acquire()
-                    .await
-                    .map_err(map_error)
+                self.pool(plugin).await?.acquire().await.map_err(map_error)
             }
             Err(e) => Err(map_error(e)),
         }
@@ -397,26 +386,23 @@ impl Sql<'_> {
     // ── statements ───────────────────────────────────────────────────────────────────────────────
 
     /// Runs a statement that returns rows. At most [`MAX_ROWS`]; more fails with `INVALID`.
-    pub async fn query(
-        &self,
-        plugin: &str,
-        sql: &str,
-        params: &[Value],
-        replica: bool,
-    ) -> Result<Rows> {
-        let mut conn = self.connection(plugin, replica).await?;
-        let command = self.write_command(&mut conn, sql, params, false).await;
-        let out = tokio::time::timeout(
-            self.limits().client(),
-            collect(&mut conn, sql, params, command),
-        )
+    pub async fn query(&self, plugin: &str, sql: &str, params: &[Value]) -> Result<Rows> {
+        let mut conn = self.connection(plugin).await?;
+        // The probe of the plan runs plugin code too (an immutable function is run while planning), so it is
+        // under the same limit as the statement.
+        let out = tokio::time::timeout(self.limits().client(), async {
+            let command = self
+                .write_command(&mut conn, plugin, sql, params, false)
+                .await;
+            collect(&mut conn, sql, params, command).await
+        })
         .await;
         finish(conn, out)
     }
 
     /// Runs a statement and returns the number of rows it affected.
     pub async fn execute(&self, plugin: &str, sql: &str, params: &[Value]) -> Result<u64> {
-        let mut conn = self.connection(plugin, false).await?;
+        let mut conn = self.connection(plugin).await?;
         let out =
             tokio::time::timeout(self.limits().client(), affected(&mut conn, sql, params)).await;
         finish(conn, out)
@@ -433,15 +419,28 @@ impl Sql<'_> {
         plugin: &str,
         sql: &str,
         params: &[Value],
-        replica: bool,
     ) -> Result<(
         Vec<Column>,
         futures_util::stream::BoxStream<'static, Result<Value>>,
         Option<String>,
     )> {
-        let mut conn = self.connection(plugin, replica).await?;
-        let written = self.write_command(&mut conn, sql, params, false).await;
-        let prepared = prepare(&mut conn, sql, params).await?;
+        let mut conn = self.connection(plugin).await?;
+        let probed = tokio::time::timeout(self.limits().client(), async {
+            let written = self
+                .write_command(&mut conn, plugin, sql, params, false)
+                .await;
+            let prepared = prepare(&mut conn, sql, params).await;
+            (written, prepared)
+        })
+        .await;
+        let (written, prepared) = match probed {
+            Ok(p) => p,
+            Err(_) => {
+                conn.close_on_drop();
+                return Err(timed_out());
+            }
+        };
+        let prepared = prepared?;
         let columns = prepared.columns.clone();
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<Value>>(64);
         let sql = sql.to_string();
@@ -481,10 +480,12 @@ impl Sql<'_> {
     async fn write_command(
         &self,
         conn: &mut PgConnection,
+        plugin: &str,
         sql: &str,
         params: &[Value],
         in_transaction: bool,
     ) -> Option<String> {
+        let key = (plugin.to_string(), sql.to_string());
         if let Some(command) = self
             .store
             .data
@@ -492,7 +493,7 @@ impl Sql<'_> {
             .writes
             .lock()
             .expect("writes lock")
-            .get(sql)
+            .get(&key)
         {
             return Some(command.clone());
         }
@@ -530,7 +531,7 @@ impl Sql<'_> {
             if writes.len() >= 1024 {
                 writes.clear();
             }
-            writes.insert(sql.to_string(), command.clone());
+            writes.insert(key, command.clone());
         }
         Some(command)
     }
@@ -654,8 +655,7 @@ async fn affected(conn: &mut PgConnection, sql: &str, params: &[Value]) -> Resul
 
 // ── transactions ─────────────────────────────────────────────────────────────────────────────────
 
-/// A lease a transaction commits only while the caller still holds it (docs/platform-split.md, "Leases /
-/// Fencing"): the key, the token its grant returned and the holder the caller is (`<plugin>/host`, or
+/// A lease a transaction commits only while the caller still holds it: the key, the token its grant returned and the holder the caller is (`<plugin>/host`, or
 /// `<plugin>.<service>/<replica>`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LeaseFence {
@@ -669,7 +669,7 @@ pub const MAX_TX_PUBLISHES: usize = 1_000;
 pub const MAX_TX_PUBLISH_BYTES: usize = 16 * 1024 * 1024;
 
 /// A message queued in a transaction: written to its topic by the kernel's own transaction when, and only when,
-/// the plugin's transaction commits (docs/data.md, "Durable topics / Publishing with a write"). `by` is the
+/// the plugin's transaction commits (a topic message published with a write). `by` is the
 /// `published_by` a `topics.publish` records: the caller's principal.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PendingPublish {
@@ -740,7 +740,7 @@ impl Tx {
 impl Sql<'_> {
     /// Opens a transaction on its own connection and returns its id. At most [`MAX_TX`] per plugin; one
     /// lives [`TX_TOTAL`] and may wait [`TX_IDLE`] between statements. With a `lease`, the transaction commits
-    /// only while the caller still holds it (docs/platform-split.md, "Leases / Fencing"); a lease that is not
+    /// only while the caller still holds it; a lease that is not
     /// held now fails here already, and it is checked again at commit.
     pub async fn begin(&self, plugin: &str, lease: Option<LeaseFence>) -> Result<String> {
         {
@@ -767,7 +767,7 @@ impl Sql<'_> {
                 return Err(lease_lost());
             }
         }
-        let mut conn = self.connection(plugin, false).await?;
+        let mut conn = self.connection(plugin).await?;
         conn.execute("BEGIN").await.map_err(map_error)?;
         let id = random_token("tx_");
         let tx = Arc::new(Tx {
@@ -844,9 +844,11 @@ impl Sql<'_> {
             return Err(Error::not_found("the transaction has ended"));
         };
         tx.touch();
-        let command = self.write_command(conn, sql, params, true).await;
-        let out =
-            tokio::time::timeout(self.limits().client(), collect(conn, sql, params, command)).await;
+        let out = tokio::time::timeout(self.limits().client(), async {
+            let command = self.write_command(conn, plugin, sql, params, true).await;
+            collect(conn, sql, params, command).await
+        })
+        .await;
         let r = match out {
             Ok(r) => r,
             Err(_) => {
@@ -1071,10 +1073,12 @@ impl Sql<'_> {
         .fetch_all(pool)
         .await?;
         let limits = self.limits();
-        let statement = limits.statement.as_secs_f64() + 2.0;
-        let migration = super::migrations::MIGRATION_TIMEOUT_SECS as f64 + 2.0;
-        let idle_limit = limits.idle_in_transaction.as_secs_f64() + 1.0;
-        let grace = REGISTRATION_GRACE.as_secs_f64();
+        let slack = limits.slack.as_secs_f64();
+        let statement = limits.statement.as_secs_f64() + slack;
+        let migration = limits.migration.as_secs_f64() + slack;
+        let idle_limit = limits.idle_in_transaction.as_secs_f64() + slack;
+        let terminate_after = limits.terminate_after.as_secs_f64();
+        let grace = limits.registration_grace.as_secs_f64();
         let mut out = Enforced::default();
         let mut foreign: std::collections::BTreeMap<String, (String, u64)> = Default::default();
         for r in rows {
@@ -1113,7 +1117,12 @@ impl Sql<'_> {
             } else {
                 statement
             };
-            if state == "active" && active > limit {
+            if state == "active" && active > limit + terminate_after {
+                // Still running a while after its cancel: plpgsql caught it (`EXCEPTION WHEN
+                // query_canceled`), and only ending the session stops the statement.
+                end(true).await?;
+                out.ended += 1;
+            } else if state == "active" && active > limit {
                 end(false).await?;
                 out.ended += 1;
             } else if state.starts_with("idle in transaction") && idle > idle_limit {

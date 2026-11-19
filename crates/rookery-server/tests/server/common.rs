@@ -23,6 +23,8 @@ pub fn config(db: &TestDb, dir: &std::path::Path) -> ServerConfig {
         public_url: String::new(),
         secret_key: Some(rookery_store::seal::Key::generate()),
         blobs: None,
+        sql_role_tag: Some(db.tag.clone()),
+        service_database_url: None,
         auth: AuthMode::Local,
         oidc: None,
         admins: Vec::new(),

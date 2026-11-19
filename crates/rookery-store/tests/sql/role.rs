@@ -1,5 +1,5 @@
 //! The role of a plugin with raw SQL: what it is, what it holds, and what it cannot do. Every item of
-//! docs/platform-split.md's "explicitly prevented" list is run twice, through the kernel's pool
+//! the list of what a role cannot do (docs/content/docs/(guide)/use/raw-sql.mdx, "The role") is run twice, through the kernel's pool
 //! (`Sql::execute`) and on a direct connection with the role's own credential.
 
 use rookery_proto::ErrorCode;
@@ -47,7 +47,7 @@ async fn a_plugin_that_does_not_opt_in_gets_nothing() {
     let e = db
         .store
         .sql()
-        .query("plain", "select 1", &[], false)
+        .query("plain", "select 1", &[])
         .await
         .unwrap_err();
     assert_eq!(e.code(), ErrorCode::NotFound, "{e}");
@@ -167,7 +167,6 @@ async fn the_role_is_what_the_specification_lists_and_holds_exactly_its_grants()
             "demo-app",
             "select current_user::text as u, session_user::text as s",
             &[],
-            false,
         )
         .await
         .unwrap();
@@ -204,7 +203,7 @@ async fn views_show_what_the_data_api_shows_the_plugin_and_follow_the_collection
         .collect();
     assert_eq!(ids.len(), 3);
     let sql = s.sql();
-    let rows = sql.query("issues", "select id::text as id, title, space_id::text as space, number, estimate from issues order by number", &[], false).await.unwrap();
+    let rows = sql.query("issues", "select id::text as id, title, space_id::text as space, number, estimate from issues order by number", &[]).await.unwrap();
     assert_eq!(
         rows.rows
             .iter()
@@ -250,7 +249,7 @@ async fn views_show_what_the_data_api_shows_the_plugin_and_follow_the_collection
     let victim = all.rows[0]["id"].as_str().unwrap().parse().unwrap();
     s.data("issues").delete(&c, "issues", victim).await.unwrap();
     let live = sql
-        .query("issues", "select count(*) as n from issues", &[], false)
+        .query("issues", "select count(*) as n from issues", &[])
         .await
         .unwrap();
     let every = sql
@@ -258,7 +257,6 @@ async fn views_show_what_the_data_api_shows_the_plugin_and_follow_the_collection
             "issues",
             "select count(*) as n, count(deleted_at) as trashed from issues__all",
             &[],
-            false,
         )
         .await
         .unwrap();
@@ -277,7 +275,7 @@ async fn views_show_what_the_data_api_shows_the_plugin_and_follow_the_collection
         serde_json::from_value(serde_json::json!({ "name": "risk", "type": "integer" })).unwrap(),
     );
     s.collections().apply("issues", &d).await.unwrap();
-    sql.query("issues", "select risk from issues", &[], false)
+    sql.query("issues", "select risk from issues", &[])
         .await
         .unwrap();
 
@@ -292,11 +290,11 @@ async fn views_show_what_the_data_api_shows_the_plugin_and_follow_the_collection
         .await
         .unwrap();
     let e = sql
-        .query("issues", "select risk from issues", &[], false)
+        .query("issues", "select risk from issues", &[])
         .await
         .unwrap_err();
     assert_eq!(e.code(), ErrorCode::Invalid, "{e}");
-    sql.query("issues", "select title from issues", &[], false)
+    sql.query("issues", "select title from issues", &[])
         .await
         .unwrap();
 
@@ -386,7 +384,7 @@ async fn the_role_cannot_reach_what_is_not_its_own() {
     // Positive controls: what the role may do.
     db.store
         .sql()
-        .query("alpha", "select count(*) from notes", &[], false)
+        .query("alpha", "select count(*) from notes", &[])
         .await
         .unwrap();
     db.store
@@ -616,7 +614,6 @@ async fn the_role_may_not_become_another_role_and_nothing_resets_it_into_one() {
                 "alpha",
                 "select current_user::text as u, session_user::text as s",
                 &[],
-                false,
             )
             .await
             .unwrap();
@@ -646,10 +643,7 @@ async fn security_definer_functions_run_as_the_role_so_they_escape_nothing() {
     setup(&db, "alpha", true).await;
     let sql = db.store.sql();
     sql.execute("alpha", "create function peek() returns bigint language plpgsql security definer as $$ begin return (select count(*) from rookery.plugin_sql); end $$", &[]).await.unwrap();
-    let e = sql
-        .query("alpha", "select peek()", &[], false)
-        .await
-        .unwrap_err();
+    let e = sql.query("alpha", "select peek()", &[]).await.unwrap_err();
     assert_eq!(e.code(), ErrorCode::Forbidden, "{e}");
     let owner: String = sqlx::query_scalar(
         "select pg_get_userbyid(proowner)::text from pg_proc where proname = 'peek'",
@@ -676,7 +670,6 @@ async fn the_password_and_the_secrets_are_not_readable() {
             "alpha",
             "select rolpassword as shown from pg_roles where rolname = current_user",
             &[],
-            false,
         )
         .await
         .unwrap();
@@ -685,7 +678,7 @@ async fn the_password_and_the_secrets_are_not_readable() {
         "pg_roles masks the verifier"
     );
     // The role sees roles' names (pg_roles is public) but no one's verifier, and no one else's sessions' queries.
-    let r = sql.query("alpha", "select count(*) as n from pg_stat_activity where query <> '<insufficient privilege>' and usename <> current_user", &[], false).await.unwrap();
+    let r = sql.query("alpha", "select count(*) as n from pg_stat_activity where query <> '<insufficient privilege>' and usename <> current_user", &[]).await.unwrap();
     assert_eq!(r.rows[0]["n"], 0);
     db.close().await;
 }
@@ -702,12 +695,7 @@ async fn session_settings_and_the_search_path_cannot_be_used_to_get_around_it() 
     let show = "select current_setting('search_path') as p, current_setting('statement_timeout') as s, \
                 current_setting('idle_in_transaction_session_timeout') as i, current_setting('lock_timeout') as l, \
                 current_setting('TimeZone') as tz";
-    let k = sql
-        .query("alpha", show, &[], false)
-        .await
-        .unwrap()
-        .rows
-        .remove(0);
+    let k = sql.query("alpha", show, &[]).await.unwrap().rows.remove(0);
     assert_eq!(k["p"], format!("{},{},public", n.raw_schema, n.view_schema));
     assert_eq!(
         (
@@ -732,14 +720,11 @@ async fn session_settings_and_the_search_path_cannot_be_used_to_get_around_it() 
         .await
         .unwrap();
     assert!(
-        sql.query("alpha", "select * from plugin_sql", &[], false)
+        sql.query("alpha", "select * from plugin_sql", &[])
             .await
             .is_err()
     );
-    let p = sql
-        .query("alpha", "show search_path", &[], false)
-        .await
-        .unwrap();
+    let p = sql.query("alpha", "show search_path", &[]).await.unwrap();
     assert_eq!(
         p.rows[0]["search_path"],
         format!("{},{},public", n.raw_schema, n.view_schema)
@@ -758,7 +743,7 @@ async fn session_settings_and_the_search_path_cannot_be_used_to_get_around_it() 
         .await
         .unwrap();
     let after = sql
-        .query("alpha", "select current_setting('statement_timeout') as s, current_setting('my.flag', true) as f, to_regclass('pg_temp.t')::text as t", &[], false)
+        .query("alpha", "select current_setting('statement_timeout') as s, current_setting('my.flag', true) as f, to_regclass('pg_temp.t')::text as t", &[])
         .await
         .unwrap();
     assert_eq!(
@@ -786,12 +771,7 @@ async fn session_settings_and_the_search_path_cannot_be_used_to_get_around_it() 
     )
     .await
     .unwrap();
-    let k = sql
-        .query("alpha", show, &[], false)
-        .await
-        .unwrap()
-        .rows
-        .remove(0);
+    let k = sql.query("alpha", show, &[]).await.unwrap().rows.remove(0);
     assert_eq!(
         (k["s"].as_str().unwrap(), k["p"].as_str().unwrap()),
         ("30s", "x_alpha,v_alpha,public")
@@ -827,10 +807,7 @@ async fn a_role_that_changes_its_own_password_is_put_right_by_the_kernel() {
     // Existing sessions go on; once the pool has none, a new one is refused and the kernel sets the password again.
     sql.execute("alpha", "select 1", &[]).await.unwrap();
     sql.forget("alpha").await;
-    let r = sql
-        .query("alpha", "select 1 as one", &[], false)
-        .await
-        .unwrap();
+    let r = sql.query("alpha", "select 1 as one", &[]).await.unwrap();
     assert_eq!(r.rows[0]["one"], 1);
     db.close().await;
 }
@@ -868,22 +845,12 @@ async fn the_row_cap_and_the_limits_hold() {
     setup(&db, "alpha", false).await;
     let sql = db.store.sql();
     let ok = sql
-        .query(
-            "alpha",
-            "select g from generate_series(1, 10000) g",
-            &[],
-            false,
-        )
+        .query("alpha", "select g from generate_series(1, 10000) g", &[])
         .await
         .unwrap();
     assert_eq!(ok.rows.len(), 10_000);
     let e = sql
-        .query(
-            "alpha",
-            "select g from generate_series(1, 10001) g",
-            &[],
-            false,
-        )
+        .query("alpha", "select g from generate_series(1, 10001) g", &[])
         .await
         .unwrap_err();
     assert_eq!(e.code(), ErrorCode::Invalid, "{e}");
@@ -891,12 +858,7 @@ async fn the_row_cap_and_the_limits_hold() {
     // A stream has no cap.
     use futures_util::StreamExt;
     let (cols, rows, written) = sql
-        .query_stream(
-            "alpha",
-            "select g from generate_series(1, 25000) g",
-            &[],
-            false,
-        )
+        .query_stream("alpha", "select g from generate_series(1, 25000) g", &[])
         .await
         .unwrap();
     assert!(written.is_none(), "a select writes nothing");
@@ -931,10 +893,7 @@ async fn disabling_takes_everything_away_and_keeps_the_data() {
         PgConnection::connect(&url).await.is_err(),
         "it cannot log in"
     );
-    let e = sql
-        .query("alpha", "select 1", &[], false)
-        .await
-        .unwrap_err();
+    let e = sql.query("alpha", "select 1", &[]).await.unwrap_err();
     assert_eq!(e.code(), ErrorCode::NotFound);
     let n = sql.names("alpha").unwrap();
     let r = sqlx::query(
@@ -962,19 +921,16 @@ async fn disabling_takes_everything_away_and_keeps_the_data() {
     .await;
     assert_eq!(views, 0);
     // The plugin that stays is untouched.
-    sql.query("stays", "select count(*) from notes", &[], false)
+    sql.query("stays", "select count(*) from notes", &[])
         .await
         .unwrap();
     // The data is kept, and comes back with the plugin.
     let v: i32 = admin_scalar(&db, "select v from x_alpha.mine").await;
     assert_eq!(v, 42);
     sql.enable("alpha", false).await.unwrap();
-    let back = sql
-        .query("alpha", "select v from mine", &[], false)
-        .await
-        .unwrap();
+    let back = sql.query("alpha", "select v from mine", &[]).await.unwrap();
     assert_eq!(back.rows[0]["v"], 42);
-    sql.query("alpha", "select count(*) from notes", &[], false)
+    sql.query("alpha", "select count(*) from notes", &[])
         .await
         .unwrap();
 
@@ -1076,12 +1032,12 @@ async fn roles_of_databases_that_share_a_server_do_not_meet() {
 #[tokio::test]
 async fn limits_hold_even_when_the_plugin_sets_its_own_timeouts_to_nothing() {
     use std::time::{Duration, Instant};
-    let Some(db) = TestDb::new_with_limits(rookery_store::sql::exec::Limits {
-        statement: Duration::from_secs(1),
-        tx_total: Duration::from_secs(2),
-        tx_idle: Duration::from_millis(500),
-        idle_in_transaction: Duration::from_secs(1),
-    })
+    let Some(db) = TestDb::new_with_limits(TestDb::limits(
+        Duration::from_secs(1),
+        Duration::from_secs(2),
+        Duration::from_millis(500),
+        Duration::from_secs(1),
+    ))
     .await
     else {
         return;
@@ -1135,7 +1091,8 @@ async fn limits_hold_even_when_the_plugin_sets_its_own_timeouts_to_nothing() {
         let r = c.execute("select pg_sleep(30)").await;
         (r.err().map(|e| code(&e)), c)
     });
-    tokio::time::sleep(Duration::from_millis(3500)).await;
+    // Past the limit, and not yet so far past that the session is ended rather than its statement cancelled.
+    tokio::time::sleep(Duration::from_millis(1350)).await;
     assert!(sql.enforce_limits().await.unwrap() >= 1);
     let (err, mut c) = tokio::time::timeout(Duration::from_secs(5), long)
         .await
@@ -1144,7 +1101,7 @@ async fn limits_hold_even_when_the_plugin_sets_its_own_timeouts_to_nothing() {
     assert_eq!(err.as_deref(), Some("57014"), "cancelled");
     c.execute("begin").await.unwrap();
     c.execute("select 1").await.unwrap();
-    tokio::time::sleep(Duration::from_millis(2500)).await;
+    tokio::time::sleep(Duration::from_millis(1500)).await;
     assert!(sql.enforce_limits().await.unwrap() >= 1);
     assert!(
         c.execute("select 1").await.is_err(),
@@ -1185,7 +1142,6 @@ async fn pgvector_works_for_the_role_with_operators_and_parameters() {
             "alpha",
             "select id, embedding, embedding <=> $1 as d from items order by embedding <=> $1 limit 2",
             &[serde_json::json!({ "$vector": [1.0, 0.0, 0.0] })],
-            false,
         )
         .await
         .unwrap();
@@ -1254,7 +1210,6 @@ async fn a_log_collection_has_one_view_of_the_columns_its_table_has() {
             "issues",
             "select seq, target, ms from pings order by seq",
             &[],
-            false,
         )
         .await
         .unwrap();
@@ -1268,13 +1223,13 @@ async fn a_log_collection_has_one_view_of_the_columns_its_table_has() {
     }
     let e = s
         .sql()
-        .query("issues", "select * from pings__all", &[], false)
+        .query("issues", "select * from pings__all", &[])
         .await
         .unwrap_err();
     assert_eq!(e.code(), ErrorCode::Invalid, "a log has no __all view");
 }
 
-/// The audit gap `docs/data.md` noted: a write run through `query` (`insert ... returning`) is audited by what
+/// An audit gap: a write run through `query` (`insert ... returning`) is audited by what
 /// the statement did, which the kernel learns from the plan, not by parsing SQL. A read has no write; a
 /// data-modifying CTE under a `SELECT` is still caught.
 #[tokio::test]
@@ -1290,10 +1245,7 @@ async fn a_write_through_query_is_reported_by_its_plan_and_row_count() {
         .await
         .unwrap();
     // A read writes nothing.
-    let r = sql
-        .query("alpha", "select n from w", &[], false)
-        .await
-        .unwrap();
+    let r = sql.query("alpha", "select n from w", &[]).await.unwrap();
     assert!(r.written.is_none());
     // `insert ... returning`: what the command tag would say, and the rows it counted.
     let r = sql
@@ -1301,7 +1253,6 @@ async fn a_write_through_query_is_reported_by_its_plan_and_row_count() {
             "alpha",
             "insert into w values ($1) returning n",
             &[json!(1)],
-            false,
         )
         .await
         .unwrap();
@@ -1313,7 +1264,7 @@ async fn a_write_through_query_is_reported_by_its_plan_and_row_count() {
         })
     );
     let r = sql
-        .query("alpha", "update w set n = 2 returning n", &[], false)
+        .query("alpha", "update w set n = 2 returning n", &[])
         .await
         .unwrap();
     assert_eq!(
@@ -1324,7 +1275,7 @@ async fn a_write_through_query_is_reported_by_its_plan_and_row_count() {
         })
     );
     let r = sql
-        .query("alpha", "delete from w where n = 2 returning n", &[], false)
+        .query("alpha", "delete from w where n = 2 returning n", &[])
         .await
         .unwrap();
     assert_eq!(
@@ -1340,7 +1291,6 @@ async fn a_write_through_query_is_reported_by_its_plan_and_row_count() {
             "alpha",
             "with w2 as (insert into w values (3) returning n) select n from w2",
             &[],
-            false,
         )
         .await
         .unwrap();
@@ -1367,7 +1317,7 @@ async fn a_write_through_query_is_reported_by_its_plan_and_row_count() {
     sql.rollback("alpha", &tx).await.unwrap();
     // A stream reports its command; its rows are counted by the reader.
     let (_, rows, written) = sql
-        .query_stream("alpha", "insert into w values (5) returning n", &[], false)
+        .query_stream("alpha", "insert into w values (5) returning n", &[])
         .await
         .unwrap();
     assert_eq!(written.as_deref(), Some("INSERT"));

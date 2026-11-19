@@ -123,11 +123,8 @@ export interface Documents {
 
 /** Raw SQL, for a plugin whose manifest says `database.sql`: free in its own schema, read-only over its collections. */
 export interface Sql {
-  query<T = Record<string, unknown>>(
-    sql: string,
-    params?: unknown[],
-    opts?: { replica?: boolean },
-  ): Promise<T[]>
+  /** Runs on the primary. */
+  query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>
   execute(sql: string, params?: unknown[]): Promise<number>
   /** A transaction; with a lease, it commits only while the plugin still holds it. */
   begin(opts?: { lease?: { key: string; token: number } }): Promise<SqlTransaction>
