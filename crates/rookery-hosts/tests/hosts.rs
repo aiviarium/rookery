@@ -304,6 +304,25 @@ async fn hosts_are_saved_shared_acted_on_and_renamed() {
         Some(ErrorCode::Forbidden)
     );
 
+    // What names files of the server's machine is for its socket alone, an admin elsewhere refused.
+    for (method, params) in [
+        ("hosts.inventory", json!({"hosts": ["studio"]})),
+        ("hosts.ssh", json!({"host": "studio"})),
+        ("hosts.tailnetKey", json!({"host": "studio"})),
+    ] {
+        assert_eq!(
+            code(server.call(&admin, method, params).await),
+            Some(ErrorCode::Forbidden),
+            "{method}"
+        );
+    }
+    assert!(
+        server
+            .call(&Caller::Local, "hosts.inventory", json!({}))
+            .await
+            .is_ok()
+    );
+
     // The profile is manage's to read. Who manages a host changes how it is reached and set
     // up, but not which of the installation's secrets, registries and features it gets.
     assert_eq!(

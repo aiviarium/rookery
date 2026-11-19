@@ -12,6 +12,7 @@ pub mod plugin_contract;
 #[cfg(feature = "client")]
 pub mod portal;
 pub mod profile;
+pub mod socket;
 pub mod streams;
 #[cfg(feature = "client")]
 pub mod tunnel;

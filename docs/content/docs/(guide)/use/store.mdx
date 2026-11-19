@@ -73,7 +73,7 @@ rookery server import --from ~/.local/share/rookery/rookery.db --key-file ~/.con
 | `--owner` | The account that owns every imported host, made as an admin when there is none of that name. Without it, the server's one admin |
 
 - It writes everything in one transaction, and refuses a database that has hosts already, or one a `rookery serve` leads: stop the server first.
-- The roles `rookery:view`, `rookery:operate` and `rookery:admin` that access tokens of an issuer carried become groups bound to those claims, with `view`, `manage` and `manage` on every host.
+- The roles `rookery:view` and `rookery:operate` that access tokens of an issuer carried become groups bound to those claims, with `view` and `manage` on every host. `rookery:admin` is the server's admin role: set `ROOKERY_ADMINS=group:rookery:admin`, which the import's report reminds you of.
 - It never writes the old store.
 - Secrets and passwords are sealed again with the server's key.
 - The output of jobs within `retention_days` goes into the jobs' logs.

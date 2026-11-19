@@ -182,8 +182,7 @@ pub fn serve() -> Done<()> {
 
 /// A call of the server on this machine, over its socket.
 fn socket_call(method: &str, params: Value) -> Done<Value> {
-    let socket = rookery_server::config::default_socket(&|name| std::env::var(name).ok())
-        .filter(|socket| socket.exists())
+    let socket = rookery_api::socket::found(&|name| std::env::var(name).ok())
         .ok_or_else(|| {
             Fail::unreachable(
                 "No rookery serve runs on this machine for this user: its socket is not there (ROOKERY_SOCKET names another)",

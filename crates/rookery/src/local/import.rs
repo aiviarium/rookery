@@ -202,6 +202,7 @@ fn postgres_read(url: &str) -> Result<Old> {
     // Nothing of this transaction is ever written.
     let mut t = client
         .build_transaction()
+        .isolation_level(postgres::IsolationLevel::RepeatableRead)
         .read_only(true)
         .start()
         .map_err(fail)?;
@@ -371,16 +372,29 @@ fn is_url(from: &str) -> bool {
     from.starts_with("postgres://") || from.starts_with("postgresql://")
 }
 
+/// A URL's password: after the user, or as `password=` of its query.
 fn password_of(url: &str) -> Option<&str> {
     let rest = url.split_once("://")?.1;
-    let user = rest.split(['/', '?']).next()?.rsplit_once('@')?.0;
-    user.split_once(':').map(|(_, password)| password)
+    let in_user = rest
+        .split(['/', '?'])
+        .next()
+        .and_then(|authority| authority.rsplit_once('@'))
+        .and_then(|(user, _)| user.split_once(':'))
+        .map(|(_, password)| password);
+    in_user.or_else(|| {
+        rest.split_once('?')?
+            .1
+            .split('&')
+            .find_map(|pair| pair.strip_prefix("password="))
+    })
 }
 
 /// A store as it may be shown: a URL's password replaced.
 pub fn redacted(from: &str) -> String {
     match password_of(from) {
-        Some(password) if is_url(from) => from.replacen(&format!(":{password}@"), ":…@", 1),
+        Some(password) if is_url(from) && !password.is_empty() => from
+            .replacen(&format!(":{password}@"), ":…@", 1)
+            .replacen(&format!("password={password}"), "password=…", 1),
         _ => from.to_owned(),
     }
 }
@@ -470,40 +484,11 @@ async fn write(
     let store = rookery_store::Store::open(rookery_store::StoreOptions::new(database_url))
         .await
         .map_err(|e| Fail::failed(format!("opening the database: {e}")))?;
-    // A person named to own the hosts who has not signed in yet is made, as an admin of a local
-    // account, as rookery server token makes one.
-    if let Some(wanted) = owner {
-        let users = store
-            .users()
-            .list()
-            .await
-            .map_err(|e| Fail::failed(e.to_string()))?;
-        let known = users.iter().any(|u| {
-            u.name == wanted
-                || u.email
-                    .as_deref()
-                    .is_some_and(|e| e.eq_ignore_ascii_case(wanted))
-        });
-        if !known {
-            let deployment = store
-                .state()
-                .deployment_id()
-                .await
-                .map_err(|e| Fail::failed(e.to_string()))?;
-            let login = rookery_store::users::Login {
-                issuer: format!("rookery-local:{deployment}"),
-                subject: rookery_store::util::random_token(""),
-                name: wanted.to_owned(),
-                email: wanted.contains('@').then(|| wanted.to_owned()),
-                admin: true,
-            };
-            store
-                .users()
-                .upsert_login(&login)
-                .await
-                .map_err(|e| Fail::failed(e.to_string()))?;
-        }
-    }
+    let deployment = store
+        .state()
+        .deployment_id()
+        .await
+        .map_err(|e| Fail::failed(e.to_string()))?;
     let mut tx = store.pool().begin().await.map_err(fail)?;
     // A server that leads would take what it does not know of the hosts as gone.
     let free: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)")
@@ -728,15 +713,37 @@ async fn write(
             None => report.skipped("job output files that are gone"),
         }
     }
-    // Every host has an owner: the one named, or the server's one admin.
+    // Every host has an owner: the one named, made as a local admin with the rest when there is
+    // none of that name, or the server's one admin.
     let user: Option<uuid::Uuid> = match owner {
-        Some(owner) => sqlx::query_scalar(
-            "SELECT id FROM rookery.users WHERE name = $1 OR lower(email) = lower($1) LIMIT 1",
-        )
-        .bind(owner)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(fail)?,
+        Some(owner) => {
+            let found: Option<uuid::Uuid> = sqlx::query_scalar(
+                "SELECT id FROM rookery.users WHERE name = $1 OR lower(email) = lower($1) LIMIT 1",
+            )
+            .bind(owner)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(fail)?;
+            match found {
+                Some(id) => Some(id),
+                None => {
+                    let id = uuid::Uuid::now_v7();
+                    sqlx::query(
+                        "INSERT INTO rookery.users (id, issuer, subject, name, email, role) VALUES ($1, $2, $3, $4, $5, 'admin')",
+                    )
+                    .bind(id)
+                    .bind(format!("rookery-local:{deployment}"))
+                    .bind(rookery_store::util::random_token(""))
+                    .bind(owner)
+                    .bind(owner.contains('@').then_some(owner))
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(fail)?;
+                    report.wrote("users");
+                    Some(id)
+                }
+            }
+        }
         None => {
             let admins: Vec<uuid::Uuid> = sqlx::query_scalar(
                 "SELECT id FROM rookery.users WHERE role = 'admin' AND disabled_at IS NULL ORDER BY created_at LIMIT 2",
@@ -781,12 +788,12 @@ async fn write(
         )));
     }
     // The roles of the old server's access tokens, from an issuer's claim, become groups bound to
-    // those claims, with the level each role had on every host.
-    for (claim, level) in [
-        ("rookery:view", 1i16),
-        ("rookery:operate", 3),
-        ("rookery:admin", 3),
-    ] {
+    // those claims, with the level each role had on every host. An admin is the server's admin,
+    // which ROOKERY_ADMINS gives a group of the issuer, as the server reads it from its environment.
+    report.skipped(
+        "the role rookery:admin, which ROOKERY_ADMINS=group:rookery:admin makes the server's admins",
+    );
+    for (claim, level) in [("rookery:view", 1i16), ("rookery:operate", 3)] {
         let group: uuid::Uuid = sqlx::query_scalar(
             "INSERT INTO rookery.groups (id, name, claim) VALUES ($1, $2, $2)
              ON CONFLICT (claim) DO UPDATE SET claim = EXCLUDED.claim RETURNING id",
@@ -926,12 +933,12 @@ mod tests {
             count("SELECT count(*) FROM rookery.hosts").await
         );
         assert_eq!(
-            count("SELECT count(*) FROM rookery.groups WHERE claim IN ('rookery:view', 'rookery:operate', 'rookery:admin')").await,
-            3
+            count("SELECT count(*) FROM rookery.groups WHERE claim IN ('rookery:view', 'rookery:operate')").await,
+            2
         );
         assert_eq!(
             count("SELECT count(*) FROM rookery.grants WHERE resource = 'env://studio' AND starts_with(principal, 'group:')").await,
-            3
+            2
         );
         assert_eq!(
             count("SELECT count(*) FROM rookery.kv WHERE plugin = 'box' AND revision = 2").await,
@@ -987,6 +994,10 @@ mod tests {
             "postgres://rookery:…@db.example.org/rookery?sslmode=require"
         );
         assert!(store_of(Some(url), None).is_err());
+        let query =
+            "postgres://rookery@db.example.org/rookery?password=hunter-made-up&sslmode=require";
+        assert!(store_of(Some(query), None).is_err());
+        assert!(!redacted(query).contains("hunter"));
         assert_eq!(
             store_of(Some("postgres://rookery@db.example.org/rookery"), None).unwrap(),
             "postgres://rookery@db.example.org/rookery"
@@ -1034,8 +1045,8 @@ mod tests {
             eprintln!("skipped: ROOKERY_TEST_POSTGRES is not set");
             return;
         };
+        // Nobody has signed in yet: the owner named is made, as the image's import does.
         let db = TestDb::new().await.unwrap();
-        admin(&db).await;
         let (dir, file) = copied();
         // The old tables, filled with the rows of the SQLite store.
         let mut conn = old.store.pool().acquire().await.unwrap();
@@ -1086,11 +1097,12 @@ mod tests {
         }
         drop(conn);
         let (url, from) = (db.url.clone(), old.url.clone());
-        let report =
-            tokio::task::spawn_blocking(move || import_into(&url, Some(key()), &from, None, None))
-                .await
-                .unwrap()
-                .unwrap();
+        let report = tokio::task::spawn_blocking(move || {
+            import_into(&url, Some(key()), &from, None, Some("admin"))
+        })
+        .await
+        .unwrap()
+        .unwrap();
         check(&db, &report).await;
         db.close().await;
         old.close().await;
