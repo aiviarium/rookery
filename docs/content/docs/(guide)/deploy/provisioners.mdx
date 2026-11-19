@@ -65,7 +65,7 @@ The listing is shortened here. A secret marked *not set* is required and has no 
 
 `rookery provisioner rename NAME NEW` gives a provisioner another name. It keeps its [id](/docs/reference/ids). Its settings, its secrets, the resources and machines it made or plans, and its jobs stay with it, and what it made is not touched.
 
-`rookery provisioner remove NAME` forgets a provisioner, with its settings and its own secrets. Rookery refuses while it holds anything, so remove what it made first. The action `adopt` makes one you registered the provisioner of a [node](/docs/use/nodes#take-in-a-server-that-exists) that reaches the same server.
+`rookery provisioner remove NAME` forgets a provisioner, with its settings and its own secrets. Rookery refuses while it holds anything, so remove what it made first. Rookery puts the resources that keep it in the refusal's details. A shell lists from those what to remove first. The action `adopt` makes one you registered the provisioner of a [node](/docs/use/nodes#take-in-a-server-that-exists) that reaches the same server.
 
 ## A provisioner's page
 
@@ -111,7 +111,7 @@ Actions (rookery provisioner run docker ACTION)
     prune              Remove what rookery left behind
 ```
 
-Rookery asks the provisioner how it is each time. The lines under the state are what it says, shown as they are.
+Rookery asks the provisioner how it is each time. The lines under the state are what it says, shown as they are. The list of provisioners has the same state and message for each one. A page shows them without opening each provisioner's page.
 
 | State | Means |
 | --- | --- |
@@ -132,6 +132,24 @@ rookery provisioner set ovh-incus server=https://192.0.2.10:8443 project=lab
 Every call to the provisioner uses them, and so does each machine made with it unless `rookery host create --provisioner` is given another value. The record of a machine keeps the values it was made with, and an empty setting is forgotten. While a setting it needs has no value, Rookery prompts for it before each action.
 
 `rookery provisioner show NAME SETTING=VALUE…` asks another place this once, such as `rookery provisioner show ovh-incus server=https://192.0.2.11:8443`.
+
+### Sizes and images
+
+A plugin may declare the sizes and images a kind of machine comes from, each as values of its arguments. A provider with regions declares those too. The Incus plugin offers the sizes Small, Standard and Large, and Ubuntu and Debian cloud images. Rookery reads them from the plugin's `plugin.json` and gives them with the set-up's catalogue.
+
+| Piece of a choice | What it is |
+| --- | --- |
+| `id` and `label` | How a person names the choice, such as `standard` and *Standard (4 vCPU, 8 GiB)* |
+| `values` | The kind's arguments it sets, such as `cpus`, `memory` and `disk` |
+| `default` | The one a machine gets when none is chosen |
+
+A shell shows the choices and sends the one chosen as the machine's arguments. The arguments a choice does not name take the provisioner's settings or the kind's defaults, and a plugin whose machines have no region, such as Incus, declares none.
+
+```json
+{"catalogue": {"sizes": [
+  {"id": "small", "label": "Small (2 vCPU, 4 GiB)", "values": {"cpus": "2", "memory": "4GiB"}}
+]}}
+```
 
 ### Secrets
 
@@ -242,6 +260,8 @@ The output of the provisioner and of the set-up follows as it runs. Rookery ends
 </Steps>
 
 `rookery host create studio --provisioner ovh-incus cpus=4` creates the machine. The first provisioner is chosen when you name none. There is no target to choose: a created machine always has the target `cloud`, which Rookery writes into the profile before it creates the machine.
+
+A shell that has no profile yet requests the host and the machine together. `resources.create` takes the profile as `profile` and checks it as `hosts.save` does. It is saved before the job that makes the machine starts, and removed again if that call is refused, so the same call can be made again. A host that has a profile keeps it unless the call gives another.
 
 The provisioner's arguments are given as `NAME=VALUE`, and each one it requires and that has no default is asked for at a terminal. The set-up asks for what the provisioner requires with the way to install, and keeps its resources, such as CPUs, memory and disk, for the settings. A missing secret is a problem of the way to install, and a bad resource value one of the settings. Rookery asks once before it saves the profile and starts, and does not start while a problem is listed. The output is shown as it runs. A [Rookery server](/docs/use/server) elsewhere works the same.
 

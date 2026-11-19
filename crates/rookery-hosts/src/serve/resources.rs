@@ -65,10 +65,42 @@ fn found(state: &Serve, id: &str) -> Answer<resource::Kept> {
     resource::find(&state.paths, id).map_err(refusal)
 }
 
-fn described(state: &Serve, kept: &resource::Kept) -> Resource {
-    let plugins = rookery_core::provision::list_plugins(&state.paths);
+/// What is said of a resource, with the plugins of the installation read
+/// once for a listing of several.
+pub(crate) fn described(
+    state: &Serve,
+    kept: &resource::Kept,
+    plugins: &[rookery_core::plugins::Plugin],
+) -> Resource {
     let busy = kept.record.external_id.is_empty() && kept.busy(&state.paths);
-    resource::info(&state.paths, kept, &plugins, busy)
+    resource::info(&state.paths, kept, plugins, busy)
+}
+
+/// A profile this call saved, and what it replaced, so that a call that ends
+/// without a machine leaves the host as it was.
+struct Saved {
+    place: rookery_core::profiles::Place,
+    /// The profile it had, or none when the host is new.
+    before: Option<Value>,
+    /// The host's lock, held from the save until the job that makes the
+    /// machine takes it.
+    lock: Option<rookery_core::provision::Lock>,
+}
+
+/// Put a host back as it was before a call that saved its profile: the
+/// profile it had, or none at all.
+fn restore(state: &Arc<Serve>, saved: Option<&Saved>) {
+    let Some(saved) = saved else { return };
+    match &saved.before {
+        Some(profile) => {
+            let _ = saved.place.save(&state.paths, profile);
+        }
+        None => {
+            let _ = rookery_core::profiles::remove(&state.paths, &saved.place);
+        }
+    }
+    state.forget(&saved.place.argument());
+    state.refresh(false);
 }
 
 /// How a host is reached, to tell whether making its machine changed it.
@@ -118,42 +150,98 @@ pub struct Created {
     pub job: rookery_proto::jobs::JobInfo,
 }
 
-pub async fn create(state: Arc<Serve>, body: Bytes) -> Answer<Json<Created>> {
-    let asked: NewResource = serde_json::from_slice(&body).map_err(bad)?;
-    if let Some(host) = asked.host.as_deref().filter(|host| !host.is_empty()) {
-        super::setup::saved_profile(&state, host)?;
+pub async fn create(
+    state: Arc<Serve>,
+    access: Option<Access>,
+    body: Bytes,
+) -> Answer<Json<Created>> {
+    let mut asked: NewResource = serde_json::from_slice(&body).map_err(bad)?;
+    let host = asked.host.clone().filter(|host| !host.is_empty());
+    // One call may save the profile the machine is made for, so there is no
+    // moment between the host and its machine. A host that has a profile
+    // keeps the one it has unless one is given, and one given replaces it.
+    // Its lock is held from before the save, so two calls cannot save over
+    // each other, and what the save replaced is kept to be put back.
+    let mut saved = None;
+    match (&host, asked.profile.take()) {
+        (Some(host), Some(profile)) => {
+            let (place, profile) =
+                super::setup::checked_profile(&state, host, access.as_ref(), profile)?;
+            let lock = rookery_core::provision::lock(&state.paths, host)
+                .map_err(|error| Fail::new(code::CONFLICT, error.to_string()))?;
+            let before = place.load(&state.paths).map_err(internal)?;
+            place.save(&state.paths, &profile).map_err(internal)?;
+            state.forget(&place.argument());
+            state.refresh(false);
+            saved = Some(Saved {
+                place,
+                before,
+                lock: Some(lock),
+            });
+        }
+        (Some(host), None) => {
+            super::setup::saved_profile(&state, host)?;
+        }
+        (None, Some(_)) => {
+            return Err(bad(
+                "A profile is saved with a host's machine: name its host",
+            ));
+        }
+        (None, None) => {}
     }
     let (paths, registries) = (state.paths.clone(), store(&state));
     let token = asked.token.clone();
-    let host = asked.host.clone().unwrap_or_default();
-    let prepared = blocking({
+    let host = host.unwrap_or_default();
+    let held = saved.as_mut().and_then(|saved| saved.lock.take());
+    let prepared = match blocking({
         let (paths, registries) = (paths.clone(), registries.clone());
-        move || resource::prepare(&paths, &registries, &asked)
+        move || resource::prepare_held(&paths, &registries, &asked, held)
     })
-    .await?
-    .map_err(refusal)?;
+    .await
+    {
+        Ok(prepared) => prepared,
+        Err(fail) => {
+            restore(&state, saved.as_ref());
+            return Err(fail);
+        }
+    };
     let mut creating = match prepared {
-        Asked::Again(kept) => {
-            let job = state
+        Ok(Asked::Again(kept)) => {
+            let job = match state
                 .runner
                 .by_token(kept.subject(), "create", token.as_deref().unwrap_or(""))
                 .await
-                .map_err(internal)?
-                .ok_or_else(|| {
-                    Fail::new(
+            {
+                Ok(Some(job)) => job,
+                Ok(None) => {
+                    restore(&state, saved.as_ref());
+                    return Err(Fail::new(
                         code::CONFLICT,
                         format!(
                             "{} was asked for with this token, and its job is gone",
                             kept.record.id
                         ),
-                    )
-                })?;
+                    ));
+                }
+                Err(error) => {
+                    restore(&state, saved.as_ref());
+                    return Err(internal(error));
+                }
+            };
+            let plugins = rookery_core::provision::list_plugins(&state.paths);
             return Ok(Json(Created {
-                resource: described(&state, &kept),
+                resource: described(&state, &kept, &plugins),
                 job,
             }));
         }
-        Asked::New(creating) => creating,
+        Ok(Asked::New(creating)) => creating,
+        Err(said) => {
+            // A profile this call saved does not stay for a machine that was
+            // refused, and one it replaced is put back: the same call can be
+            // made again.
+            restore(&state, saved.as_ref());
+            return Err(refusal(said));
+        }
     };
     let kept = creating.kept().clone();
     let mut request = Request::new(kept.subject(), "create");
@@ -177,9 +265,16 @@ pub async fn create(state: Arc<Serve>, body: Bytes) -> Answer<Json<Created>> {
         }
         done.is_ok()
     }));
-    let job = state.runner.start(request, work).await.map_err(refused)?;
+    let job = match state.runner.start(request, work).await {
+        Ok(job) => job,
+        Err(error) => {
+            restore(&state, saved.as_ref());
+            return Err(refused(error));
+        }
+    };
+    let plugins = rookery_core::provision::list_plugins(&state.paths);
     Ok(Json(Created {
-        resource: described(&state, &kept),
+        resource: described(&state, &kept, &plugins),
         job,
     }))
 }

@@ -1521,6 +1521,14 @@ pub struct ProvisionerInfo {
     /// Empty when it can.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub problem: String,
+    /// What it says of itself now: `ready`, `unreachable` or `unusable`, or
+    /// what its plugin said. In the list it is asked for each one whose
+    /// `problem` is empty; `provisioners.get` has the rest of its page.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub state: String,
+    /// What it said with that state, such as why it cannot be reached.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub message: String,
 }
 
 impl ProvisionerInfo {
@@ -1557,6 +1565,10 @@ pub struct ProvisionerKind {
     pub id: String,
     #[serde(default)]
     pub label: String,
+    /// What it makes, as its plugin says it, when that differs from the
+    /// provisioner's own description.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
     /// For a machine: `seed` or `apply`, as for the provisioner.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub setup: String,
@@ -1574,6 +1586,57 @@ pub struct ProvisionerKind {
     /// resource's id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<Action>,
+    /// What its plugin offers to choose from when one is made, as sets of
+    /// its arguments: the sizes, images and regions it knows.
+    #[serde(default, skip_serializing_if = "Catalogue::is_empty")]
+    pub catalogue: Catalogue,
+}
+
+/// What a plugin offers to choose from when a machine is made, as sets of
+/// the kind's arguments. A provider declares the ones it has; a choice sets
+/// those arguments it names, and the others take their settings or defaults.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct Catalogue {
+    /// The sizes it offers, such as 2 vCPU and 4 GiB.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sizes: Vec<CatalogueChoice>,
+    /// The images it starts machines from.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<CatalogueChoice>,
+    /// The regions or zones it makes them in.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub regions: Vec<CatalogueChoice>,
+}
+
+impl Catalogue {
+    /// Whether it offers nothing to choose from.
+    pub fn is_empty(&self) -> bool {
+        self.sizes.is_empty() && self.images.is_empty() && self.regions.is_empty()
+    }
+}
+
+/// One of what a plugin offers: a size, an image or a region, as the values
+/// it gives the arguments of the kind.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct CatalogueChoice {
+    /// Its id, which the kind's arguments do not take: what is chosen is the
+    /// `values` it sets.
+    pub id: String,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub help: String,
+    /// Whether a machine gets it when no other is chosen.
+    #[serde(default)]
+    pub default: bool,
+    /// The arguments it sets, by their names. One not named keeps its
+    /// setting or default.
+    #[serde(default)]
+    pub values: BTreeMap<String, String>,
 }
 
 /// A row of what a provisioner says, shown as it is given.
@@ -1937,6 +2000,12 @@ pub struct NewResource {
     /// The saved host a machine is made for, and set up as.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
+    /// The host's profile to save with the machine, in the same call: the
+    /// set-up's template filled in, as `hosts.save` takes it. A host that has
+    /// a profile keeps the one it has unless this is given, and one given
+    /// replaces it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<Value>,
     /// Values of the provisioner's and the kind's arguments; the others
     /// take their settings or defaults.
     #[serde(default)]

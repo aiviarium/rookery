@@ -58,16 +58,18 @@ pub async fn profile(state: Arc<Serve>, name: String) -> Answer<Json<Value>> {
     Ok(Json(saved_profile(&state, &name)?.1))
 }
 
-pub async fn save_profile(
-    state: Arc<Serve>,
-    name: String,
-    access: Option<Access>,
+/// A host's profile as it is saved, checked: the shape of it, the key it
+/// names, the parts only an admin changes, and what is the server's own.
+/// `access` is the caller's; none is the server's own user.
+pub(crate) fn checked_profile(
+    state: &Serve,
+    name: &str,
+    access: Option<&Access>,
     mut profile: Value,
-) -> Answer<Json<Done>> {
-    // A caller on the socket or in rookery itself is the server's own user.
+) -> Answer<(Place, Value)> {
     let own_user = access.is_none();
-    let role = access.as_ref().map(|caller| caller.role);
-    let place = own_place(&state.paths, &name)?;
+    let role = access.map(|caller| caller.role);
+    let place = own_place(&state.paths, name)?;
     if !profile.is_object() {
         return Err(bad("A profile is an object"));
     }
@@ -80,8 +82,8 @@ pub async fn save_profile(
     if !problems.is_empty() {
         return Err(bad(problems.join("; ")));
     }
-    let access = rookery_api::profile::Access::of(&profile);
-    if let Some(key) = access.auth.key() {
+    let found = rookery_api::profile::Access::of(&profile);
+    if let Some(key) = found.auth.key() {
         let store = rookery_core::store::shared(&state.paths).map_err(internal)?;
         let known = rookery_core::keys::ring::names(&store).map_err(internal)?;
         if key != rookery_api::profile::ROOKERY_KEY && !known.iter().any(|known| known == key) {
@@ -100,13 +102,13 @@ pub async fn save_profile(
     let kept = place.load(&state.paths).map_err(internal)?;
     let kept_access = kept.as_ref().map(rookery_api::profile::Access::of);
     let link = kept_access.as_ref().and_then(|kept| kept.link.clone());
-    if !own_user && access.link.is_some() && link != access.link {
+    if !own_user && found.link.is_some() && link != found.link {
         return Err(bad(
             "access.link is a command the server runs, and is set on the server itself",
         ));
     }
     let ssh = kept_access.is_some_and(|kept| kept.auth == rookery_api::profile::Auth::Ssh);
-    if !own_user && access.auth == rookery_api::profile::Auth::Ssh && !ssh {
+    if !own_user && found.auth == rookery_api::profile::Auth::Ssh && !ssh {
         return Err(bad(
             "access.auth ssh is the SSH configuration of the server's own account, and is set on the server itself",
         ));
@@ -126,6 +128,16 @@ pub async fn save_profile(
             ));
         }
     }
+    Ok((place, profile))
+}
+
+pub async fn save_profile(
+    state: Arc<Serve>,
+    name: String,
+    access: Option<Access>,
+    profile: Value,
+) -> Answer<Json<Done>> {
+    let (place, profile) = checked_profile(&state, &name, access.as_ref(), profile)?;
     place.save(&state.paths, &profile).map_err(internal)?;
     // Where it is and how it is reached may be different now.
     state.forget(&name);
@@ -418,8 +430,12 @@ pub struct Setting {
     /// Empty when it is not set, and for a token.
     pub value: String,
     pub meaning: String,
-    /// Whether `settings.set` takes it.
+    /// Whether `installation.settings.set` takes it.
     pub open: bool,
+    /// For one that is not open, what an admin runs on the server's own
+    /// machine to change it. Empty for one with no command of its own.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub command: String,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -434,7 +450,7 @@ pub async fn settings(state: Arc<Serve>, access: Option<Access>) -> Answer<Json<
     let saved = state.paths.settings().map_err(internal)?;
     let settings = SETTINGS
         .iter()
-        .map(|(key, meaning)| Setting {
+        .map(|(key, meaning, command)| Setting {
             key: (*key).into(),
             value: match saved.get(*key) {
                 Some(_) if rookery_core::paths::is_secret(key) => String::new(),
@@ -444,6 +460,15 @@ pub async fn settings(state: Arc<Serve>, access: Option<Access>) -> Answer<Json<
             },
             meaning: (*meaning).into(),
             open: local || OPEN_SETTINGS.contains(key),
+            // What is set here needs no command, and a setting of the
+            // client's, such as `server`, has none that the server can give.
+            command: match local || OPEN_SETTINGS.contains(key) {
+                true => String::new(),
+                false => match *command {
+                    "" => String::new(),
+                    words => words.replace("{key}", key),
+                },
+            },
         })
         .collect();
     Ok(Json(settings))
@@ -488,6 +513,23 @@ pub struct Catalogue {
     pub template: Value,
     /// What the server's plugins can install, in the order they are applied.
     pub features: Vec<FeatureInfo>,
+    /// The machines the plugins' provisioners offer, with what each offers
+    /// to choose from: its sizes, images and regions.
+    pub machines: Vec<MachineCatalogue>,
+}
+
+/// A kind of machine a plugin's provisioner makes, with what its plugin
+/// offers to choose from when one is made.
+#[derive(Serialize, schemars::JsonSchema)]
+pub struct MachineCatalogue {
+    /// The type of provisioner that makes it, as `PLUGIN/ID`, such as `incus/vm`.
+    pub provisioner: String,
+    /// What it makes, such as `machine`.
+    pub kind: String,
+    pub label: String,
+    pub description: String,
+    /// The choices, each a set of the kind's arguments.
+    pub catalogue: rookery_api::Catalogue,
 }
 
 pub async fn catalogue(state: Arc<Serve>) -> Answer<Json<Catalogue>> {
@@ -511,12 +553,40 @@ pub async fn catalogue(state: Arc<Serve>) -> Answer<Json<Catalogue>> {
             })
         })
         .collect();
+    // Only what a plugin declares is offered: a provisioner it does not bring
+    // is not a choice, and nothing is made up for one.
+    let machines = provision::types(&state.paths)
+        .into_iter()
+        .flat_map(|known| {
+            let (provisioner, description) = (known.id.clone(), known.description.clone());
+            known
+                .kinds
+                .into_iter()
+                .filter(|kind| !kind.catalogue.is_empty())
+                .map(move |kind| MachineCatalogue {
+                    provisioner: provisioner.clone(),
+                    label: kind.label.clone(),
+                    kind: kind.id.clone(),
+                    // A kind says what it makes itself when it differs from
+                    // the provisioner, as a VM from an image does.
+                    description: match kind.description.is_empty() {
+                        true => description.clone(),
+                        false => kind.description.clone(),
+                    },
+                    catalogue: kind.catalogue.clone(),
+                })
+        })
+        .collect();
     let mut template: Value = serde_json::from_slice(&template).map_err(internal)?;
     // How a host is reached is part of every profile, also of one not reached yet.
     if !template["builder"].is_object() {
         template["builder"] = json!({});
     }
-    Ok(Json(Catalogue { template, features }))
+    Ok(Json(Catalogue {
+        template,
+        features,
+        machines,
+    }))
 }
 
 /// Something for the server to make up for a profile.

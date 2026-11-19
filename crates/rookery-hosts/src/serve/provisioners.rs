@@ -10,7 +10,8 @@ use super::{
     api::{Answer, Bytes, Fail, Json, caller, internal},
     auth::Access,
 };
-use rookery_api::{Action, ProvisionerInfo, ProvisionerState, SavedProvisioner, code};
+use futures_util::StreamExt;
+use rookery_api::{Action, ProvisionerInfo, ProvisionerState, Resource, SavedProvisioner, code};
 use rookery_core::{
     provision, provisioner,
     registry::Store,
@@ -18,6 +19,10 @@ use rookery_core::{
 };
 use std::sync::Arc;
 use std::{collections::BTreeMap, io::Write};
+
+/// How many provisioners a list asks at once, so that one that does not
+/// answer holds the list for one turn of the queue and no more.
+const ASKED_AT_ONCE: usize = 4;
 
 fn bad(error: impl std::fmt::Display) -> Fail {
     Fail::new(code::BAD_REQUEST, error.to_string())
@@ -54,7 +59,68 @@ fn known(state: &Serve, store: &Store, name: &str) -> Answer<ProvisionerInfo> {
 }
 
 pub async fn list(state: Arc<Serve>) -> Answer<Json<Vec<ProvisionerInfo>>> {
-    Ok(Json(provision::list(&state.paths, &store(&state))))
+    let registries = store(&state);
+    let options = (state.provision)();
+    let mut infos = provision::list(&state.paths, &registries);
+    // One that cannot be used here is not asked at all.
+    for info in infos.iter_mut().filter(|info| !info.problem.is_empty()) {
+        info.state = "unusable".into();
+        info.message = info.problem.clone();
+    }
+    // What each says of itself, a few at a time and within one deadline for
+    // the whole list, so a page needs no call per name and a provisioner
+    // that hangs does not hold it. A task that ends without an answer, as a
+    // panicked one does, is shown as unusable rather than left blank.
+    let deadline = tokio::time::Instant::now() + options.quick;
+    let asking: Vec<_> = infos
+        .iter()
+        .filter(|info| info.problem.is_empty())
+        .map(|info| {
+            let (paths, registries, name) =
+                (state.paths.clone(), registries.clone(), info.name.clone());
+            let options = (state.provision)();
+            async move {
+                let asked = name.clone();
+                let answered = tokio::task::spawn_blocking(move || {
+                    provisioner::status(&paths, &registries, &asked, &options)
+                })
+                .await;
+                (name, answered)
+            }
+        })
+        .collect();
+    let mut asking = Box::pin(futures_util::stream::iter(asking).buffer_unordered(ASKED_AT_ONCE));
+    let mut waiting = Box::pin(tokio::time::sleep_until(deadline));
+    loop {
+        tokio::select! {
+            _ = &mut waiting => break,
+            next = asking.next() => match next {
+                Some((name, Ok((state, message)))) => {
+                    if let Some(info) = infos.iter_mut().find(|info| info.name == name) {
+                        info.state = state;
+                        info.message = message;
+                    }
+                }
+                Some((name, Err(error))) => {
+                    if let Some(info) = infos.iter_mut().find(|info| info.name == name) {
+                        info.state = "unusable".into();
+                        info.message = format!("{name} could not be asked: {error}");
+                    }
+                }
+                None => break,
+            },
+        }
+    }
+    // Whatever the deadline left is what `provisioners.get` says of one whose
+    // status ran out of time.
+    for info in infos
+        .iter_mut()
+        .filter(|info| info.problem.is_empty() && info.state.is_empty())
+    {
+        info.state = "unreachable".into();
+        info.message = provision::unanswered(&info.name, "status", options.quick);
+    }
+    Ok(Json(infos))
 }
 
 pub async fn types(state: Arc<Serve>) -> Answer<Json<Vec<ProvisionerInfo>>> {
@@ -70,10 +136,24 @@ pub async fn save(state: Arc<Serve>, name: String, body: Bytes) -> Answer<Json<P
 
 pub async fn remove(state: Arc<Serve>, name: String) -> Answer<Json<rookery_api::Done>> {
     let registries = store(&state);
-    known(&state, &registries, &name)?;
-    provisioner::remove_entry(&state.paths, &registries, &name)
+    let info = known(&state, &registries, &name)?;
+    let held = provisioner::remove_entry(&state.paths, &registries, &name)
         .map_err(|error| Fail::new(code::CONFLICT, error.to_string()))?;
-    Ok(Json(rookery_api::Done { ok: true }))
+    if held.is_empty() {
+        return Ok(Json(rookery_api::Done { ok: true }));
+    }
+    // What it holds is what has to be removed first, so the caller is given
+    // the resources themselves, not only their ids. The plugins are read
+    // once for all of them.
+    let plugins = provision::list_plugins(&state.paths);
+    let resources: Vec<Resource> = held
+        .iter()
+        .map(|kept| super::resources::described(&state, kept, &plugins))
+        .collect();
+    Err(
+        Fail::new(code::CONFLICT, provisioner::held_message(&info.name, &held))
+            .with(serde_json::json!({ "resources": resources })),
+    )
 }
 
 pub async fn provisioner(

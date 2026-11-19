@@ -73,6 +73,7 @@
           {
             "id": "machine",
             "label": "Machine",
+            "description": "A KVM guest on an Incus server, set up from rookery's cloud seed.",
             "setup": "seed",
             "archive": true,
             "verbs": [
@@ -121,11 +122,71 @@
                 "default": "",
                 "help": "The network it is attached to. Empty takes the network of the default profile."
               }
-            ]
+            ],
+            "catalogue": {
+              "sizes": [
+                {
+                  "id": "small",
+                  "label": "Small (2 vCPU, 4 GiB)",
+                  "values": {
+                    "cpus": "2",
+                    "memory": "4GiB",
+                    "disk": "40GiB"
+                  }
+                },
+                {
+                  "id": "standard",
+                  "label": "Standard (4 vCPU, 8 GiB)",
+                  "default": true,
+                  "values": {
+                    "cpus": "4",
+                    "memory": "8GiB",
+                    "disk": "60GiB"
+                  }
+                },
+                {
+                  "id": "large",
+                  "label": "Large (8 vCPU, 16 GiB)",
+                  "values": {
+                    "cpus": "8",
+                    "memory": "16GiB",
+                    "disk": "120GiB"
+                  }
+                }
+              ],
+              "images": [
+                {
+                  "id": "ubuntu-2604",
+                  "label": "Ubuntu 26.04 LTS",
+                  "help": "A cloud image, which runs the seed.",
+                  "default": true,
+                  "values": {
+                    "image": "ubuntu/26.04/cloud"
+                  }
+                },
+                {
+                  "id": "ubuntu-2404",
+                  "label": "Ubuntu 24.04 LTS",
+                  "help": "A cloud image, which runs the seed.",
+                  "values": {
+                    "image": "ubuntu/24.04/cloud"
+                  }
+                },
+                {
+                  "id": "debian-13",
+                  "label": "Debian 13",
+                  "help": "A cloud image, which runs the seed.",
+                  "values": {
+                    "image": "debian/13/cloud"
+                  }
+                }
+              ]
+            }
           },
           {
             "id": "instance",
             "label": "Virtual machine from an image",
+            "description": "A virtual machine from an image on images.linuxcontainers.org, which puts nothing of rookery in it.",
             "verbs": [
               "start",
               "stop",
@@ -179,7 +240,54 @@
                 "default": "",
                 "help": "The network it is attached to. Empty takes the network of the default profile."
               }
-            ]
+            ],
+            "catalogue": {
+              "sizes": [
+                {
+                  "id": "small",
+                  "label": "Small (2 vCPU, 2 GiB)",
+                  "default": true,
+                  "values": {
+                    "cpus": "2",
+                    "memory": "2GiB",
+                    "disk": "20GiB"
+                  }
+                },
+                {
+                  "id": "medium",
+                  "label": "Medium (4 vCPU, 4 GiB)",
+                  "values": {
+                    "cpus": "4",
+                    "memory": "4GiB",
+                    "disk": "40GiB"
+                  }
+                }
+              ],
+              "images": [
+                {
+                  "id": "ubuntu-2404",
+                  "label": "Ubuntu 24.04",
+                  "default": true,
+                  "values": {
+                    "image": "ubuntu/24.04"
+                  }
+                },
+                {
+                  "id": "debian-13",
+                  "label": "Debian 13",
+                  "values": {
+                    "image": "debian/13"
+                  }
+                },
+                {
+                  "id": "alpine-320",
+                  "label": "Alpine 3.20",
+                  "values": {
+                    "image": "alpine/3.20"
+                  }
+                }
+              ]
+            }
           }
         ],
         "collections": [

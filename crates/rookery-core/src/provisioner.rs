@@ -345,33 +345,41 @@ pub fn adopted(paths: &Paths, name: &str, kind: &str) -> Result<String> {
     )
 }
 
+/// Why a provisioner that still holds resources cannot be removed, as the
+/// sentence a person acts on.
+pub fn held_message(name: &str, held: &[crate::resource::Kept]) -> String {
+    let ids: Vec<&str> = held.iter().map(|kept| kept.record.id.as_str()).collect();
+    format!(
+        "{name} still holds {}. Remove {} first: rookery resource remove ID",
+        ids.join(", "),
+        if ids.len() == 1 { "it" } else { "them" }
+    )
+}
+
 /// Forget a registered provisioner and everything that belongs to it, such
 /// as the secrets it keeps, in one change. One that still holds resources is
-/// kept: they would have no provisioner.
-pub fn remove_entry(paths: &Paths, _store: &Store, given: &str) -> Result<()> {
+/// kept, and what it holds is returned: they would have no provisioner.
+pub fn remove_entry(
+    paths: &Paths,
+    _store: &Store,
+    given: &str,
+) -> Result<Vec<crate::resource::Kept>> {
     let Some(entry) = entry(paths, given)? else {
         return Err(format!("No provisioner {given}. See: rookery provisioner list").into());
     };
-    let held: Vec<String> = crate::resource::list(paths)?
+    let held: Vec<crate::resource::Kept> = crate::resource::list(paths)?
         .into_iter()
         .filter(|kept| kept.record.provisioner == entry.id)
-        .map(|kept| kept.record.id)
         .collect();
     if !held.is_empty() {
-        return Err(format!(
-            "{} still holds {}. Remove {} first: rookery resource remove ID",
-            entry.name,
-            held.join(", "),
-            if held.len() == 1 { "it" } else { "them" }
-        )
-        .into());
+        return Ok(held);
     }
     let mut batch = store::Batch::default();
     batch
         .remove(kind::PROVISIONER_ENTRY, OWN, &entry.id)
         .forget_owned(OWN, &entry.id);
     store::shared(paths)?.apply(&batch)?;
-    Ok(())
+    Ok(vec![])
 }
 
 /// Why the registered provisioner `old` cannot be called `new`, if it cannot.
@@ -627,10 +635,34 @@ pub fn state(
     given: &BTreeMap<String, String>,
     options: &Options,
 ) -> Result<ProvisionerState> {
+    page(paths, store, name, given, options, true)
+}
+
+/// What a provisioner says of itself now, and nothing of what it holds: the
+/// state and message of its page, for a listing that does not open each one.
+pub fn status(paths: &Paths, store: &Store, name: &str, options: &Options) -> (String, String) {
+    match page(paths, store, name, &BTreeMap::new(), options, false) {
+        Ok(state) => (state.state, state.message),
+        Err(error) => ("unusable".to_owned(), error.to_string()),
+    }
+}
+
+/// A provisioner's page, with what it holds when `holdings`, which asks its
+/// `list` verb and reads rookery's records.
+fn page(
+    paths: &Paths,
+    store: &Store,
+    name: &str,
+    given: &BTreeMap<String, String>,
+    options: &Options,
+    holdings: bool,
+) -> Result<ProvisionerState> {
     let (dir, plugin, provisioner) = load(paths, name)?;
     let info = describe(paths, store, name, &plugin, &provisioner);
-    let records = crate::resource::list(paths).unwrap_or_default();
-    let mut listed = vec![];
+    let records = match holdings {
+        true => crate::resource::list(paths).unwrap_or_default(),
+        false => vec![],
+    };
     let mut state = ProvisionerState {
         provisioner: info.clone(),
         state: "unusable".into(),
@@ -644,7 +676,9 @@ pub fn state(
         Ok(own) => own,
         Err(error) => {
             state.message = error.to_string();
-            state.resources = crate::resource::merge(paths, &records, name, vec![]);
+            if holdings {
+                state.resources = crate::resource::merge(paths, &records, name, vec![]);
+            }
             return Ok(state);
         }
     };
@@ -684,6 +718,10 @@ pub fn state(
             state.message = error.to_string();
         }
     }
+    if !holdings {
+        return Ok(state);
+    }
+    let mut listed = vec![];
     if state.state != "unreachable" && provisioner.verbs.iter().any(|verb| verb == "list") {
         let asked = request("list", &provisioner, &own, &secrets);
         if let Ok(answer) = call(
@@ -1148,6 +1186,7 @@ pub fn prepare(
             kind: kind.to_owned(),
             name: resource,
             host: None,
+            profile: None,
             arguments: values,
             spec,
             secrets,
@@ -1287,7 +1326,10 @@ impl Acting {
                 })
             }
             Doing::Remove(store) => {
-                remove_entry(paths, &store, &self.name)?;
+                let held = remove_entry(paths, &store, &self.name)?;
+                if !held.is_empty() {
+                    return Err(held_message(&self.name, &held).into());
+                }
                 Ok(Answered {
                     message: format!("{} is removed", self.name),
                     details: vec![],

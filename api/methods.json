@@ -7102,6 +7102,10 @@
       "$defs": {
         "Setting": {
           "properties": {
+            "command": {
+              "description": "For one that is not open, what an admin runs on the server's own\nmachine to change it. Empty for one with no command of its own.",
+              "type": "string"
+            },
             "key": {
               "type": "string"
             },
@@ -7109,7 +7113,7 @@
               "type": "string"
             },
             "open": {
-              "description": "Whether `settings.set` takes it.",
+              "description": "Whether `installation.settings.set` takes it.",
               "type": "boolean"
             },
             "value": {
@@ -10228,6 +10232,66 @@
           ],
           "type": "object"
         },
+        "Catalogue": {
+          "description": "What a plugin offers to choose from when a machine is made, as sets of\nthe kind's arguments. A provider declares the ones it has; a choice sets\nthose arguments it names, and the others take their settings or defaults.",
+          "properties": {
+            "images": {
+              "description": "The images it starts machines from.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "regions": {
+              "description": "The regions or zones it makes them in.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "sizes": {
+              "description": "The sizes it offers, such as 2 vCPU and 4 GiB.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "CatalogueChoice": {
+          "description": "One of what a plugin offers: a size, an image or a region, as the values\nit gives the arguments of the kind.",
+          "properties": {
+            "default": {
+              "default": false,
+              "description": "Whether a machine gets it when no other is chosen.",
+              "type": "boolean"
+            },
+            "help": {
+              "type": "string"
+            },
+            "id": {
+              "description": "Its id, which the kind's arguments do not take: what is chosen is the\n`values` it sets.",
+              "type": "string"
+            },
+            "label": {
+              "default": "",
+              "type": "string"
+            },
+            "values": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {},
+              "description": "The arguments it sets, by their names. One not named keeps its\nsetting or default.",
+              "type": "object"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
         "ClientInfo": {
           "description": "The client half as a shell loads it.",
           "properties": {
@@ -10626,6 +10690,10 @@
             "label": {
               "type": "string"
             },
+            "message": {
+              "description": "What it said with that state, such as why it cannot be reached.",
+              "type": "string"
+            },
             "missing_secrets": {
               "description": "The required ones that have no value. Not looked at in a plugin's listing.",
               "items": {
@@ -10676,6 +10744,10 @@
               "description": "`seed`: the machine boots with rookery's cloud seed and sets itself up.\n`apply`: rookery applies the profile over SSH once the machine answers.",
               "type": "string"
             },
+            "state": {
+              "description": "What it says of itself now: `ready`, `unreachable` or `unusable`, or\nwhat its plugin said. In the list it is asked for each one whose\n`problem` is empty; `provisioners.get` has the rest of its page.",
+              "type": "string"
+            },
             "type": {
               "default": "",
               "description": "The plugin's provisioner it is, as `PLUGIN/ID`, such as `incus/vm`.",
@@ -10713,6 +10785,14 @@
                 "$ref": "#/$defs/Argument"
               },
               "type": "array"
+            },
+            "catalogue": {
+              "$ref": "#/$defs/Catalogue",
+              "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
             },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
@@ -11081,6 +11161,66 @@
           ],
           "type": "object"
         },
+        "Catalogue": {
+          "description": "What a plugin offers to choose from when a machine is made, as sets of\nthe kind's arguments. A provider declares the ones it has; a choice sets\nthose arguments it names, and the others take their settings or defaults.",
+          "properties": {
+            "images": {
+              "description": "The images it starts machines from.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "regions": {
+              "description": "The regions or zones it makes them in.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "sizes": {
+              "description": "The sizes it offers, such as 2 vCPU and 4 GiB.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "CatalogueChoice": {
+          "description": "One of what a plugin offers: a size, an image or a region, as the values\nit gives the arguments of the kind.",
+          "properties": {
+            "default": {
+              "default": false,
+              "description": "Whether a machine gets it when no other is chosen.",
+              "type": "boolean"
+            },
+            "help": {
+              "type": "string"
+            },
+            "id": {
+              "description": "Its id, which the kind's arguments do not take: what is chosen is the\n`values` it sets.",
+              "type": "string"
+            },
+            "label": {
+              "default": "",
+              "type": "string"
+            },
+            "values": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {},
+              "description": "The arguments it sets, by their names. One not named keeps its\nsetting or default.",
+              "type": "object"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
         "Change": {
           "description": "Something that changed since a host was applied: rookery itself or a plugin.",
           "properties": {
@@ -11629,6 +11769,10 @@
             "label": {
               "type": "string"
             },
+            "message": {
+              "description": "What it said with that state, such as why it cannot be reached.",
+              "type": "string"
+            },
             "missing_secrets": {
               "description": "The required ones that have no value. Not looked at in a plugin's listing.",
               "items": {
@@ -11679,6 +11823,10 @@
               "description": "`seed`: the machine boots with rookery's cloud seed and sets itself up.\n`apply`: rookery applies the profile over SSH once the machine answers.",
               "type": "string"
             },
+            "state": {
+              "description": "What it says of itself now: `ready`, `unreachable` or `unusable`, or\nwhat its plugin said. In the list it is asked for each one whose\n`problem` is empty; `provisioners.get` has the rest of its page.",
+              "type": "string"
+            },
             "type": {
               "default": "",
               "description": "The plugin's provisioner it is, as `PLUGIN/ID`, such as `incus/vm`.",
@@ -11716,6 +11864,14 @@
                 "$ref": "#/$defs/Argument"
               },
               "type": "array"
+            },
+            "catalogue": {
+              "$ref": "#/$defs/Catalogue",
+              "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
             },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
@@ -12036,6 +12192,66 @@
           ],
           "type": "object"
         },
+        "Catalogue": {
+          "description": "What a plugin offers to choose from when a machine is made, as sets of\nthe kind's arguments. A provider declares the ones it has; a choice sets\nthose arguments it names, and the others take their settings or defaults.",
+          "properties": {
+            "images": {
+              "description": "The images it starts machines from.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "regions": {
+              "description": "The regions or zones it makes them in.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "sizes": {
+              "description": "The sizes it offers, such as 2 vCPU and 4 GiB.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "CatalogueChoice": {
+          "description": "One of what a plugin offers: a size, an image or a region, as the values\nit gives the arguments of the kind.",
+          "properties": {
+            "default": {
+              "default": false,
+              "description": "Whether a machine gets it when no other is chosen.",
+              "type": "boolean"
+            },
+            "help": {
+              "type": "string"
+            },
+            "id": {
+              "description": "Its id, which the kind's arguments do not take: what is chosen is the\n`values` it sets.",
+              "type": "string"
+            },
+            "label": {
+              "default": "",
+              "type": "string"
+            },
+            "values": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {},
+              "description": "The arguments it sets, by their names. One not named keeps its\nsetting or default.",
+              "type": "object"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
         "ClientInfo": {
           "description": "The client half as a shell loads it.",
           "properties": {
@@ -12541,6 +12757,10 @@
             "label": {
               "type": "string"
             },
+            "message": {
+              "description": "What it said with that state, such as why it cannot be reached.",
+              "type": "string"
+            },
             "missing_secrets": {
               "description": "The required ones that have no value. Not looked at in a plugin's listing.",
               "items": {
@@ -12591,6 +12811,10 @@
               "description": "`seed`: the machine boots with rookery's cloud seed and sets itself up.\n`apply`: rookery applies the profile over SSH once the machine answers.",
               "type": "string"
             },
+            "state": {
+              "description": "What it says of itself now: `ready`, `unreachable` or `unusable`, or\nwhat its plugin said. In the list it is asked for each one whose\n`problem` is empty; `provisioners.get` has the rest of its page.",
+              "type": "string"
+            },
             "type": {
               "default": "",
               "description": "The plugin's provisioner it is, as `PLUGIN/ID`, such as `incus/vm`.",
@@ -12628,6 +12852,14 @@
                 "$ref": "#/$defs/Argument"
               },
               "type": "array"
+            },
+            "catalogue": {
+              "$ref": "#/$defs/Catalogue",
+              "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
             },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
@@ -12922,6 +13154,66 @@
           },
           "required": [
             "name"
+          ],
+          "type": "object"
+        },
+        "Catalogue": {
+          "description": "What a plugin offers to choose from when a machine is made, as sets of\nthe kind's arguments. A provider declares the ones it has; a choice sets\nthose arguments it names, and the others take their settings or defaults.",
+          "properties": {
+            "images": {
+              "description": "The images it starts machines from.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "regions": {
+              "description": "The regions or zones it makes them in.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "sizes": {
+              "description": "The sizes it offers, such as 2 vCPU and 4 GiB.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "CatalogueChoice": {
+          "description": "One of what a plugin offers: a size, an image or a region, as the values\nit gives the arguments of the kind.",
+          "properties": {
+            "default": {
+              "default": false,
+              "description": "Whether a machine gets it when no other is chosen.",
+              "type": "boolean"
+            },
+            "help": {
+              "type": "string"
+            },
+            "id": {
+              "description": "Its id, which the kind's arguments do not take: what is chosen is the\n`values` it sets.",
+              "type": "string"
+            },
+            "label": {
+              "default": "",
+              "type": "string"
+            },
+            "values": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {},
+              "description": "The arguments it sets, by their names. One not named keeps its\nsetting or default.",
+              "type": "object"
+            }
+          },
+          "required": [
+            "id"
           ],
           "type": "object"
         },
@@ -13473,6 +13765,10 @@
             "label": {
               "type": "string"
             },
+            "message": {
+              "description": "What it said with that state, such as why it cannot be reached.",
+              "type": "string"
+            },
             "missing_secrets": {
               "description": "The required ones that have no value. Not looked at in a plugin's listing.",
               "items": {
@@ -13523,6 +13819,10 @@
               "description": "`seed`: the machine boots with rookery's cloud seed and sets itself up.\n`apply`: rookery applies the profile over SSH once the machine answers.",
               "type": "string"
             },
+            "state": {
+              "description": "What it says of itself now: `ready`, `unreachable` or `unusable`, or\nwhat its plugin said. In the list it is asked for each one whose\n`problem` is empty; `provisioners.get` has the rest of its page.",
+              "type": "string"
+            },
             "type": {
               "default": "",
               "description": "The plugin's provisioner it is, as `PLUGIN/ID`, such as `incus/vm`.",
@@ -13560,6 +13860,14 @@
                 "$ref": "#/$defs/Argument"
               },
               "type": "array"
+            },
+            "catalogue": {
+              "$ref": "#/$defs/Catalogue",
+              "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
             },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
@@ -13914,6 +14222,66 @@
           ],
           "type": "object"
         },
+        "Catalogue": {
+          "description": "What a plugin offers to choose from when a machine is made, as sets of\nthe kind's arguments. A provider declares the ones it has; a choice sets\nthose arguments it names, and the others take their settings or defaults.",
+          "properties": {
+            "images": {
+              "description": "The images it starts machines from.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "regions": {
+              "description": "The regions or zones it makes them in.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "sizes": {
+              "description": "The sizes it offers, such as 2 vCPU and 4 GiB.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "CatalogueChoice": {
+          "description": "One of what a plugin offers: a size, an image or a region, as the values\nit gives the arguments of the kind.",
+          "properties": {
+            "default": {
+              "default": false,
+              "description": "Whether a machine gets it when no other is chosen.",
+              "type": "boolean"
+            },
+            "help": {
+              "type": "string"
+            },
+            "id": {
+              "description": "Its id, which the kind's arguments do not take: what is chosen is the\n`values` it sets.",
+              "type": "string"
+            },
+            "label": {
+              "default": "",
+              "type": "string"
+            },
+            "values": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {},
+              "description": "The arguments it sets, by their names. One not named keeps its\nsetting or default.",
+              "type": "object"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
         "Change": {
           "description": "Something that changed since a host was applied: rookery itself or a plugin.",
           "properties": {
@@ -14462,6 +14830,10 @@
             "label": {
               "type": "string"
             },
+            "message": {
+              "description": "What it said with that state, such as why it cannot be reached.",
+              "type": "string"
+            },
             "missing_secrets": {
               "description": "The required ones that have no value. Not looked at in a plugin's listing.",
               "items": {
@@ -14512,6 +14884,10 @@
               "description": "`seed`: the machine boots with rookery's cloud seed and sets itself up.\n`apply`: rookery applies the profile over SSH once the machine answers.",
               "type": "string"
             },
+            "state": {
+              "description": "What it says of itself now: `ready`, `unreachable` or `unusable`, or\nwhat its plugin said. In the list it is asked for each one whose\n`problem` is empty; `provisioners.get` has the rest of its page.",
+              "type": "string"
+            },
             "type": {
               "default": "",
               "description": "The plugin's provisioner it is, as `PLUGIN/ID`, such as `incus/vm`.",
@@ -14549,6 +14925,14 @@
                 "$ref": "#/$defs/Argument"
               },
               "type": "array"
+            },
+            "catalogue": {
+              "$ref": "#/$defs/Catalogue",
+              "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
             },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
@@ -14807,6 +15191,66 @@
           ],
           "type": "object"
         },
+        "Catalogue": {
+          "description": "What a plugin offers to choose from when a machine is made, as sets of\nthe kind's arguments. A provider declares the ones it has; a choice sets\nthose arguments it names, and the others take their settings or defaults.",
+          "properties": {
+            "images": {
+              "description": "The images it starts machines from.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "regions": {
+              "description": "The regions or zones it makes them in.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "sizes": {
+              "description": "The sizes it offers, such as 2 vCPU and 4 GiB.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "CatalogueChoice": {
+          "description": "One of what a plugin offers: a size, an image or a region, as the values\nit gives the arguments of the kind.",
+          "properties": {
+            "default": {
+              "default": false,
+              "description": "Whether a machine gets it when no other is chosen.",
+              "type": "boolean"
+            },
+            "help": {
+              "type": "string"
+            },
+            "id": {
+              "description": "Its id, which the kind's arguments do not take: what is chosen is the\n`values` it sets.",
+              "type": "string"
+            },
+            "label": {
+              "default": "",
+              "type": "string"
+            },
+            "values": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {},
+              "description": "The arguments it sets, by their names. One not named keeps its\nsetting or default.",
+              "type": "object"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
         "ClientInfo": {
           "description": "The client half as a shell loads it.",
           "properties": {
@@ -15312,6 +15756,10 @@
             "label": {
               "type": "string"
             },
+            "message": {
+              "description": "What it said with that state, such as why it cannot be reached.",
+              "type": "string"
+            },
             "missing_secrets": {
               "description": "The required ones that have no value. Not looked at in a plugin's listing.",
               "items": {
@@ -15362,6 +15810,10 @@
               "description": "`seed`: the machine boots with rookery's cloud seed and sets itself up.\n`apply`: rookery applies the profile over SSH once the machine answers.",
               "type": "string"
             },
+            "state": {
+              "description": "What it says of itself now: `ready`, `unreachable` or `unusable`, or\nwhat its plugin said. In the list it is asked for each one whose\n`problem` is empty; `provisioners.get` has the rest of its page.",
+              "type": "string"
+            },
             "type": {
               "default": "",
               "description": "The plugin's provisioner it is, as `PLUGIN/ID`, such as `incus/vm`.",
@@ -15399,6 +15851,14 @@
                 "$ref": "#/$defs/Argument"
               },
               "type": "array"
+            },
+            "catalogue": {
+              "$ref": "#/$defs/Catalogue",
+              "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
             },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
@@ -15654,6 +16114,66 @@
           },
           "required": [
             "name"
+          ],
+          "type": "object"
+        },
+        "Catalogue": {
+          "description": "What a plugin offers to choose from when a machine is made, as sets of\nthe kind's arguments. A provider declares the ones it has; a choice sets\nthose arguments it names, and the others take their settings or defaults.",
+          "properties": {
+            "images": {
+              "description": "The images it starts machines from.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "regions": {
+              "description": "The regions or zones it makes them in.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "sizes": {
+              "description": "The sizes it offers, such as 2 vCPU and 4 GiB.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "CatalogueChoice": {
+          "description": "One of what a plugin offers: a size, an image or a region, as the values\nit gives the arguments of the kind.",
+          "properties": {
+            "default": {
+              "default": false,
+              "description": "Whether a machine gets it when no other is chosen.",
+              "type": "boolean"
+            },
+            "help": {
+              "type": "string"
+            },
+            "id": {
+              "description": "Its id, which the kind's arguments do not take: what is chosen is the\n`values` it sets.",
+              "type": "string"
+            },
+            "label": {
+              "default": "",
+              "type": "string"
+            },
+            "values": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {},
+              "description": "The arguments it sets, by their names. One not named keeps its\nsetting or default.",
+              "type": "object"
+            }
+          },
+          "required": [
+            "id"
           ],
           "type": "object"
         },
@@ -16205,6 +16725,10 @@
             "label": {
               "type": "string"
             },
+            "message": {
+              "description": "What it said with that state, such as why it cannot be reached.",
+              "type": "string"
+            },
             "missing_secrets": {
               "description": "The required ones that have no value. Not looked at in a plugin's listing.",
               "items": {
@@ -16255,6 +16779,10 @@
               "description": "`seed`: the machine boots with rookery's cloud seed and sets itself up.\n`apply`: rookery applies the profile over SSH once the machine answers.",
               "type": "string"
             },
+            "state": {
+              "description": "What it says of itself now: `ready`, `unreachable` or `unusable`, or\nwhat its plugin said. In the list it is asked for each one whose\n`problem` is empty; `provisioners.get` has the rest of its page.",
+              "type": "string"
+            },
             "type": {
               "default": "",
               "description": "The plugin's provisioner it is, as `PLUGIN/ID`, such as `incus/vm`.",
@@ -16292,6 +16820,14 @@
                 "$ref": "#/$defs/Argument"
               },
               "type": "array"
+            },
+            "catalogue": {
+              "$ref": "#/$defs/Catalogue",
+              "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
             },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
@@ -16589,6 +17125,66 @@
           ],
           "type": "object"
         },
+        "Catalogue": {
+          "description": "What a plugin offers to choose from when a machine is made, as sets of\nthe kind's arguments. A provider declares the ones it has; a choice sets\nthose arguments it names, and the others take their settings or defaults.",
+          "properties": {
+            "images": {
+              "description": "The images it starts machines from.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "regions": {
+              "description": "The regions or zones it makes them in.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "sizes": {
+              "description": "The sizes it offers, such as 2 vCPU and 4 GiB.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "CatalogueChoice": {
+          "description": "One of what a plugin offers: a size, an image or a region, as the values\nit gives the arguments of the kind.",
+          "properties": {
+            "default": {
+              "default": false,
+              "description": "Whether a machine gets it when no other is chosen.",
+              "type": "boolean"
+            },
+            "help": {
+              "type": "string"
+            },
+            "id": {
+              "description": "Its id, which the kind's arguments do not take: what is chosen is the\n`values` it sets.",
+              "type": "string"
+            },
+            "label": {
+              "default": "",
+              "type": "string"
+            },
+            "values": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {},
+              "description": "The arguments it sets, by their names. One not named keeps its\nsetting or default.",
+              "type": "object"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
         "Change": {
           "description": "Something that changed since a host was applied: rookery itself or a plugin.",
           "properties": {
@@ -17137,6 +17733,10 @@
             "label": {
               "type": "string"
             },
+            "message": {
+              "description": "What it said with that state, such as why it cannot be reached.",
+              "type": "string"
+            },
             "missing_secrets": {
               "description": "The required ones that have no value. Not looked at in a plugin's listing.",
               "items": {
@@ -17187,6 +17787,10 @@
               "description": "`seed`: the machine boots with rookery's cloud seed and sets itself up.\n`apply`: rookery applies the profile over SSH once the machine answers.",
               "type": "string"
             },
+            "state": {
+              "description": "What it says of itself now: `ready`, `unreachable` or `unusable`, or\nwhat its plugin said. In the list it is asked for each one whose\n`problem` is empty; `provisioners.get` has the rest of its page.",
+              "type": "string"
+            },
             "type": {
               "default": "",
               "description": "The plugin's provisioner it is, as `PLUGIN/ID`, such as `incus/vm`.",
@@ -17224,6 +17828,14 @@
                 "$ref": "#/$defs/Argument"
               },
               "type": "array"
+            },
+            "catalogue": {
+              "$ref": "#/$defs/Catalogue",
+              "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
             },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
@@ -17489,6 +18101,66 @@
           ],
           "type": "object"
         },
+        "Catalogue": {
+          "description": "What a plugin offers to choose from when a machine is made, as sets of\nthe kind's arguments. A provider declares the ones it has; a choice sets\nthose arguments it names, and the others take their settings or defaults.",
+          "properties": {
+            "images": {
+              "description": "The images it starts machines from.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "regions": {
+              "description": "The regions or zones it makes them in.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "sizes": {
+              "description": "The sizes it offers, such as 2 vCPU and 4 GiB.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "CatalogueChoice": {
+          "description": "One of what a plugin offers: a size, an image or a region, as the values\nit gives the arguments of the kind.",
+          "properties": {
+            "default": {
+              "default": false,
+              "description": "Whether a machine gets it when no other is chosen.",
+              "type": "boolean"
+            },
+            "help": {
+              "type": "string"
+            },
+            "id": {
+              "description": "Its id, which the kind's arguments do not take: what is chosen is the\n`values` it sets.",
+              "type": "string"
+            },
+            "label": {
+              "default": "",
+              "type": "string"
+            },
+            "values": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {},
+              "description": "The arguments it sets, by their names. One not named keeps its\nsetting or default.",
+              "type": "object"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
         "Change": {
           "description": "Something that changed since a host was applied: rookery itself or a plugin.",
           "properties": {
@@ -18037,6 +18709,10 @@
             "label": {
               "type": "string"
             },
+            "message": {
+              "description": "What it said with that state, such as why it cannot be reached.",
+              "type": "string"
+            },
             "missing_secrets": {
               "description": "The required ones that have no value. Not looked at in a plugin's listing.",
               "items": {
@@ -18087,6 +18763,10 @@
               "description": "`seed`: the machine boots with rookery's cloud seed and sets itself up.\n`apply`: rookery applies the profile over SSH once the machine answers.",
               "type": "string"
             },
+            "state": {
+              "description": "What it says of itself now: `ready`, `unreachable` or `unusable`, or\nwhat its plugin said. In the list it is asked for each one whose\n`problem` is empty; `provisioners.get` has the rest of its page.",
+              "type": "string"
+            },
             "type": {
               "default": "",
               "description": "The plugin's provisioner it is, as `PLUGIN/ID`, such as `incus/vm`.",
@@ -18124,6 +18804,14 @@
                 "$ref": "#/$defs/Argument"
               },
               "type": "array"
+            },
+            "catalogue": {
+              "$ref": "#/$defs/Catalogue",
+              "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
             },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
@@ -19045,6 +19733,66 @@
           ],
           "type": "object"
         },
+        "Catalogue": {
+          "description": "What a plugin offers to choose from when a machine is made, as sets of\nthe kind's arguments. A provider declares the ones it has; a choice sets\nthose arguments it names, and the others take their settings or defaults.",
+          "properties": {
+            "images": {
+              "description": "The images it starts machines from.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "regions": {
+              "description": "The regions or zones it makes them in.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "sizes": {
+              "description": "The sizes it offers, such as 2 vCPU and 4 GiB.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "CatalogueChoice": {
+          "description": "One of what a plugin offers: a size, an image or a region, as the values\nit gives the arguments of the kind.",
+          "properties": {
+            "default": {
+              "default": false,
+              "description": "Whether a machine gets it when no other is chosen.",
+              "type": "boolean"
+            },
+            "help": {
+              "type": "string"
+            },
+            "id": {
+              "description": "Its id, which the kind's arguments do not take: what is chosen is the\n`values` it sets.",
+              "type": "string"
+            },
+            "label": {
+              "default": "",
+              "type": "string"
+            },
+            "values": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {},
+              "description": "The arguments it sets, by their names. One not named keeps its\nsetting or default.",
+              "type": "object"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
         "Collection": {
           "description": "A list of things a provisioner holds, such as the storage pools of a\nserver. Its items come with the provisioner's status, and its actions are\nthe provisioner's own: some make an item, some act on one item, whose\nkey fills their arguments, and some act on the whole list.",
           "properties": {
@@ -19297,6 +20045,10 @@
             "label": {
               "type": "string"
             },
+            "message": {
+              "description": "What it said with that state, such as why it cannot be reached.",
+              "type": "string"
+            },
             "missing_secrets": {
               "description": "The required ones that have no value. Not looked at in a plugin's listing.",
               "items": {
@@ -19347,6 +20099,10 @@
               "description": "`seed`: the machine boots with rookery's cloud seed and sets itself up.\n`apply`: rookery applies the profile over SSH once the machine answers.",
               "type": "string"
             },
+            "state": {
+              "description": "What it says of itself now: `ready`, `unreachable` or `unusable`, or\nwhat its plugin said. In the list it is asked for each one whose\n`problem` is empty; `provisioners.get` has the rest of its page.",
+              "type": "string"
+            },
             "type": {
               "default": "",
               "description": "The plugin's provisioner it is, as `PLUGIN/ID`, such as `incus/vm`.",
@@ -19384,6 +20140,14 @@
                 "$ref": "#/$defs/Argument"
               },
               "type": "array"
+            },
+            "catalogue": {
+              "$ref": "#/$defs/Catalogue",
+              "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
             },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
@@ -19670,6 +20434,66 @@
           ],
           "type": "object"
         },
+        "Catalogue": {
+          "description": "What a plugin offers to choose from when a machine is made, as sets of\nthe kind's arguments. A provider declares the ones it has; a choice sets\nthose arguments it names, and the others take their settings or defaults.",
+          "properties": {
+            "images": {
+              "description": "The images it starts machines from.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "regions": {
+              "description": "The regions or zones it makes them in.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "sizes": {
+              "description": "The sizes it offers, such as 2 vCPU and 4 GiB.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "CatalogueChoice": {
+          "description": "One of what a plugin offers: a size, an image or a region, as the values\nit gives the arguments of the kind.",
+          "properties": {
+            "default": {
+              "default": false,
+              "description": "Whether a machine gets it when no other is chosen.",
+              "type": "boolean"
+            },
+            "help": {
+              "type": "string"
+            },
+            "id": {
+              "description": "Its id, which the kind's arguments do not take: what is chosen is the\n`values` it sets.",
+              "type": "string"
+            },
+            "label": {
+              "default": "",
+              "type": "string"
+            },
+            "values": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {},
+              "description": "The arguments it sets, by their names. One not named keeps its\nsetting or default.",
+              "type": "object"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
         "Collection": {
           "description": "A list of things a provisioner holds, such as the storage pools of a\nserver. Its items come with the provisioner's status, and its actions are\nthe provisioner's own: some make an item, some act on one item, whose\nkey fills their arguments, and some act on the whole list.",
           "properties": {
@@ -19837,6 +20661,10 @@
             "label": {
               "type": "string"
             },
+            "message": {
+              "description": "What it said with that state, such as why it cannot be reached.",
+              "type": "string"
+            },
             "missing_secrets": {
               "description": "The required ones that have no value. Not looked at in a plugin's listing.",
               "items": {
@@ -19887,6 +20715,10 @@
               "description": "`seed`: the machine boots with rookery's cloud seed and sets itself up.\n`apply`: rookery applies the profile over SSH once the machine answers.",
               "type": "string"
             },
+            "state": {
+              "description": "What it says of itself now: `ready`, `unreachable` or `unusable`, or\nwhat its plugin said. In the list it is asked for each one whose\n`problem` is empty; `provisioners.get` has the rest of its page.",
+              "type": "string"
+            },
             "type": {
               "default": "",
               "description": "The plugin's provisioner it is, as `PLUGIN/ID`, such as `incus/vm`.",
@@ -19924,6 +20756,14 @@
                 "$ref": "#/$defs/Argument"
               },
               "type": "array"
+            },
+            "catalogue": {
+              "$ref": "#/$defs/Catalogue",
+              "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
             },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
@@ -20208,6 +21048,66 @@
           ],
           "type": "object"
         },
+        "Catalogue": {
+          "description": "What a plugin offers to choose from when a machine is made, as sets of\nthe kind's arguments. A provider declares the ones it has; a choice sets\nthose arguments it names, and the others take their settings or defaults.",
+          "properties": {
+            "images": {
+              "description": "The images it starts machines from.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "regions": {
+              "description": "The regions or zones it makes them in.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "sizes": {
+              "description": "The sizes it offers, such as 2 vCPU and 4 GiB.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "CatalogueChoice": {
+          "description": "One of what a plugin offers: a size, an image or a region, as the values\nit gives the arguments of the kind.",
+          "properties": {
+            "default": {
+              "default": false,
+              "description": "Whether a machine gets it when no other is chosen.",
+              "type": "boolean"
+            },
+            "help": {
+              "type": "string"
+            },
+            "id": {
+              "description": "Its id, which the kind's arguments do not take: what is chosen is the\n`values` it sets.",
+              "type": "string"
+            },
+            "label": {
+              "default": "",
+              "type": "string"
+            },
+            "values": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {},
+              "description": "The arguments it sets, by their names. One not named keeps its\nsetting or default.",
+              "type": "object"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
         "Collection": {
           "description": "A list of things a provisioner holds, such as the storage pools of a\nserver. Its items come with the provisioner's status, and its actions are\nthe provisioner's own: some make an item, some act on one item, whose\nkey fills their arguments, and some act on the whole list.",
           "properties": {
@@ -20349,6 +21249,14 @@
               },
               "type": "array"
             },
+            "catalogue": {
+              "$ref": "#/$defs/Catalogue",
+              "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
+            },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
               "type": "string"
@@ -20457,6 +21365,10 @@
         "label": {
           "type": "string"
         },
+        "message": {
+          "description": "What it said with that state, such as why it cannot be reached.",
+          "type": "string"
+        },
         "missing_secrets": {
           "description": "The required ones that have no value. Not looked at in a plugin's listing.",
           "items": {
@@ -20505,6 +21417,10 @@
         },
         "setup": {
           "description": "`seed`: the machine boots with rookery's cloud seed and sets itself up.\n`apply`: rookery applies the profile over SSH once the machine answers.",
+          "type": "string"
+        },
+        "state": {
+          "description": "What it says of itself now: `ready`, `unreachable` or `unusable`, or\nwhat its plugin said. In the list it is asked for each one whose\n`problem` is empty; `provisioners.get` has the rest of its page.",
           "type": "string"
         },
         "type": {
@@ -20691,6 +21607,66 @@
           ],
           "type": "object"
         },
+        "Catalogue": {
+          "description": "What a plugin offers to choose from when a machine is made, as sets of\nthe kind's arguments. A provider declares the ones it has; a choice sets\nthose arguments it names, and the others take their settings or defaults.",
+          "properties": {
+            "images": {
+              "description": "The images it starts machines from.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "regions": {
+              "description": "The regions or zones it makes them in.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "sizes": {
+              "description": "The sizes it offers, such as 2 vCPU and 4 GiB.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "CatalogueChoice": {
+          "description": "One of what a plugin offers: a size, an image or a region, as the values\nit gives the arguments of the kind.",
+          "properties": {
+            "default": {
+              "default": false,
+              "description": "Whether a machine gets it when no other is chosen.",
+              "type": "boolean"
+            },
+            "help": {
+              "type": "string"
+            },
+            "id": {
+              "description": "Its id, which the kind's arguments do not take: what is chosen is the\n`values` it sets.",
+              "type": "string"
+            },
+            "label": {
+              "default": "",
+              "type": "string"
+            },
+            "values": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {},
+              "description": "The arguments it sets, by their names. One not named keeps its\nsetting or default.",
+              "type": "object"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
         "Collection": {
           "description": "A list of things a provisioner holds, such as the storage pools of a\nserver. Its items come with the provisioner's status, and its actions are\nthe provisioner's own: some make an item, some act on one item, whose\nkey fills their arguments, and some act on the whole list.",
           "properties": {
@@ -20858,6 +21834,10 @@
             "label": {
               "type": "string"
             },
+            "message": {
+              "description": "What it said with that state, such as why it cannot be reached.",
+              "type": "string"
+            },
             "missing_secrets": {
               "description": "The required ones that have no value. Not looked at in a plugin's listing.",
               "items": {
@@ -20908,6 +21888,10 @@
               "description": "`seed`: the machine boots with rookery's cloud seed and sets itself up.\n`apply`: rookery applies the profile over SSH once the machine answers.",
               "type": "string"
             },
+            "state": {
+              "description": "What it says of itself now: `ready`, `unreachable` or `unusable`, or\nwhat its plugin said. In the list it is asked for each one whose\n`problem` is empty; `provisioners.get` has the rest of its page.",
+              "type": "string"
+            },
             "type": {
               "default": "",
               "description": "The plugin's provisioner it is, as `PLUGIN/ID`, such as `incus/vm`.",
@@ -20945,6 +21929,14 @@
                 "$ref": "#/$defs/Argument"
               },
               "type": "array"
+            },
+            "catalogue": {
+              "$ref": "#/$defs/Catalogue",
+              "description": "What its plugin offers to choose from when one is made, as sets of\nits arguments: the sizes, images and regions it knows."
+            },
+            "description": {
+              "description": "What it makes, as its plugin says it, when that differs from the\nprovisioner's own description.",
+              "type": "string"
             },
             "id": {
               "description": "`machine`, or a kind the plugin names, such as `deployment`.",
@@ -22304,7 +23296,7 @@
   },
   {
     "name": "resources.create",
-    "summary": "Asks a provisioner for a resource, as a job.",
+    "summary": "Asks a provisioner for a resource, as a job; a machine's host may be saved in the same call, as a new host.",
     "level": {
       "kind": "admin"
     },
@@ -22355,6 +23347,9 @@
           "default": "",
           "description": "The host's name for a host's machine when empty.",
           "type": "string"
+        },
+        "profile": {
+          "description": "The host's profile to save with the machine, in the same call: the\nset-up's template filled in, as `hosts.save` takes it. A host that has\na profile keeps the one it has unless this is given, and one given\nreplaces it."
         },
         "provisioner": {
           "description": "The provisioner, by name or id.",
@@ -24172,7 +25167,7 @@
   },
   {
     "name": "setup.catalogue",
-    "summary": "The set-up flow the CLI's prompts and a shell's views read: the fields of a profile and the features the plugins offer.",
+    "summary": "The set-up flow the CLI's prompts and a shell's views read: the fields of a profile, the features the plugins offer and the machines their provisioners make, with the sizes and images each offers.",
     "level": {
       "kind": "admin"
     },
@@ -24185,6 +25180,66 @@
     },
     "result": {
       "$defs": {
+        "Catalogue": {
+          "description": "What a plugin offers to choose from when a machine is made, as sets of\nthe kind's arguments. A provider declares the ones it has; a choice sets\nthose arguments it names, and the others take their settings or defaults.",
+          "properties": {
+            "images": {
+              "description": "The images it starts machines from.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "regions": {
+              "description": "The regions or zones it makes them in.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            },
+            "sizes": {
+              "description": "The sizes it offers, such as 2 vCPU and 4 GiB.",
+              "items": {
+                "$ref": "#/$defs/CatalogueChoice"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "CatalogueChoice": {
+          "description": "One of what a plugin offers: a size, an image or a region, as the values\nit gives the arguments of the kind.",
+          "properties": {
+            "default": {
+              "default": false,
+              "description": "Whether a machine gets it when no other is chosen.",
+              "type": "boolean"
+            },
+            "help": {
+              "type": "string"
+            },
+            "id": {
+              "description": "Its id, which the kind's arguments do not take: what is chosen is the\n`values` it sets.",
+              "type": "string"
+            },
+            "label": {
+              "default": "",
+              "type": "string"
+            },
+            "values": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {},
+              "description": "The arguments it sets, by their names. One not named keeps its\nsetting or default.",
+              "type": "object"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
         "FeatureInfo": {
           "description": "Something a plugin installs, for the Features page of a host.",
           "properties": {
@@ -24243,6 +25298,37 @@
               "type": "string"
             }
           ]
+        },
+        "MachineCatalogue": {
+          "description": "A kind of machine a plugin's provisioner makes, with what its plugin\noffers to choose from when one is made.",
+          "properties": {
+            "catalogue": {
+              "$ref": "#/$defs/Catalogue",
+              "description": "The choices, each a set of the kind's arguments."
+            },
+            "description": {
+              "type": "string"
+            },
+            "kind": {
+              "description": "What it makes, such as `machine`.",
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "provisioner": {
+              "description": "The type of provisioner that makes it, as `PLUGIN/ID`, such as `incus/vm`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "provisioner",
+            "kind",
+            "label",
+            "description",
+            "catalogue"
+          ],
+          "type": "object"
         }
       },
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -24254,13 +25340,21 @@
           },
           "type": "array"
         },
+        "machines": {
+          "description": "The machines the plugins' provisioners offer, with what each offers\nto choose from: its sizes, images and regions.",
+          "items": {
+            "$ref": "#/$defs/MachineCatalogue"
+          },
+          "type": "array"
+        },
         "template": {
           "description": "The profile a new host starts from."
         }
       },
       "required": [
         "template",
-        "features"
+        "features",
+        "machines"
       ],
       "title": "Catalogue",
       "type": "object"

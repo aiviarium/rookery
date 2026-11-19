@@ -229,6 +229,8 @@ impl Provisioner {
             actions: self.actions.clone(),
             collections: self.collections.clone(),
             problem: self.refused.clone().unwrap_or_default(),
+            state: String::new(),
+            message: String::new(),
         }
     }
 
@@ -533,11 +535,13 @@ fn provisioner_kinds(entries: &Value) -> Vec<rookery_api::ProvisionerKind> {
             continue;
         }
         let declared = entry["verbs"].as_array().cloned().unwrap_or_default();
+        let arguments = provisioner_arguments(&entry["arguments"]);
         kinds.push(rookery_api::ProvisionerKind {
             label: match text("label") {
                 label if label.is_empty() => id.clone(),
                 label => label,
             },
+            description: text("description"),
             setup: match id == MACHINE {
                 true => setup,
                 false => String::new(),
@@ -547,13 +551,61 @@ fn provisioner_kinds(entries: &Value) -> Vec<rookery_api::ProvisionerKind> {
                 .filter(|verb| declared.iter().any(|known| known == **verb))
                 .map(|verb| (*verb).to_owned())
                 .collect(),
-            arguments: provisioner_arguments(&entry["arguments"]),
             spec: entry.get("spec").filter(|spec| spec.is_object()).cloned(),
             actions: provisioner_actions(&entry["actions"], rookery_api::ops::Role::Admin),
+            catalogue: provisioner_catalogue(&entry["catalogue"], &arguments),
+            arguments,
             id,
         });
     }
     kinds
+}
+
+/// What a plugin offers to choose from when a kind is made: its sizes, images
+/// and regions, each a set of the kind's arguments. A choice that names no
+/// id, or nothing the kind takes, is left out.
+fn provisioner_catalogue(
+    entry: &Value,
+    arguments: &[rookery_api::Argument],
+) -> rookery_api::Catalogue {
+    let choices = |key: &str| -> Vec<rookery_api::CatalogueChoice> {
+        let mut found: Vec<rookery_api::CatalogueChoice> = vec![];
+        for choice in entry[key].as_array().cloned().unwrap_or_default() {
+            let id = choice["id"].as_str().unwrap_or("");
+            if !valid_name(id) || found.iter().any(|known| known.id == id) {
+                continue;
+            }
+            let values: std::collections::BTreeMap<String, String> = choice["values"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .filter(|(name, _)| arguments.iter().any(|known| known.name == **name))
+                .filter_map(|(name, value)| {
+                    value.as_str().map(|text| (name.clone(), text.to_owned()))
+                })
+                .collect();
+            if values.is_empty() {
+                continue;
+            }
+            let label = choice["label"].as_str().unwrap_or("");
+            found.push(rookery_api::CatalogueChoice {
+                id: id.to_owned(),
+                label: match label.is_empty() {
+                    true => id.to_owned(),
+                    false => label.to_owned(),
+                },
+                help: choice["help"].as_str().unwrap_or("").to_owned(),
+                default: choice["default"].as_bool().unwrap_or(false),
+                values,
+            });
+        }
+        found
+    };
+    rookery_api::Catalogue {
+        sizes: choices("sizes"),
+        images: choices("images"),
+        regions: choices("regions"),
+    }
 }
 
 /// The actions of a provisioner's manifest, or of one of its kinds. Each
