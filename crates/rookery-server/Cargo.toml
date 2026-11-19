@@ -1,0 +1,41 @@
+[package]
+name = "rookery-server"
+description = "rookery serve on Postgres: start-up, the leader lock and the standby, and the edge with /ws, /rpc, /healthz, the shell and the Unix socket."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+rookery-proto.workspace = true
+rookery-store.workspace = true
+rookery-kernel.workspace = true
+rookery-auth.workspace = true
+tokio.workspace = true
+axum.workspace = true
+tower = { version = "0.5", features = ["util"] }
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std", "ansi"] }
+libc = "0.2"
+tokio-util = { version = "0.7", default-features = false }
+
+[dev-dependencies]
+rookery-store = { workspace = true, features = ["testing"] }
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+ureq = "3"
+ring = "0.17"
+jsonwebtoken = { version = "11", default-features = false, features = ["rust_crypto"] }
+base64 = "0.22"
+tempfile = "3"
+form_urlencoded = "1"
+serde_json.workspace = true
