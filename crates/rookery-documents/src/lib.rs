@@ -61,24 +61,6 @@ pub fn register(methods: &mut Methods) {
                 }
                 Some(doc.transact().encode_state_as_update_v1(&StateVector::default()))
             };
-            // A plugin acting as itself may attach documents to its own entities.
-            let caller = match (crate::plugin_of(&call), &p.parent) {
-                (Some(plugin), Some(parent)) if caller.user.is_none() => {
-                    let owner = call
-                        .store()
-                        .entities()
-                        .get(&StoreCaller::system(), parent)
-                        .await
-                        .rpc()?
-                        .and_then(|e| e.plugin);
-                    if owner.as_deref() == Some(plugin) {
-                        caller.as_admin()
-                    } else {
-                        caller
-                    }
-                }
-                _ => caller,
-            };
             let space_id = match &p.space {
                 Some(s) => Some(parse_id("space", s)?),
                 None if p.parent.is_none() => caller.space,
@@ -106,7 +88,7 @@ pub fn register(methods: &mut Methods) {
             }
             info(&call, &caller, id).await.map(|(_, i)| i)
         })
-        .summary("Makes a document attached to an entity, whose access it inherits: view reads, use edits.")
+        .summary("Makes a document attached to an entity, whose access and collection rules it inherits.")
         .level(MethodLevel::Own);
     methods
         .add("documents.get", |call: Call, p: DocumentRef| async move {
@@ -129,8 +111,9 @@ pub fn register(methods: &mut Methods) {
                     .rpc()?;
                 let mut out = Vec::with_capacity(docs.len());
                 for d in docs {
-                    let level = level(&call, &caller, d.id).await?.unwrap_or(Level::View);
-                    out.push(describe(&d, level));
+                    if let Some(level) = call.store().documents().level(&caller, &d).await.rpc()? {
+                        out.push(describe(&d, level));
+                    }
                 }
                 Ok(DocumentList { documents: out })
             },
@@ -149,7 +132,7 @@ pub fn register(methods: &mut Methods) {
                 Ok(())
             },
         )
-        .summary("Deletes a document. Needs manage on it.")
+        .summary("Deletes a document. Needs write access on it.")
         .level(MethodLevel::Own);
     methods
         .add("documents.open", |call: Call, p: DocumentOpen| async move {
@@ -410,14 +393,6 @@ fn who(call: &Call) -> Result<Who, RpcError> {
     })
 }
 
-async fn level(call: &Call, caller: &StoreCaller, id: Uuid) -> Result<Option<Level>, RpcError> {
-    call.store()
-        .access()
-        .level_of(caller, &rookery_store::documents::uri(id))
-        .await
-        .rpc()
-}
-
 /// The document, if the caller has at least `min` on it. Missing and invisible are both `NOT_FOUND`.
 async fn require(
     call: &Call,
@@ -425,26 +400,19 @@ async fn require(
     id: Uuid,
     min: Level,
 ) -> Result<(Level, Document), RpcError> {
-    let doc = call.store().documents().get(id).await.rpc()?;
-    // A plugin acting as itself (outside a handler) manages the documents it created, as it is an admin of
-    // its own collections.
-    let own = match (&doc, crate::plugin_of(call)) {
-        (Some(d), Some(p)) if caller.user.is_none() && d.plugin.as_deref() == Some(p) => {
-            Some(Level::Manage)
-        }
-        _ => None,
-    };
-    let lvl = match own {
-        Some(l) => Some(l),
-        None => level(call, caller, id).await?,
-    };
-    match (doc, lvl) {
-        (Some(d), Some(l)) if l >= min => Ok((l, d)),
-        (Some(_), Some(_)) => Err(RpcError::forbidden(format!(
+    let documents = call.store().documents();
+    let doc = documents
+        .get(id)
+        .await
+        .rpc()?
+        .ok_or_else(|| RpcError::not_found("no such document"))?;
+    match documents.level(caller, &doc).await.rpc()? {
+        Some(held) if held >= min => Ok((held, doc)),
+        Some(_) => Err(RpcError::forbidden(format!(
             "editing this document needs {} on it",
             min.as_str()
         ))),
-        _ => Err(RpcError::not_found("no such document")),
+        None => Err(RpcError::not_found("no such document")),
     }
 }
 

@@ -1001,3 +1001,36 @@ async fn a_plugin_asks_what_one_person_holds_and_a_manager_finds_people_to_share
     );
     k.close().await;
 }
+
+#[tokio::test]
+async fn disabled_accounts_hold_no_access_level() {
+    let k: TestKernel = test_kernel!(methods());
+    let _active_admin = k.person("Fran", true).await;
+    let plugin = Caller::Plugin("fleet".into());
+    for admin in [true, false] {
+        let user = k.person(if admin { "Dana" } else { "Jo" }, admin).await;
+        let resource = "env://studio";
+        let principal = format!("user:{}", id(&user));
+        k.db.store
+            .access()
+            .grant(resource, &principal, 2, "system:test")
+            .await
+            .unwrap();
+        k.db.store
+            .users()
+            .set_disabled(id(&user).parse().unwrap(), true)
+            .await
+            .unwrap();
+        assert_eq!(
+            k.call(
+                &plugin,
+                "access.levelOf",
+                json!({ "resource": resource, "principal": principal })
+            )
+            .await
+            .unwrap(),
+            json!({"level": null})
+        );
+    }
+    k.close().await;
+}

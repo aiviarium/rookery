@@ -13,6 +13,7 @@
 //! than the log gets `reset` and reads again. Subscriptions end with their connection.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Mutex;
 
 use rookery_kernel::{Call, Caller, Empty, Level, Methods, RpcError};
@@ -42,6 +43,12 @@ struct Live {
 impl Live {
     fn add(&self, id: String, conn: u64, task: AbortHandle) {
         self.subs.lock().unwrap().insert(id, Sub { conn, task });
+    }
+
+    fn start(&self, id: String, conn: u64, run: impl Future<Output = ()> + Send + 'static) {
+        let mut subs = self.subs.lock().unwrap();
+        let task = tokio::spawn(run).abort_handle();
+        subs.insert(id, Sub { conn, task });
     }
 
     fn remove(&self, id: &str, conn: u64) -> bool {
@@ -214,7 +221,9 @@ async fn live(call: &Call, p: LiveQuery) -> Result<LiveStarted, RpcError> {
         .filter_map(|r| r.get("id").and_then(|v| v.as_str()))
         .filter_map(|v| Uuid::parse_str(v).ok())
         .collect();
-    let task = tokio::spawn(async move {
+    let live = call.kernel.facility::<Live>();
+    let cleanup = live.clone();
+    live.start(id.clone(), conn_id, async move {
         let notify = |changes: Vec<Change>, reset: Option<i64>| {
             conn.notify(
                 "data.changed",
@@ -229,7 +238,7 @@ async fn live(call: &Call, p: LiveQuery) -> Result<LiveStarted, RpcError> {
         loop {
             let ev = match sub.next().await {
                 Ok(Some(ev)) => ev,
-                Ok(None) => return,
+                Ok(None) => break,
                 Err(e) => {
                     tracing::warn!(error = %e, "a live query's feed failed; the client reads again");
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -271,6 +280,7 @@ async fn live(call: &Call, p: LiveQuery) -> Result<LiveStarted, RpcError> {
                 )
                 .await
             {
+                cleanup.subs.lock().unwrap().remove(&sid);
                 notify_ended(
                     &conn,
                     &sid,
@@ -319,10 +329,8 @@ async fn live(call: &Call, p: LiveQuery) -> Result<LiveStarted, RpcError> {
             let row = row.map(|r| coll.project(r, select.as_deref()));
             notify(vec![wire_change(&c, row)], None);
         }
+        cleanup.subs.lock().unwrap().remove(&sid);
     });
-    call.kernel
-        .facility::<Live>()
-        .add(id.clone(), conn_id, task.abort_handle());
     Ok(LiveStarted {
         subscription: id,
         rows,

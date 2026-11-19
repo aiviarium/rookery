@@ -5129,7 +5129,7 @@
   },
   {
     "name": "documents.create",
-    "summary": "Makes a document attached to an entity, whose access it inherits: view reads, use edits.",
+    "summary": "Makes a document attached to an entity, whose access and collection rules it inherits.",
     "level": {
       "kind": "self"
     },
@@ -5242,7 +5242,7 @@
   },
   {
     "name": "documents.delete",
-    "summary": "Deletes a document. Needs manage on it.",
+    "summary": "Deletes a document. Needs write access on it.",
     "level": {
       "kind": "self"
     },

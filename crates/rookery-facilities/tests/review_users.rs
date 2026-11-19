@@ -1,4 +1,4 @@
-//! Review: who learns people's emails (not for merge).
+//! Review: who learns people's emails.
 use rookery_kernel::testing::TestKernel;
 use rookery_kernel::{Caller, Methods, test_kernel};
 use serde_json::json;
@@ -32,5 +32,37 @@ async fn attack_any_member_lists_everyones_email() {
     println!("plugin entities.search: {r3:?}");
     let leaked = format!("{r:?}{r2:?}{r3:?}").contains("bob@example.test");
     assert!(!leaked, "LEAK: Eve or a plugin learns Bob's email");
+    k.close().await;
+}
+
+#[tokio::test]
+async fn personal_spaces_allow_name_search_without_email_lookup() {
+    let k: TestKernel = test_kernel!(methods());
+    let ada = k.person("Ada", false).await;
+    let _bo = k.person("Bo", false).await;
+    let id = ada.user().unwrap().id.parse().unwrap();
+    let space = k.db.store.spaces().personal(id).await.unwrap();
+    let personal = format!("space://{}", space.id);
+    let found = k
+        .call(
+            &ada,
+            "users.search",
+            json!({"resource": personal, "text": "Bo"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(found["people"][0]["name"], "Bo");
+    for text in ["bo@example.test", "nobody@example.test"] {
+        assert_eq!(
+            k.call(
+                &ada,
+                "users.search",
+                json!({"resource": personal, "text": text})
+            )
+            .await
+            .unwrap(),
+            json!({"people": []})
+        );
+    }
     k.close().await;
 }

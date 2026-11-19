@@ -1,4 +1,4 @@
-//! Review: attacks on the access rules of data.* (not for merge).
+//! Review: attacks on the access rules of data.*.
 
 use std::time::Duration;
 
@@ -246,6 +246,7 @@ async fn attack_live_keeps_streaming_after_revocation() {
         .expect("the subscription says it ended");
     println!("bob got after revoke: {ended}");
     assert_eq!(ended["ended"], true);
+    assert_eq!(rookery_data::live::running(&k.kernel), 0);
     assert_eq!(ended["error"]["code"], "FORBIDDEN");
     assert!(
         ended["changes"].as_array().is_none_or(|c| c.is_empty()) && ended.get("reset").is_none(),
@@ -415,8 +416,8 @@ async fn attack_cost_typed_table_reads_at_scale() {
     }
     let plan: Vec<String> = sqlx::query_scalar(
         "EXPLAIN (ANALYZE, BUFFERS) SELECT t.id FROM rookery.\"v_jobs\" t WHERE TRUE AND t.deleted_at IS NULL
-         AND (t._owner IS NOT DISTINCT FROM $1::uuid AND t._owner IS NOT NULL OR (t._resource IS NOT NULL AND
-         rookery.effective_level(t._resource, $1::uuid, (SELECT rookery.principals_of($1::uuid, $2))) >= 1))
+         AND (t._owner = $1::uuid OR t._resource = ANY(ARRAY(
+             SELECT r FROM rookery.reachable($1::uuid, rookery.principals_of($1::uuid, $2), true) AS r)))
          ORDER BY t.id LIMIT 51",
     )
     .bind(uid(&ops))

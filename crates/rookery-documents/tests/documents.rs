@@ -955,3 +955,68 @@ async fn concurrent_random_edits_converge() {
     }
     k.close().await;
 }
+
+#[tokio::test]
+async fn attachments_require_the_collections_read_and_write_levels() {
+    let Some(k) = start().await else { return };
+    let mut owner = Ws::connect(&k, &k.person("Ann", true).await).await;
+    let mut member = Ws::connect(&k, &sign_in(&k, "Vi").await).await;
+    let member_id = user_id(&mut member).await;
+    let space = team(&mut owner, &[(&member_id, "use")]).await;
+    let parent = format!("jot://{}", jot(&mut owner, &space, "Spec").await);
+
+    let apply = |access: Value| {
+        let store = k.db.store.clone();
+        async move {
+            let defs: Vec<rookery_store::collections::CollectionDef> = serde_json::from_value(json!([{
+                "name": "jots", "entity": { "scheme": "jot", "title": "title" }, "trash": true,
+                "access": access, "fields": [{ "name": "title", "type": "text", "search": true }]
+            }]))
+            .unwrap();
+            store.collections().apply("jot", &defs).await.unwrap();
+        }
+    };
+    apply(json!({"read": "view", "write": "manage"})).await;
+    let doc = owner
+        .call(
+            "documents.create",
+            json!({ "parent": parent, "markdown": "Spec" }),
+        )
+        .await;
+    let id = doc["id"].as_str().unwrap();
+    let opened = member.call("documents.open", json!({ "id": id })).await;
+    assert_eq!(opened["readOnly"], true);
+    for (method, params) in [
+        ("documents.create", json!({ "parent": parent })),
+        (
+            "documents.edit",
+            json!({ "id": id, "ops": [{ "op": "appendMarkdown", "markdown": "Change" }] }),
+        ),
+        ("documents.delete", json!({ "id": id })),
+    ] {
+        assert_eq!(
+            code(&member.call_raw(method, params).await),
+            "FORBIDDEN",
+            "{method}"
+        );
+    }
+
+    for access in [json!({"read": "manage"}), json!({"admin": true})] {
+        apply(access).await;
+        for method in ["documents.get", "documents.read", "documents.open"] {
+            assert_eq!(
+                code(&member.call_raw(method, json!({"id": id})).await),
+                "NOT_FOUND",
+                "{method}"
+            );
+        }
+        assert_eq!(
+            member
+                .call("documents.list", json!({ "parent": parent }))
+                .await["documents"],
+            json!([])
+        );
+        assert_eq!(text_of(&mut owner, id).await, "Spec");
+    }
+    k.close().await;
+}
