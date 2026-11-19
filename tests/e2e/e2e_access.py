@@ -119,7 +119,8 @@ class Access(unittest.TestCase):
         done = self.rookery('key', 'trust', HOST, '--password-stdin', input=self.password + '\n')
         self.assertIn(f'{HOST} takes the key rookery now', done.stdout)
         self.assertIn(own, self.authorized())
-        self.assertEqual(self.logs_in().stdout.strip(), OPERATOR)
+        ran = self.logs_in()
+        self.assertEqual(ran.stdout.strip(), OPERATOR, ran.stderr)
         # The host key it met is recorded, and the password is not kept.
         self.assertIn(fingerprint(self.original_host_key), self.rookery('host', 'verify', HOST).stdout)
         self.assertNotIn(f'ssh/{HOST}', self.rookery('secret', 'list').stdout)
@@ -138,7 +139,8 @@ class Access(unittest.TestCase):
         self.assertNotIn('PRIVATE KEY', added.stdout + self.rookery('key', 'list').stdout)
         self.set_auth('key:deploy')
         try:
-            self.assertEqual(self.logs_in().stdout.strip(), OPERATOR)
+            ran = self.logs_in()
+            self.assertEqual(ran.stdout.strip(), OPERATOR, ran.stderr)
             options = self.rookery('host', 'inventory', HOST).stdout
             self.assertIn('keys/deploy', options)
             self.assertNotIn('keys/rookery', options)
@@ -156,7 +158,8 @@ class Access(unittest.TestCase):
             without = self.logs_in()
             self.assertNotEqual(without.returncode, 0)
             self.rookery('secret', 'set', f'ssh/{HOST}', input=self.password + '\n')
-            self.assertEqual(self.logs_in().stdout.strip(), OPERATOR)
+            ran = self.logs_in()
+            self.assertEqual(ran.stdout.strip(), OPERATOR, ran.stderr)
             self.assertNotIn(self.password, self.rookery('host', 'inventory', HOST).stdout)
         finally:
             self.rookery('secret', 'remove', f'ssh/{HOST}', '-y', check=False)
@@ -178,7 +181,8 @@ class Access(unittest.TestCase):
         self.assertEqual(self.rookery('host', 'verify', HOST).stdout, recorded)
         accepted = self.rookery('host', 'verify', HOST, '--accept', '-y')
         self.assertIn(fingerprint(new), accepted.stdout)
-        self.assertEqual(self.logs_in().stdout.strip(), OPERATOR)
+        ran = self.logs_in()
+        self.assertEqual(ran.stdout.strip(), OPERATOR, ran.stderr)
 
     def test_5_a_rotation_replaces_the_key_of_rookery_on_the_host(self):
         before = self.station.own_public()
@@ -192,7 +196,8 @@ class Access(unittest.TestCase):
         # The other lines stay: the deploy key the provider added.
         self.assertIn('deploy@access', keys)
         self.assertNotIn('being replaced', self.rookery('key', 'list').stdout)
-        self.assertEqual(self.logs_in().stdout.strip(), OPERATOR)
+        ran = self.logs_in()
+        self.assertEqual(ran.stdout.strip(), OPERATOR, ran.stderr)
         self.assertEqual(Path(f'{self.station.own_key}.pub').read_text().strip(), after)
 
     def test_6_automatic_logins_stop_at_a_refusal_so_sshd_does_not_shut_rookery_out(self):

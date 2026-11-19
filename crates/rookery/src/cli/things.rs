@@ -751,11 +751,7 @@ pub fn provisioner(client: &Client, command: Provisioner) -> Result<()> {
         }
         Provisioner::Show { name, settings } => {
             let given = arguments(&settings)?;
-            let mut args = json!({"name": name});
-            for (key, value) in &given {
-                args[key] = json!(value);
-            }
-            let found = client.call("provisioners.get", args)?;
+            let found = client.call("provisioners.get", json!({"name": name, "given": given}))?;
             let state: rookery_api::ProvisionerState = serde_json::from_value(found.clone())?;
             let actions = client
                 .actions(&Subject::Provisioner(name.clone()))

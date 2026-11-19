@@ -709,6 +709,13 @@ async fn write(
                     .map_err(fail)?;
                     report.wrote("log_items");
                 }
+                // An append after these takes the next number.
+                sqlx::query("UPDATE rookery.jobs SET log_seq = $2 WHERE id = $1")
+                    .bind(id)
+                    .bind(output.lines().count() as i64)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(fail)?;
             }
             None => report.skipped("job output files that are gone"),
         }
@@ -922,6 +929,11 @@ mod tests {
             1
         );
         assert_eq!(count("SELECT count(*) FROM rookery.host_messages").await, 2);
+        // A job's next log item comes after those it brought in.
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.jobs j WHERE log_seq <> (SELECT coalesce(max(seq), 0) FROM rookery.log_items WHERE job_id = j.id)").await,
+            0
+        );
         // Every host is the admin's, and the old roles are groups of their claims.
         assert_eq!(
             count("SELECT count(*) FROM rookery.hosts WHERE owner IS NULL").await,
