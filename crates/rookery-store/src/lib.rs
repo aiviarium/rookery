@@ -106,6 +106,7 @@ impl Store {
             pool,
             key: None,
             blobs: None,
+            fence: None,
         }
     }
 

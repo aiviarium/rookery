@@ -202,6 +202,7 @@ async fn writes_of_a_deposed_leader_are_refused() {
         run_after: None,
         subject: None,
         enqueued_by: "user:x",
+        token: None,
     };
     let kinds = vec!["test.echo".to_owned()];
     let job = old.jobs().enqueue(new()).await.unwrap();

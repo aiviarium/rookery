@@ -15,6 +15,7 @@ fn on(db: &TestDb) -> Store {
     Store::from_backend(Box::new(ServerBackend::new(
         threads,
         Some(db.store.key().unwrap().clone()),
+        None,
     )))
 }
 

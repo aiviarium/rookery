@@ -1001,6 +1001,7 @@ async fn a_claim_that_ran_out_is_reclaimed_by_the_leader() {
                 run_after: Some(chrono::Utc::now() + chrono::Duration::hours(1)),
                 subject: None,
                 enqueued_by: "user:x",
+                token: None,
             })
             .await
             .unwrap();

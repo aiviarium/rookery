@@ -19,11 +19,21 @@ const PREFIX: &str = "rookery/";
 
 pub struct LeaseLocks {
     db: Db,
+    /// The leader's epoch the leases are taken in; none outside a leading server.
+    fence: Option<i64>,
 }
 
 impl LeaseLocks {
-    pub fn new(db: Db) -> Arc<LeaseLocks> {
-        Arc::new(LeaseLocks { db })
+    pub fn new(db: Db, fence: Option<i64>) -> Arc<LeaseLocks> {
+        Arc::new(LeaseLocks { db, fence })
+    }
+}
+
+fn store(pool: PgPool, fence: Option<i64>) -> rookery_store::Store {
+    let store = rookery_store::Store::from_pool(pool);
+    match fence {
+        Some(epoch) => store.fenced(epoch),
+        None => store,
     }
 }
 
@@ -31,19 +41,25 @@ impl LeaseLocks {
 struct Held {
     stop: mpsc::Sender<()>,
     db: Db,
+    fence: Option<i64>,
     name: String,
     holder: String,
-    fence: i64,
+    lease: i64,
 }
 
 impl Drop for Held {
     /// Released before the drop returns, so the next one to ask gets it.
     fn drop(&mut self) {
         let _ = self.stop.send(());
-        let (name, holder, fence) = (self.name.clone(), self.holder.clone(), self.fence);
+        let (name, holder, fence, epoch) = (
+            self.name.clone(),
+            self.holder.clone(),
+            self.lease,
+            self.fence,
+        );
         self.db.run(move |pool: PgPool| {
             Box::pin(async move {
-                let _ = rookery_store::Store::from_pool(pool)
+                let _ = store(pool, epoch)
                     .leases()
                     .release(&name, &holder, fence)
                     .await;
@@ -59,11 +75,12 @@ impl Locks for LeaseLocks {
     fn take(&self, name: &str, doing: &str) -> Result<Box<dyn Send>, Holder> {
         let name = format!("{PREFIX}{name}");
         let holder = format!("{doing}{SEPARATOR}{}", uuid::Uuid::now_v7());
+        let epoch = self.fence;
         let taken = {
             let (name, holder) = (name.clone(), holder.clone());
             self.db.run(move |pool: PgPool| {
                 Box::pin(async move {
-                    let store = rookery_store::Store::from_pool(pool);
+                    let store = store(pool, epoch);
                     match store.leases().acquire(&name, &holder, TTL).await {
                         Ok(lease) => Ok(Ok(lease.fence)),
                         Err(rookery_store::Error::Conflict(_)) => {
@@ -91,9 +108,10 @@ impl Locks for LeaseLocks {
         let held = Held {
             stop,
             db: self.db.clone(),
+            fence: epoch,
             name: name.clone(),
             holder: holder.clone(),
-            fence,
+            lease: fence,
         };
         let db = self.db.clone();
         std::thread::spawn(move || {
@@ -103,7 +121,7 @@ impl Locks for LeaseLocks {
                         let (lease, holder) = (name.clone(), holder.clone());
                         let renewed = db.run(move |pool: PgPool| {
                             Box::pin(async move {
-                                rookery_store::Store::from_pool(pool)
+                                store(pool, epoch)
                                     .leases()
                                     .renew(&lease, &holder, fence, TTL)
                                     .await

@@ -81,8 +81,9 @@ struct Pending {
 }
 
 struct Inner {
-    paths: std::sync::OnceLock<Paths>,
-    kernel: std::sync::OnceLock<Kernel>,
+    /// Given again each time the server leads, with the kernel of that time.
+    paths: std::sync::RwLock<Option<Paths>>,
+    kernel: std::sync::RwLock<Option<Kernel>>,
     /// The work of jobs enqueued and not yet claimed, by the ticket in their params.
     pending: Mutex<HashMap<Uuid, Pending>>,
     resume: Mutex<Option<Resume>>,
@@ -132,14 +133,18 @@ impl Runner {
     }
 
     pub fn attach(&self, paths: Paths, kernel: Kernel) {
-        let _ = self.0.paths.set(paths);
-        let _ = self.0.kernel.set(kernel);
+        *self.0.paths.write().unwrap() = Some(paths);
+        *self.0.kernel.write().unwrap() = Some(kernel);
+        // Work prepared under a kernel before belongs to a server that led then.
+        self.0.pending.lock().unwrap().clear();
     }
 
-    fn paths(&self) -> &Paths {
+    fn paths(&self) -> Paths {
         self.0
             .paths
-            .get()
+            .read()
+            .unwrap()
+            .clone()
             .expect("the runner is attached before a job starts")
     }
 
@@ -147,10 +152,12 @@ impl Runner {
         *self.0.resume.lock().unwrap() = Some(resume);
     }
 
-    pub fn kernel(&self) -> &Kernel {
+    pub fn kernel(&self) -> Kernel {
         self.0
             .kernel
-            .get()
+            .read()
+            .unwrap()
+            .clone()
             .expect("the runner is attached before a job starts")
     }
 
@@ -185,8 +192,8 @@ impl Runner {
 
     /// Take the subject's lock, or find the job a call before with the same token started.
     pub async fn reserve(&self, mut request: Request) -> Result<Reserved, String> {
-        let paths = self.paths().clone();
-        let kernel = self.kernel().clone();
+        let paths = self.paths();
+        let kernel = self.kernel();
         let held = request.held.take();
         // The store and the leases are asked from a thread that may wait.
         let prepared = tokio::task::spawn_blocking(move || {
@@ -214,11 +221,8 @@ impl Runner {
         let lock = match (held, request.changes) {
             (Some(held), _) => Some(held),
             (None, true) => {
-                let (paths, subject, action) = (
-                    self.paths().clone(),
-                    subject.clone(),
-                    request.action.clone(),
-                );
+                let (paths, subject, action) =
+                    (self.paths(), subject.clone(), request.action.clone());
                 Some(
                     tokio::task::spawn_blocking(move || {
                         core::lock(&paths, &subject, &action).map_err(|e| e.to_string())
@@ -300,7 +304,7 @@ impl Ticket {
             .lock()
             .unwrap()
             .insert(ticket, Pending { work, lock, hidden });
-        let kernel = runner.kernel().clone();
+        let kernel = runner.kernel();
         let made = rookery_jobs::jobs::enqueue_with_token(
             &kernel,
             kind,
@@ -428,7 +432,7 @@ async fn run(runner: Runner, job: JobRun) -> Result<Value, RpcError> {
     let stop = Arc::new(Stop::default());
     let (lines, mut taken) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
     let handle = tokio::runtime::Handle::current();
-    let (kernel, id) = (runner.kernel().clone(), job.id);
+    let (kernel, id) = (runner.kernel(), job.id);
     let worker = {
         let stop = stop.clone();
         tokio::task::spawn_blocking(move || {
@@ -615,7 +619,7 @@ impl Runner {
         action: &str,
         token: &str,
     ) -> Result<Option<JobInfo>, String> {
-        let paths = self.paths().clone();
+        let paths = self.paths();
         let (subject, uri) = tokio::task::spawn_blocking(move || {
             let subject = subject.by_id(&paths);
             let uri = subject_uri(&paths, &subject);

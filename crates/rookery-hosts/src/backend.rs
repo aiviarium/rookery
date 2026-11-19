@@ -31,13 +31,16 @@ const CREDENTIALS: &str = "rookery.credentials";
 pub struct ServerBackend {
     db: Db,
     key: Option<Arc<Key>>,
+    /// The leader's epoch that taking in a host's channel names, which only the leader does.
+    fence: Option<i64>,
 }
 
 impl ServerBackend {
-    pub fn new(db: Db, key: Option<Key>) -> ServerBackend {
+    pub fn new(db: Db, key: Option<Key>, fence: Option<i64>) -> ServerBackend {
         ServerBackend {
             db,
             key: key.map(Arc::new),
+            fence,
         }
     }
 
@@ -987,8 +990,18 @@ impl Backend for ServerBackend {
     }
 
     fn take_in(&mut self, host: &str, message: &Message) -> Result<Option<Stored>> {
-        let (host, message) = (host.to_owned(), message.clone());
-        self.tx(move |c, _| Box::pin(async move { take_in(c, &host, &message).await }))
+        let (host, message, fence) = (host.to_owned(), message.clone(), self.fence);
+        self.tx(move |c, _| {
+            Box::pin(async move {
+                // A server that does not lead any more takes in nothing.
+                sqlx::query("SELECT rookery.fence($1)")
+                    .bind(fence)
+                    .execute(&mut *c)
+                    .await
+                    .map_err(|e| Error::Database(format!("taking in a message: {e}")))?;
+                take_in(c, &host, &message).await
+            })
+        })
     }
 
     fn reset_cursor(&mut self, host: &str) -> Result<()> {

@@ -187,11 +187,12 @@ fn prepare(
     handle: tokio::runtime::Handle,
 ) -> Result<Arc<serve::Serve>, String> {
     let db = db::Db::start(&setup.database_url)?;
+    let fence = kernel.store.fence();
     let store = Arc::new(rookery_core::store::Store::from_backend(Box::new(
-        backend::ServerBackend::new(db.clone(), setup.secret_key.clone()),
+        backend::ServerBackend::new(db.clone(), setup.secret_key.clone(), fence),
     )));
     rookery_core::store::set_shared(Some(store.clone()));
-    rookery_core::runner::set_locks(Some(locks::LeaseLocks::new(db)));
+    rookery_core::runner::set_locks(Some(locks::LeaseLocks::new(db, fence)));
     let paths = setup.paths.clone();
     write_files(&paths, &store);
     runner.attach(paths.clone(), kernel);
