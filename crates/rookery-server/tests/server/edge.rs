@@ -206,8 +206,14 @@ async fn levels_say_who_may_call_what() {
             .len(),
         1
     );
-    let all = served.rpc(&admin, "auth.listLinks", json!({})).await.unwrap();
-    assert_eq!(all["links"][0]["createdByName"], "Ops", "an admin sees the links of others");
+    let all = served
+        .rpc(&admin, "auth.listLinks", json!({}))
+        .await
+        .unwrap();
+    assert_eq!(
+        all["links"][0]["createdByName"], "Ops",
+        "an admin sees the links of others"
+    );
     // The member cannot end the admin's links, and gets told there is none.
     let theirs = served
         .rpc(
