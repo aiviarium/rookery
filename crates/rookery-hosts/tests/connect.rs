@@ -224,6 +224,451 @@ fn send(inbox: &Inbox, stream: u32, kind: u8, body: &[u8]) {
         .deliver(&rookery_proto::stream::encode_frame(stream, &payload));
 }
 
+/// A git repository the tests can clone, under the host's root, with one commit on `main`.
+fn repository(dir: &std::path::Path) {
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(["-c", "user.name=Test", "-c", "user.email=test@example.test"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    std::fs::create_dir_all(dir).unwrap();
+    git(&["init", "-q", "-b", "main", dir.to_str().unwrap()]);
+    std::fs::write(dir.join("README.md"), "a repository\n").unwrap();
+    git(&["-C", dir.to_str().unwrap(), "add", "-A"]);
+    git(&["-C", dir.to_str().unwrap(), "commit", "-q", "-m", "one"]);
+}
+
+/// Waits for the host to have no running session whose command says `want`, so a call's end
+/// reaches it.
+async fn no_session(sock: &std::path::Path, want: &str) {
+    for _ in 0..100 {
+        let sessions = control_json(sock, "GET", "/v1/sessions", None).await;
+        let running = sessions.as_array().unwrap().iter().any(|session| {
+            let command = session["command"]
+                .as_array()
+                .map(|words| {
+                    words
+                        .iter()
+                        .filter_map(|w| w.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .unwrap_or_default();
+            session["ended"].is_null() && command.contains(want)
+        });
+        if !running {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("a session with {want:?} still runs on the host");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn commands_need_use_and_checkouts_stay_in_the_hosts_folders() {
+    let Some(host) = Rookeryd::start().await else {
+        return;
+    };
+    let Some(server) = Server::start().await else {
+        return;
+    };
+    let (admin, _) = server.person("Ada", true).await;
+    let (ann, ann_id) = server.person("Ann", false).await;
+    let (vic, vic_id) = server.person("Vic", false).await;
+    let (mia, mia_id) = server.person("Mia", false).await;
+    let (rob, rob_id) = server.person("Rob", false).await;
+    let (eve, _) = server.person("Eve", false).await;
+    server
+        .call(
+            &Caller::Local,
+            "hosts.save",
+            json!({"host": "studio", "profile": host.profile()}),
+        )
+        .await
+        .unwrap();
+    server.grant(&admin, &ann_id, "use").await;
+    server.grant(&admin, &vic_id, "view").await;
+    server.grant(&admin, &mia_id, "manage").await;
+    server.grant(&admin, &rob_id, "use").await;
+
+    // A command runs as the agent, and its folder must be one the host's calls may touch.
+    let root = host.file("").trim_end_matches('/').to_owned();
+    let ran = server
+        .call(
+            &ann,
+            "env.exec",
+            json!({"env": "studio", "command": ["pwd"], "cwd": root}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(ran["exitCode"], 0, "{ran}");
+    assert_eq!(ran["stdout"].as_str().unwrap().trim(), root, "{ran}");
+    assert_eq!(ran["lost"], false);
+    assert_eq!(ran["truncated"], false);
+    let written = server
+        .call(
+            &ann,
+            "env.exec",
+            json!({"env": "env://studio", "command": ["sh", "-c", "cat; echo err >&2"], "stdin": "in\n"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        (written["stdout"].as_str(), written["stderr"].as_str()),
+        (Some("in\n"), Some("err\n"))
+    );
+
+    // The host resolves the folder: outside its roots, a `..` and a symlink that leads out are refused.
+    std::fs::create_dir_all(host.dir.path().join("outside/sub")).unwrap();
+    std::os::unix::fs::symlink(
+        host.dir.path().join("outside"),
+        host.dir.path().join("files/out"),
+    )
+    .unwrap();
+    for cwd in [
+        "/etc".to_owned(),
+        format!("{root}/../outside"),
+        format!("{root}/out/sub"),
+    ] {
+        assert_eq!(
+            code(
+                server
+                    .call(
+                        &ann,
+                        "env.exec",
+                        json!({"env": "studio", "command": ["true"], "cwd": cwd})
+                    )
+                    .await
+            ),
+            Some(ErrorCode::Forbidden),
+            "{cwd}"
+        );
+    }
+    assert_eq!(
+        code(
+            server
+                .call(
+                    &vic,
+                    "env.exec",
+                    json!({"env": "studio", "command": ["id"]})
+                )
+                .await
+        ),
+        Some(ErrorCode::Forbidden)
+    );
+    assert_eq!(
+        code(
+            server
+                .call(
+                    &eve,
+                    "env.exec",
+                    json!({"env": "studio", "command": ["id"]})
+                )
+                .await
+        ),
+        Some(ErrorCode::Forbidden)
+    );
+    // Another account needs manage, which Ann has not.
+    assert_eq!(
+        code(
+            server
+                .call(
+                    &ann,
+                    "env.exec",
+                    json!({"env": "studio", "command": ["id", "-un"], "user": "root"})
+                )
+                .await
+        ),
+        Some(ErrorCode::Forbidden)
+    );
+    // Mia may ask, and in single-user mode the host says it cannot run as root.
+    assert_eq!(
+        code(
+            server
+                .call(
+                    &mia,
+                    "env.exec",
+                    json!({"env": "studio", "command": ["id", "-un"], "user": "root"})
+                )
+                .await
+        ),
+        Some(ErrorCode::Unavailable)
+    );
+
+    // Output past what a message holds comes back cut, and says so.
+    let long = server
+        .call(
+            &ann,
+            "env.exec",
+            json!({"env": "studio", "command": ["sh", "-c", "head -c 2000000 /dev/zero | tr '\\0' a"]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(long["exitCode"], 0);
+    assert_eq!(long["truncated"], true, "the result did not say it was cut");
+    let kept = long["stdout"].as_str().unwrap().len();
+    assert!(kept < 1_600_000 && kept > 1_000_000, "{kept}");
+
+    // A command past its deadline is TIMEOUT, and it does not run on.
+    let sock = host.dir.path().join("control.sock");
+    assert_eq!(
+        code(
+            server
+                .call(
+                    &ann,
+                    "env.exec",
+                    json!({"env": "studio", "command": ["sh", "-c", "sleep 57"], "timeoutMs": 200})
+                )
+                .await
+        ),
+        Some(ErrorCode::Timeout)
+    );
+    no_session(&sock, "sleep 57").await;
+
+    // A host with no checkouts folder yet has no checkouts, which takes use to ask.
+    let none = server
+        .call(&ann, "env.checkouts", json!({"env": "studio"}))
+        .await
+        .unwrap();
+    assert_eq!(none["checkouts"], json!([]));
+    assert_eq!(
+        code(
+            server
+                .call(&vic, "env.checkouts", json!({"env": "studio"}))
+                .await
+        ),
+        Some(ErrorCode::Forbidden)
+    );
+
+    // Cloning needs use; the checkout is under the folder the host keeps for them.
+    let source = std::path::PathBuf::from(host.file("source-repo"));
+    repository(&source);
+    for (name, repository, branch) in [
+        (Some("../escape"), source.to_str().unwrap(), None::<&str>),
+        (Some("-escape"), source.to_str().unwrap(), None),
+        (None, "ext::sh -c echo", None),
+        (None, source.to_str().unwrap(), Some("-main")),
+    ] {
+        let mut params = json!({"env": "studio", "repository": repository});
+        if let Some(name) = name {
+            params["name"] = json!(name);
+        }
+        if let Some(branch) = branch {
+            params["branch"] = json!(branch);
+        }
+        assert_eq!(
+            code(server.call(&ann, "env.clone", params.clone()).await),
+            Some(ErrorCode::Invalid),
+            "{params}"
+        );
+    }
+    assert_eq!(
+        code(
+            server
+                .call(
+                    &vic,
+                    "env.clone",
+                    json!({"env": "studio", "repository": source.to_str().unwrap()})
+                )
+                .await
+        ),
+        Some(ErrorCode::Forbidden)
+    );
+    let cloned = server
+        .call(
+            &ann,
+            "env.clone",
+            json!({"env": "studio", "repository": source.to_str().unwrap()}),
+        )
+        .await
+        .unwrap();
+    let folder = format!("{root}/workspaces");
+    assert_eq!(cloned["name"], "source-repo");
+    assert_eq!(
+        cloned["path"].as_str(),
+        Some(format!("{folder}/source-repo").as_str())
+    );
+    assert_eq!(cloned["branch"], "main");
+    assert_eq!(cloned["env"], "env://studio");
+    assert_eq!(
+        cloned["url"].as_str(),
+        Some(source.to_str().unwrap()),
+        "{cloned}"
+    );
+
+    // A worktree of it, on a new branch, needs use too and stays in the folder.
+    assert_eq!(
+        code(
+            server
+                .call(
+                    &vic,
+                    "env.worktree",
+                    json!({"env": "studio", "checkout": cloned["path"], "branch": "vic/one"})
+                )
+                .await
+        ),
+        Some(ErrorCode::Forbidden)
+    );
+    for (checkout, branch) in [
+        (root.clone(), "escape".to_owned()),
+        (format!("{folder}/source-repo"), "-escape".to_owned()),
+    ] {
+        assert_eq!(
+            code(
+                server
+                    .call(
+                        &ann,
+                        "env.worktree",
+                        json!({"env": "studio", "checkout": checkout, "branch": branch})
+                    )
+                    .await
+            ),
+            Some(ErrorCode::Invalid),
+            "{checkout} {branch}"
+        );
+    }
+    // A symlink that leads out of the roots is the host's refusal.
+    assert_eq!(
+        code(
+            server
+                .call(
+                    &ann,
+                    "env.worktree",
+                    json!({"env": "studio", "checkout": format!("{root}/out/sub"), "branch": "escape"})
+                )
+                .await
+        ),
+        Some(ErrorCode::Forbidden)
+    );
+    let worktree = server
+        .call(
+            &ann,
+            "env.worktree",
+            json!({"env": "studio", "checkout": cloned["path"], "branch": "ann/one"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(worktree["name"], "source-repo-ann-one");
+    assert_eq!(worktree["branch"], "ann/one");
+    assert_eq!(worktree["worktreeOf"], cloned["path"]);
+    assert_eq!(
+        worktree["path"].as_str(),
+        Some(format!("{folder}/source-repo-ann-one").as_str())
+    );
+
+    // Someone with use sees them; someone with view, or none, does not.
+    let listed = server
+        .call(&ann, "env.checkouts", json!({"env": "studio"}))
+        .await
+        .unwrap();
+    let names: Vec<&str> = listed["checkouts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c["name"].as_str())
+        .collect();
+    assert_eq!(names, vec!["source-repo", "source-repo-ann-one"]);
+    for caller in [&vic, &eve] {
+        assert_eq!(
+            code(
+                server
+                    .call(caller, "env.checkouts", json!({"env": "studio"}))
+                    .await
+            ),
+            Some(ErrorCode::Forbidden)
+        );
+    }
+
+    // A checkout with changes is not removed without force; a worktree goes either way.
+    std::fs::write(format!("{folder}/source-repo/README.md"), "changed\n").unwrap();
+    assert_eq!(
+        code(
+            server
+                .call(
+                    &ann,
+                    "env.removeCheckout",
+                    json!({"env": "studio", "path": cloned["path"]})
+                )
+                .await
+        ),
+        Some(ErrorCode::Conflict)
+    );
+    // A path the host resolves outside its roots is refused first.
+    assert_eq!(
+        code(
+            server
+                .call(
+                    &ann,
+                    "env.removeCheckout",
+                    json!({"env": "studio", "path": format!("{root}/out")})
+                )
+                .await
+        ),
+        Some(ErrorCode::Forbidden)
+    );
+    server
+        .call(
+            &ann,
+            "env.removeCheckout",
+            json!({"env": "studio", "path": worktree["path"], "force": true}),
+        )
+        .await
+        .unwrap();
+    server
+        .call(
+            &ann,
+            "env.removeCheckout",
+            json!({"env": "studio", "path": cloned["path"], "force": true}),
+        )
+        .await
+        .unwrap();
+    let left = server
+        .call(&ann, "env.checkouts", json!({"env": "studio"}))
+        .await
+        .unwrap();
+    assert_eq!(left["checkouts"], json!([]));
+
+    // A command still running when the caller's grant goes does not run on.
+    let running = {
+        let (kernel, caller) = (server.kernel.clone(), rob.clone());
+        tokio::spawn(async move {
+            let call = Call::new(kernel.clone(), caller, None);
+            kernel
+                .methods
+                .dispatch(
+                    call,
+                    "env.exec",
+                    json!({"env": "studio", "command": ["sh", "-c", "sleep 58"], "timeoutMs": 30_000}),
+                )
+                .await
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    server
+        .call(
+            &admin,
+            "access.revoke",
+            json!({"resource": "env://studio", "principal": format!("user:{rob_id}")}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        code(running.await.unwrap()),
+        Some(ErrorCode::Forbidden),
+        "the command did not end when its access was revoked"
+    );
+    no_session(&sock, "sleep 58").await;
+
+    server.close().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn terminals_files_and_ports_follow_the_levels_on_a_host() {
     let Some(host) = Rookeryd::start().await else {

@@ -1011,6 +1011,19 @@ pub struct LogEntry {
     pub cursor: String,
 }
 
+/// What a host keeps of its own paths: the folders its file calls may touch, and where its
+/// checkouts go.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct Paths {
+    /// The folders the file calls may touch.
+    pub roots: Vec<String>,
+    /// Where checkouts go. Absent when the host has no folder for them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspaces: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -1188,6 +1201,9 @@ pub struct Config {
     pub operator: String,
     /// Folders the file calls may touch.
     pub roots: Vec<String>,
+    /// Where checkouts go, inside one of the roots. Empty: the first root with a
+    /// `workspaces` folder, else the first root's `workspaces` folder.
+    pub workspaces: String,
     /// Units whose state the stats report.
     pub units: Vec<String>,
     /// Whether the calls that need systemd work. Off in single-user mode
@@ -1203,6 +1219,7 @@ impl Default for Config {
             agent: "agent".into(),
             operator: String::new(),
             roots: vec![],
+            workspaces: String::new(),
             units: vec![],
             systemd: None,
             agent_env: "/usr/local/bin/agent-env".into(),

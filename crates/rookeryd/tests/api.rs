@@ -719,6 +719,67 @@ async fn files_stay_under_their_roots() {
 }
 
 #[tokio::test]
+async fn the_host_says_which_folders_it_keeps() {
+    let daemon = Daemon::start(&[]);
+    let root = std::fs::canonicalize(daemon.path("files"))
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let mut host = daemon.host().await;
+    let paths: api::Paths = host.get("/v1/paths").await.unwrap();
+    assert_eq!(paths.roots, vec![root.clone()]);
+    // Nothing is configured, so the first root's `workspaces` folder is where checkouts go.
+    assert_eq!(
+        paths.workspaces.as_deref(),
+        Some(format!("{root}/workspaces").as_str())
+    );
+
+    // A folder that exists is chosen, and a configured one wins over any there is.
+    std::fs::create_dir_all(daemon.path("files/workspaces")).unwrap();
+    let paths: api::Paths = host.get("/v1/paths").await.unwrap();
+    assert_eq!(
+        paths.workspaces.as_deref(),
+        Some(format!("{root}/workspaces").as_str())
+    );
+    let elsewhere = format!("{root}/checkouts");
+    let configure = |workspaces: &str| {
+        std::fs::write(
+            daemon.dir.path().join("etc/rookeryd.json"),
+            json!({"roots": [root.clone()], "workspaces": workspaces}).to_string(),
+        )
+        .unwrap();
+    };
+    configure(&elsewhere);
+    let _: Value = host.post("/v1/reload", &json!({})).await.unwrap();
+    let paths: api::Paths = host.get("/v1/paths").await.unwrap();
+    assert_eq!(paths.workspaces.as_deref(), Some(elsewhere.as_str()));
+
+    // A folder outside the roots, or one that is not absolute, keeps no checkouts.
+    for workspaces in [daemon.path("outside"), "relative/checkouts".to_owned()] {
+        configure(&workspaces);
+        let _: Value = host.post("/v1/reload", &json!({})).await.unwrap();
+        let paths: api::Paths = host.get("/v1/paths").await.unwrap();
+        assert_eq!(paths.workspaces, None, "{workspaces}");
+    }
+
+    // A root that is a symlink is answered as the folder it names.
+    std::os::unix::fs::symlink(daemon.path("files"), daemon.dir.path().join("linked")).unwrap();
+    std::fs::write(
+        daemon.dir.path().join("etc/rookeryd.json"),
+        json!({"roots": [daemon.dir.path().join("linked").to_string_lossy()]}).to_string(),
+    )
+    .unwrap();
+    let _: Value = host.post("/v1/reload", &json!({})).await.unwrap();
+    let paths: api::Paths = host.get("/v1/paths").await.unwrap();
+    assert_eq!(paths.roots, vec![root.clone()]);
+
+    // Only the host level answers it: the agent's socket has its own calls.
+    let daemon = Daemon::start(&[]);
+    let mut agent = daemon.agent().await;
+    assert_eq!(code(agent.get("/v1/paths").await).0, 403);
+}
+
+#[tokio::test]
 async fn system_calls_go_to_the_systems_own_tools() {
     let daemon = Daemon::start(&[]);
     let mut host = daemon.host().await;
