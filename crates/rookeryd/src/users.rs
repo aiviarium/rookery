@@ -129,18 +129,10 @@ pub fn command(
             vec![shell.into(), "-c".into(), script.clone()]
         }
     };
-    // The agent gets its display and tool paths from the wrapper the role
-    // installs. A simulated host's wrapper is its shell, for whoever runs rookeryd.
-    let config = state.config();
-    let wrapper = config.rookeryd.agent_env.clone();
-    let simulated = config.rookeryd.simulated && state.mode == Mode::Single;
+    // The agent gets its display and tool paths from the wrapper the role installs.
+    let wrapper = state.config().rookeryd.agent_env.clone();
     let wrapped = std::path::Path::new(&wrapper).exists();
-    if simulated && !wrapped {
-        return Err(E::unavailable(format!(
-            "The simulated host has no shell at {wrapper}"
-        )));
-    }
-    if user == "agent" && (account.is_some() || simulated) && wrapped {
+    if user == "agent" && account.is_some() && wrapped {
         words.insert(0, wrapper);
     }
     let mut command = Command::new(&words[0]);
