@@ -126,46 +126,68 @@ pub async fn redeem(
         LinkKind::Device => None,
         _ => Some(account_name(&peeked, typed_name)?),
     };
-    let Some(link) = links.consume(code).await.map_err(internal)? else {
-        return Err(Refused::Gone);
-    };
-    let (user, created) = match link.kind() {
-        LinkKind::Device => {
-            let user = match link.user_id {
-                Some(id) => kernel.store.users().get(id).await.map_err(internal)?,
-                None => None,
-            };
-            match user {
-                Some(user) if !user.is_disabled() => (user.id, false),
-                Some(_) => return Err(Refused::Disabled),
-                None => return Err(Refused::Gone),
+    let (user, created) = if peeked.kind() == LinkKind::Setup {
+        let deployment = kernel
+            .store
+            .state()
+            .deployment_id()
+            .await
+            .map_err(internal)?;
+        let subject = rookery_store::util::random_token("");
+        let user = links
+            .consume_setup(
+                code,
+                &format!("{ISSUER_PREFIX}{deployment}"),
+                &subject,
+                name.as_deref().unwrap_or_default(),
+            )
+            .await
+            .map_err(internal)?
+            .ok_or(Refused::Gone)?;
+        (user, true)
+    } else {
+        let link = links
+            .consume(code)
+            .await
+            .map_err(internal)?
+            .ok_or(Refused::Gone)?;
+        match link.kind() {
+            LinkKind::Device => {
+                let user = match link.user_id {
+                    Some(id) => kernel.store.users().get(id).await.map_err(internal)?,
+                    None => None,
+                };
+                match user {
+                    Some(user) if !user.is_disabled() => (user.id, false),
+                    Some(_) => return Err(Refused::Disabled),
+                    None => return Err(Refused::Gone),
+                }
+            }
+            _ => {
+                let deployment = kernel
+                    .store
+                    .state()
+                    .deployment_id()
+                    .await
+                    .map_err(internal)?;
+                let login = Login {
+                    issuer: format!("{ISSUER_PREFIX}{deployment}"),
+                    subject: rookery_store::util::random_token(""),
+                    name: name.unwrap_or_default(),
+                    email: link.email.clone(),
+                    admin: false,
+                };
+                let (user, _) = kernel
+                    .store
+                    .users()
+                    .upsert_login(&login)
+                    .await
+                    .map_err(internal)?;
+                (user.id, true)
             }
         }
-        kind => {
-            let deployment = kernel
-                .store
-                .state()
-                .deployment_id()
-                .await
-                .map_err(internal)?;
-            let subject = rookery_store::util::random_token("")[..24].to_owned();
-            let login = Login {
-                issuer: format!("{ISSUER_PREFIX}{deployment}"),
-                subject,
-                name: name.unwrap_or_default(),
-                email: link.email.clone(),
-                admin: kind == LinkKind::Setup,
-            };
-            let (user, _) = kernel
-                .store
-                .users()
-                .upsert_login(&login)
-                .await
-                .map_err(internal)?;
-            (user.id, true)
-        }
     };
-    let details = serde_json::json!({ "kind": rookery_store::links::kind_name(link.kind()), "link": link.id, "created": created });
+    let details = serde_json::json!({ "kind": rookery_store::links::kind_name(peeked.kind()), "link": peeked.id, "created": created });
     let _ = kernel
         .store
         .audit()

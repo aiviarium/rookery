@@ -80,6 +80,9 @@ pub async fn create_link(call: &Call, p: LinkCreate) -> Result<LinkCreated, RpcE
                     "a setup link is made on the server's own machine: rookery server setup-key",
                 ));
             }
+            if call.store().users().has_enabled_admin().await? {
+                return Err(RpcError::conflict("the server already has an admin"));
+            }
             (None, None, None)
         }
         LinkKind::Invite => {

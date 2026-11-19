@@ -114,6 +114,51 @@ impl Links<'_> {
         .await?)
     }
 
+    /// Uses a setup link and installs the first admin in the same transaction.
+    pub async fn consume_setup(
+        &self,
+        code: &str,
+        issuer: &str,
+        subject: &str,
+        name: &str,
+    ) -> Result<Option<Uuid>> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("LOCK TABLE rookery.users IN SHARE ROW EXCLUSIVE MODE")
+            .execute(&mut *tx)
+            .await?;
+        let consumed = sqlx::query(
+            "UPDATE rookery.sign_in_links l SET used_at = now()
+             WHERE l.code_hash = $1 AND l.kind = 'setup' AND l.used_at IS NULL
+               AND l.revoked_at IS NULL AND l.expires_at > now()
+               AND NOT EXISTS (SELECT 1 FROM rookery.users WHERE role = 'admin' AND disabled_at IS NULL)",
+        )
+        .bind(hash_token(code))
+        .execute(&mut *tx)
+        .await?;
+        if consumed.rows_affected() == 0 {
+            return Ok(None);
+        }
+        let id = new_id();
+        sqlx::query(
+            "INSERT INTO rookery.users (id, issuer, subject, name, role, last_seen_at)
+             VALUES ($1, $2, $3, $4, 'admin', now())",
+        )
+        .bind(id)
+        .bind(issuer)
+        .bind(subject)
+        .bind(name)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE rookery.sign_in_links SET revoked_at = now()
+             WHERE kind = 'setup' AND used_at IS NULL AND revoked_at IS NULL",
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(Some(id))
+    }
+
     /// The links that still work: all of them, or those `by` made.
     pub async fn pending(&self, by: Option<Uuid>) -> Result<Vec<Pending>> {
         Ok(sqlx::query_as(AssertSqlSafe(format!(

@@ -110,6 +110,14 @@ impl Users<'_> {
         )
     }
 
+    pub async fn has_enabled_admin(&self) -> Result<bool> {
+        Ok(sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM rookery.users WHERE role = 'admin' AND disabled_at IS NULL)",
+        )
+        .fetch_one(self.pool)
+        .await?)
+    }
+
     /// Sets the org role. The last admin who is not disabled cannot stop being one.
     pub async fn set_role(&self, id: Uuid, admin: bool) -> Result<User> {
         let mut tx = self.pool.begin().await?;
