@@ -2,7 +2,9 @@
 // notifications, and binary stream channels (4-byte big-endian stream id + payload, credit in streams.credit).
 import { RookeryError } from "@rookery/sdk/errors"
 import type { ClientStream, StreamOptions } from "@rookery/sdk/runtime/client"
+import type { WireMethod, WireParams } from "@rookery/sdk/wire"
 import { type Accessor, createEffect, createSignal, getOwner, on, onCleanup } from "solid-js"
+import type { StreamOpened } from "./generated"
 
 export type ConnState = "connecting" | "open" | "closed"
 export type ConnectionPhase = "ok" | "reconnecting" | "offline" | "back"
@@ -271,6 +273,11 @@ export class Connection {
     if (this.state() === "open") this.ws!.send(JSON.stringify({ jsonrpc: "2.0", method, params }))
   }
 
+  /** Sends a notification of one of the wire's own methods, such as `streams.credit`. */
+  private signal<M extends WireMethod>(method: M, params: WireParams<M>) {
+    this.notify(method, params as Record<string, unknown>)
+  }
+
   private waitOpen(): Promise<void> {
     return new Promise((resolve, reject) => {
       const t = setTimeout(() => {
@@ -335,16 +342,16 @@ export class Connection {
     const data = new Uint8Array(buf, 4)
     if (!s) {
       this.earlyOf(id).frames.push(data)
-      this.notify("streams.credit", { stream: id, bytes: data.byteLength })
+      this.signal("streams.credit", { stream: id, bytes: data.byteLength })
       return
     }
     if (s.held) {
       s.held.push(data)
-      if (!s.manual) this.notify("streams.credit", { stream: id, bytes: data.byteLength })
+      if (!s.manual) this.signal("streams.credit", { stream: id, bytes: data.byteLength })
       return
     }
     s.stream.onData(data)
-    if (!s.manual) this.notify("streams.credit", { stream: id, bytes: data.byteLength })
+    if (!s.manual) this.signal("streams.credit", { stream: id, bytes: data.byteLength })
   }
 
   private earlyOf(id: number) {
@@ -371,7 +378,7 @@ export class Connection {
     params: Record<string, unknown> = {},
     opts: StreamOptions = {},
   ): Promise<ClientStream> {
-    const result = await this.call<{ stream: number }>(method, params)
+    const result = await this.call<StreamOpened>(method, params)
     const id = result.stream
     const state: StreamState = {
       stream: undefined as unknown as ClientStream,
@@ -399,14 +406,14 @@ export class Connection {
           off += n
         }
       },
-      eof: () => conn.notify("streams.eof", { stream: id }),
+      eof: () => conn.signal("streams.eof", { stream: id }),
       close: () => {
         conn.streams.delete(id)
         for (const w of state.waiters.splice(0)) w()
-        conn.notify("streams.close", { stream: id })
+        conn.signal("streams.close", { stream: id })
       },
       grant: (bytes) => {
-        if (bytes > 0 && conn.streams.has(id)) conn.notify("streams.credit", { stream: id, bytes })
+        if (bytes > 0 && conn.streams.has(id)) conn.signal("streams.credit", { stream: id, bytes })
       },
       onData: () => {},
       onEnd: () => {},

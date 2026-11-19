@@ -14,7 +14,8 @@
     "./types": "./src/types.ts",
     "./data": "./src/data.ts",
     "./filter": "./src/filter.ts",
-    "./generated": "./src/generated.ts"
+    "./generated": "./src/generated.ts",
+    "./wire": "./src/wire.ts"
   },
   "dependencies": {
     "zod": "^4.1.0"

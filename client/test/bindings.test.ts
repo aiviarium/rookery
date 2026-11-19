@@ -252,6 +252,8 @@ describe("@rookery/client SolidJS bindings", () => {
 
     const chunks: string[] = []
     const events: unknown[] = []
+    const names: string[] = []
+    let eventSub!: ReturnType<typeof createEventSubscription>
     let streamBinding!: ReturnType<typeof createStream>
     let rpcRes!: ReturnType<typeof createRpcResource<{ healthy: boolean }>>
     let disposeRoot!: () => void
@@ -266,7 +268,10 @@ describe("@rookery/client SolidJS bindings", () => {
           onData: (b) => chunks.push(new TextDecoder().decode(b)),
         },
       )
-      createEventSubscription(bus, "demo.ping", (p) => events.push(p))
+      eventSub = createEventSubscription(bus, ["demo.ping"], (p, name) => {
+        names.push(name)
+        events.push(p)
+      })
       rpcRes = createRpcResource<{ healthy: boolean }>(conn, "demo.status")
     })
     cleanup.push(() => disposeRoot())
@@ -280,12 +285,26 @@ describe("@rookery/client SolidJS bindings", () => {
         JSON.stringify({
           jsonrpc: "2.0",
           method: "events.event",
-          params: { subscription: "ev-1", topic: "demo.ping", payload: 7 },
+          params: { subscription: "ev-1", name: "demo.ping", payload: 7 },
         }),
       )
     }
     await waitFor(() => events.length === 1)
     expect(events).toEqual([7])
+    expect(names).toEqual(["demo.ping"])
+
+    // A dropped notice reaches the binding as a signal the view can show or refetch on.
+    expect(eventSub.dropped()).toBe(0)
+    for (const ws of sockets) {
+      ws.send(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          method: "events.dropped",
+          params: { subscription: "ev-1", dropped: 4 },
+        }),
+      )
+    }
+    await waitFor(() => eventSub.dropped() === 4)
   })
 })
 

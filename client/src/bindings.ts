@@ -14,7 +14,7 @@ import type { FilterCollection } from "@rookery/sdk/filter"
 import type { ClientStream, StreamOptions } from "@rookery/sdk/runtime/client"
 import { disposable } from "@rookery/sdk/types"
 import { type Accessor, createSignal, getOwner, onCleanup } from "solid-js"
-import type { EventBus, EventHandler } from "./events"
+import type { EventBus, EventHandler, EventSubscriptionOptions } from "./events"
 import type { Manifest } from "./generated"
 import type { Connection } from "./ws"
 
@@ -178,15 +178,43 @@ export function createStream<R = any>(
   }
 }
 
-/** Subscribes to a topic on `bus` and automatically disposes the subscription on `onCleanup`. */
-export function createEventSubscription(bus: EventBus, topic: string, handler: EventHandler) {
+export interface EventSubscriptionBinding {
+  /** Events this subscription lost because the connection had no room for them. */
+  readonly dropped: Accessor<number>
+  dispose(): void
+}
+
+/**
+ * Subscribes to `names` on `bus` and disposes the subscription on `onCleanup`.
+ *
+ * Events are at most once. When the connection drops some, `dropped` counts them and `onDropped`
+ * runs: a view that shows the events' effect should read again (`refetch`) rather than wait, as
+ * none of the lost events arrive.
+ */
+export function createEventSubscription(
+  bus: EventBus,
+  names: string | readonly string[],
+  handler: EventHandler,
+  opts: EventSubscriptionOptions = {},
+): EventSubscriptionBinding {
   let disposed = false
   let disposeSub: (() => void) | undefined
+  const [dropped, setDropped] = createSignal(0)
 
   void bus
-    .subscribe(topic, (payload, t) => {
-      if (!disposed) handler(payload, t)
-    })
+    .subscribe(
+      names,
+      (payload, name) => {
+        if (!disposed) handler(payload, name)
+      },
+      {
+        onDropped: (count) => {
+          if (disposed) return
+          setDropped((total) => total + count)
+          opts.onDropped?.(count)
+        },
+      },
+    )
     .then((d) => {
       if (disposed) d.dispose()
       else disposeSub = () => d.dispose()
@@ -199,7 +227,7 @@ export function createEventSubscription(bus: EventBus, topic: string, handler: E
     disposeSub?.()
   }
   if (getOwner()) onCleanup(dispose)
-  return { dispose }
+  return { dropped, dispose }
 }
 
 export interface RpcResource<T> {

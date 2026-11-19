@@ -25,6 +25,18 @@ export { type ErrorCode, RookeryError } from "../errors"
 export type * from "../generated"
 export type { Disposable } from "../types"
 export type {
+  NOT_ON_SERVER,
+  NotificationMethod,
+  NotificationParams,
+  WireCall,
+  WireMethod,
+  WireNotifications,
+  WireParams,
+  WireResult,
+  WireTransport,
+} from "../wire"
+export { WIRE, wireCall } from "../wire"
+export type {
   AppServices,
   Blobs,
   Chrome,
@@ -42,6 +54,8 @@ export type {
   Jobs,
   LiveCollection,
   Nav,
+  Notifications,
+  Notify,
   Plugins,
   Rpc,
   Settings,
@@ -66,6 +80,8 @@ export type {
   ContextValueInfo,
   DesktopViewProps,
   EmbeddedViewProps,
+  EventHandler,
+  EventSubscriptionOptions,
   FieldEditorProps,
   FieldPartProps,
   FieldParts,

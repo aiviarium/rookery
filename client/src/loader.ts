@@ -266,7 +266,7 @@ export function createPluginLoader(conn: Connection, options: PluginLoaderOption
     stream: (method, params, opts) => conn.stream(method, params, opts),
     onNotification: (method, fn) => disposable(conn.on(method, fn)),
     onReconnect: (fn) => disposable(conn.onReconnect(fn)),
-    subscribe: (topic, handler) => bus.subscribe(topic, handler),
+    subscribe: (names, handler, opts) => bus.subscribe(names, handler, opts),
     registerView,
     registerCommand,
     registerStatusItem,

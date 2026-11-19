@@ -173,12 +173,31 @@ export interface AdminPageEntry {
   page: AdminPageContribution
 }
 
+/** What a subscriber does with an event: `<plugin>/<name>` is the name the server sent it under. */
+export type EventHandler = (payload: unknown, name: string) => unknown
+
+export interface EventSubscriptionOptions {
+  /**
+   * Events of this subscription that did not fit on the connection were dropped, and are lost. The
+   * subscriber should read again what it shows, or subscribe again if it needs what it missed.
+   */
+  onDropped?: (dropped: number) => void
+}
+
 export interface ClientRuntime {
   call(method: string, params: Record<string, unknown>): Promise<unknown>
   stream(method: string, params: Record<string, unknown>, opts?: StreamOptions): Promise<ClientStream>
   onNotification(method: string, fn: (params: any) => void): Disposable
   onReconnect(fn: () => void): Disposable
-  subscribe(topic: string, handler: (payload: unknown, topic: string) => unknown): Promise<Disposable>
+  /**
+   * Subscribes to the events named by `names`, each `<plugin>/<name>` or a prefix ending in `*`, as
+   * `events.event` notifications. The returned disposable ends the subscription.
+   */
+  subscribe(
+    names: string | readonly string[],
+    handler: EventHandler,
+    opts?: EventSubscriptionOptions,
+  ): Promise<Disposable>
   registerView(plugin: string, id: string, component: ViewComponent, options?: ViewOptions): Disposable
   registerCommand(plugin: string, id: string, def: ClientCommandDef): Disposable
   registerStatusItem?(plugin: string, id: string, component: Component): Disposable

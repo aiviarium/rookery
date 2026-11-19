@@ -254,13 +254,13 @@ describe("@rookery/client WebSocket protocol", () => {
     manual.close()
   })
 
-  test("reconnect restores connection and EventBus resubscribes topics", async () => {
-    const subscribedTopics: Array<{ topic: string; subscription: string }> = []
+  test("reconnect restores connection and EventBus resubscribes names", async () => {
+    const subscribed: Array<{ names: string[]; subscription: string }> = []
     let subSeq = 0
     const srv = startFakeWsServer({
       "events.subscribe": (p) => {
         const subscription = `esub-${++subSeq}`
-        subscribedTopics.push({ topic: p.topic, subscription })
+        subscribed.push({ names: p.names, subscription })
         return { subscription }
       },
       "events.unsubscribe": () => ({}),
@@ -278,30 +278,68 @@ describe("@rookery/client WebSocket protocol", () => {
     cleanup.push(() => bus.dispose())
 
     const received: unknown[] = []
-    const subPromise = bus.subscribe("hosts.changed", (p) => received.push(p))
+    const names: string[] = []
+    const subPromise = bus.subscribe(["fleet/hosts.changed", "fleet/*"], (p, name) => {
+      names.push(name)
+      received.push(p)
+    })
     conn.connect()
     await subPromise
 
-    expect(subscribedTopics).toHaveLength(1)
+    expect(subscribed).toHaveLength(1)
+    expect(subscribed[0]!.names).toEqual(["fleet/hosts.changed", "fleet/*"])
     srv.sendNotification("events.event", {
-      subscription: subscribedTopics[0]!.subscription,
-      topic: "hosts.changed",
+      subscription: subscribed[0]!.subscription,
+      name: "fleet/hosts.changed",
       payload: { n: 1 },
     })
     await waitFor(() => received.length === 1)
 
     // Drop the socket from the server side; client should reconnect and resubscribe.
     srv.closeAll(1012)
-    await waitFor(() => subscribedTopics.length >= 2)
+    await waitFor(() => subscribed.length >= 2)
     // Allow client subscribe response to register in byId.
     await Bun.sleep(20)
     srv.sendNotification("events.event", {
-      subscription: subscribedTopics[1]!.subscription,
-      topic: "hosts.changed",
+      subscription: subscribed[1]!.subscription,
+      name: "fleet/hosts.changed",
       payload: { n: 2 },
     })
     await waitFor(() => received.length === 2)
     expect(received).toEqual([{ n: 1 }, { n: 2 }])
+    expect(names).toEqual(["fleet/hosts.changed", "fleet/hosts.changed"])
+  })
+
+  test("events.dropped tells the subscriber what the connection lost", async () => {
+    let subSeq = 0
+    const srv = startFakeWsServer({
+      "events.subscribe": () => ({ subscription: `esub-${++subSeq}` }),
+      "events.unsubscribe": () => ({}),
+    })
+    cleanup.push(() => srv.stop())
+
+    const conn = new Connection({
+      url: srv.wsUrl,
+      checkSession: async () => true,
+      reconnect: false,
+    })
+    cleanup.push(() => conn.stop())
+    const bus = createEventBus(conn)
+    cleanup.push(() => bus.dispose())
+    conn.connect()
+
+    const dropped: number[] = []
+    await bus.subscribe("fleet/hosts.changed", () => {}, { onDropped: (n) => dropped.push(n) })
+    srv.sendNotification("events.dropped", { subscription: "esub-1", dropped: 3 })
+    await waitFor(() => dropped.length === 1)
+    srv.sendNotification("events.dropped", { subscription: "esub-1", dropped: 2 })
+    await waitFor(() => dropped.length === 2)
+    expect(dropped).toEqual([3, 2])
+
+    // A notice for another connection's subscription is not for this bus.
+    srv.sendNotification("events.dropped", { subscription: "other", dropped: 9 })
+    await Bun.sleep(20)
+    expect(dropped).toEqual([3, 2])
   })
 
   test("createConnectionPhase transitions ok -> reconnecting -> offline -> back -> ok", async () => {
