@@ -567,8 +567,8 @@ impl Place {
             }
         }
         let conflict = match self.table {
-            // Settings are unique by plugin, key, scope and user.
-            "settings" => "(plugin, key, scope, user_id)".to_owned(),
+            // Settings are unique by plugin, key, scope, user and space.
+            "settings" => "(plugin, key, scope, user_id, space_id)".to_owned(),
             _ => format!("({})", self.key),
         };
         let sql = format!(

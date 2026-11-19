@@ -1031,6 +1031,22 @@ async fn space_of(k: &TestKernel, owner: &Caller, member: &Caller, level: i16) -
     s.id.to_string()
 }
 
+fn install_wiki_connection_type(k: &TestKernel) {
+    let manifest = json!({"contributes": {"connectionTypes": [{
+        "id": "docs.wiki",
+        "title": "Wiki",
+        "fields": {
+            "type": "object",
+            "properties": {"url": {"type": "string"}, "key": {"type": "string"}}
+        },
+        "secret": ["key"],
+        "scopes": ["global", "space", "user"]
+    }]}});
+    k.kernel.set_facility(
+        rookery_facilities::connections::PluginKinds::from_manifests([("docs", &manifest)]),
+    );
+}
+
 #[tokio::test]
 async fn settings_storage_and_connections_have_a_space_scope_for_its_members() {
     let k: TestKernel = test_kernel!(methods());
@@ -1112,8 +1128,9 @@ async fn settings_storage_and_connections_have_a_space_scope_for_its_members() {
         Value::Null
     );
 
+    install_wiki_connection_type(&k);
     // A space's connection is its managers' to make and change, and its members' to see.
-    let create = json!({ "type": "http", "name": "wiki", "scope": "space", "space": space,
+    let create = json!({ "type": "docs.wiki", "name": "wiki", "scope": "space", "space": space,
                          "config": { "url": "https://wiki.example.test" } });
     assert_eq!(
         code(k.call(&bob, "connections.create", create.clone()).await),
@@ -1167,7 +1184,7 @@ async fn settings_storage_and_connections_have_a_space_scope_for_its_members() {
             "NOT_FOUND"
         );
     }
-    let by_name = json!({ "type": "http", "name": "wiki", "space": space });
+    let by_name = json!({ "type": "docs.wiki", "name": "wiki", "space": space });
     assert_eq!(
         code(k.call(&docs, "connections.resolve", by_name.clone()).await),
         "NOT_FOUND"
@@ -1177,7 +1194,7 @@ async fn settings_storage_and_connections_have_a_space_scope_for_its_members() {
             &admin,
             "connections.create",
             json!({
-                "type": "http", "name": "wiki", "scope": "global",
+                "type": "docs.wiki", "name": "wiki", "scope": "global",
                 "config": { "url": "https://global.example.test" }, "credential": "global-key"
             }),
         )
@@ -1279,6 +1296,7 @@ async fn disabled_accounts_hold_no_access_level() {
 #[tokio::test]
 async fn resolving_personal_connections_requires_the_authenticated_owner() {
     let k: TestKernel = test_kernel!(methods());
+    install_wiki_connection_type(&k);
     let owner = k.person("Ada", true).await;
     let other = k.person("Fran", true).await;
     let docs = Caller::Plugin("docs".into());
@@ -1287,7 +1305,7 @@ async fn resolving_personal_connections_requires_the_authenticated_owner() {
             &owner,
             "connections.create",
             json!({
-                "type": "http", "name": "wiki", "scope": "user",
+                "type": "docs.wiki", "name": "wiki", "scope": "user",
                 "config": { "url": "https://wiki.example.test" }, "credential": "personal-key"
             }),
         )
@@ -1305,7 +1323,7 @@ async fn resolving_personal_connections_requires_the_authenticated_owner() {
     }
     for params in [
         json!({"plugin": "docs", "id": made["id"]}),
-        json!({"plugin": "docs", "type": "http", "name": "wiki"}),
+        json!({"plugin": "docs", "type": "docs.wiki", "name": "wiki"}),
     ] {
         let resolved = k.call(&owner, "connections.resolve", params).await.unwrap();
         assert_eq!(resolved["credential"], "personal-key");

@@ -160,6 +160,7 @@ fn check_connection(
     let scope = match scope {
         WireScope::Global => "global",
         WireScope::User => "user",
+        WireScope::Space => "space",
     };
     if !kind.scopes.is_empty() && !kind.scopes.iter().any(|s| s == scope) {
         return Err(RpcError::invalid(format!(
@@ -620,12 +621,34 @@ pub fn register(methods: &mut Methods) {
                         }
                     };
                 let found = found.ok_or_else(|| RpcError::not_found("no such connection"))?;
-                if matches!(call.caller, Caller::Plugin(_)) {
-                    require_kind(&call, &plugin, &found.kind)?;
-                } else if kind(&found.kind).is_none() {
-                    return Err(RpcError::forbidden(
-                        "only the declaring plugin can resolve this connection",
-                    ));
+                // Rookery's own types are for people, the shell and the server, never a plugin: a
+                // plugin declares its own type and reads only that one.
+                if kind(&found.kind).is_some() {
+                    if matches!(call.caller, Caller::Plugin(_)) {
+                        return Err(RpcError::forbidden(
+                            "a plugin resolves only the connection types it declares",
+                        ));
+                    }
+                } else {
+                    let declares = call
+                        .kernel
+                        .get_facility::<PluginKinds>()
+                        .is_some_and(|kinds| {
+                            kinds
+                                .0
+                                .get(&found.kind)
+                                .is_some_and(|kind| kind.plugin == plugin)
+                        });
+                    // A global connection of a plugin's type is the plugin's own: it reads the
+                    // credential, and a person does not. One a person holds, or a space, is
+                    // resolved with the declaring plugin named for whoever it is shared with.
+                    let shared = found.user_id.is_some() || found.space_id.is_some();
+                    let itself = matches!(call.caller, Caller::Plugin(_));
+                    if !declares || !(shared || itself) {
+                        return Err(RpcError::forbidden(
+                            "only the declaring plugin can resolve this connection",
+                        ));
+                    }
                 }
                 let credential = connections.credential(found.id).await?;
                 let credential = credential

@@ -347,12 +347,19 @@ function createApi(rt: HostRuntime): Rookery {
       },
     },
     settings: {
-      get: async (key) => (await rt.call<{ value: any }>("settings.get", { plugin, key })).value,
+      get: async (key, opts = {}) =>
+        (await rt.call<{ value: any }>("settings.get", { plugin, key, space: opts.space })).value,
       set: async (key, value, opts = {}) => {
-        await rt.call("settings.set", { plugin, key, value, scope: opts.scope ?? "default" })
+        await rt.call("settings.set", {
+          plugin,
+          key,
+          value,
+          scope: opts.scope ?? "default",
+          space: opts.space,
+        })
       },
       reset: async (key, opts = {}) => {
-        await rt.call("settings.reset", { plugin, key, scope: opts.scope ?? "default" })
+        await rt.call("settings.reset", { plugin, key, scope: opts.scope ?? "default", space: opts.space })
       },
     },
     storage: {
@@ -361,6 +368,7 @@ function createApi(rt: HostRuntime): Rookery {
           await rt.call<{ value: any; revision: number }>("storage.get", {
             key,
             scope: opts.scope ?? "global",
+            space: opts.space,
           })
         ).value ?? null,
       set: async (key, value, opts = {}) => {
@@ -368,6 +376,7 @@ function createApi(rt: HostRuntime): Rookery {
           key,
           value,
           scope: opts.scope ?? "global",
+          space: opts.space,
           ...(opts.expectedRevision !== undefined ? { revision: opts.expectedRevision } : {}),
         })
       },
@@ -377,12 +386,13 @@ function createApi(rt: HostRuntime): Rookery {
             "storage.list",
             {
               scope: opts.scope ?? "global",
+              space: opts.space,
               prefix: opts.prefix ?? "",
             },
           )
         ).entries.map((e) => ({ key: e.key, value: e.value, revision: e.revision })),
       delete: async (key, opts = {}) => {
-        await rt.call("storage.delete", { key, scope: opts.scope ?? "global" })
+        await rt.call("storage.delete", { key, scope: opts.scope ?? "global", space: opts.space })
       },
     },
     secrets: {
