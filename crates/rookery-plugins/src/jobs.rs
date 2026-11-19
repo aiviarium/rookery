@@ -112,7 +112,9 @@ impl JobHandler for PluginJob {
                 .upgrade()
                 .ok_or_else(|| RpcError::unavailable("the plugin system stopped"))?;
             let kernel = run.kernel().clone();
-            plugins.activate(&kernel, &job.plugin).await?;
+            // Not as the admin the server would be: a host half that failed starts again for an admin
+            // alone, whoever enqueued the job.
+            plugins.activate_as(&kernel, &job.plugin, false).await?;
             let mut call = Call::new(kernel, Caller::System(format!("job:{}", run.id)), None);
             call.deadline = Instant::now() + job.timeout;
             let params = json!({

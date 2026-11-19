@@ -1132,6 +1132,23 @@ async fn declared_jobs_run_in_the_host_half_for_whom_the_manifest_allows() {
     })
     .await;
 
+    // A job does not start a host half that failed: an admin does.
+    until("echo failing", || async {
+        if state(&k, &member, "echo").await == "failed" {
+            return true;
+        }
+        let _ = k.call(&member, "plugins.rpc", rpc("crash")).await;
+        false
+    })
+    .await;
+    let stuck = k
+        .call(&member, "jobs.enqueue", json!({"kind": "echo/wait"}))
+        .await
+        .unwrap();
+    let ended = job_ends(&k, &member, &stuck["id"]).await;
+    assert_eq!(ended["state"], "failed", "{ended}");
+    assert_eq!(state(&k, &member, "echo").await, "failed");
+
     // A removed plugin's kinds have no handler: their jobs wait.
     k.call(&admin, "plugins.remove", json!({"id": "echo"}))
         .await
