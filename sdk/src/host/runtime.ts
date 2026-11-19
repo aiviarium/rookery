@@ -221,22 +221,14 @@ export class HostRuntime {
     )
     this.running.set(inv.ctx.callId, abort)
     try {
-      const run = (async () => {
-        const params = parse(h, inv.params)
-        return h.run(this.context(inv.ctx, abort.signal), params, inv)
-      })()
-      // The server can end this process if a job or stream doesn't stop after cancellation.
-      if (inv.kind === "job" || inv.stream) {
-        const result = await run
-        abort.signal.throwIfAborted()
-        return result ?? null
+      if (inv.ctx.deadline <= Date.now()) {
+        throw new RookeryError("TIMEOUT", "the call's deadline passed")
       }
-      const aborted = new Promise<never>((_, reject) => {
-        const fail = () => reject(RookeryError.from(abort.signal.reason))
-        if (abort.signal.aborted) fail()
-        else abort.signal.addEventListener("abort", fail, { once: true })
-      })
-      return (await Promise.race([run, aborted])) ?? null
+      const params = parse(h, inv.params)
+      const result = await h.run(this.context(inv.ctx, abort.signal), params, inv)
+      // Acknowledging cancellation tells the server that the handler has stopped.
+      abort.signal.throwIfAborted()
+      return result ?? null
     } finally {
       clearTimeout(timer)
       this.running.delete(inv.ctx.callId)

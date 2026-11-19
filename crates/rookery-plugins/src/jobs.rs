@@ -33,6 +33,7 @@ pub struct DeclaredJob {
     pub enqueue: String,
     pub timeout: Duration,
     pub max_attempts: i32,
+    pub idempotent: bool,
 }
 
 /// The jobs a valid plugin declares, but those an app service runs (`worker`), which have no host half
@@ -70,6 +71,10 @@ pub fn declared(plugin: &Loaded) -> Vec<DeclaredJob> {
                         .unwrap_or(3600),
                 ),
                 max_attempts: job.get("maxAttempts").and_then(Value::as_i64).unwrap_or(3) as i32,
+                idempotent: job
+                    .get("idempotent")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
                 id,
             })
         })
@@ -101,6 +106,10 @@ impl JobHandler for PluginJob {
         self.kind
     }
 
+    fn repeatable(&self) -> bool {
+        self.job.idempotent
+    }
+
     fn max_attempts(&self) -> i32 {
         self.job.max_attempts
     }
@@ -112,9 +121,16 @@ impl JobHandler for PluginJob {
                 .upgrade()
                 .ok_or_else(|| RpcError::unavailable("the plugin system stopped"))?;
             let kernel = run.kernel().clone();
-            // Not as the admin the server would be: a host half that failed starts again for an admin
-            // alone, whoever enqueued the job.
-            plugins.activate_as(&kernel, &job.plugin, false).await?;
+            let loaded = plugins
+                .get(&job.plugin)
+                .filter(|plugin| declared(plugin).contains(&job))
+                .ok_or_else(|| RpcError::unavailable("the job declaration changed"))?;
+            let permits = plugins.host.reserve_invocation(&job.plugin, false)?;
+            // Only an admin can restart a failed host half, whoever enqueued this job.
+            let link = plugins
+                .activate_target(&kernel, loaded.clone(), false)
+                .await?;
+            let target = plugins.host.target(&job.plugin, link, "job", &job.id)?;
             let mut call = Call::new(kernel, Caller::System(format!("job:{}", run.id)), None);
             call.deadline = Instant::now() + job.timeout;
             let params = json!({
@@ -122,22 +138,22 @@ impl JobHandler for PluginJob {
                 "job": {
                     "id": run.id.to_string(),
                     "attempt": run.attempt,
-                    "maxAttempts": job.max_attempts,
+                    "maxAttempts": run.max_attempts,
                     "kind": run.kind,
                     "subject": run.subject,
                 },
             });
             plugins
-                .host
-                .invoke_until(
-                    &call,
-                    &plugins,
-                    &job.plugin,
-                    "job",
-                    &job.id,
-                    params,
-                    Some(crate::exthost::Invocation::Job(run)),
-                )
+                .with_current(&loaded, || {
+                    plugins.host.begin(
+                        &call,
+                        target,
+                        params,
+                        Some(crate::exthost::Invocation::Job(run)),
+                        permits,
+                    )
+                })?
+                .result()
                 .await
         })
     }

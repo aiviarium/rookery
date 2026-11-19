@@ -1879,6 +1879,11 @@
                 "minimum": 1,
                 "maximum": 86400
               },
+              "idempotent": {
+                "description": "A host job may retry automatically only when set to true. Repeating it after an interruption must be safe.",
+                "type": "boolean",
+                "default": false
+              },
               "maxAttempts": {
                 "description": "Attempts before the job fails for good. Default 3.",
                 "type": "integer",

@@ -84,7 +84,12 @@ export default definePlugin((rookery) => {
     run: (ctx) =>
       new Promise((resolve) => {
         const timer = setTimeout(() => resolve("late"), 60_000)
-        ctx.signal.addEventListener("abort", () => clearTimeout(timer))
+        ctx.signal.addEventListener("abort", async () => {
+          clearTimeout(timer)
+          await Bun.sleep(75)
+          console.info("unary handler finished cleanup")
+          resolve("cancelled")
+        })
       }),
   })
   // Ignores its deadline, and keeps the worker busy past it.

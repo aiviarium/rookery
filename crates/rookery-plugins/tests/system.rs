@@ -11,7 +11,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use rookery_kernel::testing::TestKernel;
-use rookery_kernel::{Caller, Methods, test_kernel};
+use rookery_kernel::{Call, Caller, Methods, test_kernel};
 use rookery_plugins::{HostOptions, Plugins, Setup};
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -49,6 +49,18 @@ async fn plugins_with(k: &TestKernel, scratch: &Path, memory_mb: u32) -> Arc<Plu
 
 /// A plugin system with its folders in `scratch`, as a leader makes it before it reads the folder.
 async fn plugins_unstarted_with(k: &TestKernel, scratch: &Path, memory_mb: u32) -> Arc<Plugins> {
+    plugins_with_host(
+        k,
+        scratch,
+        HostOptions {
+            bun: PathBuf::from("bun"),
+            entry: Some(checkout().join("host/src/main.ts")),
+            memory_mb,
+        },
+    )
+}
+
+fn plugins_with_host(k: &TestKernel, scratch: &Path, host: HostOptions) -> Arc<Plugins> {
     let paths = rookery_core::paths::Paths {
         config_dir: scratch.join("config"),
         data_dir: scratch.join("data"),
@@ -59,14 +71,7 @@ async fn plugins_unstarted_with(k: &TestKernel, scratch: &Path, memory_mb: u32) 
         json!({"source": checkout()}).to_string(),
     )
     .unwrap();
-    k.kernel.set_facility(Plugins::new(Setup {
-        paths,
-        host: HostOptions {
-            bun: PathBuf::from("bun"),
-            entry: Some(checkout().join("host/src/main.ts")),
-            memory_mb,
-        },
-    }));
+    k.kernel.set_facility(Plugins::new(Setup { paths, host }));
     k.kernel.get_facility::<Plugins>().unwrap()
 }
 
@@ -282,10 +287,41 @@ async fn a_stopping_plugin_system_starts_no_host_half() {
     )
     .await
     .unwrap();
-    assert!(plugins.host_pid("echo").is_some());
+    let active_pid = plugins.host_pid("echo").unwrap();
+    let slow = package(
+        scratch.path(),
+        "slow",
+        "1.0.0",
+        &[
+            ("plugin.json", ECHO),
+            (
+                "host.ts",
+                r#"import { definePlugin } from "@rookery/sdk"; export default definePlugin(() => Bun.sleep(60000));"#,
+            ),
+        ],
+    );
+    install(&k, &plugins, &slow).await;
+    let starting = tokio::spawn(k.kernel.methods.dispatch(
+        Call::new(k.kernel.clone(), member.clone(), None),
+        "plugins.rpc",
+        rpc("slow", "greet", json!({})),
+    ));
+    until("the slow host starting", || async {
+        plugins.host_pid("slow").is_some()
+    })
+    .await;
+    let starting_pid = plugins.host_pid("slow").unwrap();
 
-    plugins.stop(&k.kernel, Duration::from_secs(5)).await;
+    plugins.stop(&k.kernel, Duration::from_millis(100)).await;
+    assert!(starting.await.unwrap().is_err());
+    for pid in [active_pid, starting_pid] {
+        assert!(
+            !Path::new(&format!("/proc/{pid}")).exists(),
+            "PID {pid} was not reaped"
+        );
+    }
     assert_eq!(plugins.host_pid("echo"), None);
+    assert_eq!(plugins.host_pid("slow"), None);
     let refused = k
         .call(
             &member,
@@ -1407,16 +1443,11 @@ const HOST_APIS: &str = r#"{
       "fields": {"type": "object", "properties": {"key": {"type": "string"}}},
       "secret": ["key"], "scopes": ["global", "user"]
     }],
-    "jobs": [{"id": "sample.run", "title": "Run", "enqueue": "plugin"}]
+    "jobs": [{"id": "sample.run", "title": "Run", "enqueue": "plugin", "idempotent": true}]
   }
 }"#;
 
-#[tokio::test]
-async fn host_services_connections_and_job_claims_stay_with_their_plugin() {
-    if !bun_ready() {
-        return;
-    }
-    use rookery_proto::ErrorCode::*;
+fn host_api_methods() -> Methods {
     let mut methods = Methods::default();
     rookery_facilities::register(&mut methods);
     rookery_jobs::register(
@@ -1429,6 +1460,37 @@ async fn host_services_connections_and_job_claims_stay_with_their_plugin() {
         },
     );
     rookery_plugins::register(&mut methods);
+    methods
+}
+
+async fn install_host_api(
+    k: &TestKernel,
+    plugins: &Arc<Plugins>,
+    scratch: &Path,
+    id: &str,
+    manifest: &str,
+) {
+    let fixture = checkout().join("host/test/fixtures/host-apis");
+    let host = fs::read_to_string(fixture.join("host.ts")).unwrap();
+    let interface = fs::read_to_string(fixture.join("interface.ts")).unwrap();
+    let files = [
+        ("plugin.json", manifest),
+        ("host.ts", &host),
+        ("interface.ts", &interface),
+    ];
+    install(k, plugins, &package(scratch, id, "1.0.0", &files)).await;
+}
+
+const RELAY: &str =
+    r#"{"apiVersion":"1","name":"Relay","host":"host.ts","interface":"interface.ts"}"#;
+
+#[tokio::test]
+async fn host_services_connections_and_job_claims_stay_with_their_plugin() {
+    if !bun_ready() {
+        return;
+    }
+    use rookery_proto::ErrorCode::*;
+    let methods = host_api_methods();
     let k = test_kernel!(methods, |config| config.call_timeout =
         Duration::from_secs(5));
     let scratch = tempfile::tempdir().unwrap();
@@ -1438,23 +1500,8 @@ async fn host_services_connections_and_job_claims_stay_with_their_plugin() {
     let sample = Caller::Plugin("sample".into());
     let relay = Caller::Plugin("relay".into());
 
-    let fixture = checkout().join("host/test/fixtures/host-apis");
-    let host = fs::read_to_string(fixture.join("host.ts")).unwrap();
-    let interface = fs::read_to_string(fixture.join("interface.ts")).unwrap();
-    for (id, manifest) in [
-        ("sample", HOST_APIS),
-        (
-            "relay",
-            r#"{"apiVersion":"1","name":"Relay","host":"host.ts","interface":"interface.ts"}"#,
-        ),
-    ] {
-        let files = [
-            ("plugin.json", manifest),
-            ("host.ts", &host),
-            ("interface.ts", &interface),
-        ];
-        install(&k, &plugins, &package(scratch.path(), id, "1.0.0", &files)).await;
-    }
+    install_host_api(&k, &plugins, scratch.path(), "sample", HOST_APIS).await;
+    install_host_api(&k, &plugins, scratch.path(), "relay", RELAY).await;
 
     let create = |scope| {
         json!({
@@ -1696,5 +1743,475 @@ async fn host_services_connections_and_job_claims_stay_with_their_plugin() {
             == json!({"reason": "cancelled"})
     })
     .await;
+    k.close().await;
+}
+
+#[tokio::test]
+async fn a_job_keeps_its_claim_until_its_handler_stops_or_its_process_is_reaped() {
+    if !bun_ready() {
+        return;
+    }
+    let k = test_kernel!(host_api_methods());
+    let scratch = tempfile::tempdir().unwrap();
+    let plugins = plugins(&k, scratch.path()).await;
+    let admin = k.person("Ada", true).await;
+    let sample = Caller::Plugin("sample".into());
+    let mut manifest: Value = serde_json::from_str(HOST_APIS).unwrap();
+    manifest["contributes"]["jobs"] = json!([
+        {"id":"sample.run","title":"Run"},
+        {"id":"sample.grace","title":"Grace","timeoutSecs":1,"idempotent":true,"maxAttempts":2},
+        {"id":"sample.kill","title":"Kill","timeoutSecs":1,"idempotent":true,"maxAttempts":2},
+        {"id":"sample.once","title":"Once","maxAttempts":3}
+    ]);
+    install_host_api(
+        &k,
+        &plugins,
+        scratch.path(),
+        "sample",
+        &manifest.to_string(),
+    )
+    .await;
+
+    let enqueue = |name: &str| {
+        k.call(
+            &admin,
+            "jobs.enqueue",
+            json!({"kind": format!("sample/{name}")}),
+        )
+    };
+    let graceful = enqueue("grace").await.unwrap();
+    until("the timed-out handler cleaning up", || async {
+        k.call(&sample, "storage.get", json!({"key":"grace"}))
+            .await
+            .unwrap()["value"]
+            == "cleaning"
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(750)).await;
+    let id: uuid::Uuid = graceful["id"].as_str().unwrap().parse().unwrap();
+    let live = k.kernel.store.jobs().get(id).await.unwrap().unwrap();
+    assert_eq!((live.state.as_str(), live.attempts), ("running", 1));
+    let claim_is_live: bool = sqlx::query_scalar(
+        "SELECT claimed_until > clock_timestamp() FROM rookery.jobs WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_one(k.kernel.store.pool())
+    .await
+    .unwrap();
+    assert!(claim_is_live, "the heartbeat stopped during cancellation");
+    let done = job_ends(&k, &admin, &graceful["id"]).await;
+    assert_eq!(done["result"], "finished", "{done}");
+    assert_eq!(done["attempts"], 2);
+
+    let uncooperative = enqueue("kill").await.unwrap();
+    let done = job_ends(&k, &admin, &uncooperative["id"]).await;
+    assert_eq!(done["result"], json!({"oldProcessExists": false}), "{done}");
+    assert_eq!(done["attempts"], 2);
+
+    let once = enqueue("once").await.unwrap();
+    let done = job_ends(&k, &admin, &once["id"]).await;
+    assert_eq!(done["state"], "failed");
+    assert_eq!(done["attempts"], 1);
+    assert_eq!(done["maxAttempts"], 1);
+    // Simulate an automatic retry queued before the handler declared idempotency.
+    let once_id: uuid::Uuid = once["id"].as_str().unwrap().parse().unwrap();
+    sqlx::query("UPDATE rookery.jobs SET state = 'queued', max_attempts = 3, run_after = now() WHERE id = $1")
+        .bind(once_id).execute(k.kernel.store.pool()).await.unwrap();
+    let legacy = job_ends(&k, &admin, &once["id"]).await;
+    assert_eq!(
+        legacy["error"]["message"],
+        "the job needs an explicit retry"
+    );
+    let attempts = || k.call(&sample, "storage.get", json!({"key":"once"}));
+    assert_eq!(attempts().await.unwrap()["value"], 1);
+    k.call(&admin, "jobs.retry", json!({"id":once["id"]}))
+        .await
+        .unwrap();
+    let manually = job_ends(&k, &admin, &once["id"]).await;
+    assert_eq!(manually["attempts"], 3);
+    assert_eq!(attempts().await.unwrap()["value"], 3);
+    k.close().await;
+}
+
+#[tokio::test]
+async fn service_authorization_cannot_cross_a_reload_during_activation() {
+    if !bun_ready() {
+        return;
+    }
+    let k = test_kernel!(methods());
+    let scratch = tempfile::tempdir().unwrap();
+    let plugins = plugins(&k, scratch.path()).await;
+    let user = k.person("Bob", false).await;
+    let admin = k.person("Ada", true).await;
+    let gated = Caller::Plugin("gated".into());
+    let manifest =
+        r#"{"apiVersion":"1","name":"Gated","host":"host.ts","provides":{"services":["test"]}}"#;
+    let host = r#"import { definePlugin } from "@rookery/sdk";
+      export default definePlugin(async (rookery) => {
+        await rookery.storage.set("started", true);
+        while (!(await rookery.storage.get("release"))) await Bun.sleep(30);
+        rookery.services.provide("test", {read: () => "value"});
+      });"#;
+    install(
+        &k,
+        &plugins,
+        &package(
+            scratch.path(),
+            "gated",
+            "1.0.0",
+            &[("plugin.json", manifest), ("host.ts", host)],
+        ),
+    )
+    .await;
+    let asked = json!({"plugin":"gated","service":"test","method":"read"});
+    let old_call = tokio::spawn(k.kernel.methods.dispatch(
+        Call::new(k.kernel.clone(), user.clone(), None),
+        "services.call",
+        asked.clone(),
+    ));
+    until("the old manifest's activation starting", || async {
+        k.call(&gated, "storage.get", json!({"key":"started"}))
+            .await
+            .unwrap()["value"]
+            == true
+    })
+    .await;
+    let old = plugins.get("gated").unwrap();
+    let mut new = old.manifest.clone().unwrap();
+    // Write raw manifest fields only. Runtime normalization adds the remaining fields on load.
+    let mut manifest: Value = serde_json::from_str(manifest).unwrap();
+    manifest["provides"]["serviceLevels"] = json!({"test":"admin"});
+    new["provides"] = manifest["provides"].clone();
+    fs::write(old.dir.join("plugin.json"), manifest.to_string()).unwrap();
+    let reload = {
+        let (kernel, plugins) = (k.kernel.clone(), plugins.clone());
+        tokio::spawn(async move { plugins.reload(&kernel).await })
+    };
+    until("the new manifest being published", || async {
+        plugins.get("gated").unwrap().manifest.as_ref().unwrap()["provides"] == new["provides"]
+    })
+    .await;
+    k.call(&gated, "storage.set", json!({"key":"release","value":true}))
+        .await
+        .unwrap();
+    let refused = old_call.await.unwrap().unwrap_err();
+    assert_eq!(refused.error_code(), rookery_proto::ErrorCode::Unavailable);
+    reload.await.unwrap().unwrap();
+    let refused = k
+        .call(&user, "services.call", asked.clone())
+        .await
+        .unwrap_err();
+    assert_eq!(refused.error_code(), rookery_proto::ErrorCode::Forbidden);
+    assert_eq!(
+        k.call(&admin, "services.call", asked).await.unwrap(),
+        "value"
+    );
+    k.close().await;
+}
+
+#[tokio::test]
+async fn the_host_pipe_fences_job_writes_and_service_access_and_redacts_credentials() {
+    if !bun_ready() {
+        return;
+    }
+    use rookery_proto::ErrorCode::*;
+    let k = test_kernel!(host_api_methods());
+    let scratch = tempfile::tempdir().unwrap();
+    let plugins = plugins(&k, scratch.path()).await;
+    let admin = k.person("Ada", true).await;
+    let member = k.person("Bob", false).await;
+    let sample = Caller::Plugin("sample".into());
+    install_host_api(
+        &k,
+        &plugins,
+        scratch.path(),
+        "sample",
+        &HOST_APIS.replace(r#""sample": "plugin""#, r#""sample": "admin""#),
+    )
+    .await;
+    install_host_api(&k, &plugins, scratch.path(), "relay", RELAY).await;
+    let pipe = |owner, method, params| rpc(owner, "pipe", json!({"method":method,"params":params}));
+    let service = |method| json!({"plugin":"sample","service":"sample","method":method});
+    for (method, params) in [
+        ("services.call", service("invalidResult")),
+        ("host.services.open", service("invalidChunk")),
+    ] {
+        assert_eq!(
+            k.call(&member, "plugins.rpc", pipe("relay", method, params))
+                .await
+                .unwrap_err()
+                .error_code(),
+            Forbidden
+        );
+    }
+    let inbox = k.connect(&member);
+    assert_eq!(
+        k.call_on(&inbox, "services.stream", service("invalidChunk"))
+            .await
+            .unwrap_err()
+            .error_code(),
+        Forbidden
+    );
+    assert_eq!(
+        k.call(&admin, "services.call", service("invalidResult"))
+            .await
+            .unwrap_err()
+            .error_code(),
+        Internal
+    );
+    let mut inbox = k.connect(&admin);
+    let opened = k
+        .call_on(&inbox, "services.stream", service("invalidChunk"))
+        .await
+        .unwrap();
+    let end = inbox.notification("streams.close").await;
+    assert_eq!(end["stream"], opened["stream"]);
+    assert_eq!(end["error"]["code"], "INTERNAL");
+
+    const SENTINEL: &str = "never-print-this-fixture-credential";
+    let connection = k.call(&admin, "connections.create", json!({
+        "type":"sample.example", "name":"Fixture", "scope":"global", "config":{}, "credential": SENTINEL,
+    })).await.unwrap();
+    let error = k
+        .call(
+            &member,
+            "plugins.rpc",
+            rpc("sample", "leak", json!({"id": connection["id"]})),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.message, "exception [redacted]");
+    assert_eq!(
+        error.details(),
+        Some(&json!({"nested":[{"[redacted]":"[redacted]"}]}))
+    );
+    let job = k
+        .call(
+            &sample,
+            "jobs.enqueue",
+            json!({
+                "kind":"sample/run", "params":{"wait":true,"secret":connection["id"]}
+            }),
+        )
+        .await
+        .unwrap();
+    until("the job entering its handler", || async {
+        k.call(&admin, "jobs.output", json!({"id":job["id"]}))
+            .await
+            .unwrap()
+            .to_string()
+            .contains("the plugin wrote [redacted]")
+    })
+    .await;
+    let output = k
+        .call(&admin, "jobs.output", json!({"id":job["id"]}))
+        .await
+        .unwrap();
+    assert!(!output.to_string().contains(SENTINEL));
+    let claim = k
+        .call(&member, "plugins.rpc", rpc("sample", "claimId", json!({})))
+        .await
+        .unwrap();
+    let write = json!({"callId":claim,"level":"info","text":"forged"});
+    assert_eq!(
+        k.call(
+            &member,
+            "plugins.rpc",
+            pipe("relay", "host.job.log", write.clone())
+        )
+        .await
+        .unwrap_err()
+        .error_code(),
+        Forbidden
+    );
+    k.call(&admin, "jobs.cancel", json!({"id":job["id"]}))
+        .await
+        .unwrap();
+    assert_eq!(job_ends(&k, &admin, &job["id"]).await["state"], "cancelled");
+    assert_eq!(
+        k.call(
+            &member,
+            "plugins.rpc",
+            pipe("sample", "host.job.log", write)
+        )
+        .await
+        .unwrap_err()
+        .error_code(),
+        Forbidden
+    );
+    k.close().await;
+}
+
+#[tokio::test]
+async fn an_abandoned_host_stream_drops_its_pending_write_and_an_in_flight_read_can_close() {
+    if !bun_ready() {
+        return;
+    }
+    let k = test_kernel!(methods());
+    let scratch = tempfile::tempdir().unwrap();
+    let plugins = plugins(&k, scratch.path()).await;
+    let member = k.person("Bob", false).await;
+    install_host_api(&k, &plugins, scratch.path(), "sample", HOST_APIS).await;
+    install_host_api(&k, &plugins, scratch.path(), "relay", RELAY).await;
+    let opened = k
+        .call(
+            &member,
+            "plugins.rpc",
+            rpc(
+                "relay",
+                "pipe",
+                json!({
+                    "method":"host.services.open",
+                    "params":{"plugin":"sample","service":"sample","method":"idle"}
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+    let pid = plugins.host_pid("sample").unwrap();
+    tokio::time::sleep(Duration::from_millis(1400)).await;
+    let next = k
+        .call(
+            &member,
+            "plugins.rpc",
+            rpc(
+                "relay",
+                "pipe",
+                json!({
+                    "method":"host.services.next", "params":{"stream":opened["stream"]}
+                }),
+            ),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        next.error_code(),
+        rookery_proto::ErrorCode::NotFound,
+        "{next}"
+    );
+    assert_eq!(
+        k.call(&member, "plugins.rpc", rpc("relay", "closeRead", json!({})))
+            .await
+            .unwrap(),
+        "UNAVAILABLE"
+    );
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(
+        plugins.host_pid("sample"),
+        Some(pid),
+        "abandoned streams killed their provider"
+    );
+    let open = || {
+        rpc(
+            "relay",
+            "pipe",
+            json!({
+                "method":"host.services.open",
+                "params":{"plugin":"sample","service":"sample","method":"pending"}
+            }),
+        )
+    };
+    let mut open_streams = vec![];
+    for _ in 0..32 {
+        let opened = k.call(&member, "plugins.rpc", open()).await.unwrap();
+        open_streams.push(opened["stream"].clone());
+    }
+    let refused = k.call(&member, "plugins.rpc", open()).await.unwrap_err();
+    assert_eq!(refused.error_code(), rookery_proto::ErrorCode::Unavailable);
+    for stream in open_streams {
+        k.call(
+            &member,
+            "plugins.rpc",
+            rpc(
+                "relay",
+                "pipe",
+                json!({
+                    "method":"host.services.close","params":{"stream":stream},
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+    }
+    until("stream capacity to return after cleanup", || async {
+        let Ok(opened) = k.call(&member, "plugins.rpc", open()).await else {
+            return false;
+        };
+        k.call(
+            &member,
+            "plugins.rpc",
+            rpc(
+                "relay",
+                "pipe",
+                json!({
+                    "method":"host.services.close","params":{"stream":opened["stream"]},
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        true
+    })
+    .await;
+    k.close().await;
+}
+
+#[tokio::test]
+async fn the_pipe_refuses_registrations_absent_from_the_process_manifest() {
+    if !bun_ready() {
+        return;
+    }
+    let k = test_kernel!(methods());
+    let scratch = tempfile::tempdir().unwrap();
+    let fake_host = scratch.path().join("fake-host.ts");
+    fs::write(&fake_host, r#"
+      import { createInterface } from "node:readline";
+      const send = (message) => process.stdout.write(JSON.stringify({jsonrpc:"2.0", ...message}) + "\n");
+      send({id:1,method:"host.hello",params:{}});
+      for await (const line of createInterface({input:process.stdin})) {
+        const request = JSON.parse(line);
+        if (request.method !== "plugins.activate") continue;
+        send({id:request.id,result:{registrations:[{kind:request.params.plugin,key:"undeclared"}]}});
+      }
+    "#).unwrap();
+    let plugins = plugins_with_host(
+        &k,
+        scratch.path(),
+        HostOptions {
+            entry: Some(fake_host),
+            ..HostOptions::default()
+        },
+    );
+    plugins.start(&k.kernel).await.unwrap();
+    let admin = k.person("Ada", true).await;
+    for id in ["service", "job"] {
+        install(
+            &k,
+            &plugins,
+            &package(
+                scratch.path(),
+                id,
+                "1.0.0",
+                &[("plugin.json", ECHO), ("host.ts", "")],
+            ),
+        )
+        .await;
+        let error = k
+            .call(&admin, "plugins.activate", json!({"id":id}))
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.error_code(),
+            rookery_proto::ErrorCode::Forbidden,
+            "{error}"
+        );
+        assert!(
+            error
+                .message
+                .contains(&format!("declares no {id} undeclared")),
+            "{error}"
+        );
+        assert_eq!(plugins.host_pid(id), None);
+    }
     k.close().await;
 }

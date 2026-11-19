@@ -86,6 +86,7 @@ pub struct JobRun {
     pub kind: String,
     pub params: Value,
     pub attempt: i32,
+    pub max_attempts: i32,
     pub subject: Option<String>,
     cancel: CancellationToken,
     worker: String,
@@ -829,6 +830,7 @@ async fn attempt(
         kind: job.kind.clone(),
         params: job.params.clone(),
         attempt: job.attempts,
+        max_attempts: job.max_attempts,
         subject: job.subject.clone(),
         cancel: cancel.clone(),
         worker: worker.clone(),
@@ -845,7 +847,13 @@ async fn attempt(
         cancel.clone(),
         lost.clone(),
     ));
-    let running = handler.run(run);
+    let running = async {
+        // A previous version of a handler may have queued a retry. An explicit retry clears the error.
+        if !handler.repeatable() && job.attempts > 1 && job.error.is_some() {
+            return Err(RpcError::unavailable("the job needs an explicit retry"));
+        }
+        handler.run(run).await
+    };
     tokio::pin!(running);
     let done = tokio::select! {
         done = &mut running => Some(done),

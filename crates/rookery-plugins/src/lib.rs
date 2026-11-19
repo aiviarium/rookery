@@ -97,6 +97,22 @@ impl Plugins {
         self.loaded.read().unwrap().get(id).cloned()
     }
 
+    /// Keeps a manifest generation current while a request is put on its pipe.
+    pub(crate) fn with_current<T>(
+        &self,
+        expected: &Arc<Loaded>,
+        use_plugin: impl FnOnce() -> Result<T, RpcError>,
+    ) -> Result<T, RpcError> {
+        let loaded = self.loaded.read().unwrap();
+        if !loaded
+            .get(&expected.id)
+            .is_some_and(|current| Arc::ptr_eq(current, expected))
+        {
+            return Err(RpcError::unavailable("the plugin changed during the call"));
+        }
+        use_plugin()
+    }
+
     pub fn all(&self) -> Vec<Arc<Loaded>> {
         self.loaded.read().unwrap().values().cloned().collect()
     }
@@ -252,7 +268,14 @@ impl Plugins {
         let rows = record::rows(&kernel.store).await?;
         let new: BTreeMap<String, Arc<Loaded>> = found
             .into_iter()
-            .map(|plugin| (plugin.id.clone(), Arc::new(plugin)))
+            .map(|plugin| {
+                let id = plugin.id.clone();
+                let loaded = self
+                    .get(&id)
+                    .filter(|before| **before == plugin)
+                    .unwrap_or_else(|| Arc::new(plugin));
+                (id, loaded)
+            })
             .collect();
         kernel.set_facility(
             rookery_facilities::connections::PluginKinds::from_manifests(
@@ -358,39 +381,52 @@ impl Plugins {
     /// is active as it is.
     /// This is the server's own doing, as at startup or after a crash, which may start one that failed.
     pub async fn activate(self: &Arc<Self>, kernel: &Kernel, id: &str) -> Result<(), RpcError> {
-        self.activate_within(kernel, id, true, 0).await
+        self.activate_as(kernel, id, true).await
     }
 
-    /// [`Plugins::activate`] for a caller: a plugin that failed, or one it depends on that failed,
-    /// starts again for an admin alone.
+    /// A caller may restart a failed host half or dependency with admin access.
     pub async fn activate_as(
         self: &Arc<Self>,
         kernel: &Kernel,
         id: &str,
         admin: bool,
     ) -> Result<(), RpcError> {
-        self.activate_within(kernel, id, admin, 0).await
+        let plugin = self
+            .get(id)
+            .ok_or_else(|| RpcError::not_found(format!("no plugin {id} is installed")))?;
+        self.activate_within(kernel, plugin, admin, 0)
+            .await
+            .map(|_| ())
+    }
+
+    pub(crate) async fn activate_target(
+        self: &Arc<Self>,
+        kernel: &Kernel,
+        plugin: Arc<Loaded>,
+        admin: bool,
+    ) -> Result<exthost::Link, RpcError> {
+        self.activate_within(kernel, plugin, admin, 0)
+            .await?
+            .ok_or_else(|| RpcError::unavailable("the plugin has no host half"))
     }
 
     fn activate_within<'a>(
         self: &'a Arc<Self>,
         kernel: &'a Kernel,
-        id: &'a str,
+        plugin: Arc<Loaded>,
         admin: bool,
         depth: usize,
-    ) -> futures_util::future::BoxFuture<'a, Result<(), RpcError>> {
+    ) -> futures_util::future::BoxFuture<'a, Result<Option<exthost::Link>, RpcError>> {
         Box::pin(async move {
-            let plugin = self
-                .get(id)
-                .ok_or_else(|| RpcError::not_found(format!("no plugin {id} is installed")))?;
+            let id = &plugin.id;
             if let Some(problem) = &plugin.problem {
                 return Err(error_of(problem));
             }
-            let Some(manifest) = &plugin.manifest else {
+            if plugin.manifest.is_none() {
                 return Err(RpcError::invalid(format!("{id} has no manifest")));
-            };
+            }
             if plugin.host().is_none() {
-                return Ok(());
+                return Ok(None);
             }
             if let (Some(PluginState::Failed), error) = self.host.state(id)
                 && !admin
@@ -402,7 +438,7 @@ impl Plugins {
             }
             if depth < 8 {
                 for dependency in plugin.dependencies().keys() {
-                    if self.get(dependency).is_some_and(|d| d.host().is_some()) {
+                    if let Some(dependency) = self.get(dependency).filter(|d| d.host().is_some()) {
                         self.activate_within(kernel, dependency, admin, depth + 1)
                             .await?;
                     }
@@ -410,10 +446,10 @@ impl Plugins {
             }
             let done = self
                 .host
-                .activate(kernel, self.clone(), id, &plugin.dir, manifest)
+                .activate(kernel, self.clone(), plugin.clone())
                 .await;
-            self.changed(kernel, &[id.to_owned()]);
-            done
+            self.changed(kernel, std::slice::from_ref(id));
+            done.map(Some)
         })
     }
 
@@ -431,11 +467,16 @@ impl Plugins {
         {
             return services::call_bound(call, plugin, &service, &bound, stream, params).await;
         }
-        self.activate_as(&call.kernel, plugin, call.is_admin())
-            .await?;
-        self.host
-            .invoke(call, self, plugin, "rpc", method, params)
-            .await
+        let loaded = self
+            .get(plugin)
+            .ok_or_else(|| RpcError::not_found(format!("no plugin {plugin} is installed")))?;
+        let (target, permits) =
+            services::host_target(call, self, &loaded, "rpc", method, false).await?;
+        self.with_current(&loaded, || {
+            self.host.begin(call, target, params, None, permits)
+        })?
+        .result()
+        .await
     }
 
     /// Stops every host half when the server stops, running their cleanups within `limit` in all. The

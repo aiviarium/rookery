@@ -16,8 +16,8 @@ use std::time::{Duration, Instant};
 
 use rookery_kernel::streams::{Initiator, OwnedWriter};
 use rookery_proto::stream::StreamOpened;
-use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
+use tokio::sync::{OwnedSemaphorePermit, mpsc};
+use tokio_util::sync::CancellationToken;
 
 use rookery_kernel::{Call, Caller, Kernel, Level, Methods, RpcError};
 use schemars::JsonSchema;
@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::Plugins;
-use crate::exthost::{Invocation, ServiceMethod};
+use crate::exthost::{Invocation, InvocationPermits, InvocationResult, ServiceMethod, Target};
 use crate::loaded::Loaded;
 
 /// How long one call of an app service may take.
@@ -406,41 +406,48 @@ pub async fn call_service(
         method: method.into(),
         params,
     };
-    let call = prepare_host(call, plugins, &asked, false).await?;
-    invoke_host(&call, plugins, asked, None).await
+    let (call, target, permits) = prepare_host(call, plugins, &provider, &asked, false).await?;
+    invoke_host(&call, plugins, &provider, target, asked, None, permits)?
+        .result()
+        .await
 }
 
-async fn prepare_host(
+/// Reserve before activation can spawn work. The activation keeps its permit if the caller leaves.
+pub(crate) async fn host_target(
     call: &Call,
     plugins: &Arc<Plugins>,
-    asked: &ServiceCall,
+    expected: &Arc<Loaded>,
+    kind: &str,
+    key: &str,
     stream: bool,
-) -> Result<Call, RpcError> {
-    let ServiceCall {
-        plugin,
-        service,
-        method,
-        ..
-    } = asked;
-    // A call into a host half still activating would wait for its own activation to finish.
+) -> Result<(Target, InvocationPermits), RpcError> {
+    let plugin = &expected.id;
+    let permits = plugins.host.reserve_invocation(plugin, stream)?;
+    let active = plugins.host.active_link(plugin);
+    if let Some(link) = active {
+        link.check_plugin(expected)?;
+        return Ok((plugins.host.target(plugin, link, kind, key)?, permits));
+    }
     if plugins.host.state(plugin).0 == Some(crate::wire::PluginState::Activating)
         && matches!(&call.caller, Caller::Plugin(id) if id == plugin)
     {
         return Err(RpcError::unavailable(
-            "a plugin can call its own services after activation",
+            "a plugin can call its own handlers after activation",
         ));
     }
-    // A peer that times out waiting for activation must leave it free to finish.
     let activation = {
-        let (plugins, kernel, plugin, admin) = (
+        let (plugins, kernel, expected, admin) = (
             plugins.clone(),
             call.kernel.clone(),
-            plugin.clone(),
+            expected.clone(),
             call.is_admin(),
         );
-        tokio::spawn(async move { plugins.activate_as(&kernel, &plugin, admin).await })
+        tokio::spawn(async move {
+            let link = plugins.activate_target(&kernel, expected, admin).await?;
+            Ok::<_, RpcError>((link, permits))
+        })
     };
-    tokio::time::timeout_at(call.deadline.into(), activation)
+    let (link, permits) = tokio::time::timeout_at(call.deadline.into(), activation)
         .await
         .map_err(|_| {
             RpcError::timeout(format!(
@@ -448,16 +455,31 @@ async fn prepare_host(
             ))
         })?
         .map_err(|_| RpcError::unavailable(format!("{plugin} did not activate")))??;
+    Ok((plugins.host.target(plugin, link, kind, key)?, permits))
+}
+
+async fn prepare_host(
+    call: &Call,
+    plugins: &Arc<Plugins>,
+    provider: &Arc<Loaded>,
+    asked: &ServiceCall,
+    stream: bool,
+) -> Result<(Call, Target, InvocationPermits), RpcError> {
+    let ServiceCall {
+        plugin,
+        service,
+        method,
+        ..
+    } = asked;
+    let (target, permits) =
+        host_target(call, plugins, provider, "service", service, stream).await?;
     let ServiceMethod {
         stream: declared,
         timeout_secs,
-    } = plugins
-        .host
-        .registrations(plugin)
-        .into_iter()
-        .find(|r| r.kind == "service" && r.key == *service)
-        .and_then(|mut r| r.methods.remove(method))
-        .ok_or_else(|| RpcError::not_found(format!("{plugin}/{service} has no method {method}")))?;
+    } =
+        *target.registration.methods.get(method).ok_or_else(|| {
+            RpcError::not_found(format!("{plugin}/{service} has no method {method}"))
+        })?;
     if stream != declared {
         let use_method = if declared {
             "services.stream"
@@ -477,54 +499,52 @@ async fn prepare_host(
             "{plugin}/{service}.{method} timed out"
         )));
     }
-    Ok(call)
+    Ok((call, target, permits))
 }
 
-async fn invoke_host(
+fn invoke_host(
     call: &Call,
-    plugins: &Arc<Plugins>,
+    plugins: &Plugins,
+    provider: &Arc<Loaded>,
+    target: Target,
     asked: ServiceCall,
     output: Option<Invocation>,
-) -> Result<Value, RpcError> {
-    plugins
-        .host
-        .invoke_until(
+    permits: InvocationPermits,
+) -> Result<InvocationResult, RpcError> {
+    plugins.with_current(provider, || {
+        plugins.host.begin(
             call,
-            plugins,
-            &asked.plugin,
-            "service",
-            &asked.service,
+            target,
             json!({"method": asked.method, "params": asked.params}),
             output,
+            permits,
         )
-        .await
+    })
 }
 
 /// A stream has room for one unread chunk. The provider waits for room before yielding another.
 pub(crate) struct ServiceStream {
     items: mpsc::Receiver<Value>,
-    result: JoinHandle<Result<Value, RpcError>>,
+    result: InvocationResult,
     deadline: Instant,
+    _capacity: Option<Arc<OwnedSemaphorePermit>>,
 }
 
 impl ServiceStream {
-    pub(crate) async fn next(&mut self) -> Result<Option<Value>, RpcError> {
-        if self.deadline <= Instant::now() {
-            return Err(RpcError::timeout("the service stream timed out"));
-        }
-        if let Some(item) = self.items.recv().await {
-            return Ok(Some(item));
-        }
-        (&mut self.result)
-            .await
-            .map_err(|_| RpcError::unavailable("the service stream ended"))??;
-        Ok(None)
+    pub(crate) fn deadline(&self) -> Instant {
+        self.deadline
     }
-}
 
-impl Drop for ServiceStream {
-    fn drop(&mut self) {
-        self.result.abort();
+    pub(crate) async fn next(&mut self) -> Result<Option<Value>, RpcError> {
+        tokio::time::timeout_at(self.deadline.into(), async {
+            if let Some(item) = self.items.recv().await {
+                return Ok(Some(item));
+            }
+            self.result.result().await?;
+            Ok(None)
+        })
+        .await
+        .map_err(|_| RpcError::timeout("the service stream timed out"))?
     }
 }
 
@@ -532,6 +552,7 @@ pub(crate) async fn open_stream(
     call: &Call,
     plugins: &Arc<Plugins>,
     asked: ServiceCall,
+    caller_stream: Option<Arc<OwnedSemaphorePermit>>,
 ) -> Result<ServiceStream, RpcError> {
     let provider = provider(call, plugins, &asked.plugin, &asked.service)?;
     if app_services(&provider)
@@ -542,17 +563,28 @@ pub(crate) async fn open_stream(
             "app service streaming is unavailable",
         ));
     }
-    let call = prepare_host(call, plugins, &asked, true).await?;
+    let (call, target, mut permits) = prepare_host(call, plugins, &provider, &asked, true).await?;
+    let capacity = permits.stream.clone();
+    permits.caller_stream = caller_stream;
     let deadline = call.deadline;
-    let plugins = plugins.clone();
-    let (out, items) = mpsc::channel(1);
-    let result = tokio::spawn(async move {
-        invoke_host(&call, &plugins, asked, Some(Invocation::Stream(out))).await
-    });
+    let (sender, items) = mpsc::channel(1);
+    let result = invoke_host(
+        &call,
+        plugins,
+        &provider,
+        target,
+        asked,
+        Some(Invocation::Stream {
+            items: sender,
+            cancelled: CancellationToken::new(),
+        }),
+        permits,
+    )?;
     Ok(ServiceStream {
         items,
         result,
         deadline,
+        _capacity: capacity,
     })
 }
 
@@ -667,7 +699,7 @@ pub fn register(methods: &mut Methods) {
                     "host halves stream services through the extension host",
                 ));
             }
-            let source = open_stream(&call, &plugins, p).await?;
+            let source = open_stream(&call, &plugins, p, None).await?;
             let stream = conn.streams().open(Initiator::Peer)?;
             let id = stream.id();
             let (_reader, writer) = stream.split();

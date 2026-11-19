@@ -195,7 +195,7 @@ Each method it registers with `rookery.rpc.handle` says who may call it through 
 | `own` | A person who is signed in, or the server's own machine. Not another plugin. The handler checks the rest, with `ctx.user` |
 | `admin` | An admin |
 
-A job declared in `contributes.jobs` has an ID such as `echo.build`. The host half registers it with `rookery.jobs.handle("echo.build", { run })`, and callers enqueue it as `echo/build`. Use `job.log` and `job.progress` to record output for the current attempt. Return the result from `run`. On cancellation, `job.signal` aborts and its reason identifies the cancellation. Stop any work when that happens. The server renews the claim while the job runs and uses the queue's retry policy if the host process exits. The declaration's `timeoutSecs` limits each attempt.
+A job declared in `contributes.jobs` has an ID such as `echo.build`. The host half registers it with `rookery.jobs.handle("echo.build", { run })`, and callers enqueue it as `echo/build`. Use `job.log` and `job.progress` to record output for the current attempt. Return the result from `run`. On cancellation, `job.signal` aborts and its reason identifies the cancellation. Stop any work when that happens. The server renews the claim until the handler stops or the process exits. Set `idempotent: true` only if repeating an interrupted job is safe. The queue can then retry up to `maxAttempts`. Other jobs have one automatic attempt. The declaration's `timeoutSecs` limits each attempt.
 
 The job's `enqueue` sets who may start it. With `own`, the default, signed-in users and the declaring plugin may enqueue it. With `plugin`, only the declaring plugin and admins may enqueue it. With `admin`, only admins may enqueue it.
 
