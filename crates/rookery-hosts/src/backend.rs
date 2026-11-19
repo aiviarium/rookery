@@ -859,7 +859,9 @@ async fn state_put(c: &mut PgConnection, key: &Option<Arc<Key>>, row: &StateRow)
         Spot::Resource(col) => {
             let value = match col {
                 // A specification is text, such as a Compose file, kept as a JSON string.
-                "spec" => Value::String(String::from_utf8_lossy(&row.value).into_owned()).to_string(),
+                "spec" => {
+                    Value::String(String::from_utf8_lossy(&row.value).into_owned()).to_string()
+                }
                 _ => {
                     json_of(kind, &row.name, &row.value)?;
                     String::from_utf8_lossy(&row.value).into_owned()

@@ -130,7 +130,10 @@ async fn state_lands_in_its_tables() {
         let compose = b"services:\n  web:\n    image: busybox:1.37\n";
         s.write(kind::SPEC, own, "r2", compose).unwrap();
         assert_eq!(s.read(kind::SPEC, own, "r2").unwrap().unwrap(), compose);
-        assert_eq!(s.read(kind::SPEC, own, "r1").unwrap().unwrap(), b"{\"size\":1}");
+        assert_eq!(
+            s.read(kind::SPEC, own, "r1").unwrap().unwrap(),
+            b"{\"size\":1}"
+        );
         assert!(s.forget(kind::SPEC, own, "r2").unwrap());
         s.write(kind::RESOURCE, own, "r1", b"{\"id\":\"r1\"}")
             .unwrap();
