@@ -1398,3 +1398,22 @@ async fn disabling_sql_leaves_an_unowned_roles_sessions_alive() {
     session.close().await.unwrap();
     w.db.close().await;
 }
+
+#[tokio::test]
+async fn enabling_sql_moves_pgvector_out_of_the_rookery_schema() {
+    let Some(db) = TestDb::new().await else {
+        return;
+    };
+    sqlx::raw_sql(
+        "CREATE EXTENSION IF NOT EXISTS vector; ALTER EXTENSION vector SET SCHEMA rookery",
+    )
+    .execute(db.store.pool())
+    .await
+    .unwrap();
+    setup(&db, "alpha", true).await;
+    assert_eq!(
+        db.store.sql().vector_schema().await.unwrap().as_deref(),
+        Some("public")
+    );
+    db.close().await;
+}
