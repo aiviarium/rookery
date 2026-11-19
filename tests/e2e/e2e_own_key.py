@@ -9,6 +9,7 @@ which has only the same key, with a terminal client using it.
 It runs on a test host of its own, `forge`, which nothing else applies a profile to: run.py
 runs it there alongside the other modules on `studio`. Direct is the first
 apply that host sees; Served applies the server's profile over it."""
+import base64
 import json
 import os
 import pwd
@@ -201,8 +202,8 @@ class Served(OwnKeyOnly, unittest.TestCase):
     def setUpClass(cls):
         cls.keyed = keyed()
         cls.serve = Serve(cls.keyed)
-        catalogue = cls.serve.call('GET', '/v1/setup')
-        cls.serve.call('PUT', f'/v1/hosts/{HOST}/profile', bare_profile(catalogue['template']))
+        catalogue = cls.serve.call('setup.catalogue')
+        cls.serve.call('hosts.save', {'host': HOST, 'profile': bare_profile(catalogue['template'])})
         cls.station = Workstation('own-key-client', ssh_key=False)
         cls.station.rookery('login', cls.serve.url, '--token-stdin', input=cls.serve.token)
         cls.first_apply = cls.station.rookery('apply', HOST, input='', timeout=900)
@@ -213,21 +214,19 @@ class Served(OwnKeyOnly, unittest.TestCase):
         cls.serve.stop()
 
     def test_the_server_hands_out_its_key_and_no_sudo_switch(self):
-        keys = self.serve.call('GET', '/v1/keys')['keys']
+        keys = self.serve.call('keys.list')['keys']
         self.assertEqual([key['name'] for key in keys], ['rookery'])
         self.assertEqual(keys[0]['public'], self.keyed.own_public())
         self.assertEqual(keys[0]['hosts'], [HOST])
         self.assertNotIn('PRIVATE KEY', json.dumps(keys))
-        catalogue = self.serve.call('GET', '/v1/setup')
+        catalogue = self.serve.call('setup.catalogue')
         self.assertNotIn('key', catalogue)
         self.assertNotIn('operator_passwordless_sudo', catalogue['template'])
         self.assertEqual(catalogue['template']['operator_ssh_public_keys'], [])
 
     def test_the_agents_files_through_the_server(self):
-        path = f'/v1/hosts/{HOST}/controller/files?path=/home/{AGENT}/own-key-served.txt'
+        path = f'/home/{AGENT}/own-key-served.txt'
         content = random_text('served').encode()
-        status, _ = self.serve.request('PUT', path + '&overwrite=true', content,
-                                       headers={'Content-Type': 'application/octet-stream'})
-        self.assertEqual(status, 200)
-        status, read, _ = self.serve.request('GET', path, raw=True)
-        self.assertEqual((status, read), (200, content))
+        self.serve.call('env.writeFile', {'host': HOST, 'path': path, 'base64': base64.b64encode(content).decode()})
+        read = self.serve.call('env.readFile', {'host': HOST, 'path': path})
+        self.assertEqual(base64.b64decode(read['base64']), content)

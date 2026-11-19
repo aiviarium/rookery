@@ -51,18 +51,18 @@ class Client(unittest.TestCase):
             terminal.close()
 
     def test_the_seed_is_rendered_by_the_server(self):
-        profile = self.serve.call('GET', f'/v1/hosts/{HOST}/profile')
+        profile = self.serve.call('hosts.profile', {'host': HOST})['profile']
         draft = {**profile, 'hostname': 'cloud-3', 'builder': {}, 'access': {},
                  'operator_password_hash': '$6$e2e$' + 'x' * 86,
                  'release_url': 'https://192.0.2.30/rookery-release.tar.gz'}
-        self.serve.call('PUT', '/v1/hosts/cloud-3/profile', draft)
+        self.serve.call('hosts.save', {'host': 'cloud-3', 'profile': draft})
         try:
             seed = self.station.rookery('host', 'seed', 'cloud-3').stdout
             self.assertTrue(seed.startswith('#cloud-config'))
             own = self.serve.station.own_public().split()[1]
             self.assertIn(own, seed)
         finally:
-            self.serve.call('DELETE', '/v1/hosts/cloud-3')
+            self.serve.call('hosts.remove', {'host': 'cloud-3'})
 
     def test_once_with_a_server_given_on_the_command_line(self):
         once = Workstation('once', ssh_key=False)
@@ -90,23 +90,27 @@ class ClientApply(unittest.TestCase):
 
 @needs_e2e
 class AccessToken(unittest.TestCase):
-    """rookery given an access token of the issuer the server trusts, as ROOKERY_TOKEN."""
+    """rookery given an access token, as ROOKERY_TOKEN: one of a person who
+    is not an admin and has use on the host."""
 
     @classmethod
     def setUpClass(cls):
         cls.serve = served()
         cls.station = Workstation('service', ssh_key=False)
         cls.station.env['ROOKERY_SERVER'] = cls.serve.url
+        cls.token = cls.serve.make_token('rookery-client')
+        user = cls.serve.call('auth.me', token=cls.token)['user']['id']
+        cls.serve.call('access.grant', {'resource': f'env://{HOST}', 'principal': f'user:{user}', 'level': 'use'})
 
-    def test_the_token_gives_the_role_it_names(self):
-        env = {'ROOKERY_TOKEN': self.serve.issuer.token('rookery:operate', subject='rookery-client')}
+    def test_the_token_gives_what_its_person_holds(self):
+        env = {'ROOKERY_TOKEN': self.token}
         self.assertEqual(self.station.rookery('exec', HOST, '--', 'id', '-un', env=env).stdout.strip(), AGENT)
-        # The role is not enough to set the server up.
+        # Use is not enough to set the host up.
         refused = self.station.rookery('apply', HOST, env=env, check=False)
         self.assertNotEqual(refused.returncode, 0)
         self.assertIn('admin', refused.stderr)
 
-    def test_a_token_of_another_issuer_is_refused(self):
-        env = {'ROOKERY_TOKEN': self.serve.issuer.token('rookery:admin', issuer='http://192.0.2.1')}
+    def test_a_token_the_server_did_not_make_is_refused(self):
+        env = {'ROOKERY_TOKEN': 'rookery_pat_made-up-and-not-the-servers'}
         refused = self.station.rookery('ls', env=env, check=False)
         self.assertNotEqual(refused.returncode, 0)

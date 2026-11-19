@@ -17,7 +17,7 @@ It runs last on `forge`, as it leaves a node behind."""
 import json
 import unittest
 
-from harness import (HOST, OPERATOR, SCRATCH, Serve, WebSocket, Workstation, hand_over_operator_key, needs_e2e,
+from harness import (HOST, OPERATOR, SCRATCH, Serve, Workstation, hand_over_operator_key, needs_e2e,
                      plugin_package, shell_quote, wait_for)
 
 # The port of the listener on the node that sends back what it gets.
@@ -215,47 +215,28 @@ class Node(unittest.TestCase):
                     'ECHO', str(ECHO))
         self.root(f'setsid python3 -c {shell_quote(echo)} rookery-e2e-echo </dev/null >/dev/null 2>&1 &')
         serve = Serve(self.station)
+        socket = serve.socket()
         try:
-            resources = serve.call('GET', '/v1/resources')
+            resources = serve.call('resources.list')
             [crate] = [resource for resource in resources if resource['name'] == 'crate']
-            seen = serve.call('GET', f'/v1/resources/{crate["id"]}')
+            seen = serve.call('resources.get', {'id': crate['id']})
             self.assertEqual([endpoint['name'] for endpoint in seen['endpoints']], ['db', 'lan', 'far'], seen)
             node = (self.station.rookery_dir / 'plugins/example/depot/rookery/bin/provision.node').read_text()
             self.assertEqual(node, HOST)
-            path = f'/v1/resources/{crate["id"]}/endpoints'
             data = bytes(range(256)) * 4096
-            for endpoint in ('db', 'lan'):
-                back = wait_for(f'the endpoint {endpoint}', lambda endpoint=endpoint: self.through(serve, f'{path}/{endpoint}', data),
-                                timeout=30)
-                self.assertEqual(back, data, endpoint)
-            # Off the node's networks, and the node's stream for the server alone, which no caller reaches.
-            for refused in (f'{path}/far', f'/v1/hosts/{HOST}/controller/endpoints/127.0.0.1/{ECHO}'):
-                with self.assertRaises(PermissionError) as raised:
-                    WebSocket(serve.port, refused, protocols=[serve.token])
-                self.assertTrue(str(raised.exception).startswith('403'), raised.exception)
-        finally:
-            serve.stop()
-            self.root('pkill -f rookery-e2e-echo', check=False)
 
-    @staticmethod
-    def through(serve, path, data):
-        """What comes back from an endpoint for `data` and this side's end, or None while it is refused."""
-        try:
-            tunnel = WebSocket(serve.port, path, protocols=[serve.token])
-        except PermissionError:
-            return None
-        try:
-            for start in range(0, len(data), 65536):
-                tunnel.send(data[start:start + 65536])
-            tunnel.send({'eof': True})
-            back = b''
-            while True:
-                frame = tunnel.recv()
-                if frame is None or isinstance(frame, dict):
-                    return back
-                back += frame
+            def through(endpoint):
+                back = socket.through('resources.connect', {'id': crate['id'], 'endpoint': endpoint}, data)
+                return None if isinstance(back, dict) else back
+            for endpoint in ('db', 'lan'):
+                back = wait_for(f'the endpoint {endpoint}', lambda endpoint=endpoint: through(endpoint), timeout=30)
+                self.assertEqual(back, data, endpoint)
+            # Off the node's networks it is refused.
+            refused = socket.through('resources.connect', {'id': crate['id'], 'endpoint': 'far'}, data)
+            self.assertIn('error', refused)
         finally:
-            tunnel.close()
+            socket.close()
+            self.root('pkill -f rookery-e2e-echo', check=False)
 
     def test_6_without_its_feature_the_provisioner_goes(self):
         name = f'{HOST}-depot-box'

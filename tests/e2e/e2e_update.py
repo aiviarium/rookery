@@ -12,7 +12,7 @@ import json
 import unittest
 
 from harness import (AGENT, HOST, SCRATCH, Workstation, extended, light_vars, needs_e2e, plugin_registry,
-                     plugin_version, publish_builtin, random_text, served_extended, unb64, wait_for)
+                     plugin_version, publish_builtin, random_text, served_extended, wait_for)
 
 PACKAGE = 'example/up'
 
@@ -187,20 +187,19 @@ class UpdateServed(unittest.TestCase):
         cls.serve = applied.serve
         cls.registry = plugin_registry()
         # The job that applied the plugin ended well.
-        ended = cls.serve.call('GET', f'/v1/jobs/{applied.job["id"]}')
-        assert ended['exit_code'] == 0, unb64(
-            cls.serve.call('GET', f'/v1/jobs/{applied.job["id"]}/output')['data_b64'])[-3000:]
+        ended = cls.serve.call('jobs.get', {'id': applied.job})
+        assert ended['state'] == 'succeeded', cls.serve.log(applied.job)[-3000:]
         cls.station = Workstation('update-client', ssh_key=False)
         cls.station.rookery('login', cls.serve.url, '--token-stdin', input=cls.serve.token)
 
     def host(self):
-        return self.serve.call('GET', f'/v1/hosts/{HOST}')
+        return self.serve.call('hosts.get', {'host': HOST})
 
     def test_an_update_on_the_server_is_rolled_out(self):
         station = self.station
         self.assertNotIn('behind', self.host())
         mark = random_text('kv')
-        self.serve.call('PUT', '/v1/kv/update/mark', {'mark': mark})
+        self.serve.call('storage.set', {'plugin': 'update', 'key': 'mark', 'value': {'mark': mark}})
         kept = KeepsState('served/notes')
 
         def run(command):
@@ -216,19 +215,19 @@ class UpdateServed(unittest.TestCase):
         self.assertIn(f'{HOST} needs applying: served 1.0.0 → 2.0.0', updated)
         behind = self.host()['behind']
         self.assertEqual(behind['changes'], [{'id': 'served', 'from': '1.0.0', 'to': '2.0.0'}])
-        listed = self.serve.call('GET', '/v1/hosts')
+        listed = self.serve.call('hosts.list')['hosts']
         self.assertTrue(any(host['name'] == HOST and 'behind' in host for host in listed))
 
         rolled = station.rookery('rollout', timeout=900)
         self.assertIn(f'✓ {HOST} is up to date', rolled.stdout)
         self.assertRegex(rolled.stdout, rf'(?m)^{HOST}: up to date$')
-        jobs = self.serve.call('GET', '/v1/jobs')
-        rollout = next(job for job in jobs if job['action'] == 'rollout')
-        self.assertEqual(rollout['report']['hosts'][0]['state'], 'done')
-        self.assertTrue(rollout['report']['ok'])
+        jobs = self.serve.call('jobs.list', {'subject': 'rookery://installation'})['jobs']
+        rollout = next(job for job in jobs if job['params']['action'] == 'rollout')
+        self.assertEqual(rollout['result']['report']['hosts'][0]['state'], 'done')
+        self.assertTrue(rollout['result']['report']['ok'])
         # What the server last heard from the host is kept a few seconds.
         wait_for('the server hearing that the host is current', lambda: 'behind' not in self.host(), timeout=30)
         self.assertEqual(station.rookery('run', HOST, 'served:hello').stdout.strip(), 'hello from 2.0.0')
         kept.check(self, run)
-        self.assertEqual(self.serve.call('GET', '/v1/kv/update/mark')['value'], {'mark': mark})
+        self.assertEqual(self.serve.call('storage.get', {'plugin': 'update', 'key': 'mark'})['value'], {'mark': mark})
         self.assertEqual(run('id -un').strip(), AGENT)

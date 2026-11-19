@@ -210,7 +210,7 @@ class Access(unittest.TestCase):
                 for _ in range(5):
                     client.rookery('ls')
                     time.sleep(3)
-                host = next(found for found in serve.call('GET', '/v1/hosts') if found['name'] == HOST)
+                host = next(found for found in serve.call('hosts.list')['hosts'] if found['name'] == HOST)
                 self.assertFalse(host['reachable'])
                 self.assertIn('did not take rookery', host['error'] or '')
                 # One first contact with the password goes through.

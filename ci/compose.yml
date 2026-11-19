@@ -7,6 +7,8 @@
 #         (tests/e2e/run.py says which); its keys come from /seed/forge
 # headscale  a Headscale server the test host can join (see below)
 # postgres   a throw-away PostgreSQL for the store's tests (rust-tests)
+# database   the PostgreSQL of the end-to-end tests: each rookery serve of a
+#            test gets a database of its own there
 # docker     a Docker engine (docker:dind) for the tests of the Docker plugin
 #
 # The e2e network is internal: nothing on it reaches beyond it.
@@ -66,7 +68,7 @@ services:
     # the checkout, which is mounted read-only.
     user: "0:0"
     networks: [e2e]
-    depends_on: [studio, forge, headscale]
+    depends_on: [studio, forge, headscale, database]
     volumes:
       - ..:/src:ro
       - ${ROOKERY_CI_TARGET:-target}:/src/target:ro
@@ -75,9 +77,29 @@ services:
       PYTHONDONTWRITEBYTECODE: "1"
       ROOKERY_E2E: "1"
       ROOKERY_E2E_HOST: studio
+      # The servers of the tests make their databases here (harness.py).
+      ROOKERY_E2E_POSTGRES: postgres://rookery:rookery-e2e@database:5432/rookery
       # Set by ci/run.sh while the docker service runs; the Docker case skips
       # without it.
       ROOKERY_E2E_DOCKER_HOST: ${ROOKERY_CI_DOCKER_HOST:-}
+
+  # The servers' PostgreSQL, empty at each start. Its password is made up: it
+  # is reachable only from the internal e2e network.
+  database:
+    image: postgres:17-alpine
+    profiles: [e2e]
+    networks: [e2e]
+    environment:
+      POSTGRES_USER: rookery
+      POSTGRES_PASSWORD: rookery-e2e
+      POSTGRES_DB: rookery
+    command: ["postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off", "-c", "max_connections=300"]
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-q", "-h", "127.0.0.1", "-U", "rookery", "-d", "rookery"]
+      interval: 1s
+      timeout: 5s
+      retries: 60
 
   studio:
     image: ${ROOKERY_CI_HOST_IMAGE:-rookery-ci-host}
