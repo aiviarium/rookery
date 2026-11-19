@@ -243,7 +243,7 @@ fn json_is_the_documents_of_the_api() {
             "",
         ),
         (&["resource", "list"], "resources.list", json!({}), ""),
-        (&["plugin", "list"], "plugins.list", json!({}), ""),
+        (&["plugin", "list"], "plugins.installed", json!({}), ""),
         (&["job", "list"], "jobs.list", json!({"limit": 20}), "jobs"),
     ];
     for (args, method, params, under) in same {

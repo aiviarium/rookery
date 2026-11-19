@@ -67,11 +67,51 @@ fn variable(name: &str) -> Option<String> {
 
 /// The token of this run: from a file, standard input, `ROOKERY_TOKEN`, or
 /// the one `rookery login` kept for that server.
+/// A token from `--token-file`, with a warning when others on this machine can read the file.
+pub fn token_file(file: &std::path::Path) -> Result<String> {
+    let text = std::fs::read_to_string(file)
+        .map_err(|error| Fail::usage(format!("--token-file {}: {error}", file.display())))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::metadata(file)
+            && meta.permissions().mode() & 0o077 != 0
+        {
+            super::out::warn(format!(
+                "{} can be read by others on this machine, and the token in it gives its access to them: chmod 600 {}",
+                file.display(),
+                file.display()
+            ));
+        }
+    }
+    Ok(text.trim().to_owned())
+}
+
+/// Warns before a token goes in plain text to a server other than this machine.
+pub fn warn_plain(url: &str) {
+    let Some(rest) = url.strip_prefix("http://") else {
+        return;
+    };
+    let host = rest.split(['/', '?']).next().unwrap_or_default();
+    let host = match host.rsplit_once(':') {
+        Some((host, port)) if port.chars().all(|c| c.is_ascii_digit()) => host,
+        _ => host,
+    };
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    let loopback = host == "localhost"
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback());
+    if !loopback {
+        super::out::warn(format!(
+            "{url} is plain HTTP: the token goes to it unencrypted. Use the server's https:// address"
+        ));
+    }
+}
+
 fn token(global: &Global, url: &str, kept: &Settings) -> Result<String> {
     if let Some(file) = &global.token_file {
-        let text = std::fs::read_to_string(file)
-            .map_err(|error| Fail::usage(format!("--token-file {}: {error}", file.display())))?;
-        return Ok(text.trim().to_owned());
+        return token_file(file);
     }
     if global.token_stdin {
         let mut text = String::new();
@@ -127,6 +167,9 @@ impl Client {
             true => String::new(),
             false => token(global, &url, kept)?,
         };
+        if !token.is_empty() {
+            warn_plain(&url);
+        }
         Client::reach(url, token)
     }
 

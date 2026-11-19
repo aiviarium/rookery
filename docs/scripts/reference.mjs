@@ -433,9 +433,8 @@ const methodGroups = {
   auth: ['Sign-in', 'Who the caller is, sign-in links and sessions.'],
   blobs: ['Blobs', 'Files the server keeps by their hash.'],
   connections: ['Connections', 'Credentials for other services, of a declared type.'],
-  env: ['Environments', "Files and ports on a host, through the host's link."],
   events: ['Events', 'One stream of what changes, for whoever may see it.'],
-  hosts: ['Hosts', 'The hosts, their profiles, their actions, messages and channel.'],
+  hosts: ['Hosts', "The hosts, their profiles and actions, their sessions, files and ports, messages and channel."],
   installation: ['Installation', "The installation's actions, secrets and settings."],
   jobs: ['Jobs', 'Long-running work, such as an apply, with its log.'],
   keys: ['Keys', 'The key ring Rookery logs in to hosts with.'],
@@ -451,7 +450,6 @@ const methodGroups = {
   setup: ['Set-up', 'What the set-up of a new host starts from.'],
   storage: ['Storage', 'Small JSON values with revisions.'],
   streams: ['Streams', 'Ending and crediting the binary streams of `/ws`.'],
-  terminals: ['Terminals', 'Commands and terminals on hosts, their output and input.'],
   topics: ['Topics', 'Messages published on topics, and following them.'],
 };
 

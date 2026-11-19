@@ -1347,7 +1347,7 @@ pub(crate) fn stream(
     limit: Duration,
     out: &mut dyn Write,
 ) -> Result<()> {
-    let mut child = Command::new(&provisioner.command)
+    let mut child = crate::runner::without_server_env(&mut Command::new(&provisioner.command))
         .arg("logs")
         .current_dir(dir)
         .process_group(0)

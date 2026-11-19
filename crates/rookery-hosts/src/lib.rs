@@ -245,6 +245,6 @@ pub fn attach(
         backend::ServerBackend::new(db.clone(), secret_key, None),
     )));
     rookery_core::store::set_shared(Some(store));
-    rookery_core::runner::set_locks(Some(locks::LeaseLocks::new(db, None)));
+    rookery_core::runner::set_locks(Some(locks::LeaseLocks::new(db.clone(), db, None)));
     Ok(())
 }

@@ -1,0 +1,3 @@
+PLAY [rename]
+ok: [studio]
+the end of rename

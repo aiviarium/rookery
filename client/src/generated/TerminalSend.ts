@@ -2,6 +2,6 @@
 import type { JsonValue } from "./serde_json/JsonValue";
 
 /**
- * `terminals.input`, `terminals.resize` and `terminals.signal`: what the host takes, as it takes it.
+ * `hosts.sessions.input`, `hosts.sessions.resize` and `hosts.sessions.signal`: what the host takes, as it takes it.
  */
 export type TerminalSend = { host: string, terminal: string, body: JsonValue, };

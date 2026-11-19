@@ -84,7 +84,7 @@ rookery exec HOST [--user USER] [--detach] [--keep] -- COMMAND…
 
 ## rookery ssh
 
-A shell on a host over plain SSH, or a command run there. Needs the installation on this machine.
+A shell on a host, or a command run there: plain SSH with the server's key on its machine, a terminal through the server elsewhere.
 
 ```text
 rookery ssh HOST [--agent] [-- COMMAND…]
@@ -1538,14 +1538,16 @@ rookery server token --user NAME [--name NAME] [--admin]
 Bring an existing Rookery store into the server's database, once, into an empty one; the old store is only read.
 
 ```text
-rookery server import --from FILE|URL [--key-file FILE] [--owner NAME]
+rookery server import [--from FILE|URL] [--from-file FILE] [--if-not-imported] [--key-file FILE] [--owner NAME]
 ```
 
 | Argument | What it is |
 | --- | --- |
-| `--from FILE|URL` | The store: its SQLite file, or postgres://… of one on PostgreSQL. |
+| `--from FILE|URL` | The store: its SQLite file, or postgres://… of one on PostgreSQL, with its password in PGPASSWORD. |
+| `--from-file FILE` | A file whose first line names the store, as --from does; it may hold the password. |
+| `--if-not-imported` | Succeed without doing anything when this database had its import already. |
 | `--key-file FILE` | The old store's key file, when it is sealed; the server's own key is ROOKERY_SECRET_KEY or ROOKERY_SECRET_KEY_FILE. |
-| `--owner NAME` | The person, by name or email, who owns every imported host; without one only admins see them. |
+| `--owner NAME` | The person, by name or email, who owns every imported host, made as an admin when there is none of that name; the server's one admin without it. |
 
 ### rookery server secrets
 

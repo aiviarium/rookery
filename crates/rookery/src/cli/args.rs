@@ -99,7 +99,7 @@ pub enum Command {
     Apply(HostApply),
     /// Run a command on a host and pass its exit status through.
     Exec(Exec),
-    /// A shell on a host over plain SSH, or a command run there. Needs the installation on this machine.
+    /// A shell on a host, or a command run there: plain SSH with the server's key on its machine, a terminal through the server elsewhere.
     Ssh(Ssh),
     /// Run one of a host's actions: rookery action list HOST names them.
     Run(RunAction),
@@ -180,10 +180,6 @@ pub enum Command {
     #[cfg(target_os = "linux")]
     #[command(hide = true)]
     TailnetKey { host: String },
-    /// The provisioner of a simulated server, which it runs itself.
-    #[cfg(target_os = "linux")]
-    #[command(hide = true)]
-    SimulatedProvisioner { verb: String },
 }
 
 // ── host ────────────────────────────────────────────────────────────────────
@@ -1022,13 +1018,19 @@ pub enum Server {
     },
     /// Bring an existing Rookery store into the server's database, once, into an empty one; the old store is only read.
     Import {
-        /// The store: its SQLite file, or postgres://… of one on PostgreSQL.
-        #[arg(long, value_name = "FILE|URL")]
-        from: String,
+        /// The store: its SQLite file, or postgres://… of one on PostgreSQL, with its password in PGPASSWORD.
+        #[arg(long, value_name = "FILE|URL", conflicts_with = "from_file")]
+        from: Option<String>,
+        /// A file whose first line names the store, as --from does; it may hold the password.
+        #[arg(long, value_name = "FILE")]
+        from_file: Option<PathBuf>,
+        /// Succeed without doing anything when this database had its import already.
+        #[arg(long)]
+        if_not_imported: bool,
         /// The old store's key file, when it is sealed; the server's own key is ROOKERY_SECRET_KEY or ROOKERY_SECRET_KEY_FILE.
         #[arg(long, value_name = "FILE")]
         key_file: Option<PathBuf>,
-        /// The person, by name or email, who owns every imported host; without one only admins see them.
+        /// The person, by name or email, who owns every imported host, made as an admin when there is none of that name; the server's one admin without it.
         #[arg(long, value_name = "NAME")]
         owner: Option<String>,
     },

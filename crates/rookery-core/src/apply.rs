@@ -154,6 +154,7 @@ pub fn playbook(source: &std::path::Path) -> Command {
         "ansible-playbook".into()
     });
     command.env("ANSIBLE_CONFIG", source.join(layout::ANSIBLE_CONFIG));
+    crate::runner::without_server_env(&mut command);
     command
 }
 

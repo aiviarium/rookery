@@ -8,6 +8,7 @@ license.workspace = true
 # The client of a rookery serve, and the set-up flow of its commands, on
 # every system.
 [dependencies]
+getrandom = "0.3"
 rookery-api = { workspace = true, features = ["client", "plugins"] }
 # The client of rookery serve over /ws, and its wire types.
 rookery-client.workspace = true

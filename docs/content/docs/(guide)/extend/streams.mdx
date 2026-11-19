@@ -59,7 +59,7 @@ that the last viewer to resize it asked for.
 
 [`ports.connect`](/docs/api/host/ports) is a TCP connection to a port on the
 host's loopback, `127.0.0.1`. It is at `/v1/ports/{port}`. The server opens it
-for `env.connect`. rookeryd connects to the port
+for `hosts.ports.connect`. rookeryd connects to the port
 before the handshake, so a port that nothing listens on gives the error `503
 not_served`. It needs the host level.
 
@@ -100,7 +100,7 @@ that are up, without the loopback. A prefix shorter than `/8` for IPv4 or
 ## The server's streams
 
 A client of `rookery serve` opens its streams with methods on `/ws`, such as
-`terminals.attach`, `jobs.follow`, `env.connect` or `resources.connect`, and
+`hosts.sessions.attach`, `jobs.follow`, `hosts.ports.connect` or `resources.connect`, and
 reads them as binary frames with credit ([Streams](/docs/api#streams)). The
 server opens the host's streams above for them. An endpoint of a resource is
 dialed by the node's controller when its provisioner is on a node, and by the

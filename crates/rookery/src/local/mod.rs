@@ -12,7 +12,7 @@ use crate::Result;
 use crate::cli::args::{self, Global};
 use crate::cli::fail::{Fail, Result as Done};
 use crate::cli::{client, out};
-use rookery_core::{host::Host, paths::Paths};
+use rookery_core::paths::Paths;
 use serde_json::{Value, json};
 
 /// ssh runs rookery as its askpass helper, the program of SSH_ASKPASS, with
@@ -58,64 +58,52 @@ fn attach() -> Done<()> {
     rookery_hosts::attach(&config.database_url, config.secret_key).map_err(Fail::failed)
 }
 
-/// Several hosts' inventories as one.
-pub fn merge_inventory(hosts: &[(String, Value)]) -> Value {
-    let mut all = serde_json::Map::new();
-    for (name, inventory) in hosts {
-        all.insert(
-            name.clone(),
-            inventory["all"]["hosts"]["rookery_target"].clone(),
-        );
-    }
-    json!({"all": {"hosts": all}})
+/// Whether this rookery uses the server of this machine, on its socket.
+fn uses_this_machine(global: &Global) -> bool {
+    client::named(global).is_none_or(|server| rookery_client::net::local(&server))
 }
 
-/// `rookery host inventory [NAME…]`: the hosts as an Ansible inventory, with
-/// the installation's key as a file of this machine.
+/// `rookery host inventory [NAME…]`: the hosts as an Ansible inventory, with the server's key as a
+/// file of this machine, from the server on its socket.
 pub fn inventory(global: &Global, names: &[String]) -> Done<()> {
-    let paths = here_only(global, "rookery host inventory")?;
-    let hosts = match names {
-        [] => Host::all(&paths)
-            .into_iter()
-            .filter(|host| !host.address().is_empty())
-            .collect(),
-        names => names
-            .iter()
-            .map(|name| Host::load(&paths, name))
-            .collect::<Result<Vec<_>>>()?,
-    };
-    let mut entries = vec![];
-    for host in hosts {
-        let inventory = host
-            .inventory(&paths)
-            .map_err(|error| format!("{}: {error}", host.name))?;
-        entries.push((host.name, inventory));
+    if !uses_this_machine(global) {
+        return Err(Fail::refused(
+            "rookery host inventory names files of the server's machine: run it where rookery serve runs",
+        ));
     }
-    out::json(&merge_inventory(&entries));
+    let answer = socket_call("hosts.inventory", json!({"hosts": names}))?;
+    out::json(&answer["inventory"]);
     Ok(())
 }
 
-/// The enrollment key an apply asks for, for a host not on the tailnet yet;
-/// it goes to the role on standard output.
+/// The enrollment key an apply asks for, for a host not on the tailnet yet; it goes to the role on
+/// standard output. The apply runs on the server's machine, which gives it over its socket.
 pub fn tailnet_key(host: &str) -> Done<()> {
-    attach()?;
-    let paths = Paths::locate()?;
-    println!("{}", rookery_core::tailnet::key_for(&paths, host)?);
+    let answer = socket_call("hosts.tailnetKey", json!({"host": host}))?;
+    println!("{}", answer["key"].as_str().unwrap_or_default());
     Ok(())
 }
 
-/// `rookery simulated-provisioner VERB`: the provisioner of a simulated
-/// server, which rookery runs as the plugin `sim`, with the request on
-/// standard input.
-pub fn simulated_provisioner(verb: &str) -> Done<()> {
-    let mut input = String::new();
-    std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)?;
-    let answer = rookery_core::simulate::provision(verb, &input, &mut std::io::stderr())?;
-    match answer {
-        serde_json::Value::String(log) => print!("{log}"),
-        answer => println!("{answer}"),
+/// `rookery ssh HOST`: plain SSH with the server's key on the server's machine, and a terminal
+/// through the server anywhere else.
+pub fn ssh(global: &Global, ssh: &args::Ssh) -> Done<()> {
+    if !uses_this_machine(global) {
+        return crate::cli::things::ssh(&client::Client::open(global)?, ssh);
     }
-    Ok(())
+    let login = socket_call("hosts.ssh", json!({"host": ssh.host, "agent": ssh.agent}))?;
+    let args: Vec<String> = serde_json::from_value(login["args"].clone()).unwrap_or_default();
+    let mut command = std::process::Command::new("ssh");
+    command.args(&args).args(&ssh.command);
+    if let Some(env) = login["env"].as_object() {
+        for (key, value) in env {
+            command.env(key, value.as_str().unwrap_or_default());
+        }
+    }
+    let status = command.status()?;
+    match status.code() {
+        Some(0) => Ok(()),
+        code => Err(Fail::exit(code.unwrap_or(1))),
+    }
 }
 
 /// `rookery registry publish`: upload the release archive built here, and
@@ -178,6 +166,11 @@ pub fn push_image(global: &Global, destination: &str, tag: &str) -> Done<()> {
 pub fn serve() -> Done<()> {
     let config =
         rookery_server::ServerConfig::from_env().map_err(|e| Fail::usage(e.to_string()))?;
+    // Read once: no program the server starts gets the database or its keys.
+    for name in rookery_core::runner::SERVER_ONLY {
+        // SAFETY: no other thread runs yet; the runtime is made below.
+        unsafe { std::env::remove_var(name) };
+    }
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -286,9 +279,19 @@ pub fn server_command(command: args::Server) -> Done<()> {
         }
         args::Server::Import {
             from,
+            from_file,
+            if_not_imported,
             key_file,
             owner,
-        } => import::import(&from, key_file.as_deref(), owner.as_deref()),
+        } => {
+            let from = import::store_of(from.as_deref(), from_file.as_deref())?;
+            import::import(
+                &from,
+                key_file.as_deref(),
+                owner.as_deref(),
+                if_not_imported,
+            )
+        }
         args::Server::Secrets(args::Secrets::Rekey {
             new_key_file,
             write_new_key,

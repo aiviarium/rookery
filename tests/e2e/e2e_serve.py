@@ -42,16 +42,16 @@ class Methods(unittest.TestCase):
             self.assertEqual(answer['error']['data']['code'], 'UNAUTHENTICATED')
 
     def test_a_hosts_operations_go_through(self):
-        started = self.serve.call('terminals.open', process(['id', '-un']))
+        started = self.serve.call('hosts.sessions.open', process(['id', '-un']))
         self.assertEqual((started['exit_code'], text_of(started)), (0, f'{AGENT}\n'))
         actions = self.serve.call('hosts.actions', {'host': HOST})['actions']
         self.assertIn('secrets', [action['name'] for action in actions])
         path = f'/home/{AGENT}/through-serve.txt'
         written = b'written through rookery serve'
-        self.serve.call('env.writeFile', {'host': HOST, 'path': path, 'base64': base64.b64encode(written).decode()})
-        read = self.serve.call('env.readFile', {'host': HOST, 'path': path})
+        self.serve.call('hosts.files.write', {'host': HOST, 'path': path, 'base64': base64.b64encode(written).decode()})
+        read = self.serve.call('hosts.files.read', {'host': HOST, 'path': path})
         self.assertEqual(base64.b64decode(read['base64']), written)
-        self.assertEqual(self.serve.refused('terminals.list', {'host': 'nowhere'}), 'NOT_FOUND')
+        self.assertEqual(self.serve.refused('hosts.sessions.list', {'host': 'nowhere'}), 'NOT_FOUND')
 
     def test_the_key_value_storage(self):
         key = random_text('key')
@@ -68,7 +68,7 @@ class Methods(unittest.TestCase):
 
     def test_what_the_host_keeps_is_taken_in(self):
         body = {'note': random_text('inbox')}
-        self.serve.call('terminals.open', process(['box', 'publish', 'e2e/inbox', json.dumps(body), '--keep', 'log']))
+        self.serve.call('hosts.sessions.open', process(['box', 'publish', 'e2e/inbox', json.dumps(body), '--keep', 'log']))
 
         def arrived():
             listed = self.serve.call('hosts.messages.list', {'host': HOST, 'topic': 'e2e/inbox'})['messages']
@@ -106,16 +106,16 @@ class Streams(unittest.TestCase):
 
     def test_calls_over_the_socket(self):
         self.assertIn(HOST, [host['name'] for host in self.socket.result('hosts.list')['hosts']])
-        started = self.socket.result('terminals.open', process(['echo', 'through /ws']))
+        started = self.socket.result('hosts.sessions.open', process(['echo', 'through /ws']))
         self.assertEqual(text_of(started), 'through /ws\n')
         missing = self.socket.call('nothing.here')
         self.assertEqual(missing['error']['code'], -32601)
 
     def test_a_session_streams_its_output(self):
         marker = random_text('streamed')
-        started = self.socket.result('terminals.open', {
+        started = self.socket.result('hosts.sessions.open', {
             'host': HOST, 'kind': 'process', 'command': ['sh', '-c', f'sleep 1; echo {marker}']})
-        data, _ = self.socket.stream('terminals.attach', {'host': HOST, 'terminal': started['id']},
+        data, _ = self.socket.stream('hosts.sessions.attach', {'host': HOST, 'terminal': started['id']},
                                      until=lambda data: marker.encode() in data)
         self.assertIn(marker.encode(), data)
 
@@ -140,9 +140,9 @@ class Grants(unittest.TestCase):
     def test_each_level_may_do_what_it_names(self):
         asked = [
             ('hosts.get', {'host': HOST}, 'view'),
-            ('terminals.list', {'host': HOST}, 'view'),
-            ('terminals.open', process(['true']), 'use'),
-            ('terminals.open', process(['true'], user='operator'), 'manage'),
+            ('hosts.sessions.list', {'host': HOST}, 'view'),
+            ('hosts.sessions.open', process(['true']), 'use'),
+            ('hosts.sessions.open', process(['true'], user='operator'), 'manage'),
             ('hosts.profile', {'host': HOST}, 'view'),
             ('hosts.units.list', {'host': HOST}, 'view'),
             ('hosts.logs.read', {'host': HOST, 'query': {'lines': '5'}}, 'manage'),
@@ -242,7 +242,7 @@ class SetUp(unittest.TestCase):
             else:
                 session = acted['session']
                 wait_for('the secrets action to end', lambda: self.serve.call(
-                    'terminals.get', {'host': HOST, 'terminal': session['id']}).get('exit_code') == 0)
+                    'hosts.sessions.get', {'host': HOST, 'terminal': session['id']}).get('exit_code') == 0)
             env = provisioned().root_on_host(f'cat /home/{AGENT}/.config/rookery/secrets.env').stdout
             self.assertIn(f'export SERVER_TOKEN={value}', env)
         finally:
