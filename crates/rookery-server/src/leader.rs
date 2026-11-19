@@ -41,6 +41,19 @@ impl Lock {
         Ok(Lock { conn })
     }
 
+    /// The lock if no server holds it, without waiting.
+    pub async fn try_acquire(url: &str) -> Result<Option<Lock>, String> {
+        let mut conn = PgConnection::connect(url)
+            .await
+            .map_err(|e| format!("connecting for the leader lock: {e}"))?;
+        let held: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+            .bind(LOCK_KEY)
+            .fetch_one(&mut conn)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(held.then_some(Lock { conn }))
+    }
+
     /// Returns when the lock's connection is gone, and says why.
     pub async fn lost(&mut self) -> String {
         let mut every = tokio::time::interval(CHECK_EVERY);

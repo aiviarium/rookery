@@ -17,8 +17,9 @@ pub struct ServerConfig {
     pub listen: SocketAddr,
     /// `ROOKERY_PUBLIC_URL`, `http://` and the listen address unless set.
     pub public_url: String,
-    /// `ROOKERY_SECRET_KEY` or the file of `ROOKERY_SECRET_KEY_FILE`: 64 hex digits.
-    pub secret_key: Option<String>,
+    /// `ROOKERY_SECRET_KEY` or the file of `ROOKERY_SECRET_KEY_FILE`: 64 hex digits, as Rookery's key
+    /// file has them, or 32 bytes in base64.
+    pub secret_key: Option<rookery_store::seal::Key>,
     /// `ROOKERY_BLOBS`: the folder blobs are kept in.
     pub blobs: Option<PathBuf>,
     pub auth: AuthMode,
@@ -112,6 +113,12 @@ impl ServerConfig {
             ),
             (None, None) => None,
         };
+        let secret_key = secret_key
+            .map(|text| {
+                rookery_store::seal::Key::parse(&text)
+                    .map_err(|e| ConfigError(format!("the secret key: {e}")))
+            })
+            .transpose()?;
         let admins = get("ROOKERY_ADMINS")
             .map(|list| {
                 list.split(',')
@@ -253,5 +260,19 @@ mod tests {
         assert_eq!(config.auth, AuthMode::Oidc);
         assert_eq!(config.admins, ["ops@example.test", "group:platform"]);
         assert_eq!(config.oidc.unwrap().groups_claim, "groups");
+    }
+
+    #[test]
+    fn the_key_file_of_rookery_reads_as_it_is() {
+        let dir = std::env::temp_dir().join(format!("rookery-key-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("store.key");
+        std::fs::write(&file, format!("{}\n", "0f".repeat(32))).unwrap();
+        let base = ("ROOKERY_DATABASE_URL", "postgres://db");
+        let config = read(&[base, ("ROOKERY_SECRET_KEY_FILE", file.to_str().unwrap())]).unwrap();
+        assert_eq!(config.secret_key.unwrap().to_hex(), "0f".repeat(32));
+        assert!(read(&[base, ("ROOKERY_SECRET_KEY", "short")]).is_err());
+        assert!(read(&[base]).unwrap().secret_key.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

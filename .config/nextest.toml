@@ -1,0 +1,3 @@
+# A test that hangs is ended after two minutes, so that a run says which one did.
+[profile.default]
+slow-timeout = { period = "30s", terminate-after = 4 }

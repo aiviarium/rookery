@@ -10,6 +10,8 @@ pub mod conn;
 pub mod kernel;
 pub mod methods;
 pub mod streams;
+#[cfg(feature = "testing")]
+pub mod testing;
 
 pub use config::Config;
 pub use kernel::Kernel;

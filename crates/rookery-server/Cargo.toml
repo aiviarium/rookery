@@ -14,6 +14,8 @@ rookery-proto.workspace = true
 rookery-store.workspace = true
 rookery-kernel.workspace = true
 rookery-auth.workspace = true
+rookery-facilities.workspace = true
+rookery-jobs.workspace = true
 tokio.workspace = true
 axum.workspace = true
 tower = { version = "0.5", features = ["util"] }
@@ -38,4 +40,5 @@ jsonwebtoken = { version = "11", default-features = false, features = ["rust_cry
 base64 = "0.22"
 tempfile = "3"
 form_urlencoded = "1"
+uuid.workspace = true
 serde_json.workspace = true

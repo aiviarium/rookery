@@ -15,11 +15,18 @@ pub(crate) struct Migration {
 
 /// One entry per file in `migrations/`, in order. A new migration is a new file and a new entry; one
 /// that ran is never edited.
-pub(crate) static MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "auth",
-    sql: include_str!("../migrations/0001_auth.sql"),
-}];
+pub(crate) static MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "auth",
+        sql: include_str!("../migrations/0001_auth.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "facilities",
+        sql: include_str!("../migrations/0002_facilities.sql"),
+    },
+];
 
 /// Any number taken by no other advisory lock of the server.
 const MIGRATION_LOCK: i64 = 0x726f_6f6b_6d69_6772;

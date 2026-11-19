@@ -292,6 +292,62 @@ fn setup_link() -> Done<Option<String>> {
     Ok(made["url"].as_str().map(str::to_owned))
 }
 
+/// `rookery server secrets rekey`: every sealed row of rookery serve on Postgres moves to a new key.
+fn rekey(
+    new_key_file: Option<std::path::PathBuf>,
+    write_new_key: Option<std::path::PathBuf>,
+) -> Done<()> {
+    use rookery_server::rookery_store::seal::Key;
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let config =
+        rookery_server::ServerConfig::from_env().map_err(|e| Fail::usage(e.to_string()))?;
+    let new = match (&new_key_file, &write_new_key) {
+        (Some(file), None) => {
+            let text = std::fs::read_to_string(file)
+                .map_err(|e| Fail::failed(format!("reading {}: {e}", file.display())))?;
+            Key::parse(&text).map_err(|e| Fail::usage(format!("{}: {e}", file.display())))?
+        }
+        (None, Some(_)) => Key::generate(),
+        _ => {
+            return Err(Fail::usage(
+                "give the new key with --new-key-file FILE, or make one with --write-new-key FILE",
+            ));
+        }
+    };
+    if config
+        .secret_key
+        .as_ref()
+        .is_some_and(|old| old.id() == new.id())
+    {
+        return Err(Fail::usage("the new key is the key in use"));
+    }
+    // The new key is kept before any row needs it.
+    if let Some(file) = &write_new_key {
+        let mut out = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(file)
+            .map_err(|e| Fail::failed(format!("writing {}: {e}", file.display())))?;
+        writeln!(out, "{}", new.to_hex()).map_err(|e| Fail::failed(e.to_string()))?;
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| Fail::failed(e.to_string()))?;
+    let moved = runtime
+        .block_on(rookery_server::rekey(&config, &new))
+        .map_err(Fail::failed)?;
+    out::done(format!(
+        "Sealed {} secrets and {} credentials again under the key {}. Start rookery serve with it as ROOKERY_SECRET_KEY_FILE.",
+        moved.secrets,
+        moved.connections,
+        new.id()
+    ));
+    Ok(())
+}
+
 /// `rookery server …`: the server of this machine itself.
 pub fn server_command(command: args::Server) -> Done<()> {
     if let args::Server::SetupKey { revoke: false } = &command
@@ -365,6 +421,10 @@ pub fn server_command(command: args::Server) -> Done<()> {
             };
             Ok(store_command::command(&paths, &words)?)
         }
+        args::Server::Secrets(args::Secrets::Rekey {
+            new_key_file,
+            write_new_key,
+        }) => rekey(new_key_file, write_new_key),
         args::Server::Api(api) => {
             let document = match api {
                 args::Api::Openapi => serde_json::to_value(serve::openapi())?,

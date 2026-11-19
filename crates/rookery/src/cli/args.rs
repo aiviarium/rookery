@@ -1021,6 +1021,9 @@ pub enum Server {
     /// Where the server keeps its state, and sealing it.
     #[command(subcommand)]
     Store(Store),
+    /// The secrets of rookery serve on Postgres.
+    #[command(subcommand)]
+    Secrets(Secrets),
     /// The server's API documents.
     #[command(subcommand)]
     Api(Api),
@@ -1032,6 +1035,20 @@ pub enum Server {
     },
     /// Run the rookery server on a machine with Docker, over SSH: from an image built there from this rookery, or from a release.
     Deploy(Deploy),
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Subcommand, Debug)]
+pub enum Secrets {
+    /// Seal every secret and credential again under a new key, on the database of ROOKERY_DATABASE_URL; the old key is ROOKERY_SECRET_KEY or ROOKERY_SECRET_KEY_FILE, and rookery serve is stopped.
+    Rekey {
+        /// The new key, 64 hex digits, from FILE.
+        #[arg(long, value_name = "FILE", conflicts_with = "write_new_key")]
+        new_key_file: Option<PathBuf>,
+        /// Make a new key and write it to FILE, readable by this user alone. FILE must not exist.
+        #[arg(long, value_name = "FILE")]
+        write_new_key: Option<PathBuf>,
+    },
 }
 
 #[cfg(target_os = "linux")]

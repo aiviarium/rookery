@@ -9,6 +9,10 @@ license.workspace = true
 [lib]
 doctest = false
 
+[features]
+# rookery_kernel::testing: a kernel on a fresh test database, and callers for it.
+testing = ["rookery-store/testing"]
+
 [dependencies]
 rookery-proto.workspace = true
 rookery-store.workspace = true
@@ -23,3 +27,6 @@ serde_json.workspace = true
 schemars.workspace = true
 uuid.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+rookery-store = { workspace = true, features = ["testing"] }

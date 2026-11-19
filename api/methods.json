@@ -1,5 +1,963 @@
 [
   {
+    "name": "access.filter",
+    "summary": "Those of some resources the caller holds a level on.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$defs": {
+        "Grant": {
+          "description": "A level on a resource. Each includes those before it.",
+          "enum": [
+            "view",
+            "use",
+            "manage"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`access.filter`: those of `resources` the caller holds `level` on.",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/Grant"
+        },
+        "resources": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "resources",
+        "level"
+      ],
+      "title": "AccessFilter",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "resources": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "resources"
+      ],
+      "title": "Resources",
+      "type": "object"
+    }
+  },
+  {
+    "name": "access.grant",
+    "summary": "Grants a principal (user:ID, group:ID or everyone) view, use or manage on a resource.",
+    "level": {
+      "kind": "resource",
+      "param": "resource",
+      "grant": "manage"
+    },
+    "params": {
+      "$defs": {
+        "Grant": {
+          "description": "A level on a resource. Each includes those before it.",
+          "enum": [
+            "view",
+            "use",
+            "manage"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`access.grant`. `principal` is `user:<id>`, `group:<id>` or `everyone`.",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/Grant"
+        },
+        "principal": {
+          "type": "string"
+        },
+        "resource": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource",
+        "principal",
+        "level"
+      ],
+      "title": "AccessGrant",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "Grant": {
+          "description": "A level on a resource. Each includes those before it.",
+          "enum": [
+            "view",
+            "use",
+            "manage"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "createdAt": {
+          "type": "string"
+        },
+        "createdBy": {
+          "type": "string"
+        },
+        "level": {
+          "$ref": "#/$defs/Grant"
+        },
+        "principal": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "principal",
+        "level",
+        "createdBy",
+        "createdAt"
+      ],
+      "title": "GrantInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "access.grants",
+    "summary": "Who holds what on a resource.",
+    "level": {
+      "kind": "resource",
+      "param": "resource",
+      "grant": "manage"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`access.grants` and `access.level`.",
+      "properties": {
+        "resource": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource"
+      ],
+      "title": "ResourceRef",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "Grant": {
+          "description": "A level on a resource. Each includes those before it.",
+          "enum": [
+            "view",
+            "use",
+            "manage"
+          ],
+          "type": "string"
+        },
+        "GrantInfo": {
+          "additionalProperties": false,
+          "properties": {
+            "createdAt": {
+              "type": "string"
+            },
+            "createdBy": {
+              "type": "string"
+            },
+            "level": {
+              "$ref": "#/$defs/Grant"
+            },
+            "principal": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "principal",
+            "level",
+            "createdBy",
+            "createdAt"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "grants": {
+          "items": {
+            "$ref": "#/$defs/GrantInfo"
+          },
+          "type": "array"
+        },
+        "owner": {
+          "description": "The owner's user id, who holds manage.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resource": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource",
+        "grants"
+      ],
+      "title": "GrantList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "access.level",
+    "summary": "The level the caller holds on a resource.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`access.grants` and `access.level`.",
+      "properties": {
+        "resource": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource"
+      ],
+      "title": "ResourceRef",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "Grant": {
+          "description": "A level on a resource. Each includes those before it.",
+          "enum": [
+            "view",
+            "use",
+            "manage"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "The caller's level on a resource: none, view, use or manage. An admin holds manage on all.",
+      "properties": {
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Grant"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "title": "LevelHeld",
+      "type": "object"
+    }
+  },
+  {
+    "name": "access.levelOf",
+    "summary": "The level another principal holds on a resource.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`access.levelOf`: the level of another principal.",
+      "properties": {
+        "principal": {
+          "type": "string"
+        },
+        "resource": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource",
+        "principal"
+      ],
+      "title": "LevelOf",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "Grant": {
+          "description": "A level on a resource. Each includes those before it.",
+          "enum": [
+            "view",
+            "use",
+            "manage"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "The caller's level on a resource: none, view, use or manage. An admin holds manage on all.",
+      "properties": {
+        "level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Grant"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "title": "LevelHeld",
+      "type": "object"
+    }
+  },
+  {
+    "name": "access.require",
+    "summary": "FORBIDDEN unless the caller holds a level on a resource.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$defs": {
+        "Grant": {
+          "description": "A level on a resource. Each includes those before it.",
+          "enum": [
+            "view",
+            "use",
+            "manage"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`access.require`: `FORBIDDEN` unless the caller holds `level`.",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/Grant"
+        },
+        "resource": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource",
+        "level"
+      ],
+      "title": "AccessRequire",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "access.revoke",
+    "summary": "Takes a principal's grant on a resource away.",
+    "level": {
+      "kind": "resource",
+      "param": "resource",
+      "grant": "manage"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`access.revoke`.",
+      "properties": {
+        "principal": {
+          "type": "string"
+        },
+        "resource": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource",
+        "principal"
+      ],
+      "title": "AccessRevoke",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "admin.addMember",
+    "summary": "Puts a person in a group.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`admin.addMember` and `admin.removeMember`.",
+      "properties": {
+        "group": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "group",
+        "user"
+      ],
+      "title": "Membership",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "admin.createGroup",
+    "summary": "Makes a group; with a claim, it has the members of that group of the identity provider.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`admin.createGroup`.",
+      "properties": {
+        "claim": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "GroupCreate",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "claim": {
+          "description": "The identity provider's group whose members it has.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "members": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "members"
+      ],
+      "title": "GroupInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "admin.deleteGroup",
+    "summary": "Removes a group and its grants.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A thing named by its id.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "IdRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "admin.groups",
+    "summary": "The groups, with how many members each has.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "GroupInfo": {
+          "additionalProperties": false,
+          "properties": {
+            "claim": {
+              "description": "The identity provider's group whose members it has.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "members": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "members"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "groups": {
+          "items": {
+            "$ref": "#/$defs/GroupInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "groups"
+      ],
+      "title": "GroupList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "admin.removeMember",
+    "summary": "Takes a person out of a group.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`admin.addMember` and `admin.removeMember`.",
+      "properties": {
+        "group": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "group",
+        "user"
+      ],
+      "title": "Membership",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "admin.setDisabled",
+    "summary": "Turns an account off, which ends its sessions and tokens, or on again. The last admin stays on.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`admin.setDisabled`.",
+      "properties": {
+        "disabled": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "disabled"
+      ],
+      "title": "SetDisabled",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A person, for admins.",
+      "properties": {
+        "admin": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "disabled": {
+          "type": "boolean"
+        },
+        "email": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "issuer": {
+          "description": "`local` or the identity provider's issuer.",
+          "type": "string"
+        },
+        "lastSeenAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "admin",
+        "disabled",
+        "issuer",
+        "createdAt"
+      ],
+      "title": "UserInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "admin.setRole",
+    "summary": "Makes a person an admin, or a member. The last admin stays one.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`admin.setRole`.",
+      "properties": {
+        "admin": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "admin"
+      ],
+      "title": "SetRole",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A person, for admins.",
+      "properties": {
+        "admin": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "disabled": {
+          "type": "boolean"
+        },
+        "email": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "issuer": {
+          "description": "`local` or the identity provider's issuer.",
+          "type": "string"
+        },
+        "lastSeenAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "admin",
+        "disabled",
+        "issuer",
+        "createdAt"
+      ],
+      "title": "UserInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "admin.users",
+    "summary": "Everyone who has signed in.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "UserInfo": {
+          "additionalProperties": false,
+          "description": "A person, for admins.",
+          "properties": {
+            "admin": {
+              "type": "boolean"
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "disabled": {
+              "type": "boolean"
+            },
+            "email": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "issuer": {
+              "description": "`local` or the identity provider's issuer.",
+              "type": "string"
+            },
+            "lastSeenAt": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "admin",
+            "disabled",
+            "issuer",
+            "createdAt"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "users": {
+          "items": {
+            "$ref": "#/$defs/UserInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "users"
+      ],
+      "title": "UserList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "audit.list",
+    "summary": "The audit log, newest first: who did what to which resource.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`audit.list`: the newest first, filtered.",
+      "properties": {
+        "action": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "before": {
+          "default": null,
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "limit": {
+          "default": null,
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "principal": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resource": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "AuditQuery",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "AuditEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string"
+            },
+            "details": true,
+            "id": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "principal": {
+              "type": "string"
+            },
+            "resource": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "at",
+            "principal",
+            "action",
+            "details"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/AuditEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entries"
+      ],
+      "title": "AuditList",
+      "type": "object"
+    }
+  },
+  {
     "name": "auth.createLink",
     "summary": "Makes a one-time sign-in link: a device link for oneself, an invite or a device link for another as admin, the first admin's setup link on the server's own machine.",
     "level": {
@@ -708,6 +1666,3791 @@
     }
   },
   {
+    "name": "blobs.get",
+    "summary": "What a blob is: its size, type and hash.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A thing named by its id.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "IdRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "contentType": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "size": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "sha256",
+        "size",
+        "contentType",
+        "createdAt"
+      ],
+      "title": "BlobInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "blobs.put",
+    "summary": "Keeps a file of up to 8 MiB, given in base64.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`blobs.put`: up to 8 MiB in base64.",
+      "properties": {
+        "contentType": {
+          "type": "string"
+        },
+        "data": {
+          "type": "string"
+        },
+        "name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "contentType",
+        "data"
+      ],
+      "title": "BlobPut",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "contentType": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "size": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "sha256",
+        "size",
+        "contentType",
+        "createdAt"
+      ],
+      "title": "BlobInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "blobs.read",
+    "summary": "A blob's bytes, on a stream.",
+    "level": {
+      "kind": "self"
+    },
+    "stream": true,
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A thing named by its id.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "IdRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of a method that opens a stream. A source that can be resumed says where it starts.",
+      "properties": {
+        "offset": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stream": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stream"
+      ],
+      "title": "StreamOpened",
+      "type": "object"
+    }
+  },
+  {
+    "name": "connections.create",
+    "summary": "Makes a connection: a global one as admin, or one of the caller's own.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$defs": {
+        "Scope": {
+          "description": "Where a secret, a connection or a stored value belongs.",
+          "oneOf": [
+            {
+              "const": "global",
+              "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "user",
+              "description": "The caller's own.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`connections.create`: a global one is an admin's to make, a user's one the caller's.",
+      "properties": {
+        "config": {
+          "default": null
+        },
+        "credential": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope",
+          "default": "global"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name"
+      ],
+      "title": "ConnectionCreate",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "Scope": {
+          "description": "Where a secret, a connection or a stored value belongs.",
+          "oneOf": [
+            {
+              "const": "global",
+              "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "user",
+              "description": "The caller's own.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A connection, without its credential.",
+      "properties": {
+        "config": true,
+        "hasCredential": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "type": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "name",
+        "scope",
+        "config",
+        "hasCredential",
+        "updatedAt"
+      ],
+      "title": "ConnectionInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "connections.delete",
+    "summary": "Removes a connection.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A thing named by its id.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "IdRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "connections.get",
+    "summary": "One connection, without its credential.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A thing named by its id.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "IdRef",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "Scope": {
+          "description": "Where a secret, a connection or a stored value belongs.",
+          "oneOf": [
+            {
+              "const": "global",
+              "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "user",
+              "description": "The caller's own.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A connection, without its credential.",
+      "properties": {
+        "config": true,
+        "hasCredential": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "type": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "name",
+        "scope",
+        "config",
+        "hasCredential",
+        "updatedAt"
+      ],
+      "title": "ConnectionInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "connections.list",
+    "summary": "The global connections and the caller's own, without credentials.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`connections.list`.",
+      "properties": {
+        "type": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "ConnectionsOf",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "ConnectionInfo": {
+          "additionalProperties": false,
+          "description": "A connection, without its credential.",
+          "properties": {
+            "config": true,
+            "hasCredential": {
+              "type": "boolean"
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "scope": {
+              "$ref": "#/$defs/Scope"
+            },
+            "type": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "name",
+            "scope",
+            "config",
+            "hasCredential",
+            "updatedAt"
+          ],
+          "type": "object"
+        },
+        "Scope": {
+          "description": "Where a secret, a connection or a stored value belongs.",
+          "oneOf": [
+            {
+              "const": "global",
+              "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "user",
+              "description": "The caller's own.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "connections": {
+          "items": {
+            "$ref": "#/$defs/ConnectionInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "connections"
+      ],
+      "title": "ConnectionList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "connections.resolve",
+    "summary": "A connection with its credential, for the plugin that uses it.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`connections.resolve`: by id, or by type and name, the caller's own before the global one.",
+      "properties": {
+        "id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "ConnectionResolve",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "ConnectionInfo": {
+          "additionalProperties": false,
+          "description": "A connection, without its credential.",
+          "properties": {
+            "config": true,
+            "hasCredential": {
+              "type": "boolean"
+            },
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "scope": {
+              "$ref": "#/$defs/Scope"
+            },
+            "type": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "name",
+            "scope",
+            "config",
+            "hasCredential",
+            "updatedAt"
+          ],
+          "type": "object"
+        },
+        "Scope": {
+          "description": "Where a secret, a connection or a stored value belongs.",
+          "oneOf": [
+            {
+              "const": "global",
+              "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "user",
+              "description": "The caller's own.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A connection with its credential, for the code that uses it.",
+      "properties": {
+        "connection": {
+          "$ref": "#/$defs/ConnectionInfo"
+        },
+        "credential": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "connection"
+      ],
+      "title": "ConnectionResolved",
+      "type": "object"
+    }
+  },
+  {
+    "name": "connections.test",
+    "summary": "Asks the service whether it answers with the connection's credential.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A thing named by its id.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "IdRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "The result of `connections.test`.",
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok",
+        "message"
+      ],
+      "title": "ConnectionTested",
+      "type": "object"
+    }
+  },
+  {
+    "name": "connections.types",
+    "summary": "The types of connection and what each holds.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "ConnectionType": {
+          "additionalProperties": false,
+          "description": "A type of connection: what its config holds, and whether it has a credential.",
+          "properties": {
+            "config": {
+              "description": "The JSON Schema of its config."
+            },
+            "credential": {
+              "description": "What its credential is, such as \"password\"; none for a type without one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "testable": {
+              "description": "Whether `connections.test` can try it.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "label",
+            "config",
+            "testable"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "types": {
+          "items": {
+            "$ref": "#/$defs/ConnectionType"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "types"
+      ],
+      "title": "ConnectionTypes",
+      "type": "object"
+    }
+  },
+  {
+    "name": "connections.update",
+    "summary": "Changes a connection's name, config or credential.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`connections.update`: what is given changes. A credential of `\"\"` removes it.",
+      "properties": {
+        "config": {
+          "default": null
+        },
+        "credential": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "ConnectionUpdate",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "Scope": {
+          "description": "Where a secret, a connection or a stored value belongs.",
+          "oneOf": [
+            {
+              "const": "global",
+              "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "user",
+              "description": "The caller's own.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A connection, without its credential.",
+      "properties": {
+        "config": true,
+        "hasCredential": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "type": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "name",
+        "scope",
+        "config",
+        "hasCredential",
+        "updatedAt"
+      ],
+      "title": "ConnectionInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "events.publish",
+    "summary": "Sends an event of the plugin to the connections subscribed now, at most once.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`events.publish`: at most once, to the connections subscribed now. With `user`, to that person's\nconnections alone.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "payload": {
+          "default": null
+        },
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "user": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "EventPublish",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "delivered": {
+          "description": "How many connections it reached.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "delivered"
+      ],
+      "title": "Delivered",
+      "type": "object"
+    }
+  },
+  {
+    "name": "events.subscribe",
+    "summary": "Events by name, or by a prefix ending in *, as events.event notifications on this connection.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`events.subscribe`: events whose name is one of `names`, or starts with one ending in `*`, as\n`events.event` notifications on this connection.",
+      "properties": {
+        "names": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "names"
+      ],
+      "title": "EventSubscribe",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "subscription": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "subscription"
+      ],
+      "title": "EventSubscribed",
+      "type": "object"
+    }
+  },
+  {
+    "name": "events.unsubscribe",
+    "summary": "Ends a subscription to events.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`events.unsubscribe`.",
+      "properties": {
+        "subscription": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "subscription"
+      ],
+      "title": "EventUnsubscribe",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "jobs.cancel",
+    "summary": "Cancels a job: a queued one at once, a running one by asking its handler to stop.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`jobs.get`, `jobs.cancel` and `jobs.retry`.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "JobRef",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "ErrorBody": {
+          "description": "An error inside another message: a stream closed with an error, a failed job.",
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/ErrorCode"
+            },
+            "details": true,
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "type": "object"
+        },
+        "ErrorCode": {
+          "oneOf": [
+            {
+              "const": "INVALID",
+              "description": "The params fail the schema, or the request is wrong.",
+              "type": "string"
+            },
+            {
+              "const": "FORBIDDEN",
+              "description": "The caller lacks the level on the resource.",
+              "type": "string"
+            },
+            {
+              "const": "NOT_FOUND",
+              "description": "No such method, row or thing.",
+              "type": "string"
+            },
+            {
+              "const": "CONFLICT",
+              "description": "A revision or compare-and-swap did not match, or a lease is held.",
+              "type": "string"
+            },
+            {
+              "const": "UNAVAILABLE",
+              "description": "Something it needs is not there: a key, a host, or this server is a standby.",
+              "type": "string"
+            },
+            {
+              "const": "TIMEOUT",
+              "description": "The call's deadline passed.",
+              "type": "string"
+            },
+            {
+              "const": "INTERNAL",
+              "description": "A bug.",
+              "type": "string"
+            },
+            {
+              "const": "UNAUTHENTICATED",
+              "description": "The request has no session or token that works: sign in again.",
+              "type": "string"
+            }
+          ]
+        },
+        "JobState": {
+          "enum": [
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "attempts": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "cancelRequested": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "enqueuedBy": {
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorBody"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finishedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "maxAttempts": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "params": true,
+        "progress": true,
+        "result": true,
+        "startedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/JobState"
+        },
+        "subject": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "state",
+        "params",
+        "attempts",
+        "maxAttempts",
+        "cancelRequested",
+        "enqueuedBy",
+        "createdAt"
+      ],
+      "title": "JobInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "jobs.enqueue",
+    "summary": "Enqueues a job of a kind a handler in the server runs.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`jobs.enqueue`: a job of a kind a handler in the server runs.",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "params": {
+          "default": null
+        },
+        "subject": {
+          "default": null,
+          "description": "A resource the job is about, such as `env://studio`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "JobEnqueue",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "ErrorBody": {
+          "description": "An error inside another message: a stream closed with an error, a failed job.",
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/ErrorCode"
+            },
+            "details": true,
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "type": "object"
+        },
+        "ErrorCode": {
+          "oneOf": [
+            {
+              "const": "INVALID",
+              "description": "The params fail the schema, or the request is wrong.",
+              "type": "string"
+            },
+            {
+              "const": "FORBIDDEN",
+              "description": "The caller lacks the level on the resource.",
+              "type": "string"
+            },
+            {
+              "const": "NOT_FOUND",
+              "description": "No such method, row or thing.",
+              "type": "string"
+            },
+            {
+              "const": "CONFLICT",
+              "description": "A revision or compare-and-swap did not match, or a lease is held.",
+              "type": "string"
+            },
+            {
+              "const": "UNAVAILABLE",
+              "description": "Something it needs is not there: a key, a host, or this server is a standby.",
+              "type": "string"
+            },
+            {
+              "const": "TIMEOUT",
+              "description": "The call's deadline passed.",
+              "type": "string"
+            },
+            {
+              "const": "INTERNAL",
+              "description": "A bug.",
+              "type": "string"
+            },
+            {
+              "const": "UNAUTHENTICATED",
+              "description": "The request has no session or token that works: sign in again.",
+              "type": "string"
+            }
+          ]
+        },
+        "JobState": {
+          "enum": [
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "attempts": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "cancelRequested": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "enqueuedBy": {
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorBody"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finishedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "maxAttempts": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "params": true,
+        "progress": true,
+        "result": true,
+        "startedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/JobState"
+        },
+        "subject": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "state",
+        "params",
+        "attempts",
+        "maxAttempts",
+        "cancelRequested",
+        "enqueuedBy",
+        "createdAt"
+      ],
+      "title": "JobInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "jobs.follow",
+    "summary": "A job's log as a stream from a cursor: a JSON line for each item, and a last line with the outcome.",
+    "level": {
+      "kind": "self"
+    },
+    "stream": true,
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`jobs.follow` and `jobs.output`: the log after `after`.",
+      "properties": {
+        "after": {
+          "default": 0,
+          "format": "int64",
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "JobFollow",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of a method that opens a stream. A source that can be resumed says where it starts.",
+      "properties": {
+        "offset": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stream": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stream"
+      ],
+      "title": "StreamOpened",
+      "type": "object"
+    }
+  },
+  {
+    "name": "jobs.get",
+    "summary": "A job: its state, attempts, progress and outcome. The one who enqueued it, or an admin.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`jobs.get`, `jobs.cancel` and `jobs.retry`.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "JobRef",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "ErrorBody": {
+          "description": "An error inside another message: a stream closed with an error, a failed job.",
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/ErrorCode"
+            },
+            "details": true,
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "type": "object"
+        },
+        "ErrorCode": {
+          "oneOf": [
+            {
+              "const": "INVALID",
+              "description": "The params fail the schema, or the request is wrong.",
+              "type": "string"
+            },
+            {
+              "const": "FORBIDDEN",
+              "description": "The caller lacks the level on the resource.",
+              "type": "string"
+            },
+            {
+              "const": "NOT_FOUND",
+              "description": "No such method, row or thing.",
+              "type": "string"
+            },
+            {
+              "const": "CONFLICT",
+              "description": "A revision or compare-and-swap did not match, or a lease is held.",
+              "type": "string"
+            },
+            {
+              "const": "UNAVAILABLE",
+              "description": "Something it needs is not there: a key, a host, or this server is a standby.",
+              "type": "string"
+            },
+            {
+              "const": "TIMEOUT",
+              "description": "The call's deadline passed.",
+              "type": "string"
+            },
+            {
+              "const": "INTERNAL",
+              "description": "A bug.",
+              "type": "string"
+            },
+            {
+              "const": "UNAUTHENTICATED",
+              "description": "The request has no session or token that works: sign in again.",
+              "type": "string"
+            }
+          ]
+        },
+        "JobState": {
+          "enum": [
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "attempts": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "cancelRequested": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "enqueuedBy": {
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorBody"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finishedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "maxAttempts": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "params": true,
+        "progress": true,
+        "result": true,
+        "startedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/JobState"
+        },
+        "subject": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "state",
+        "params",
+        "attempts",
+        "maxAttempts",
+        "cancelRequested",
+        "enqueuedBy",
+        "createdAt"
+      ],
+      "title": "JobInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "jobs.list",
+    "summary": "Jobs, newest first: all for an admin, one's own for others.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$defs": {
+        "JobState": {
+          "enum": [
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`jobs.list`: the newest first. Admins see every job, others those they enqueued.",
+      "properties": {
+        "before": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "default": null,
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/JobState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "subject": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "JobQuery",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "ErrorBody": {
+          "description": "An error inside another message: a stream closed with an error, a failed job.",
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/ErrorCode"
+            },
+            "details": true,
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "type": "object"
+        },
+        "ErrorCode": {
+          "oneOf": [
+            {
+              "const": "INVALID",
+              "description": "The params fail the schema, or the request is wrong.",
+              "type": "string"
+            },
+            {
+              "const": "FORBIDDEN",
+              "description": "The caller lacks the level on the resource.",
+              "type": "string"
+            },
+            {
+              "const": "NOT_FOUND",
+              "description": "No such method, row or thing.",
+              "type": "string"
+            },
+            {
+              "const": "CONFLICT",
+              "description": "A revision or compare-and-swap did not match, or a lease is held.",
+              "type": "string"
+            },
+            {
+              "const": "UNAVAILABLE",
+              "description": "Something it needs is not there: a key, a host, or this server is a standby.",
+              "type": "string"
+            },
+            {
+              "const": "TIMEOUT",
+              "description": "The call's deadline passed.",
+              "type": "string"
+            },
+            {
+              "const": "INTERNAL",
+              "description": "A bug.",
+              "type": "string"
+            },
+            {
+              "const": "UNAUTHENTICATED",
+              "description": "The request has no session or token that works: sign in again.",
+              "type": "string"
+            }
+          ]
+        },
+        "JobInfo": {
+          "additionalProperties": false,
+          "properties": {
+            "attempts": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "cancelRequested": {
+              "type": "boolean"
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "enqueuedBy": {
+              "type": "string"
+            },
+            "error": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ErrorBody"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "finishedAt": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "maxAttempts": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "params": true,
+            "progress": true,
+            "result": true,
+            "startedAt": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "state": {
+              "$ref": "#/$defs/JobState"
+            },
+            "subject": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "state",
+            "params",
+            "attempts",
+            "maxAttempts",
+            "cancelRequested",
+            "enqueuedBy",
+            "createdAt"
+          ],
+          "type": "object"
+        },
+        "JobState": {
+          "enum": [
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "jobs": {
+          "items": {
+            "$ref": "#/$defs/JobInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "jobs"
+      ],
+      "title": "JobList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "jobs.log",
+    "summary": "A plugin's worker writes a line to the log of a job of its plugin.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`jobs.log`: a plugin's worker writes a line to a job of its plugin.",
+      "properties": {
+        "data": {
+          "default": null
+        },
+        "id": {
+          "type": "string"
+        },
+        "level": {
+          "default": "info",
+          "type": "string"
+        },
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text"
+      ],
+      "title": "JobLog",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "seq": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "seq"
+      ],
+      "title": "Published",
+      "type": "object"
+    }
+  },
+  {
+    "name": "jobs.output",
+    "summary": "A job's log after a cursor, up to 1000 items.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`jobs.follow` and `jobs.output`: the log after `after`.",
+      "properties": {
+        "after": {
+          "default": 0,
+          "format": "int64",
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "JobFollow",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "JobState": {
+          "enum": [
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        "LogItem": {
+          "additionalProperties": false,
+          "description": "One line of a job's output. On the stream of `jobs.follow` each is a JSON line, and the last\nline is a [`JobEnd`].",
+          "properties": {
+            "at": {
+              "type": "string"
+            },
+            "attempt": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "data": true,
+            "level": {
+              "type": "string"
+            },
+            "seq": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "seq",
+            "at",
+            "attempt",
+            "level",
+            "text"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/LogItem"
+          },
+          "type": "array"
+        },
+        "state": {
+          "$ref": "#/$defs/JobState"
+        }
+      },
+      "required": [
+        "items",
+        "state"
+      ],
+      "title": "LogItems",
+      "type": "object"
+    }
+  },
+  {
+    "name": "jobs.progress",
+    "summary": "A plugin's worker says how far a job of its plugin is.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`jobs.progress`: a plugin's worker says how far a job of its plugin is.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "progress": true
+      },
+      "required": [
+        "id",
+        "progress"
+      ],
+      "title": "JobProgress",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "jobs.retry",
+    "summary": "Runs a failed or cancelled job again, with one more attempt.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`jobs.get`, `jobs.cancel` and `jobs.retry`.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "JobRef",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "ErrorBody": {
+          "description": "An error inside another message: a stream closed with an error, a failed job.",
+          "properties": {
+            "code": {
+              "$ref": "#/$defs/ErrorCode"
+            },
+            "details": true,
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "type": "object"
+        },
+        "ErrorCode": {
+          "oneOf": [
+            {
+              "const": "INVALID",
+              "description": "The params fail the schema, or the request is wrong.",
+              "type": "string"
+            },
+            {
+              "const": "FORBIDDEN",
+              "description": "The caller lacks the level on the resource.",
+              "type": "string"
+            },
+            {
+              "const": "NOT_FOUND",
+              "description": "No such method, row or thing.",
+              "type": "string"
+            },
+            {
+              "const": "CONFLICT",
+              "description": "A revision or compare-and-swap did not match, or a lease is held.",
+              "type": "string"
+            },
+            {
+              "const": "UNAVAILABLE",
+              "description": "Something it needs is not there: a key, a host, or this server is a standby.",
+              "type": "string"
+            },
+            {
+              "const": "TIMEOUT",
+              "description": "The call's deadline passed.",
+              "type": "string"
+            },
+            {
+              "const": "INTERNAL",
+              "description": "A bug.",
+              "type": "string"
+            },
+            {
+              "const": "UNAUTHENTICATED",
+              "description": "The request has no session or token that works: sign in again.",
+              "type": "string"
+            }
+          ]
+        },
+        "JobState": {
+          "enum": [
+            "queued",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "attempts": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "cancelRequested": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "enqueuedBy": {
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorBody"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finishedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "maxAttempts": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "params": true,
+        "progress": true,
+        "result": true,
+        "startedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/JobState"
+        },
+        "subject": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "state",
+        "params",
+        "attempts",
+        "maxAttempts",
+        "cancelRequested",
+        "enqueuedBy",
+        "createdAt"
+      ],
+      "title": "JobInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "layout.get",
+    "summary": "The caller's layout of a shell, and its revision.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`layout.get`.",
+      "properties": {
+        "name": {
+          "default": null,
+          "description": "`default` unless given.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "LayoutRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "description": "0 for a layout that was never put.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "value": true
+      },
+      "required": [
+        "revision"
+      ],
+      "title": "LayoutValue",
+      "type": "object"
+    }
+  },
+  {
+    "name": "layout.put",
+    "summary": "Keeps the caller's layout. With revision, only if it is at that one; CONFLICT otherwise.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`layout.put`. With `revision`, only if the layout is at it.",
+      "properties": {
+        "name": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "default": null,
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "value": true
+      },
+      "required": [
+        "value"
+      ],
+      "title": "LayoutPut",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision"
+      ],
+      "title": "Revision",
+      "type": "object"
+    }
+  },
+  {
+    "name": "leases.acquire",
+    "summary": "Takes a lease that is free or expired, with a new fence; CONFLICT while another holds it.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`leases.acquire` and `leases.renew`: a lease of the plugin, for `ttlMs`.",
+      "properties": {
+        "fence": {
+          "default": null,
+          "description": "For `leases.renew`: the fence it was acquired at.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ttlMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "ttlMs"
+      ],
+      "title": "LeaseAcquire",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "expiresAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fence": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "holder": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "fence"
+      ],
+      "title": "LeaseInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "leases.inspect",
+    "summary": "Who holds a lease, at which fence, until when.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`leases.release` and `leases.inspect`.",
+      "properties": {
+        "fence": {
+          "default": null,
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "LeaseRef",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "LeaseInfo": {
+          "additionalProperties": false,
+          "properties": {
+            "expiresAt": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "fence": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "holder": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "fence"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "lease": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LeaseInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "title": "LeaseState",
+      "type": "object"
+    }
+  },
+  {
+    "name": "leases.release",
+    "summary": "Gives up a lease the caller holds.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`leases.release` and `leases.inspect`.",
+      "properties": {
+        "fence": {
+          "default": null,
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "LeaseRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "leases.renew",
+    "summary": "Extends a lease the caller holds at its fence; CONFLICT once it lapsed.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`leases.acquire` and `leases.renew`: a lease of the plugin, for `ttlMs`.",
+      "properties": {
+        "fence": {
+          "default": null,
+          "description": "For `leases.renew`: the fence it was acquired at.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ttlMs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "ttlMs"
+      ],
+      "title": "LeaseAcquire",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "expiresAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fence": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "holder": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "fence"
+      ],
+      "title": "LeaseInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "notify.answer",
+    "summary": "Gives one of a notification's answers, once.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`notify.answer`.",
+      "properties": {
+        "answer": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "answer"
+      ],
+      "title": "NotifyAnswer",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "answer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "body": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "data": true,
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "readAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "actions",
+        "createdAt"
+      ],
+      "title": "NotificationInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "notify.list",
+    "summary": "The caller's notifications, newest first, and how many are unread.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`notify.list`: the caller's, newest first.",
+      "properties": {
+        "before": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "default": null,
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "unread": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "title": "NotifyQuery",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "NotificationInfo": {
+          "additionalProperties": false,
+          "properties": {
+            "actions": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "answer": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "body": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "data": true,
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "readAt": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title",
+            "actions",
+            "createdAt"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "notifications": {
+          "items": {
+            "$ref": "#/$defs/NotificationInfo"
+          },
+          "type": "array"
+        },
+        "unread": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "notifications",
+        "unread"
+      ],
+      "title": "NotificationList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "notify.read",
+    "summary": "Marks some of the caller's notifications read, or all of them.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`notify.read`: these, or with none every one of the caller's.",
+      "properties": {
+        "ids": {
+          "default": null,
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "title": "NotifyRead",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "count"
+      ],
+      "title": "Count",
+      "type": "object"
+    }
+  },
+  {
+    "name": "notify.send",
+    "summary": "Puts a notification in a person's inbox, unless they muted its kind.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`notify.send`: a plugin, or an admin, puts a notification in a person's inbox.",
+      "properties": {
+        "actions": {
+          "default": null,
+          "description": "The answers it offers, such as approve and deny.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "body": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "data": {
+          "default": null
+        },
+        "kind": {
+          "type": "string"
+        },
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user",
+        "kind",
+        "title"
+      ],
+      "title": "NotifySend",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "NotificationInfo": {
+          "additionalProperties": false,
+          "properties": {
+            "actions": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "answer": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "body": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "data": true,
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "readAt": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title",
+            "actions",
+            "createdAt"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "The result of `notify.send`: none when the person muted the kind.",
+      "properties": {
+        "notification": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NotificationInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "title": "NotifySent",
+      "type": "object"
+    }
+  },
+  {
+    "name": "notify.setPref",
+    "summary": "Mutes a kind of notification for the caller, or hears it again.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`notify.setPref`: mute a kind, or hear it again.",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "muted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "muted"
+      ],
+      "title": "NotifyPref",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "secrets.delete",
+    "summary": "Removes a secret.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$defs": {
+        "Scope": {
+          "description": "Where a secret, a connection or a stored value belongs.",
+          "oneOf": [
+            {
+              "const": "global",
+              "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "user",
+              "description": "The caller's own.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`secrets.get` and `secrets.delete`.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "plugin": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope",
+          "default": "global"
+        }
+      },
+      "required": [
+        "plugin",
+        "name"
+      ],
+      "title": "SecretRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "secrets.get",
+    "summary": "A secret's value: a global one for its plugin or an admin, a user's for that person.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$defs": {
+        "Scope": {
+          "description": "Where a secret, a connection or a stored value belongs.",
+          "oneOf": [
+            {
+              "const": "global",
+              "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "user",
+              "description": "The caller's own.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`secrets.get` and `secrets.delete`.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "plugin": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope",
+          "default": "global"
+        }
+      },
+      "required": [
+        "plugin",
+        "name"
+      ],
+      "title": "SecretRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "SecretValue",
+      "type": "object"
+    }
+  },
+  {
+    "name": "secrets.list",
+    "summary": "The secrets the caller may see, without their values.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`secrets.list`.",
+      "properties": {
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "title": "SecretsOf",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "Scope": {
+          "description": "Where a secret, a connection or a stored value belongs.",
+          "oneOf": [
+            {
+              "const": "global",
+              "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "user",
+              "description": "The caller's own.",
+              "type": "string"
+            }
+          ]
+        },
+        "SecretInfo": {
+          "additionalProperties": false,
+          "description": "A secret without its value.",
+          "properties": {
+            "keyId": {
+              "description": "The key it is sealed under.",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "plugin": {
+              "type": "string"
+            },
+            "scope": {
+              "$ref": "#/$defs/Scope"
+            },
+            "updatedAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "plugin",
+            "name",
+            "scope",
+            "keyId",
+            "updatedAt"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "secrets": {
+          "items": {
+            "$ref": "#/$defs/SecretInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "secrets"
+      ],
+      "title": "SecretList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "secrets.rename",
+    "summary": "Gives a secret another name.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$defs": {
+        "Scope": {
+          "description": "Where a secret, a connection or a stored value belongs.",
+          "oneOf": [
+            {
+              "const": "global",
+              "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "user",
+              "description": "The caller's own.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`secrets.rename`.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "newName": {
+          "type": "string"
+        },
+        "plugin": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope",
+          "default": "global"
+        }
+      },
+      "required": [
+        "plugin",
+        "name",
+        "newName"
+      ],
+      "title": "SecretRename",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "secrets.set",
+    "summary": "Sets a secret, new or changed. Its value is sealed and never shown in a list.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$defs": {
+        "Scope": {
+          "description": "Where a secret, a connection or a stored value belongs.",
+          "oneOf": [
+            {
+              "const": "global",
+              "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "user",
+              "description": "The caller's own.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`secrets.set`.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "plugin": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope",
+          "default": "global"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin",
+        "name",
+        "value"
+      ],
+      "title": "SecretSet",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "settings.get",
+    "summary": "A plugin's setting as it resolves for the caller: their own, else the global one, else the default.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`settings.get`.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "plugin": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin",
+        "key"
+      ],
+      "title": "SettingRef",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "SettingScope": {
+          "description": "Where a setting's value is set.",
+          "oneOf": [
+            {
+              "const": "default",
+              "description": "The plugin's own default.",
+              "type": "string"
+            },
+            {
+              "const": "global",
+              "description": "For everyone, by an admin.",
+              "type": "string"
+            },
+            {
+              "const": "user",
+              "description": "The caller's own.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "The result of `settings.get`: a value of `null`, and no scope, when the plugin has no value or\ndefault for the key.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingScope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "value": true
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "title": "SettingValue",
+      "type": "object"
+    }
+  },
+  {
+    "name": "settings.list",
+    "summary": "Every setting of a plugin as it resolves for the caller.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`settings.list`.",
+      "properties": {
+        "plugin": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin"
+      ],
+      "title": "SettingsOf",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "Setting": {
+          "additionalProperties": false,
+          "description": "A setting as it resolves for the caller.",
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "scope": {
+              "$ref": "#/$defs/SettingScope",
+              "description": "Where the value comes from."
+            },
+            "value": true
+          },
+          "required": [
+            "key",
+            "value",
+            "scope"
+          ],
+          "type": "object"
+        },
+        "SettingScope": {
+          "description": "Where a setting's value is set.",
+          "oneOf": [
+            {
+              "const": "default",
+              "description": "The plugin's own default.",
+              "type": "string"
+            },
+            {
+              "const": "global",
+              "description": "For everyone, by an admin.",
+              "type": "string"
+            },
+            {
+              "const": "user",
+              "description": "The caller's own.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/Setting"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entries"
+      ],
+      "title": "SettingList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "settings.reset",
+    "summary": "Removes a setting's value at one scope, so the next one shows through.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$defs": {
+        "SettingScope": {
+          "description": "Where a setting's value is set.",
+          "oneOf": [
+            {
+              "const": "default",
+              "description": "The plugin's own default.",
+              "type": "string"
+            },
+            {
+              "const": "global",
+              "description": "For everyone, by an admin.",
+              "type": "string"
+            },
+            {
+              "const": "user",
+              "description": "The caller's own.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`settings.reset`: removes the value at one scope.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "plugin": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/SettingScope"
+        }
+      },
+      "required": [
+        "plugin",
+        "key",
+        "scope"
+      ],
+      "title": "SettingReset",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "settings.set",
+    "summary": "Sets a plugin's setting: its default (the plugin, or an admin), the global value (an admin) or the caller's own.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$defs": {
+        "SettingScope": {
+          "description": "Where a setting's value is set.",
+          "oneOf": [
+            {
+              "const": "default",
+              "description": "The plugin's own default.",
+              "type": "string"
+            },
+            {
+              "const": "global",
+              "description": "For everyone, by an admin.",
+              "type": "string"
+            },
+            {
+              "const": "user",
+              "description": "The caller's own.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`settings.set`: the default is the plugin's or an admin's to set, the global value an admin's,\nthe user's value the caller's.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "plugin": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/SettingScope"
+        },
+        "value": true
+      },
+      "required": [
+        "plugin",
+        "key",
+        "scope",
+        "value"
+      ],
+      "title": "SettingSet",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "storage.delete",
+    "summary": "Removes a stored value; with revision, only at it.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$defs": {
+        "Scope": {
+          "description": "Where a secret, a connection or a stored value belongs.",
+          "oneOf": [
+            {
+              "const": "global",
+              "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "user",
+              "description": "The caller's own.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`storage.get` and `storage.delete`.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "default": null,
+          "description": "For `storage.delete`: only at this revision.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope",
+          "default": "global"
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "title": "StorageRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "deleted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "deleted"
+      ],
+      "title": "Deleted",
+      "type": "object"
+    }
+  },
+  {
+    "name": "storage.get",
+    "summary": "A stored value and its revision.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$defs": {
+        "Scope": {
+          "description": "Where a secret, a connection or a stored value belongs.",
+          "oneOf": [
+            {
+              "const": "global",
+              "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "user",
+              "description": "The caller's own.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`storage.get` and `storage.delete`.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "default": null,
+          "description": "For `storage.delete`: only at this revision.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope",
+          "default": "global"
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "title": "StorageRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "The result of `storage.get`: a value of `null` at revision 0 when nothing is stored.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "updatedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value": true
+      },
+      "required": [
+        "key",
+        "value",
+        "revision"
+      ],
+      "title": "StorageValue",
+      "type": "object"
+    }
+  },
+  {
+    "name": "storage.list",
+    "summary": "The stored values whose keys start with a prefix, in order.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$defs": {
+        "Scope": {
+          "description": "Where a secret, a connection or a stored value belongs.",
+          "oneOf": [
+            {
+              "const": "global",
+              "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "user",
+              "description": "The caller's own.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`storage.list`: the keys that start with `prefix`, after `after`.",
+      "properties": {
+        "after": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "default": null,
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "prefix": {
+          "default": "",
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope",
+          "default": "global"
+        }
+      },
+      "title": "StorageList",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "StorageEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "revision": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "updatedAt": {
+              "type": "string"
+            },
+            "value": true
+          },
+          "required": [
+            "key",
+            "value",
+            "revision",
+            "updatedAt"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/StorageEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entries"
+      ],
+      "title": "StorageEntries",
+      "type": "object"
+    }
+  },
+  {
+    "name": "storage.set",
+    "summary": "Stores a value. With revision, only if the key is at it, 0 for a key not there yet; CONFLICT otherwise.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$defs": {
+        "Scope": {
+          "description": "Where a secret, a connection or a stored value belongs.",
+          "oneOf": [
+            {
+              "const": "global",
+              "description": "For everyone.",
+              "type": "string"
+            },
+            {
+              "const": "user",
+              "description": "The caller's own.",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`storage.set`. With `revision`, only if the key is at it; 0 for a key that is not there yet.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "revision": {
+          "default": null,
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope",
+          "default": "global"
+        },
+        "value": true
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "title": "StorageSet",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision"
+      ],
+      "title": "Revision",
+      "type": "object"
+    }
+  },
+  {
     "name": "streams.close",
     "summary": "Ends a stream in both directions.",
     "level": {
@@ -912,6 +5655,532 @@
       "additionalProperties": false,
       "description": "Params or a result with nothing in it: `{}`.",
       "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "topics.ack",
+    "summary": "The subscription is done with a message; the next one comes.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`topics.ack`, `topics.nack`, `topics.retry` and `topics.discard`.",
+      "properties": {
+        "error": {
+          "default": null,
+          "description": "For `topics.nack`: why.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "seq": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "subscription": {
+          "type": "string"
+        },
+        "topic": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "topic",
+        "subscription",
+        "seq"
+      ],
+      "title": "TopicDelivery",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "topics.deadLetters",
+    "summary": "The dead letters of a topic, or of one subscription.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`topics.inspect` and `topics.deadLetters`.",
+      "properties": {
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subscription": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "topic": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "topic"
+      ],
+      "title": "TopicRef",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "DeadLetter": {
+          "additionalProperties": false,
+          "properties": {
+            "at": {
+              "type": "string"
+            },
+            "attempts": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "error": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "payload": true,
+            "retrying": {
+              "description": "Delivered again, and not yet acked.",
+              "type": "boolean"
+            },
+            "seq": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "subscription": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "subscription",
+            "seq",
+            "attempts",
+            "retrying",
+            "payload",
+            "at"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "deadLetters": {
+          "items": {
+            "$ref": "#/$defs/DeadLetter"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "deadLetters"
+      ],
+      "title": "DeadLetters",
+      "type": "object"
+    }
+  },
+  {
+    "name": "topics.discard",
+    "summary": "Throws a dead letter away.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`topics.ack`, `topics.nack`, `topics.retry` and `topics.discard`.",
+      "properties": {
+        "error": {
+          "default": null,
+          "description": "For `topics.nack`: why.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "seq": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "subscription": {
+          "type": "string"
+        },
+        "topic": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "topic",
+        "subscription",
+        "seq"
+      ],
+      "title": "TopicDelivery",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "topics.inspect",
+    "summary": "A topic's newest message, its subscriptions and their lag, and its dead letters.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`topics.inspect` and `topics.deadLetters`.",
+      "properties": {
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subscription": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "topic": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "topic"
+      ],
+      "title": "TopicRef",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "SubscriptionInfo": {
+          "additionalProperties": false,
+          "properties": {
+            "acked": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "attempts": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "lag": {
+              "description": "Messages after its cursor.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "subscription": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "subscription",
+            "acked",
+            "lag",
+            "attempts"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "deadLetters": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "head": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "messages": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "subscriptions": {
+          "items": {
+            "$ref": "#/$defs/SubscriptionInfo"
+          },
+          "type": "array"
+        },
+        "topic": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "topic",
+        "head",
+        "messages",
+        "subscriptions",
+        "deadLetters"
+      ],
+      "title": "TopicInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "topics.nack",
+    "summary": "The subscription could not handle a message: it comes again later, or becomes a dead letter.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`topics.ack`, `topics.nack`, `topics.retry` and `topics.discard`.",
+      "properties": {
+        "error": {
+          "default": null,
+          "description": "For `topics.nack`: why.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "seq": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "subscription": {
+          "type": "string"
+        },
+        "topic": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "topic",
+        "subscription",
+        "seq"
+      ],
+      "title": "TopicDelivery",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "The result of `topics.nack`.",
+      "properties": {
+        "dead": {
+          "description": "The message is a dead letter now.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "dead"
+      ],
+      "title": "Nacked",
+      "type": "object"
+    }
+  },
+  {
+    "name": "topics.publish",
+    "summary": "Publishes a message to a topic of the plugin. It is kept for every subscription.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`topics.publish`: to a topic of the plugin.",
+      "properties": {
+        "payload": true,
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "topic": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "topic",
+        "payload"
+      ],
+      "title": "TopicPublish",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "seq": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "seq"
+      ],
+      "title": "Published",
+      "type": "object"
+    }
+  },
+  {
+    "name": "topics.retry",
+    "summary": "Delivers a dead letter to its subscription again, before newer messages.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`topics.ack`, `topics.nack`, `topics.retry` and `topics.discard`.",
+      "properties": {
+        "error": {
+          "default": null,
+          "description": "For `topics.nack`: why.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "seq": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "subscription": {
+          "type": "string"
+        },
+        "topic": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "topic",
+        "subscription",
+        "seq"
+      ],
+      "title": "TopicDelivery",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "topics.subscribe",
+    "summary": "A subscription's messages in order on a stream, one at a time until each is acked or nacked.",
+    "level": {
+      "kind": "plugin"
+    },
+    "stream": true,
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`topics.subscribe`: a stream of the subscription's messages, one JSON line each, one at a time:\nthe next comes once the last is acked or nacked.",
+      "properties": {
+        "fromStart": {
+          "default": false,
+          "description": "For a new subscription: from the first message kept, instead of the next one published.",
+          "type": "boolean"
+        },
+        "plugin": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "subscription": {
+          "type": "string"
+        },
+        "topic": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "topic",
+        "subscription"
+      ],
+      "title": "TopicSubscribe",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of a method that opens a stream. A source that can be resumed says where it starts.",
+      "properties": {
+        "offset": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stream": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stream"
+      ],
+      "title": "StreamOpened",
       "type": "object"
     }
   }

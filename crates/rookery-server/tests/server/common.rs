@@ -21,7 +21,7 @@ pub fn config(db: &TestDb, dir: &std::path::Path) -> ServerConfig {
         lock_url: db.url.clone(),
         listen: "127.0.0.1:0".parse().unwrap(),
         public_url: String::new(),
-        secret_key: None,
+        secret_key: Some(rookery_store::seal::Key::generate()),
         blobs: None,
         auth: AuthMode::Local,
         oidc: None,

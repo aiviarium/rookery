@@ -4,3 +4,4 @@
 mod common;
 mod edge;
 mod oidc;
+mod secrets;

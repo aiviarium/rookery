@@ -70,7 +70,7 @@ TS_PATHS = [
 # rookery serve on Postgres and its method report. The end-to-end tests do not
 # reach it yet; the Rust tests and clippy do.
 SERVER = ['crates/rookery-proto/', 'crates/rookery-store/', 'crates/rookery-kernel/', 'crates/rookery-auth/',
-          'crates/rookery-server/', 'api/']
+          'crates/rookery-server/', 'crates/rookery-facilities/', 'crates/rookery-jobs/', 'api/']
 
 # What each kind of unit leaves out, beyond NOWHERE, and what it keeps of that.
 UNITS = {

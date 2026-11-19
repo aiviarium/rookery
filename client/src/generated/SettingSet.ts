@@ -2,6 +2,7 @@
 import type { SettingScope } from "./SettingScope";
 
 /**
- * `settings.set`.
+ * `settings.set`: the default is the plugin's or an admin's to set, the global value an admin's,
+ * the user's value the caller's.
  */
-export type SettingSet = { key: string, scope: SettingScope, value: unknown, space?: string, };
+export type SettingSet = { plugin: string, key: string, scope: SettingScope, value: unknown, };

@@ -14,7 +14,9 @@ Rookery provisions and manages development machines. It sets up Ubuntu hosts and
 | `crates/rookery-server/` | `rookery serve` on Postgres, when `ROOKERY_DATABASE_URL` is set. `config.rs` reads the `ROOKERY_*` variables. `leader.rs` is the advisory lock: one server per database leads, and the others wait as standbys that answer 503. `edge.rs` serves `/ws`, `/rpc` (`rpc.rs`), `/healthz` and the Unix socket, where the CLI of the same machine is an admin with no token. `shell.rs` serves the shell in `ROOKERY_SHELL_DIR`. `client.rs` calls the socket, for `rookery server setup-key`. `methods()` in `lib.rs` lists every facility's methods |
 | `crates/rookery-kernel/` | The core of `rookery serve`. In `methods.rs` each method is registered with a level and the schema of its params. `conn.rs` is a connection on `/ws`, `streams.rs` the binary stream channels with credit, `auth.rs` reads a session or a token |
 | `crates/rookery-auth/` | How people sign in, and the `auth.*` methods. `links.rs` has the one-time links of local accounts and `session.rs` the device sessions and their cookie. `oidc.rs` signs in through an identity provider with PKCE |
-| `crates/rookery-store/` | The server's tables in the schema `rookery` on Postgres, made by the numbered migrations in `migrations/`. `testing.rs` makes a fresh database for each test |
+| `crates/rookery-facilities/` | What plugins and the shell build on, a module for each namespace from `settings.*` to `layout.*`. `storage.*` is key-value with revisions. `access.*` holds the grants on resources and gives the kernel the check of a level on one; `admin.rs` has `admin.*` and `audit.list` |
+| `crates/rookery-jobs/` | Jobs and the `JobHandler` trait of the handlers that run them inside the server (`jobs.rs`), with `leases.*`, durable `topics.*`, at-most-once `events.*` and `notify.*` |
+| `crates/rookery-store/` | The server's tables in the schema `rookery` on Postgres, made by the numbered migrations in `migrations/`. `seal.rs` seals secrets and credentials in their rows under the key of `ROOKERY_SECRET_KEY`, which `rookery server secrets rekey` changes. `testing.rs` makes a fresh database for each test |
 | `crates/rookery-proto/` | The wire types of `rookery serve`, from the JSON-RPC envelope and its errors to the params and results of each method |
 | `api/` | `methods.json`, the report of every method of `rookery serve` with its level and params. A test fails while it is stale |
 | `client/src/generated/` | The TypeScript types of the wire, written from `rookery-proto`. A test fails while they are stale |
@@ -56,7 +58,8 @@ Use cargo for everything Rust and bun for `client/` and `sdk/`. These are what C
 ```bash
 cargo test --locked --no-fail-fast
 cargo fmt --check -p rookery-api -p rookery-pty -p rookery-core -p rookery-setup -p rookery -p rookeryd -p box \
-  -p rookery-proto -p rookery-store -p rookery-kernel -p rookery-auth -p rookery-server
+  -p rookery-proto -p rookery-store -p rookery-kernel -p rookery-auth -p rookery-server \
+  -p rookery-facilities -p rookery-jobs
 cargo test --locked -q -p rookery-proto --features ts --test bindings
 cargo clippy --locked --all-targets -- -D warnings
 cargo run --locked -q -p rookery -- plugin check plugins
@@ -77,8 +80,11 @@ The tests of `rookery serve` (`rookery-store`, `rookery-server`) need Postgres. 
 docker run -d --name rookery-test-pg -e POSTGRES_USER=rookery -e POSTGRES_PASSWORD=rookery-test \
   -p 127.0.0.1:55432:5432 postgres:17-alpine -c fsync=off
 export ROOKERY_TEST_POSTGRES=postgres://rookery:rookery-test@127.0.0.1:55432/rookery
-cargo nextest run -p rookery-proto -p rookery-store -p rookery-kernel -p rookery-auth -p rookery-server
+cargo nextest run -p rookery-proto -p rookery-store -p rookery-kernel -p rookery-auth -p rookery-server \
+  -p rookery-facilities -p rookery-jobs
 ```
+
+The tests of a facility call its methods on a kernel of their own (`rookery_kernel::testing`, feature `testing`), with no server in between. A test that hangs is ended after two minutes (`.config/nextest.toml`).
 
 Development and test builds embed quick builds of rookeryd and box (the `host-dev` profile). Only `--release` embeds the release builds. The Python tests skip their YAML checks without PyYAML, so install `provision/requirements.txt` in a virtual environment to run them all.
 
@@ -159,6 +165,7 @@ The Rust jobs restore the target directory from main's cache. `ci/mtimes.py` set
 - Add the operation to `crates/rookery-api/src/ops.rs` with the role it needs. A test fails when a route has no operation or the other way round.
 - A method of `rookery serve` is added in the `register` of its facility with `methods.add(…).summary(…).level(…)`, and its params and result types in `rookery-proto`. A method without a level is refused to every caller, and a test fails for it. `ROOKERY_UPDATE_DOCS=1 cargo test -p rookery-server` writes `api/methods.json` again.
 - `ROOKERY_UPDATE_DOCS=1 cargo test -p rookery-proto --features ts --test bindings` writes the TypeScript types in `client/src/generated/`. A wire type is added to the list in `crates/rookery-proto/tests/bindings.rs`.
+- Work that runs inside the server, such as an apply, is a `JobHandler` given to `rookery_jobs::register` in `methods_with` of `rookery-server`. One that is not safe to repeat says so with `repeatable`: its job gets one attempt, and one the server stopped in fails for a person to run again.
 - A migration of the store is a new numbered file in `crates/rookery-store/migrations/` and an entry in `MIGRATIONS` of `migrate.rs`. A migration that ran is never edited: the server refuses to start on one that changed.
 - The API documents in `docs/openapi/` are committed. Regenerate them with `ROOKERY_UPDATE_DOCS=1 cargo test -p rookery -p rookeryd`. The same writes the command line's reference page, `docs/content/docs/(guide)/reference/cli.mdx`, from the grammar in `crates/rookery/src/cli/args.rs`. A test fails while either is stale.
 - The pages under `docs/content/docs/api/host` and `api/serve` are generated from those documents when the docs are built (`docs/scripts/reference.mjs`), and are not committed. Do not edit them by hand.

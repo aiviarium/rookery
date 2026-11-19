@@ -3,17 +3,31 @@
 //! Every table is in the schema `rookery`, made by the numbered migrations in `migrations/`, which
 //! [`Store::open`] runs. A store is cheap to clone: the clones share one pool.
 
+pub mod access;
 pub mod audit;
 pub mod auth;
+pub mod blobs;
+pub mod connections;
 pub mod error;
+pub mod jobs;
+pub mod kv;
+pub mod layout;
+pub mod leases;
 pub mod links;
 mod migrate;
+pub mod notify;
+pub mod seal;
+pub mod secrets;
+pub mod settings;
 pub mod state;
 #[cfg(feature = "testing")]
 pub mod testing;
+pub mod topics;
 pub mod users;
 pub mod util;
 
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use sqlx::PgPool;
@@ -27,6 +41,11 @@ pub struct StoreOptions {
     /// `ROOKERY_DATABASE_URL`.
     pub database_url: String,
     pub max_connections: u32,
+    /// The sealing key. Without one the server runs, and refuses what needs it: secrets and the
+    /// credentials of connections.
+    pub secret_key: Option<seal::Key>,
+    /// `ROOKERY_BLOBS`: the folder of the blobs' files.
+    pub blobs: Option<PathBuf>,
 }
 
 impl StoreOptions {
@@ -34,6 +53,8 @@ impl StoreOptions {
         StoreOptions {
             database_url: database_url.into(),
             max_connections: 16,
+            secret_key: None,
+            blobs: None,
         }
     }
 }
@@ -41,6 +62,8 @@ impl StoreOptions {
 #[derive(Clone)]
 pub struct Store {
     pool: PgPool,
+    key: Option<Arc<seal::Key>>,
+    blobs: Option<Arc<PathBuf>>,
 }
 
 impl Store {
@@ -62,7 +85,7 @@ impl Store {
             .acquire_timeout(Duration::from_secs(10))
             .connect_with(connect)
             .await?;
-        Ok(Store { pool })
+        Ok(Store::from_parts(pool, options))
     }
 
     /// A store that connects when first used, for tests that never reach the database.
@@ -71,7 +94,40 @@ impl Store {
         let pool = PgPoolOptions::new()
             .max_connections(options.max_connections)
             .connect_lazy_with(connect);
-        Ok(Store { pool })
+        Ok(Store::from_parts(pool, options))
+    }
+
+    fn from_parts(pool: PgPool, options: StoreOptions) -> Store {
+        Store {
+            pool,
+            key: options.secret_key.map(Arc::new),
+            blobs: options.blobs.map(Arc::new),
+        }
+    }
+
+    /// The same store with another sealing key, or none.
+    pub fn with_key(&self, key: Option<seal::Key>) -> Store {
+        Store {
+            key: key.map(Arc::new),
+            ..self.clone()
+        }
+    }
+
+    /// The sealing key, or `UNAVAILABLE` when the server has none.
+    pub fn key(&self) -> Result<&seal::Key> {
+        self.key.as_deref().ok_or_else(|| {
+            Error::Unavailable(
+                "this server has no secret key: set ROOKERY_SECRET_KEY or ROOKERY_SECRET_KEY_FILE"
+                    .into(),
+            )
+        })
+    }
+
+    /// The folder of the blobs, or `UNAVAILABLE` when `ROOKERY_BLOBS` is not set.
+    pub fn blob_dir(&self) -> Result<&Path> {
+        self.blobs.as_deref().map(PathBuf::as_path).ok_or_else(|| {
+            Error::Unavailable("this server keeps no blobs: set ROOKERY_BLOBS".into())
+        })
     }
 
     pub fn pool(&self) -> &PgPool {
@@ -96,6 +152,39 @@ impl Store {
     }
     pub fn audit(&self) -> audit::Audit<'_> {
         audit::Audit { pool: &self.pool }
+    }
+    pub fn access(&self) -> access::Access<'_> {
+        access::Access { pool: &self.pool }
+    }
+    pub fn settings(&self) -> settings::Settings<'_> {
+        settings::Settings { pool: &self.pool }
+    }
+    pub fn secrets(&self) -> secrets::Secrets<'_> {
+        secrets::Secrets { store: self }
+    }
+    pub fn kv(&self) -> kv::Kv<'_> {
+        kv::Kv { pool: &self.pool }
+    }
+    pub fn connections(&self) -> connections::Connections<'_> {
+        connections::Connections { store: self }
+    }
+    pub fn blobs(&self) -> blobs::Blobs<'_> {
+        blobs::Blobs { store: self }
+    }
+    pub fn layout(&self) -> layout::Layout<'_> {
+        layout::Layout { pool: &self.pool }
+    }
+    pub fn jobs(&self) -> jobs::Jobs<'_> {
+        jobs::Jobs { pool: &self.pool }
+    }
+    pub fn leases(&self) -> leases::Leases<'_> {
+        leases::Leases { pool: &self.pool }
+    }
+    pub fn topics(&self) -> topics::Topics<'_> {
+        topics::Topics { pool: &self.pool }
+    }
+    pub fn notify(&self) -> notify::Notify<'_> {
+        notify::Notify { pool: &self.pool }
     }
 }
 

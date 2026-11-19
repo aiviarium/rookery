@@ -1,0 +1,28 @@
+[package]
+name = "rookery-facilities"
+description = "The framework's facilities of rookery serve: settings, secrets, storage, connections, blobs, access, admin, audit and layouts."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+rookery-proto.workspace = true
+rookery-store.workspace = true
+rookery-kernel.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+base64 = "0.22"
+# connections.test reaches the service over HTTPS.
+ureq = "3"
+
+[dev-dependencies]
+rookery-kernel = { workspace = true, features = ["testing"] }
+axum.workspace = true

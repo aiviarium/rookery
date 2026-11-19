@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use axum::Router;
-use axum::extract::{Extension, Request, State, WebSocketUpgrade};
+use axum::extract::{DefaultBodyLimit, Extension, Request, State, WebSocketUpgrade};
 use axum::http::{HeaderMap, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
@@ -59,11 +59,17 @@ impl Edge {
     }
 }
 
+// An 8 MiB blob expands to just under 11 MiB in base64, with room for the RPC envelope.
+const MAX_RPC_MESSAGE: usize = 12 * 1024 * 1024;
+
 fn kernel_routes(shell: Option<PathBuf>) -> Router<Kernel> {
     let shell = Arc::new(shell);
     Router::new()
         .route("/ws", get(ws))
-        .route("/rpc", post(crate::rpc::handle))
+        .route(
+            "/rpc",
+            post(crate::rpc::handle).layer(DefaultBodyLimit::max(MAX_RPC_MESSAGE)),
+        )
         .merge(rookery_auth::routes())
         .fallback(move |request: Request| crate::shell::serve(shell.clone(), request))
 }
@@ -161,8 +167,8 @@ async fn ws(
             .into_response();
     };
     upgrade
-        .max_message_size(2 * 1024 * 1024)
-        .max_frame_size(2 * 1024 * 1024)
+        .max_message_size(MAX_RPC_MESSAGE)
+        .max_frame_size(MAX_RPC_MESSAGE)
         .on_upgrade(move |socket| rookery_kernel::conn::serve(kernel, socket, caller, token))
 }
 

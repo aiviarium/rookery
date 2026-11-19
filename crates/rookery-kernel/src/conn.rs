@@ -32,6 +32,7 @@ const MAX_OUTBOUND_FRAMES: usize = 32;
 const MAX_OUTBOUND_BINARY: usize = 32;
 const MAX_OUTBOUND_MESSAGE: usize = 2 * 1024 * 1024;
 const MAX_PENDING_CALLS: usize = 16;
+const MAX_PENDING_CALL_BYTES: usize = 12 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct OutTx {
@@ -52,6 +53,14 @@ impl OutTx {
             },
             rx,
         )
+    }
+
+    /// A queue whose receiver is no socket's writer, and gives no room back: stream data is bounded by
+    /// the queue alone.
+    pub(crate) fn detached_channel() -> (Self, mpsc::Receiver<Outbound>) {
+        let (mut out, rx) = Self::channel();
+        out.binary = Arc::new(Semaphore::new(Semaphore::MAX_PERMITS));
+        (out, rx)
     }
 
     /// A slow peer must reconnect if it cannot keep up with replies or control notifications.
@@ -131,6 +140,37 @@ impl ConnHandle {
     }
     fn user_id(&self) -> Option<&str> {
         self.0.caller.user().map(|u| u.id.as_str())
+    }
+}
+
+impl ConnHandle {
+    /// A connection with no socket: what the server sends on it arrives on the receiver. For tests, and
+    /// for code inside the server that calls methods as a client would.
+    pub fn detached(kernel: &Kernel, caller: Caller) -> (ConnHandle, mpsc::Receiver<Outbound>) {
+        let (out, rx) = OutTx::detached_channel();
+        let id = kernel.conns.next.fetch_add(1, Ordering::Relaxed) + 1;
+        let conn = ConnHandle(Arc::new(ConnInner {
+            id,
+            caller,
+            out: out.clone(),
+            streams: Streams::new(out),
+            revoked: CancellationToken::new(),
+            refresh: CancellationToken::new(),
+        }));
+        kernel.conns.map.write().unwrap().insert(id, conn.clone());
+        (conn, rx)
+    }
+
+    /// Ends a detached connection, as a socket's end ends one.
+    pub fn close_detached(&self, kernel: &Kernel) {
+        kernel.conns.map.write().unwrap().remove(&self.0.id);
+        self.streams().close_all();
+        kernel.methods.connection_closed(kernel, self);
+    }
+
+    /// Whether the connection was told to end: its credential was revoked or its user changed.
+    pub fn ended(&self) -> bool {
+        self.0.revoked.is_cancelled() || self.0.refresh.is_cancelled()
     }
 }
 
@@ -269,6 +309,7 @@ pub async fn serve(
 
     let mut revoked = false;
     let mut calls = JoinSet::new();
+    let pending_bytes = Arc::new(Semaphore::new(MAX_PENDING_CALL_BYTES));
     loop {
         let message = tokio::select! {
             biased;
@@ -292,7 +333,15 @@ pub async fn serve(
         };
         match message {
             WsMessage::Text(text) => {
-                handle_text(&kernel, &conn, &out, &mut calls, text.as_str()).await
+                handle_text(
+                    &kernel,
+                    &conn,
+                    &out,
+                    &mut calls,
+                    &pending_bytes,
+                    text.as_str(),
+                )
+                .await
             }
             WsMessage::Binary(data) => conn.streams().deliver(&data),
             WsMessage::Close(_) => break,
@@ -325,6 +374,7 @@ async fn handle_text(
     conn: &ConnHandle,
     out: &OutTx,
     calls: &mut JoinSet<()>,
+    pending_bytes: &Arc<Semaphore>,
     text: &str,
 ) {
     let (id, method, params) = match Message::parse(text) {
@@ -341,7 +391,15 @@ async fn handle_text(
         method.as_str(),
         "streams.credit" | "streams.eof" | "streams.close"
     );
-    if !control && calls.len() >= MAX_PENDING_CALLS {
+    let permit = (!control && calls.len() < MAX_PENDING_CALLS)
+        .then(|| {
+            pending_bytes
+                .clone()
+                .try_acquire_many_owned(text.len() as u32)
+                .ok()
+        })
+        .flatten();
+    if !control && permit.is_none() {
         if let Some(id) = id {
             let response = Response::from_result(
                 id,
@@ -355,6 +413,7 @@ async fn handle_text(
     let done = kernel.methods.dispatch(call, &method, params);
     let out = out.clone();
     let finish = async move {
+        let _permit = permit;
         let result = done.await;
         if let Some(id) = id {
             out.send_text(Message::Response(Response::from_result(id, result)).to_text());
