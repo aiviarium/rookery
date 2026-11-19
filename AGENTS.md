@@ -95,10 +95,10 @@ Run Rust tests locally with [cargo-nextest](https://nexte.st), which runs test b
 ```bash
 cargo nextest run --locked -p rookery-api
 cargo nextest run --locked -E 'package(rookery-core)'
-TMPDIR=/tmp BOX_DESKTOP_ENV=1 cargo nextest run --locked --no-fail-fast
+TMPDIR=~/.tmp BOX_DESKTOP_ENV=1 cargo nextest run --locked --no-fail-fast
 ```
 
-Set `TMPDIR=/tmp` when your checkout sits under a deep path so Unix domain sockets in `simulate` stay below Linux's 108-byte `SUN_LEN` limit. Set `BOX_DESKTOP_ENV=1` inside an `agent-env` container so `crates/box/tests/desktop.rs` uses the test `PATH` instead of re-executing `/usr/local/bin/agent-env`.
+Set `TMPDIR` to a short directory on disk, such as `~/.tmp` (`mkdir -p ~/.tmp`), when your checkout sits under a deep path, so Unix domain sockets stay below Linux's 108-byte `SUN_LEN` limit. Don't use `/tmp`: on some machines it is in memory, and test runs fill it. Set `BOX_DESKTOP_ENV=1` inside an `agent-env` container so `crates/box/tests/desktop.rs` uses the test `PATH` instead of re-executing `/usr/local/bin/agent-env`.
 
 Local builds keep Cargo's incremental compilation enabled and emit line tables for Rookery's crates (`debug = "line-tables-only"` in `Cargo.toml`). CI turns incremental builds off (`CARGO_INCREMENTAL=0`) and sets `CARGO_PROFILE_DEV_DEBUG=0` to skip debug information. Store tests in `on_postgres` skip locally unless `ROOKERY_TEST_POSTGRES` points at a PostgreSQL database (CI runs them against a `postgres:17-alpine` service container).
 
