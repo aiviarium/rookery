@@ -747,3 +747,52 @@ async fn a_log_collection_is_appended_to_followed_and_kept_by_the_hourly_round()
     assert_eq!(after["rows"].as_array().unwrap().len(), 1);
     k.close().await;
 }
+
+#[tokio::test]
+async fn a_retried_write_with_its_idempotency_key_writes_once() {
+    let k: TestKernel = test_kernel!(methods());
+    install(&k, notes()).await;
+    let notes = Caller::Plugin("notes".into());
+    let insert = |key: &str, value: &str| json!({ "collection": "settings", "values": { "key": value }, "idempotencyKey": key });
+    let first = k
+        .call(&notes, "data.insert", insert("k1", "a"))
+        .await
+        .unwrap();
+    let again = k
+        .call(&notes, "data.insert", insert("k1", "a"))
+        .await
+        .unwrap();
+    assert_eq!(
+        first["row"]["id"], again["row"]["id"],
+        "the repeat answers as the first"
+    );
+    let count = k
+        .call(&notes, "data.count", json!({ "collection": "settings" }))
+        .await
+        .unwrap();
+    assert_eq!(count["count"], 1);
+    // The key with another request is refused; another caller's keys are its own.
+    assert_eq!(
+        code(k.call(&notes, "data.insert", insert("k1", "b")).await),
+        "INVALID"
+    );
+    let admin = k.person("Maria", true).await;
+    let mut theirs = insert("k1", "c");
+    theirs["plugin"] = json!("notes");
+    k.call(&admin, "data.insert", theirs).await.unwrap();
+    let count = k
+        .call(&notes, "data.count", json!({ "collection": "settings" }))
+        .await
+        .unwrap();
+    assert_eq!(count["count"], 2);
+    // A batch with a key too.
+    let batch = json!({ "ops": [{ "op": "insert", "collection": "settings", "values": { "key": "d" } }], "idempotencyKey": "b1" });
+    k.call(&notes, "data.batch", batch.clone()).await.unwrap();
+    k.call(&notes, "data.batch", batch).await.unwrap();
+    let count = k
+        .call(&notes, "data.count", json!({ "collection": "settings" }))
+        .await
+        .unwrap();
+    assert_eq!(count["count"], 3);
+    k.close().await;
+}

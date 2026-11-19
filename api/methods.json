@@ -3187,6 +3187,13 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "description": "`data.batch`: one transaction over one plugin's collections.",
       "properties": {
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "if": {
           "anyOf": [
             {
@@ -3412,6 +3419,13 @@
         },
         "id": {
           "type": "string"
+        },
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "limit": {
           "description": "`data.history`: at most this many entries.",
@@ -3645,6 +3659,13 @@
         "id": {
           "type": "string"
         },
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "limit": {
           "description": "`data.history`: at most this many entries.",
           "format": "int64",
@@ -3702,6 +3723,13 @@
         },
         "id": {
           "type": "string"
+        },
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "limit": {
           "description": "`data.history`: at most this many entries.",
@@ -3814,6 +3842,13 @@
         "collection": {
           "type": "string"
         },
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "mode": {
           "$ref": "#/$defs/ImportMode",
           "default": "insert",
@@ -3918,6 +3953,13 @@
       "properties": {
         "collection": {
           "type": "string"
+        },
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "plugin": {
           "type": [
@@ -4159,6 +4201,13 @@
         "id": {
           "type": "string"
         },
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "limit": {
           "description": "`data.history`: at most this many entries.",
           "format": "int64",
@@ -4387,6 +4436,13 @@
         },
         "id": {
           "type": "string"
+        },
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "limit": {
           "description": "`data.history`: at most this many entries.",
@@ -5130,6 +5186,13 @@
         "id": {
           "type": "string"
         },
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "ops": {
           "additionalProperties": {
             "$ref": "#/$defs/FieldOp"
@@ -5190,6 +5253,13 @@
       "properties": {
         "collection": {
           "type": "string"
+        },
+        "idempotencyKey": {
+          "description": "Makes a retried write answer as the first one did, instead of writing again, for a day.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "on": {
           "items": {

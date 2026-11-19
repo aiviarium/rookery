@@ -385,6 +385,14 @@ pub struct DataRowRef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional, type = "number"))]
     pub limit: Option<i64>,
+    /// Makes a retried write answer as the first one did, instead of writing again, for a day.
+    #[serde(
+        default,
+        rename = "idempotencyKey",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "ts", ts(optional, rename = "idempotencyKey"))]
+    pub idempotency_key: Option<String>,
 }
 
 /// A row, or `null`.
@@ -403,6 +411,14 @@ pub struct DataInsert {
     pub target: DataTarget,
     #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub values: Value,
+    /// Makes a retried write answer as the first one did, instead of writing again, for a day.
+    #[serde(
+        default,
+        rename = "idempotencyKey",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "ts", ts(optional, rename = "idempotencyKey"))]
+    pub idempotency_key: Option<String>,
 }
 
 /// `data.update`. With `rev`, fails with `CONFLICT` unless the row is still at that revision.
@@ -420,6 +436,14 @@ pub struct DataUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional, type = "number"))]
     pub rev: Option<i64>,
+    /// Makes a retried write answer as the first one did, instead of writing again, for a day.
+    #[serde(
+        default,
+        rename = "idempotencyKey",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "ts", ts(optional, rename = "idempotencyKey"))]
+    pub idempotency_key: Option<String>,
 }
 
 /// Atomic field operations, validated against the manifest's field types.
@@ -456,6 +480,14 @@ pub struct DataUpsert {
     #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub values: Value,
     pub on: Vec<String>,
+    /// Makes a retried write answer as the first one did, instead of writing again, for a day.
+    #[serde(
+        default,
+        rename = "idempotencyKey",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "ts", ts(optional, rename = "idempotencyKey"))]
+    pub idempotency_key: Option<String>,
 }
 
 /// One operation of `data.batch`.
@@ -520,6 +552,14 @@ pub struct DataBatch {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub space: Option<String>,
     pub ops: Vec<BatchOp>,
+    /// Makes a retried write answer as the first one did, instead of writing again, for a day.
+    #[serde(
+        default,
+        rename = "idempotencyKey",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "ts", ts(optional, rename = "idempotencyKey"))]
+    pub idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -863,6 +903,14 @@ pub struct DataImport {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(feature = "ts", ts(optional, as = "Option<Vec<String>>"))]
     pub on: Vec<String>,
+    /// Makes a retried write answer as the first one did, instead of writing again, for a day.
+    #[serde(
+        default,
+        rename = "idempotencyKey",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[cfg_attr(feature = "ts", ts(optional, rename = "idempotencyKey"))]
+    pub idempotency_key: Option<String>,
 }
 
 #[derive(
