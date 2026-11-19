@@ -54,6 +54,12 @@ impl Read {
     pub fn host_parts(&self) -> Value {
         host_parts(&self.manifest)
     }
+
+    /// The interface module the manifest names, relative to the target's
+    /// folder. Its `interface.json` is written from it.
+    pub fn interface(&self) -> Option<&str> {
+        self.manifest.get("interface").and_then(Value::as_str)
+    }
 }
 
 /// `{"features": [...], "provisioners": [...]}` of a manifest in the shape
@@ -288,6 +294,7 @@ pub fn manifest_problems(read: &Read, has: &dyn Fn(&str) -> bool) -> Vec<Problem
         ("adminPages", "admin page"),
         ("jobs", "job"),
         ("topics", "topic"),
+        ("composer", "composer entry"),
     ] {
         let mut ids: Vec<&str> = vec![];
         for item in manifest

@@ -83,6 +83,7 @@ fn each_shipped_plugin_contributes_what_its_rookery_json_did() {
         assert_eq!(manifest["id"], id);
         assert_eq!(manifest["contributes"]["hostFeatures"], legacy["features"]);
         assert_eq!(manifest["contributes"]["views"], serde_json::json!([]));
+        assert_eq!(manifest["contributes"]["composer"], serde_json::json!([]));
         let old = rookery_plugins::loaded::load(&rookery_core::plugins::read(&old).unwrap());
         assert!(old.valid(), "{id}: {:?}", old.problem);
         assert_eq!(old.format, Some(Format::Legacy));
