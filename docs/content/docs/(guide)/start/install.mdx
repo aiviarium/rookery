@@ -4,7 +4,7 @@ description: Put the Rookery command on the machine you work from. It is one fil
 icon: Download
 ---
 
-Rookery sets hosts up from Linux. The program contains everything it puts on a host, so installing it means placing one file on your `PATH`. On macOS and Windows the same program is a client of a [Rookery server](/docs/use/server) on another machine.
+Rookery sets hosts up from Linux. The program contains everything it puts on a host, so installing it means placing one file on your `PATH`. On macOS and Windows the same program is a client of a [Rookery server](/docs/use/server) on another machine: every command that calls a server works, and the commands of the server's own machine are not built. Those are `rookery serve`, `rookery server <command>`, `rookery host inventory`, `rookery registry publish` and `rookery registry push-image` ([Not in this version](/docs/reference/not-in-this-version)).
 
 <Tabs items={['Install script', 'Windows', 'Cargo', 'Container image']}>
 <Tab value="Install script">

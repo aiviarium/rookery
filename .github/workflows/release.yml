@@ -98,7 +98,9 @@ jobs:
         # rookery, and on Linux the rookeryd and box it carries, all say the same.
         run: |
           want=${ROOKERY_BUILD_VERSION:-$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)}
-          programs=dist/rookery
+          program=rookery
+          [ "$RUNNER_OS" = Windows ] && program=rookery.exe
+          programs=dist/$program
           if [ "$RUNNER_OS" = Linux ]; then
             cp target/host/x86_64-unknown-linux-musl/release/rookeryd target/host/x86_64-unknown-linux-musl/release/box dist/
             [ "${{ matrix.target }}" = x86_64-unknown-linux-musl ] && programs="$programs dist/rookeryd dist/box"
@@ -106,11 +108,62 @@ jobs:
           for program in $programs; do
             said=$("$program" --version)
             echo "$program: $said"
+            # On Windows the program ends in .exe and says its name without it.
+            name=${program##*/}
+            name=${name%.exe}
             case "$said" in
-              "${program##*/} $want" | "${program##*/} $want "*) ;;
+              "$name $want" | "$name $want "*) ;;
               *) echo "::error::$program says $said, not $want"; exit 1 ;;
             esac
           done
+      - name: Check the commands
+        # The commands of a client of a server, which is all rookery is on macOS and Windows: its
+        # grammar and completions, and a command that needs a server saying so rather than failing
+        # another way. The server's own commands are offered on Linux alone.
+        run: |
+          program=rookery
+          [ "$RUNNER_OS" = Windows ] && program=rookery.exe
+          program="dist/$program"
+          want=${ROOKERY_BUILD_VERSION:-$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)}
+          # Nothing of the runner's own settings is read or written.
+          work=$(mktemp -d)
+          mkdir -p "$work/config" "$work/run"
+          export HOME="$work" XDG_CONFIG_HOME="$work/config" XDG_RUNTIME_DIR="$work/run"
+          if [ "$RUNNER_OS" = Windows ]; then
+            # Windows reads the settings of a program from a native path.
+            export LOCALAPPDATA="$(cygpath -w "$work" 2>/dev/null || echo "$work")"
+          fi
+          "$program" --help > /dev/null
+          for command in ls apply exec ssh run host action session provisioner resource job key \
+              secret registry plugin config port inbox kv channel service login logout update \
+              version completion; do
+            "$program" help "$command" > /dev/null
+          done
+          "$program" completion bash > "$work/bash"
+          "$program" completion powershell > "$work/powershell"
+          "$program" version > "$work/version"
+          grep -q "rookery $want " "$work/version"
+          if [ "$RUNNER_OS" = Linux ]; then
+            "$program" help server > /dev/null
+            "$program" help serve > /dev/null
+          else
+            for command in server serve; do
+              if "$program" help "$command" > /dev/null 2>&1; then
+                echo "::error::$program offers $command on $RUNNER_OS, where no server runs"
+                exit 1
+              fi
+            done
+          fi
+          # Without a server every command that needs one exits 4 and says what to do.
+          set +e
+          "$program" ls > "$work/said" 2>&1
+          code=$?
+          set -e
+          if [ "$code" -ne 4 ]; then
+            echo "::error::$program ls exited $code without a server: $(cat "$work/said")"
+            exit 1
+          fi
+          grep -qi "no rookery server is set" "$work/said"
       - uses: actions/upload-artifact@v4
         with:
           name: rookery-${{ matrix.target }}
