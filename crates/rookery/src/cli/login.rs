@@ -62,6 +62,7 @@ pub fn login(global: &Global, login: &Login) -> Result<()> {
 
 /// The token opens the server: its version.
 fn check(url: &str, token: &str) -> Result<String> {
+    super::client::warn_plain(url);
     let me = runtime().block_on(async {
         let client = rookery_client::Client::connect(url, Some(token)).await?;
         client.call("auth.me", json!({})).await
@@ -86,7 +87,7 @@ fn check(url: &str, token: &str) -> Result<String> {
 
 fn read_token(global: &Global) -> Result<String> {
     if let Some(file) = &global.token_file {
-        return Ok(std::fs::read_to_string(file)?.trim().to_owned());
+        return super::client::token_file(file);
     }
     let mut text = String::new();
     std::io::Read::read_to_string(&mut std::io::stdin(), &mut text)?;
@@ -122,16 +123,10 @@ fn redeem(url: &str, link: &str) -> Result<String> {
 }
 
 fn random(bytes: usize) -> Result<String> {
-    use std::io::Read;
     let mut buffer = vec![0u8; bytes];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut file| file.read_exact(&mut buffer))
-        .or_else(|_| {
-            // A system without /dev/urandom: the time and the process, hashed.
-            let seed = format!("{:?}{}", std::time::SystemTime::now(), std::process::id());
-            buffer = sha256(seed.as_bytes()).to_vec();
-            Ok::<_, std::io::Error>(())
-        })?;
+    // The system's own source on every system; nothing weaker stands in for it.
+    getrandom::fill(&mut buffer)
+        .map_err(|e| Fail::failed(format!("no random bytes from the system: {e}")))?;
     Ok(base64url(&buffer))
 }
 

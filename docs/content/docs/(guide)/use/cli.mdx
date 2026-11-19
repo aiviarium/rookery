@@ -11,7 +11,7 @@ A command is written `rookery THING ACTION [NAME] [FLAGS]`, such as `rookery hos
 | `rookery ls` | `rookery host list` |
 | `rookery apply HOST` | `rookery host apply HOST` |
 | `rookery exec HOST -- COMMAND…` | Run a command on the host |
-| `rookery ssh HOST` | A shell over plain SSH |
+| `rookery ssh HOST` | A shell: plain SSH on the server's machine, a terminal through the server elsewhere |
 | `rookery run HOST ACTION` | Run one of the host's actions |
 
 `rookery` alone lists the hosts of the server it uses, as `rookery ls` does. With no server set, it prints a short help and says what is missing. A word Rookery doesn't know stops with status 2 and the command it was likely meant to be.

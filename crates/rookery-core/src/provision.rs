@@ -358,7 +358,7 @@ pub(crate) fn call(
     out: &mut dyn Write,
 ) -> Result<Value> {
     let hidden = hidden(request["secrets"].as_object().unwrap_or(&Map::new()));
-    let mut child = Command::new(&provisioner.command)
+    let mut child = crate::runner::without_server_env(&mut Command::new(&provisioner.command))
         .arg(verb)
         .current_dir(plugin)
         .process_group(0)

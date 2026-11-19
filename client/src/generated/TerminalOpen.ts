@@ -3,7 +3,7 @@ import type { CommandLine } from "./CommandLine";
 import type { SessionKind } from "./SessionKind";
 
 /**
- * `terminals.open`: a session on the host, a terminal or a process. As the SSH user or root it
+ * `hosts.sessions.open`: a session on the host, a terminal or a process. As the SSH user or root it
  * needs manage on the host; as the agent account, use.
  */
 export type TerminalOpen = { host: string, 

@@ -219,6 +219,8 @@ class Workstation:
             'HOME': str(self.home), 'USER': 'tester', 'LOGNAME': 'tester',
             'XDG_CONFIG_HOME': str(self.config), 'XDG_DATA_HOME': str(self.data),
             'XDG_RUNTIME_DIR': str(self.run_dir),
+            # Its own server's socket, whoever runs the tests.
+            'ROOKERY_SOCKET': str(self.run_dir / 'rookery/server.sock'),
             'PATH': os.environ['PATH'], 'LANG': 'C.UTF-8', 'TERM': 'xterm-256color',
             'ROOKERY_SOURCE': str(source_dir or source()),
             'ANSIBLE_LOCAL_TEMP': str(self.root / 'ansible-tmp'), 'ANSIBLE_FORCE_COLOR': '0',

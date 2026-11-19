@@ -11,7 +11,7 @@ Two programs have an API. rookeryd runs on every host, and `rookery serve` is th
 | rookeryd | every host, as root | unix sockets in `/run/rookery` | [rookeryd](/docs/api/host) |
 | `rookery serve` | a server, with its PostgreSQL database | `/ws` and `/rpc` over TCP, and a unix socket on its machine | [`rookery serve`](/docs/api/server) |
 
-The server reaches each host's rookeryd itself. A client of the server never talks to rookeryd: what it does on a host is a method of the server, such as `terminals.open` or `env.readFile`, with the host in its parameters.
+The server reaches each host's rookeryd itself. A client of the server never talks to rookeryd: what it does on a host is a method of the server, such as `hosts.sessions.open` or `hosts.files.read`, with the host in its parameters.
 
 ## The server's methods
 
@@ -36,7 +36,7 @@ On `/ws` a browser signs in with its session cookie, and any other client sends 
 
 ## Streams
 
-A method that opens a stream, such as `jobs.follow` or `terminals.attach`, answers with `{"stream": ID}`. The stream's data then comes as binary WebSocket frames: 4 bytes of the stream's id, big endian, then up to 64 KB of payload. The same frames go the other way for a stream that takes input, such as a terminal or `env.connect`.
+A method that opens a stream, such as `jobs.follow` or `hosts.sessions.attach`, answers with `{"stream": ID}`. The stream's data then comes as binary WebSocket frames: 4 bytes of the stream's id, big endian, then up to 64 KB of payload. The same frames go the other way for a stream that takes input, such as a terminal or `hosts.ports.connect`.
 
 Each direction starts with 256 KB of credit. A reader grants more with `streams.credit` as it takes data, and a writer waits while it has none, so a slow reader never fills the server. `streams.eof` ends one direction and `streams.close` both. A peer that sends more than its credit loses the stream.
 

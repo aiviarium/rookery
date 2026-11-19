@@ -2555,171 +2555,6 @@
     }
   },
   {
-    "name": "env.connect",
-    "summary": "A byte stream to a TCP port on a host's loopback.",
-    "level": {
-      "kind": "resource",
-      "param": "host",
-      "grant": "use",
-      "scheme": "env"
-    },
-    "stream": true,
-    "params": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "`env.connect`: a TCP port on the host's loopback.",
-      "properties": {
-        "host": {
-          "type": "string"
-        },
-        "port": {
-          "format": "uint16",
-          "maximum": 65535,
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "host",
-        "port"
-      ],
-      "title": "PortConnect",
-      "type": "object"
-    },
-    "result": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "The result of a method that opens a stream. A source that can be resumed says where it starts.",
-      "properties": {
-        "offset": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "stream": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "stream"
-      ],
-      "title": "StreamOpened",
-      "type": "object"
-    }
-  },
-  {
-    "name": "env.deleteFile",
-    "summary": "Removes a file on a host, inside its roots.",
-    "level": {
-      "kind": "resource",
-      "param": "host",
-      "grant": "use",
-      "scheme": "env"
-    },
-    "params": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "A file on a host, by its path.",
-      "properties": {
-        "host": {
-          "type": "string"
-        },
-        "path": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "host",
-        "path"
-      ],
-      "title": "FileRef",
-      "type": "object"
-    },
-    "result": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
-      "title": "Passed"
-    }
-  },
-  {
-    "name": "env.readFile",
-    "summary": "A file on a host, in base64 with its content_type and etag, inside the host's roots.",
-    "level": {
-      "kind": "resource",
-      "param": "host",
-      "grant": "use",
-      "scheme": "env"
-    },
-    "params": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "A file on a host, by its path.",
-      "properties": {
-        "host": {
-          "type": "string"
-        },
-        "path": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "host",
-        "path"
-      ],
-      "title": "FileRef",
-      "type": "object"
-    },
-    "result": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
-      "title": "Passed"
-    }
-  },
-  {
-    "name": "env.writeFile",
-    "summary": "Writes a file on a host, inside its roots; with etag only if it is still at it.",
-    "level": {
-      "kind": "resource",
-      "param": "host",
-      "grant": "use",
-      "scheme": "env"
-    },
-    "params": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "`env.writeFile`: the bytes in base64. With `etag`, only if the file is still at it.",
-      "properties": {
-        "base64": {
-          "type": "string"
-        },
-        "etag": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "host": {
-          "type": "string"
-        },
-        "path": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "host",
-        "path",
-        "base64"
-      ],
-      "title": "FileWrite",
-      "type": "object"
-    },
-    "result": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
-      "title": "Passed"
-    }
-  },
-  {
     "name": "events.publish",
     "summary": "Sends an event of the plugin to the connections subscribed now, at most once: a connection too slow for it loses it, and later hears events.dropped.",
     "level": {
@@ -3699,6 +3534,115 @@
     }
   },
   {
+    "name": "hosts.files.delete",
+    "summary": "Removes a file on a host, inside its roots.",
+    "level": {
+      "kind": "resource",
+      "param": "host",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "A file on a host, by its path.",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "path"
+      ],
+      "title": "FileRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
+      "title": "Passed"
+    }
+  },
+  {
+    "name": "hosts.files.read",
+    "summary": "A file on a host, in base64 with its content_type and etag, inside the host's roots.",
+    "level": {
+      "kind": "resource",
+      "param": "host",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "A file on a host, by its path.",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "path"
+      ],
+      "title": "FileRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
+      "title": "Passed"
+    }
+  },
+  {
+    "name": "hosts.files.write",
+    "summary": "Writes a file on a host, inside its roots; with etag only if it is still at it.",
+    "level": {
+      "kind": "resource",
+      "param": "host",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`hosts.files.write`: the bytes in base64. With `etag`, only if the file is still at it.",
+      "properties": {
+        "base64": {
+          "type": "string"
+        },
+        "etag": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "host": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "path",
+        "base64"
+      ],
+      "title": "FileWrite",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
+      "title": "Passed"
+    }
+  },
+  {
     "name": "hosts.get",
     "summary": "One host: its address, its type, and whether it answers.",
     "level": {
@@ -3956,6 +3900,40 @@
         "power"
       ],
       "title": "HostInfo",
+      "type": "object"
+    }
+  },
+  {
+    "name": "hosts.inventory",
+    "summary": "The hosts as an Ansible inventory, with the server's key as a file of its machine. For the server's socket alone.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`hosts.inventory`: hosts by name, or every host with an address when there are none.",
+      "properties": {
+        "hosts": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "title": "HostNames",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "An Ansible inventory, with the server's key as a file of the server's machine.",
+      "properties": {
+        "inventory": true
+      },
+      "required": [
+        "inventory"
+      ],
+      "title": "Inventory",
       "type": "object"
     }
   },
@@ -4550,6 +4528,62 @@
       "additionalProperties": false,
       "description": "Params or a result with nothing in it: `{}`.",
       "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "hosts.ports.connect",
+    "summary": "A byte stream to a TCP port on a host's loopback.",
+    "level": {
+      "kind": "resource",
+      "param": "host",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "stream": true,
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`hosts.ports.connect`: a TCP port on the host's loopback.",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "port": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "host",
+        "port"
+      ],
+      "title": "PortConnect",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of a method that opens a stream. A source that can be resumed says where it starts.",
+      "properties": {
+        "offset": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stream": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stream"
+      ],
+      "title": "StreamOpened",
       "type": "object"
     }
   },
@@ -5520,6 +5554,547 @@
     }
   },
   {
+    "name": "hosts.sessions.attach",
+    "summary": "A session's output as it comes and its input, as a stream: each frame has a byte before it, b for the terminal's bytes and t for the host's JSON, such as a size to take or how it exited. Another account's session, or an action's, needs manage.",
+    "level": {
+      "kind": "resource",
+      "param": "host",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "stream": true,
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "A session on a host, by the host and the session's id.",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "query": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "The query, as the host takes it: `since`, `tail`, `lines` and the rest.",
+          "type": "object"
+        },
+        "terminal": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "terminal"
+      ],
+      "title": "TerminalRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of a method that opens a stream. A source that can be resumed says where it starts.",
+      "properties": {
+        "offset": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stream": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stream"
+      ],
+      "title": "StreamOpened",
+      "type": "object"
+    }
+  },
+  {
+    "name": "hosts.sessions.close",
+    "summary": "Ends a session on a host, or forgets one that ended. Another account's session, or an action's, needs manage.",
+    "level": {
+      "kind": "resource",
+      "param": "host",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "A session on a host, by the host and the session's id.",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "query": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "The query, as the host takes it: `since`, `tail`, `lines` and the rest.",
+          "type": "object"
+        },
+        "terminal": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "terminal"
+      ],
+      "title": "TerminalRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
+      "title": "Passed"
+    }
+  },
+  {
+    "name": "hosts.sessions.get",
+    "summary": "A session on a host.",
+    "level": {
+      "kind": "resource",
+      "param": "host",
+      "grant": "view",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "A session on a host, by the host and the session's id.",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "query": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "The query, as the host takes it: `since`, `tail`, `lines` and the rest.",
+          "type": "object"
+        },
+        "terminal": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "terminal"
+      ],
+      "title": "TerminalRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
+      "title": "Passed"
+    }
+  },
+  {
+    "name": "hosts.sessions.input",
+    "summary": "Types into a session. Another account's session, or an action's, needs manage.",
+    "level": {
+      "kind": "resource",
+      "param": "host",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`hosts.sessions.input`, `hosts.sessions.resize` and `hosts.sessions.signal`: what the host takes, as it takes it.",
+      "properties": {
+        "body": {
+          "default": null
+        },
+        "host": {
+          "type": "string"
+        },
+        "terminal": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "terminal"
+      ],
+      "title": "TerminalSend",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
+      "title": "Passed"
+    }
+  },
+  {
+    "name": "hosts.sessions.list",
+    "summary": "The sessions on a host.",
+    "level": {
+      "kind": "resource",
+      "param": "host",
+      "grant": "view",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "A host by its name, or as `env://NAME`.",
+      "properties": {
+        "host": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host"
+      ],
+      "title": "HostRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
+      "title": "Passed"
+    }
+  },
+  {
+    "name": "hosts.sessions.open",
+    "summary": "Opens a session on a host: a terminal or a process. The screen is kept on the host.",
+    "level": {
+      "kind": "resource",
+      "param": "host",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$defs": {
+        "CommandLine": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "A list of arguments, or one string for `sh -c`."
+        },
+        "SessionKind": {
+          "enum": [
+            "process",
+            "terminal"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`hosts.sessions.open`: a session on the host, a terminal or a process. As the SSH user or root it\nneeds manage on the host; as the agent account, use.",
+      "properties": {
+        "cols": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "command": {
+          "$ref": "#/$defs/CommandLine"
+        },
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "host": {
+          "type": "string"
+        },
+        "input": {
+          "description": "Text for standard input; a process then sees the end of its input.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "input_b64": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/SessionKind"
+        },
+        "rows": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "timeout": {
+          "description": "Seconds after which the command is ended.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "user": {
+          "default": "agent",
+          "description": "`agent`, `operator` (the SSH user) or `root`.",
+          "type": "string"
+        },
+        "wait": {
+          "description": "How long to wait for it to be running, such as `20s`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "host",
+        "kind",
+        "command"
+      ],
+      "title": "TerminalOpen",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
+      "title": "Passed"
+    }
+  },
+  {
+    "name": "hosts.sessions.output",
+    "summary": "What a session wrote, from an offset or its last lines. Another account's session, or an action's, needs manage.",
+    "level": {
+      "kind": "resource",
+      "param": "host",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "A session on a host, by the host and the session's id.",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "query": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "The query, as the host takes it: `since`, `tail`, `lines` and the rest.",
+          "type": "object"
+        },
+        "terminal": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "terminal"
+      ],
+      "title": "TerminalRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
+      "title": "Passed"
+    }
+  },
+  {
+    "name": "hosts.sessions.resize",
+    "summary": "Gives a terminal another size. Another account's session, or an action's, needs manage.",
+    "level": {
+      "kind": "resource",
+      "param": "host",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`hosts.sessions.input`, `hosts.sessions.resize` and `hosts.sessions.signal`: what the host takes, as it takes it.",
+      "properties": {
+        "body": {
+          "default": null
+        },
+        "host": {
+          "type": "string"
+        },
+        "terminal": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "terminal"
+      ],
+      "title": "TerminalSend",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
+      "title": "Passed"
+    }
+  },
+  {
+    "name": "hosts.sessions.screen",
+    "summary": "A terminal's screen as the host keeps it. Another account's session, or an action's, needs manage.",
+    "level": {
+      "kind": "resource",
+      "param": "host",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "A session on a host, by the host and the session's id.",
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "query": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "The query, as the host takes it: `since`, `tail`, `lines` and the rest.",
+          "type": "object"
+        },
+        "terminal": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "terminal"
+      ],
+      "title": "TerminalRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
+      "title": "Passed"
+    }
+  },
+  {
+    "name": "hosts.sessions.signal",
+    "summary": "Sends a signal to a session's process. Another account's session, or an action's, needs manage.",
+    "level": {
+      "kind": "resource",
+      "param": "host",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`hosts.sessions.input`, `hosts.sessions.resize` and `hosts.sessions.signal`: what the host takes, as it takes it.",
+      "properties": {
+        "body": {
+          "default": null
+        },
+        "host": {
+          "type": "string"
+        },
+        "terminal": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "terminal"
+      ],
+      "title": "TerminalSend",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
+      "title": "Passed"
+    }
+  },
+  {
+    "name": "hosts.ssh",
+    "summary": "The plain ssh command that logs in to a host with the server's key, for the server's socket alone.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`hosts.ssh`: a plain SSH login to a host, as the operator or, with `agent`, as its agent.",
+      "properties": {
+        "agent": {
+          "default": false,
+          "type": "boolean"
+        },
+        "host": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host"
+      ],
+      "title": "HostSsh",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The `ssh` command of a login, without the remote command, and its environment.",
+      "properties": {
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "args",
+        "env"
+      ],
+      "title": "SshCommand",
+      "type": "object"
+    }
+  },
+  {
     "name": "hosts.stats",
     "summary": "A host's load, memory, disks and uptime.",
     "level": {
@@ -5546,6 +6121,41 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
       "title": "Passed"
+    }
+  },
+  {
+    "name": "hosts.tailnetKey",
+    "summary": "A one-use enrollment key for a host's tailnet, which an apply on the server's machine asks for.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "A host by its name, or as `env://NAME`.",
+      "properties": {
+        "host": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "host"
+      ],
+      "title": "HostRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "A one-use enrollment key for a host's tailnet, which an apply asks for.",
+      "properties": {
+        "key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "title": "TailnetKey",
+      "type": "object"
     }
   },
   {
@@ -17549,498 +18159,6 @@
       "description": "Params or a result with nothing in it: `{}`.",
       "title": "Empty",
       "type": "object"
-    }
-  },
-  {
-    "name": "terminals.attach",
-    "summary": "A session's output as it comes and its input, as a stream: each frame has a byte before it, b for the terminal's bytes and t for the host's JSON, such as a size to take or how it exited.",
-    "level": {
-      "kind": "resource",
-      "param": "host",
-      "grant": "use",
-      "scheme": "env"
-    },
-    "stream": true,
-    "params": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "A session on a host, by the host and the session's id.",
-      "properties": {
-        "host": {
-          "type": "string"
-        },
-        "query": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "default": {},
-          "description": "The query, as the host takes it: `since`, `tail`, `lines` and the rest.",
-          "type": "object"
-        },
-        "terminal": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "host",
-        "terminal"
-      ],
-      "title": "TerminalRef",
-      "type": "object"
-    },
-    "result": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "The result of a method that opens a stream. A source that can be resumed says where it starts.",
-      "properties": {
-        "offset": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "stream": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "stream"
-      ],
-      "title": "StreamOpened",
-      "type": "object"
-    }
-  },
-  {
-    "name": "terminals.close",
-    "summary": "Ends a session on a host, or forgets one that ended.",
-    "level": {
-      "kind": "resource",
-      "param": "host",
-      "grant": "use",
-      "scheme": "env"
-    },
-    "params": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "A session on a host, by the host and the session's id.",
-      "properties": {
-        "host": {
-          "type": "string"
-        },
-        "query": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "default": {},
-          "description": "The query, as the host takes it: `since`, `tail`, `lines` and the rest.",
-          "type": "object"
-        },
-        "terminal": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "host",
-        "terminal"
-      ],
-      "title": "TerminalRef",
-      "type": "object"
-    },
-    "result": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
-      "title": "Passed"
-    }
-  },
-  {
-    "name": "terminals.get",
-    "summary": "A session on a host.",
-    "level": {
-      "kind": "resource",
-      "param": "host",
-      "grant": "view",
-      "scheme": "env"
-    },
-    "params": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "A session on a host, by the host and the session's id.",
-      "properties": {
-        "host": {
-          "type": "string"
-        },
-        "query": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "default": {},
-          "description": "The query, as the host takes it: `since`, `tail`, `lines` and the rest.",
-          "type": "object"
-        },
-        "terminal": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "host",
-        "terminal"
-      ],
-      "title": "TerminalRef",
-      "type": "object"
-    },
-    "result": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
-      "title": "Passed"
-    }
-  },
-  {
-    "name": "terminals.input",
-    "summary": "Types into a session.",
-    "level": {
-      "kind": "resource",
-      "param": "host",
-      "grant": "use",
-      "scheme": "env"
-    },
-    "params": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "`terminals.input`, `terminals.resize` and `terminals.signal`: what the host takes, as it takes it.",
-      "properties": {
-        "body": {
-          "default": null
-        },
-        "host": {
-          "type": "string"
-        },
-        "terminal": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "host",
-        "terminal"
-      ],
-      "title": "TerminalSend",
-      "type": "object"
-    },
-    "result": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
-      "title": "Passed"
-    }
-  },
-  {
-    "name": "terminals.list",
-    "summary": "The sessions on a host.",
-    "level": {
-      "kind": "resource",
-      "param": "host",
-      "grant": "view",
-      "scheme": "env"
-    },
-    "params": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "A host by its name, or as `env://NAME`.",
-      "properties": {
-        "host": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "host"
-      ],
-      "title": "HostRef",
-      "type": "object"
-    },
-    "result": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
-      "title": "Passed"
-    }
-  },
-  {
-    "name": "terminals.open",
-    "summary": "Opens a session on a host: a terminal or a process. The screen is kept on the host.",
-    "level": {
-      "kind": "resource",
-      "param": "host",
-      "grant": "use",
-      "scheme": "env"
-    },
-    "params": {
-      "$defs": {
-        "CommandLine": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "string"
-            }
-          ],
-          "description": "A list of arguments, or one string for `sh -c`."
-        },
-        "SessionKind": {
-          "enum": [
-            "process",
-            "terminal"
-          ],
-          "type": "string"
-        }
-      },
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "`terminals.open`: a session on the host, a terminal or a process. As the SSH user or root it\nneeds manage on the host; as the agent account, use.",
-      "properties": {
-        "cols": {
-          "format": "uint16",
-          "maximum": 65535,
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "command": {
-          "$ref": "#/$defs/CommandLine"
-        },
-        "cwd": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "env": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "type": "object"
-        },
-        "host": {
-          "type": "string"
-        },
-        "input": {
-          "description": "Text for standard input; a process then sees the end of its input.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "input_b64": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "kind": {
-          "$ref": "#/$defs/SessionKind"
-        },
-        "rows": {
-          "format": "uint16",
-          "maximum": 65535,
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "timeout": {
-          "description": "Seconds after which the command is ended.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "title": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "user": {
-          "default": "agent",
-          "description": "`agent`, `operator` (the SSH user) or `root`.",
-          "type": "string"
-        },
-        "wait": {
-          "description": "How long to wait for it to be running, such as `20s`.",
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "host",
-        "kind",
-        "command"
-      ],
-      "title": "TerminalOpen",
-      "type": "object"
-    },
-    "result": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
-      "title": "Passed"
-    }
-  },
-  {
-    "name": "terminals.output",
-    "summary": "What a session wrote, from an offset or its last lines.",
-    "level": {
-      "kind": "resource",
-      "param": "host",
-      "grant": "view",
-      "scheme": "env"
-    },
-    "params": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "A session on a host, by the host and the session's id.",
-      "properties": {
-        "host": {
-          "type": "string"
-        },
-        "query": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "default": {},
-          "description": "The query, as the host takes it: `since`, `tail`, `lines` and the rest.",
-          "type": "object"
-        },
-        "terminal": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "host",
-        "terminal"
-      ],
-      "title": "TerminalRef",
-      "type": "object"
-    },
-    "result": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
-      "title": "Passed"
-    }
-  },
-  {
-    "name": "terminals.resize",
-    "summary": "Gives a terminal another size.",
-    "level": {
-      "kind": "resource",
-      "param": "host",
-      "grant": "use",
-      "scheme": "env"
-    },
-    "params": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "`terminals.input`, `terminals.resize` and `terminals.signal`: what the host takes, as it takes it.",
-      "properties": {
-        "body": {
-          "default": null
-        },
-        "host": {
-          "type": "string"
-        },
-        "terminal": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "host",
-        "terminal"
-      ],
-      "title": "TerminalSend",
-      "type": "object"
-    },
-    "result": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
-      "title": "Passed"
-    }
-  },
-  {
-    "name": "terminals.screen",
-    "summary": "A terminal's screen as the host keeps it.",
-    "level": {
-      "kind": "resource",
-      "param": "host",
-      "grant": "view",
-      "scheme": "env"
-    },
-    "params": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "A session on a host, by the host and the session's id.",
-      "properties": {
-        "host": {
-          "type": "string"
-        },
-        "query": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "default": {},
-          "description": "The query, as the host takes it: `since`, `tail`, `lines` and the rest.",
-          "type": "object"
-        },
-        "terminal": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "host",
-        "terminal"
-      ],
-      "title": "TerminalRef",
-      "type": "object"
-    },
-    "result": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
-      "title": "Passed"
-    }
-  },
-  {
-    "name": "terminals.signal",
-    "summary": "Sends a signal to a session's process.",
-    "level": {
-      "kind": "resource",
-      "param": "host",
-      "grant": "use",
-      "scheme": "env"
-    },
-    "params": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "`terminals.input`, `terminals.resize` and `terminals.signal`: what the host takes, as it takes it.",
-      "properties": {
-        "body": {
-          "default": null
-        },
-        "host": {
-          "type": "string"
-        },
-        "terminal": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "host",
-        "terminal"
-      ],
-      "title": "TerminalSend",
-      "type": "object"
-    },
-    "result": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.",
-      "title": "Passed"
     }
   },
   {

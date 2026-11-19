@@ -248,7 +248,7 @@ pub async fn token(State(kernel): State<Kernel>, Json(asked): Json<Exchange>) ->
         return refused("the code expired");
     }
     if granted.redirect_uri != asked.redirect_uri
-        || challenge(&asked.code_verifier) != granted.challenge
+        || !same(&challenge(&asked.code_verifier), &granted.challenge)
     {
         return refused("the verifier or the address does not match");
     }
@@ -267,6 +267,15 @@ pub async fn token(State(kernel): State<Kernel>, Json(asked): Json<Exchange>) ->
             .into_response(),
         Err(e) => refused(&e.message),
     }
+}
+
+/// Whether two texts are the same, in a time that does not say how much of them is.
+fn same(a: &str, b: &str) -> bool {
+    a.len() == b.len()
+        && a.bytes()
+            .zip(b.bytes())
+            .fold(0u8, |differ, (x, y)| differ | (x ^ y))
+            == 0
 }
 
 #[cfg(test)]
@@ -289,3 +298,4 @@ mod tests {
         }
     }
 }
+

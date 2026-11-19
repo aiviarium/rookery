@@ -290,7 +290,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Ls => host::list(&open()?),
         Command::Apply(apply) => host::apply(&open()?, &apply),
         Command::Exec(exec) => things::exec(&open()?, &exec),
-        Command::Ssh(ssh) => things::ssh(&Client::open(&global)?, &ssh),
+        Command::Ssh(ssh) => crate::local::ssh(&global, &ssh),
         Command::Run(run) => things::run_action(&open()?, &run),
         Command::Host(command) => host::command(&global, command),
         Command::Rollout(rollout) => jobs::rollout(&open()?, &rollout),
@@ -335,8 +335,6 @@ fn run(cli: Cli) -> Result<()> {
         )),
         #[cfg(target_os = "linux")]
         Command::TailnetKey { host } => crate::local::tailnet_key(&host),
-        #[cfg(target_os = "linux")]
-        Command::SimulatedProvisioner { verb } => crate::local::simulated_provisioner(&verb),
     }
 }
 

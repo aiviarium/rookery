@@ -63,6 +63,9 @@ fn sqlite_rows(path: &Path) -> Result<Old> {
     )
     .map_err(|e| Fail::failed(format!("{}: {e}", path.display())))?;
     let fail = |e: rusqlite::Error| Fail::failed(format!("reading {}: {e}", path.display()));
+    // Every table as of one moment, while a Rookery that still runs may write it.
+    let snapshot = db.unchecked_transaction().map_err(fail)?;
+    let db = &*snapshot;
     let schema: i64 = db
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .map_err(fail)?;
@@ -166,9 +169,15 @@ fn postgres_rows(url: &str) -> Result<Old> {
 }
 
 fn postgres_read(url: &str) -> Result<Old> {
-    let config: postgres::Config = url
+    let mut config: postgres::Config = url
         .parse()
-        .map_err(|e| Fail::usage(format!("the store's URL: {e}")))?;
+        .map_err(|_| Fail::usage(format!("the store's URL {} is not one", redacted(url))))?;
+    // The password stays out of the URL that a command line or a log shows.
+    if config.get_password().is_none()
+        && let Ok(password) = std::env::var("PGPASSWORD")
+    {
+        config.password(password);
+    }
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     let tls = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
@@ -180,7 +189,9 @@ fn postgres_read(url: &str) -> Result<Old> {
     .with_no_client_auth();
     let mut client = config
         .connect(tokio_postgres_rustls::MakeRustlsConnect::new(tls))
-        .map_err(|e| Fail::unreachable(format!("the store's database: {e}")))?;
+        .map_err(|e| {
+            Fail::unreachable(format!("the store's database at {}: {e}", redacted(url)))
+        })?;
     let fail = |e: postgres::Error| {
         let said = e
             .as_db_error()
@@ -331,16 +342,70 @@ fn old_keys(
 }
 
 /// Imports into the database of `ROOKERY_DATABASE_URL`.
-pub fn import(from: &str, key_file: Option<&Path>, owner: Option<&str>) -> Result<()> {
+/// The store a person names: a file, a URL without a password (which goes in `PGPASSWORD`), or the
+/// first line of `--from-file`, which may hold one.
+pub fn store_of(from: Option<&str>, from_file: Option<&Path>) -> Result<String> {
+    match (from, from_file) {
+        (Some(from), None) => {
+            if is_url(from) && password_of(from).is_some() {
+                return Err(Fail::usage(
+                    "a password in --from shows in the process list: give it in PGPASSWORD, or the URL in a file with --from-file",
+                ));
+            }
+            Ok(from.to_owned())
+        }
+        (None, Some(file)) => {
+            let text = std::fs::read_to_string(file)
+                .map_err(|e| Fail::usage(format!("--from-file {}: {e}", file.display())))?;
+            text.lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+                .map(str::to_owned)
+                .ok_or_else(|| Fail::usage(format!("{} names no store", file.display())))
+        }
+        _ => Err(Fail::usage("name the store with --from or --from-file")),
+    }
+}
+
+fn is_url(from: &str) -> bool {
+    from.starts_with("postgres://") || from.starts_with("postgresql://")
+}
+
+fn password_of(url: &str) -> Option<&str> {
+    let rest = url.split_once("://")?.1;
+    let user = rest.split(['/', '?']).next()?.rsplit_once('@')?.0;
+    user.split_once(':').map(|(_, password)| password)
+}
+
+/// A store as it may be shown: a URL's password replaced.
+pub fn redacted(from: &str) -> String {
+    match password_of(from) {
+        Some(password) if is_url(from) => from.replacen(&format!(":{password}@"), ":…@", 1),
+        _ => from.to_owned(),
+    }
+}
+
+/// What an import that ran before refuses with.
+const IMPORTED: &str = "has an import already";
+
+/// `rookery server import`. With `once`, a database that had its import already is no failure, for
+/// a container that imports on every start until it has.
+pub fn import(from: &str, key_file: Option<&Path>, owner: Option<&str>, once: bool) -> Result<()> {
     let config = rookery_server::ServerConfig::from_vars(&|name| std::env::var(name).ok())
         .map_err(|e| Fail::usage(e.to_string()))?;
-    let report = import_into(
+    let report = match import_into(
         &config.database_url,
         config.secret_key.clone(),
         from,
         key_file,
         owner,
-    )?;
+    ) {
+        Err(fail) if once && fail.message.contains(IMPORTED) => {
+            out::note(fail.message);
+            return Ok(());
+        }
+        done => done?,
+    };
     for (table, count) in &report.tables {
         out::line(format!("{table}: {count}"));
     }
@@ -348,7 +413,8 @@ pub fn import(from: &str, key_file: Option<&Path>, owner: Option<&str>) -> Resul
         out::line(format!("skipped {count}: {why}"));
     }
     out::done(format!(
-        "Imported {from}. The server token is not carried over: make an access token with rookery server token --user NAME"
+        "Imported {}. The server token is not carried over: make an access token with rookery server token --user NAME",
+        redacted(from)
     ));
     Ok(())
 }
@@ -362,7 +428,7 @@ pub fn import_into(
     key_file: Option<&Path>,
     owner: Option<&str>,
 ) -> Result<Report> {
-    let old = match from.starts_with("postgres://") || from.starts_with("postgresql://") {
+    let old = match is_url(from) {
         true => postgres_rows(from)?,
         false => sqlite_rows(Path::new(from))?,
     };
@@ -404,7 +470,52 @@ async fn write(
     let store = rookery_store::Store::open(rookery_store::StoreOptions::new(database_url))
         .await
         .map_err(|e| Fail::failed(format!("opening the database: {e}")))?;
+    // A person named to own the hosts who has not signed in yet is made, as an admin of a local
+    // account, as rookery server token makes one.
+    if let Some(wanted) = owner {
+        let users = store
+            .users()
+            .list()
+            .await
+            .map_err(|e| Fail::failed(e.to_string()))?;
+        let known = users.iter().any(|u| {
+            u.name == wanted
+                || u.email
+                    .as_deref()
+                    .is_some_and(|e| e.eq_ignore_ascii_case(wanted))
+        });
+        if !known {
+            let deployment = store
+                .state()
+                .deployment_id()
+                .await
+                .map_err(|e| Fail::failed(e.to_string()))?;
+            let login = rookery_store::users::Login {
+                issuer: format!("rookery-local:{deployment}"),
+                subject: rookery_store::util::random_token(""),
+                name: wanted.to_owned(),
+                email: wanted.contains('@').then(|| wanted.to_owned()),
+                admin: true,
+            };
+            store
+                .users()
+                .upsert_login(&login)
+                .await
+                .map_err(|e| Fail::failed(e.to_string()))?;
+        }
+    }
     let mut tx = store.pool().begin().await.map_err(fail)?;
+    // A server that leads would take what it does not know of the hosts as gone.
+    let free: bool = sqlx::query_scalar("SELECT pg_try_advisory_xact_lock($1)")
+        .bind(rookery_server::leader::LOCK_KEY)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(fail)?;
+    if !free {
+        return Err(Fail::refused(
+            "a rookery serve runs on this database: stop it, import, and start it again",
+        ));
+    }
     // One import, into a database that has no hosts and never had one.
     sqlx::query("LOCK TABLE rookery.hosts IN EXCLUSIVE MODE")
         .execute(&mut *tx)
@@ -417,7 +528,7 @@ async fn write(
             .map_err(fail)?;
     if let Some(when) = imported {
         return Err(Fail::refused(format!(
-            "This database has an import already, of {when}: the import runs once"
+            "This database {IMPORTED}, of {when}: the import runs once"
         )));
     }
     let hosts: i64 = sqlx::query_scalar("SELECT count(*) FROM rookery.hosts")
@@ -471,7 +582,7 @@ async fn write(
     for m in &old.messages {
         sqlx::query(
             "INSERT INTO rookery.host_messages (seq, host, id, topic, body, keep, from_level, from_uid, session, time, done)
-             VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11)",
+             VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10::timestamptz, $11)",
         )
         .bind(m.seq)
         .bind(&m.host)
@@ -617,19 +728,38 @@ async fn write(
             None => report.skipped("job output files that are gone"),
         }
     }
-    if let Some(owner) = owner {
-        let user: Option<uuid::Uuid> = sqlx::query_scalar(
+    // Every host has an owner: the one named, or the server's one admin.
+    let user: Option<uuid::Uuid> = match owner {
+        Some(owner) => sqlx::query_scalar(
             "SELECT id FROM rookery.users WHERE name = $1 OR lower(email) = lower($1) LIMIT 1",
         )
         .bind(owner)
         .fetch_optional(&mut *tx)
         .await
-        .map_err(fail)?;
-        let user = user.ok_or_else(|| {
-            Fail::usage(format!(
-                "No person {owner} on the server to own the hosts: sign them in first"
-            ))
-        })?;
+        .map_err(fail)?,
+        None => {
+            let admins: Vec<uuid::Uuid> = sqlx::query_scalar(
+                "SELECT id FROM rookery.users WHERE role = 'admin' AND disabled_at IS NULL ORDER BY created_at LIMIT 2",
+            )
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(fail)?;
+            match admins.as_slice() {
+                [one] => Some(*one),
+                [] => {
+                    return Err(Fail::usage(
+                        "The server has no admin to own the hosts yet: sign the first one in with rookery server setup-key, or name the owner with --owner",
+                    ));
+                }
+                _ => {
+                    return Err(Fail::usage(
+                        "The server has several admins: name the one who owns the imported hosts with --owner",
+                    ));
+                }
+            }
+        }
+    };
+    if let Some(user) = user {
         for name in names.values() {
             sqlx::query("INSERT INTO rookery.owners (resource, user_id) VALUES ($1, $2) ON CONFLICT (resource) DO UPDATE SET user_id = EXCLUDED.user_id")
                 .bind(format!("env://{name}"))
@@ -644,6 +774,42 @@ async fn write(
             .execute(&mut *tx)
             .await
             .map_err(fail)?;
+    } else {
+        return Err(Fail::usage(format!(
+            "No person {} on the server to own the hosts: sign them in first",
+            owner.unwrap_or_default()
+        )));
+    }
+    // The roles of the old server's access tokens, from an issuer's claim, become groups bound to
+    // those claims, with the level each role had on every host.
+    for (claim, level) in [
+        ("rookery:view", 1i16),
+        ("rookery:operate", 3),
+        ("rookery:admin", 3),
+    ] {
+        let group: uuid::Uuid = sqlx::query_scalar(
+            "INSERT INTO rookery.groups (id, name, claim) VALUES ($1, $2, $2)
+             ON CONFLICT (claim) DO UPDATE SET claim = EXCLUDED.claim RETURNING id",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(claim)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(fail)?;
+        report.wrote("groups");
+        for name in names.values() {
+            sqlx::query(
+                "INSERT INTO rookery.grants (resource, principal, level, created_by) VALUES ($1, $2, $3, 'import')
+                 ON CONFLICT (resource, principal) DO NOTHING",
+            )
+            .bind(format!("env://{name}"))
+            .bind(format!("group:{group}"))
+            .bind(level)
+            .execute(&mut *tx)
+            .await
+            .map_err(fail)?;
+            report.wrote("grants");
+        }
     }
     sqlx::query("INSERT INTO rookery.server_state (key, value) VALUES ('imported', $1)")
         .bind(chrono::Utc::now().to_rfc3339())
@@ -700,6 +866,19 @@ mod tests {
         .unwrap()
     }
 
+    /// The server's first admin, who owns what comes in.
+    async fn admin(db: &TestDb) -> uuid::Uuid {
+        let id = uuid::Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO rookery.users (id, issuer, subject, name, role) VALUES ($1, 'rookery-local:test', 'ada', 'Ada', 'admin')",
+        )
+        .bind(id)
+        .execute(db.store.pool())
+        .await
+        .unwrap();
+        id
+    }
+
     async fn check(db: &TestDb, report: &Report) {
         assert_eq!(report.tables["rookery.hosts"], 3, "{:?}", report.tables);
         assert_eq!(report.tables["rookery.jobs"], 2);
@@ -736,6 +915,24 @@ mod tests {
             1
         );
         assert_eq!(count("SELECT count(*) FROM rookery.host_messages").await, 2);
+        // Every host is the admin's, and the old roles are groups of their claims.
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.hosts WHERE owner IS NULL").await,
+            0
+        );
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.owners WHERE starts_with(resource, 'env://')")
+                .await,
+            count("SELECT count(*) FROM rookery.hosts").await
+        );
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.groups WHERE claim IN ('rookery:view', 'rookery:operate', 'rookery:admin')").await,
+            3
+        );
+        assert_eq!(
+            count("SELECT count(*) FROM rookery.grants WHERE resource = 'env://studio' AND starts_with(principal, 'group:')").await,
+            3
+        );
         assert_eq!(
             count("SELECT count(*) FROM rookery.kv WHERE plugin = 'box' AND revision = 2").await,
             1
@@ -782,6 +979,24 @@ mod tests {
         .unwrap();
     }
 
+    #[test]
+    fn a_password_never_shows() {
+        let url = "postgres://rookery:hunter-made-up@db.example.org/rookery?sslmode=require";
+        assert_eq!(
+            redacted(url),
+            "postgres://rookery:…@db.example.org/rookery?sslmode=require"
+        );
+        assert!(store_of(Some(url), None).is_err());
+        assert_eq!(
+            store_of(Some("postgres://rookery@db.example.org/rookery"), None).unwrap(),
+            "postgres://rookery@db.example.org/rookery"
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("store-url");
+        std::fs::write(&file, format!("\n{url}\n")).unwrap();
+        assert_eq!(store_of(None, Some(&file)).unwrap(), url);
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn a_store_of_before_comes_in_once_and_is_left_as_it_was() {
         let Some(db) = TestDb::new().await else {
@@ -790,6 +1005,7 @@ mod tests {
         };
         let (_dir, file) = copied();
         let before = std::fs::read(&file).unwrap();
+        admin(&db).await;
         let (url, path) = (db.url.clone(), file.to_string_lossy().into_owned());
         let report =
             tokio::task::spawn_blocking(move || import_into(&url, Some(key()), &path, None, None))
@@ -819,6 +1035,7 @@ mod tests {
             return;
         };
         let db = TestDb::new().await.unwrap();
+        admin(&db).await;
         let (dir, file) = copied();
         // The old tables, filled with the rows of the SQLite store.
         let mut conn = old.store.pool().acquire().await.unwrap();

@@ -153,7 +153,7 @@ class Restore(unittest.TestCase):
             self.assertEqual(job['state'], 'succeeded', log)
         else:
             wait_for('the secrets action to end', lambda: self.serve.call(
-                'terminals.get', {'host': HOST, 'terminal': acted['session']['id']}).get('exit_code') == 0)
+                'hosts.sessions.get', {'host': HOST, 'terminal': acted['session']['id']}).get('exit_code') == 0)
         env = self.worker.root_on_host(f'cat /home/{AGENT}/.config/rookery/secrets.env').stdout
         self.assertIn(f'export RESTORED_SECRET={self.secret_value}', env)
 

@@ -147,7 +147,10 @@ pub fn forward(
                             Target::Host(host) => {
                                 let port: u16 = remote.parse().unwrap_or(0);
                                 portal
-                                    .open("env.connect", json!({"host": host, "port": port}))
+                                    .open(
+                                        "hosts.ports.connect",
+                                        json!({"host": host, "port": port}),
+                                    )
                                     .await
                             }
                             Target::Resource(id) => {

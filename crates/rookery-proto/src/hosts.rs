@@ -402,7 +402,7 @@ impl Acted {
     }
 }
 
-/// `terminals.open`: a session on the host, a terminal or a process. As the SSH user or root it
+/// `hosts.sessions.open`: a session on the host, a terminal or a process. As the SSH user or root it
 /// needs manage on the host; as the agent account, use.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -426,7 +426,7 @@ pub struct TerminalRef {
     pub query: BTreeMap<String, String>,
 }
 
-/// `terminals.input`, `terminals.resize` and `terminals.signal`: what the host takes, as it takes it.
+/// `hosts.sessions.input`, `hosts.sessions.resize` and `hosts.sessions.signal`: what the host takes, as it takes it.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TerminalSend {
@@ -444,7 +444,7 @@ pub struct FileRef {
     pub path: String,
 }
 
-/// `env.writeFile`: the bytes in base64. With `etag`, only if the file is still at it.
+/// `hosts.files.write`: the bytes in base64. With `etag`, only if the file is still at it.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct FileWrite {
@@ -455,7 +455,7 @@ pub struct FileWrite {
     pub etag: Option<String>,
 }
 
-/// `env.connect`: a TCP port on the host's loopback.
+/// `hosts.ports.connect`: a TCP port on the host's loopback.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PortConnect {
@@ -526,4 +526,44 @@ pub struct MessageList {
 pub struct MessageRef {
     pub host: String,
     pub id: u64,
+}
+
+/// `hosts.inventory`: hosts by name, or every host with an address when there are none.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostNames {
+    #[serde(default)]
+    pub hosts: Vec<String>,
+}
+
+/// An Ansible inventory, with the server's key as a file of the server's machine.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct Inventory {
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
+    pub inventory: serde_json::Value,
+}
+
+/// `hosts.ssh`: a plain SSH login to a host, as the operator or, with `agent`, as its agent.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostSsh {
+    pub host: String,
+    #[serde(default)]
+    pub agent: bool,
+}
+
+/// The `ssh` command of a login, without the remote command, and its environment.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct SshCommand {
+    pub args: Vec<String>,
+    pub env: BTreeMap<String, String>,
+}
+
+/// A one-use enrollment key for a host's tailnet, which an apply asks for.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct TailnetKey {
+    pub key: String,
 }

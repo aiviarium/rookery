@@ -227,6 +227,6 @@ class Served(OwnKeyOnly, unittest.TestCase):
     def test_the_agents_files_through_the_server(self):
         path = f'/home/{AGENT}/own-key-served.txt'
         content = random_text('served').encode()
-        self.serve.call('env.writeFile', {'host': HOST, 'path': path, 'base64': base64.b64encode(content).decode()})
-        read = self.serve.call('env.readFile', {'host': HOST, 'path': path})
+        self.serve.call('hosts.files.write', {'host': HOST, 'path': path, 'base64': base64.b64encode(content).decode()})
+        read = self.serve.call('hosts.files.read', {'host': HOST, 'path': path})
         self.assertEqual(base64.b64decode(read['base64']), content)

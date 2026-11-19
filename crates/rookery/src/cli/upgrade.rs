@@ -31,11 +31,14 @@ fn cpu_of(client: &Client, host: &str) -> Result<String> {
         "title": "the CPU, for the server's image", "timeout": 20,
     });
     let started = client.call(
-        "terminals.open",
+        "hosts.sessions.open",
         super::client::merged(json!({"host": host, "wait": "20s"}), body),
     )?;
     if let Some(id) = started["id"].as_str() {
-        let _ = client.call("terminals.close", json!({"host": host, "terminal": id}));
+        let _ = client.call(
+            "hosts.sessions.close",
+            json!({"host": host, "terminal": id}),
+        );
     }
     let said = started["stdout_b64"]
         .as_str()
@@ -81,7 +84,7 @@ pub fn send_here(
 fn tail(client: &Client, host: &str, id: &str) -> Vec<String> {
     let said = client
         .call(
-            "terminals.output",
+            "hosts.sessions.output",
             json!({"host": host, "terminal": id, "query": {"tail": "15"}}),
         )
         .unwrap_or(Value::Null);
@@ -117,7 +120,7 @@ pub fn follow(client: &Client, host: &str, id: &str) -> Result<()> {
         std::thread::sleep(Duration::from_secs(3));
         let session = client.reopen().and_then(|again| {
             Ok((
-                again.call("terminals.get", json!({"host": host, "terminal": id}))?,
+                again.call("hosts.sessions.get", json!({"host": host, "terminal": id}))?,
                 again,
             ))
         });

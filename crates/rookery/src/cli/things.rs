@@ -240,7 +240,10 @@ fn finish(client: &Client, host: &str, id: &str, ended: Ended, forget: bool) -> 
     match ended {
         Ended::Exited(code) => {
             if forget {
-                let _ = client.call("terminals.close", json!({"host": host, "terminal": id}));
+                let _ = client.call(
+                    "hosts.sessions.close",
+                    json!({"host": host, "terminal": id}),
+                );
             }
             match code.unwrap_or(1) {
                 0 => Ok(()),
@@ -266,7 +269,7 @@ pub(super) fn attach_stream(
     since: u64,
 ) -> Result<PortalStream> {
     let stream = client.stream(
-        "terminals.attach",
+        "hosts.sessions.attach",
         json!({"host": host, "terminal": id, "query": {"since": since.to_string()}}),
     )?;
     Ok(PortalStream::new(stream))
@@ -282,7 +285,7 @@ pub fn exec(client: &Client, exec: &args::Exec) -> Result<()> {
     let body =
         json!({"kind": "process", "command": exec.command, "user": exec.user, "title": title});
     let session: rookery_api::Session = serde_json::from_value(client.call(
-        "terminals.open",
+        "hosts.sessions.open",
         super::client::merged(json!({"host": &exec.host}), body),
     )?)
     .map_err(Fail::from)?;
@@ -317,7 +320,7 @@ pub fn ssh(client: &Client, ssh: &args::Ssh) -> Result<()> {
         "title": format!("a shell on {}", ssh.host), "rows": rows, "cols": cols,
     });
     let session: rookery_api::Session =
-        serde_json::from_value(client.call("terminals.open", body)?)?;
+        serde_json::from_value(client.call("hosts.sessions.open", body)?)?;
     let stream = attach_stream(client, &ssh.host, &session.id, 0)?;
     let ended = client.wait(follow_terminal(stream))?;
     finish(client, &ssh.host, &session.id, ended, true)
@@ -327,7 +330,7 @@ fn attach(client: &Client, host: &str, id: Option<&str>) -> Result<()> {
     let (rows, cols) = terminal_size();
     let session: rookery_api::Session = match id {
         Some(id) => serde_json::from_value(
-            client.call("terminals.get", json!({"host": host, "terminal": id}))?,
+            client.call("hosts.sessions.get", json!({"host": host, "terminal": id}))?,
         )?,
         None => {
             let body = json!({
@@ -335,7 +338,7 @@ fn attach(client: &Client, host: &str, id: Option<&str>) -> Result<()> {
                 "title": format!("a shell on {host}"), "rows": rows, "cols": cols,
             });
             serde_json::from_value(client.call(
-                "terminals.open",
+                "hosts.sessions.open",
                 super::client::merged(json!({"host": host}), body),
             )?)?
         }
@@ -366,7 +369,7 @@ fn session_state(session: &Value) -> String {
 pub fn session(client: &Client, command: Session) -> Result<()> {
     match command {
         Session::List { host } => {
-            let found = client.call("terminals.list", json!({"host": &host}))?;
+            let found = client.call("hosts.sessions.list", json!({"host": &host}))?;
             out::data(&found, || {
                 let mut table = Table::new(&["id", "kind", "state", "user", "started", "title"]);
                 for session in items(found.clone(), "sessions") {
@@ -392,7 +395,10 @@ pub fn session(client: &Client, command: Session) -> Result<()> {
             tail,
         } => logs(client, &host, &id, follow, tail),
         Session::Stop { host, id } => {
-            client.call("terminals.close", json!({"host": &host, "terminal": id}))?;
+            client.call(
+                "hosts.sessions.close",
+                json!({"host": &host, "terminal": id}),
+            )?;
             out::done(format!("Stopped {id} on {host}"));
             Ok(())
         }
@@ -401,7 +407,7 @@ pub fn session(client: &Client, command: Session) -> Result<()> {
 
 fn logs(client: &Client, host: &str, id: &str, follow: bool, tail: Option<u64>) -> Result<()> {
     let session: rookery_api::Session = serde_json::from_value(
-        client.call("terminals.get", json!({"host": host, "terminal": id}))?,
+        client.call("hosts.sessions.get", json!({"host": host, "terminal": id}))?,
     )?;
     let mut out = std::io::stdout();
     if session.kind == SessionKind::Terminal {
@@ -410,7 +416,7 @@ fn logs(client: &Client, host: &str, id: &str, follow: bool, tail: Option<u64>) 
         if let Some(lines) = tail {
             args["tail"] = json!(lines);
         }
-        let screen = client.call("terminals.screen", super::client::terminal(host, args))?;
+        let screen = client.call("hosts.sessions.screen", super::client::terminal(host, args))?;
         println!("{}", screen["text"].as_str().unwrap_or("").trim_end());
         if follow && session.running() {
             out::hint(format!(
@@ -426,7 +432,7 @@ fn logs(client: &Client, host: &str, id: &str, follow: bool, tail: Option<u64>) 
             None => json!({"id": id, "since": since}),
         };
         let part: rookery_api::Output = serde_json::from_value(
-            client.call("terminals.output", super::client::terminal(host, args))?,
+            client.call("hosts.sessions.output", super::client::terminal(host, args))?,
         )?;
         let bytes = rookery_api::unb64(&part.data_b64).unwrap_or_default();
         match &part.lines {

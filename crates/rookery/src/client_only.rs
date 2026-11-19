@@ -10,22 +10,9 @@ pub fn askpass(_: &[String]) -> Result<bool> {
     Ok(false)
 }
 
-/// No server runs here: a command needs one named.
-pub fn server(_ask: bool) -> Result<Option<crate::Local>> {
-    Ok(None)
-}
-
-/// No server runs in this process to give a sudo password to.
-pub fn give_sudo_password(_: &str, _: &str) -> bool {
-    false
-}
-
-/// Plain SSH needs the server's key, which is on the machine it runs on.
-pub fn ssh(_: &Global, ssh: &Ssh) -> Done<()> {
-    Err(Fail::refused(format!(
-        "rookery ssh logs in with the server's own key, on the Linux machine it runs on. rookery session attach {} reaches the host through the server",
-        ssh.host
-    )))
+/// No server runs here, so a shell goes through the server's terminals.
+pub fn ssh(global: &Global, ssh: &Ssh) -> Done<()> {
+    crate::cli::things::ssh(&crate::cli::client::Client::open(global)?, ssh)
 }
 
 /// Only a rookery for Linux goes into a server's image.

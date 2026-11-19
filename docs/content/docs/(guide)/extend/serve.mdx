@@ -37,7 +37,7 @@ The server writes the files the hosts need, such as its key ring and the hosts' 
 | Methods | For |
 | --- | --- |
 | [`hosts.*`](/docs/api/server/hosts) | The hosts with their profiles, whether each answers and is behind, and the [actions](#actions) of each. A host's services, units, logs, processes and messages are methods of the host too |
-| [`terminals.*`](/docs/api/server/terminals), [`env.*`](/docs/api/server/env) | Commands and terminals on a host, its files, and TCP connections to its ports |
+| [`hosts.sessions.*`, `hosts.files.*`, `hosts.ports.connect`](/docs/api/server/hosts) | Commands and terminals on a host, its files, and TCP connections to its ports |
 | [`jobs.*`](/docs/api/server/jobs) | The jobs, one for each run of an action, with their log. `jobs.follow` streams it |
 | [`keys.*`](/docs/api/server/keys) | The key ring Rookery logs in to hosts with |
 | [`installation.*`](/docs/api/server/installation), [`registries.*`](/docs/api/server/registries) | The installation's actions, such as `rollout`, its secrets and settings, and the registries |
@@ -105,7 +105,7 @@ Scripts and other programs use an access token: `auth.createToken` makes one for
 
 ## In a container
 
-The `ghcr.io/aiviarium/rookery` image runs `rookery serve` at port 7777, as user `rookery` (uid 1000). Without `ROOKERY_DATABASE_URL` it runs a PostgreSQL of its own in `/data`, reached on a socket inside the container alone, and makes its secret key in `/config` the first time:
+The `ghcr.io/aiviarium/rookery` image runs `rookery serve` at port 7777, as user `rookery` (uid 1000). Without `ROOKERY_DATABASE_URL` it runs a PostgreSQL 17 of its own in `/data`, reached on a socket inside the container alone, and makes its secret key in `/config` the first time. The server connects to it as the role `rookery`, which owns its database and is no superuser. Give the container 30 seconds to stop both, with `docker stop -t 30` or `stop_grace_period: 30s`:
 
 ```bash
 docker run -d --name rookery -p 127.0.0.1:7777:7777 \
@@ -122,6 +122,6 @@ docker exec rookery rookery server setup-key
 | `/data/rookery/` | The database in `postgres/`, the server's SSH keys and known hosts, written from the database, and builds |
 | `/home/rookery/.ssh` | Further SSH keys and configuration for reaching hosts |
 
-A container that ran an older Rookery, with its store in `/data/rookery/rookery.db` or in `ROOKERY_STORE`, brings that store into the database the first time the new image starts ([The database](/docs/use/store#from-an-older-store)).
+A container that ran an older Rookery, with its store in `/data/rookery/rookery.db` or in `ROOKERY_STORE`, brings that store into the database the first time the new image starts, owned by a local admin named `admin` ([The database](/docs/use/store#from-an-older-store)). A data folder of another major version of PostgreSQL is refused: dump it with the image that made it and restore the dump.
 
 The image contains ansible-core, the OpenSSH client and Python, so it can also apply configurations, and git for installing plugins. See [A Rookery server](/docs/use/server) for using it from Rookery on another machine.

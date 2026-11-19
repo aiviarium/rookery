@@ -311,6 +311,26 @@ fn each_host(hosts: &str, map: impl Fn(&str) -> String) -> String {
         .join(", ")
 }
 
+/// What the server reads from its environment that opens its database or its secrets. No program
+/// it starts for a host, a provisioner or an apply is given them: such a program reaches the
+/// server on its socket for what it needs.
+pub const SERVER_ONLY: &[&str] = &[
+    "ROOKERY_DATABASE_URL",
+    "ROOKERY_DATABASE_LOCK_URL",
+    "ROOKERY_SECRET_KEY",
+    "ROOKERY_SECRET_KEY_FILE",
+    "ROOKERY_OIDC_CLIENT_SECRET",
+    "ROOKERY_OIDC_CLIENT_SECRET_FILE",
+];
+
+/// Leaves out of `command`'s environment what only the server reads.
+pub fn without_server_env(command: &mut Command) -> &mut Command {
+    for name in SERVER_ONLY {
+        command.env_remove(name);
+    }
+    command
+}
+
 // ── Locks ───────────────────────────────────────────────────────────────────
 
 /// Held while something changes a subject. A second caller is refused rather

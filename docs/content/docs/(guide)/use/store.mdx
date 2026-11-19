@@ -67,11 +67,13 @@ rookery server import --from ~/.local/share/rookery/rookery.db --key-file ~/.con
 
 | Option | Means |
 | --- | --- |
-| `--from` | The store's SQLite file, or a `postgres://` URL |
+| `--from` | The store's SQLite file, or a `postgres://` URL without its password, which goes in `PGPASSWORD` |
+| `--from-file` | A file whose first line is the store's file or URL, password and all |
 | `--key-file` | The old store's key file, when it was encrypted. Without it, the server's own key is tried |
-| `--owner` | The account that owns every imported host. Without it, only admins see them |
+| `--owner` | The account that owns every imported host, made as an admin when there is none of that name. Without it, the server's one admin |
 
-- It writes everything in one transaction, and refuses a database that has hosts already.
+- It writes everything in one transaction, and refuses a database that has hosts already, or one a `rookery serve` leads: stop the server first.
+- The roles `rookery:view`, `rookery:operate` and `rookery:admin` that access tokens of an issuer carried become groups bound to those claims, with `view`, `manage` and `manage` on every host.
 - It never writes the old store.
 - Secrets and passwords are sealed again with the server's key.
 - The output of jobs within `retention_days` goes into the jobs' logs.
