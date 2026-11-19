@@ -16,6 +16,7 @@ Rookery provisions and manages development machines. It sets up Ubuntu hosts and
 | `crates/rookery-auth/` | How people sign in, and the `auth.*` methods. `links.rs` has the one-time links of local accounts and `session.rs` the device sessions and their cookie. `oidc.rs` signs in through an identity provider with PKCE |
 | `crates/rookery-facilities/` | What plugins and the shell build on, a module for each namespace from `settings.*` to `layout.*`. `storage.*` is key-value with revisions. `access.*` holds the grants on resources and gives the kernel the check of a level on one; `admin.rs` has `admin.*` and `audit.list` |
 | `crates/rookery-jobs/` | Jobs and the `JobHandler` trait of the handlers that run them inside the server (`jobs.rs`), with `leases.*`, durable `topics.*`, at-most-once `events.*` and `notify.*` |
+| `crates/rookery-hosts/` | Hosts inside `rookery serve`. `backend.rs` keeps rookery-core's state in the server's tables (`rookery.hosts`, `host_access`, `host_keys`, `provisioners`, `resources`, `host_messages`, `host_cursors`, and secrets, settings, registries and key-value entries in the facilities' tables), from a thread of its own (`db.rs`). `locks.rs` makes the locks of subjects leases. `runner.rs` runs Rookery's actions as jobs of rookery-jobs: apply, host actions, provisioning and roll-outs, with their output as log items. `serve/` is the leader's state of the hosts, their links and the handlers of each action, and `methods.rs` registers `hosts.*`, `keys.*`, `provisioners.*`, `resources.*`, `installation.*`, `setup.*` and `plugins.*`. `events.rs` tells `hosts.changed` and takes each host's channel in on a durable topic |
 | `crates/rookery-store/` | The server's tables in the schema `rookery` on Postgres, made by the numbered migrations in `migrations/`. `seal.rs` seals secrets and credentials in their rows under the key of `ROOKERY_SECRET_KEY`, which `rookery server secrets rekey` changes. `testing.rs` makes a fresh database for each test |
 | `crates/rookery-proto/` | The wire types of `rookery serve`, from the JSON-RPC envelope and its errors to the params and results of each method |
 | `api/` | `methods.json`, the report of every method of `rookery serve` with its level and params. A test fails while it is stale |
@@ -59,7 +60,7 @@ Use cargo for everything Rust and bun for `client/` and `sdk/`. These are what C
 cargo test --locked --no-fail-fast
 cargo fmt --check -p rookery-api -p rookery-pty -p rookery-core -p rookery-setup -p rookery -p rookeryd -p box \
   -p rookery-proto -p rookery-store -p rookery-kernel -p rookery-auth -p rookery-server \
-  -p rookery-facilities -p rookery-jobs
+  -p rookery-facilities -p rookery-jobs -p rookery-hosts
 cargo test --locked -q -p rookery-proto --features ts --test bindings
 cargo clippy --locked --all-targets -- -D warnings
 cargo run --locked -q -p rookery -- plugin check plugins
@@ -74,15 +75,17 @@ The Docs workflow checks the docs site with `npm run typecheck`, `npm run lint` 
 
 On macOS and Windows Rookery is the client alone. `rookery serve` on Postgres and every crate it needs (sqlx among them) are Linux-only dependencies of `rookery`, and never reach rookeryd or box. Check that it still builds there with `cargo check -p rookery --target x86_64-pc-windows-msvc` or `--target aarch64-apple-darwin`. The release builds it on those systems.
 
-The tests of `rookery serve` (`rookery-store`, `rookery-server`) need Postgres. Each makes a database of its own from a template, so one server serves every test at once. Without `ROOKERY_TEST_POSTGRES` they are skipped. In CI they fail instead. CI has a Postgres service; on a machine of your own Docker gives one:
+The tests of `rookery serve` (`rookery-store`, `rookery-server`, `rookery-hosts` and the facilities) need Postgres. Each makes a database of its own from a template, so one server serves every test at once. Without `ROOKERY_TEST_POSTGRES` they are skipped. In CI they fail instead. CI has a Postgres service; on a machine of your own Docker gives one:
 
 ```bash
 docker run -d --name rookery-test-pg -e POSTGRES_USER=rookery -e POSTGRES_PASSWORD=rookery-test \
   -p 127.0.0.1:55432:5432 postgres:17-alpine -c fsync=off
 export ROOKERY_TEST_POSTGRES=postgres://rookery:rookery-test@127.0.0.1:55432/rookery
 cargo nextest run -p rookery-proto -p rookery-store -p rookery-kernel -p rookery-auth -p rookery-server \
-  -p rookery-facilities -p rookery-jobs
+  -p rookery-facilities -p rookery-jobs -p rookery-hosts
 ```
+
+The tests of `rookery-hosts` also start `target/debug/rookeryd --single`, which a build of the workspace makes, and are skipped without it.
 
 The tests of a facility call its methods on a kernel of their own (`rookery_kernel::testing`, feature `testing`), with no server in between. A test that hangs is ended after two minutes (`.config/nextest.toml`).
 

@@ -78,6 +78,8 @@ pub enum Body {
     serde::Deserialize,
     utoipa::ToSchema,
 )]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     /// Look: hosts, sessions and their output, logs, the inbox, the store.

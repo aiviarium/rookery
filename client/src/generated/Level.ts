@@ -4,4 +4,4 @@ import type { Grant } from "./Grant";
 /**
  * What a caller needs to call a method.
  */
-export type Level = { "kind": "self" } | { "kind": "admin" } | { "kind": "resource", param: string, grant: Grant, } | { "kind": "plugin" };
+export type Level = { "kind": "self" } | { "kind": "admin" } | { "kind": "resource", param: string, grant: Grant, scheme?: string, } | { "kind": "plugin" };

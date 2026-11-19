@@ -1,0 +1,403 @@
+//! The wire types of hosts and of the rest of Rookery's own: `hosts.*`, `keys.*`, `provisioners.*`,
+//! `resources.*`, `installation.*`, `setup.*` and `plugins.*`. Their field names are snake_case, as the
+//! types of `rookery-api` they carry, which the host protocol shares.
+
+use std::collections::BTreeMap;
+
+use rookery_api::{
+    Act, Action, Behind, HostType, Power, ResourceChange, SavedProvisioner, Session,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::jobs::{JobInfo, JobState};
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostInfo {
+    /// Its id, which stays when it is renamed.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
+    pub name: String,
+    /// Its SSH address.
+    pub address: String,
+    pub reachable: bool,
+    /// The version of its rookeryd.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api: Option<u32>,
+    /// Why it is not reachable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// The rookery version its configuration was last applied with, when its
+    /// rookeryd says, which it does for a host applied since.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub applied: Option<String>,
+    /// What changed since then, when the server would apply something else now.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub behind: Option<Behind>,
+    /// The type its profile means it to be.
+    #[serde(rename = "type")]
+    pub host_type: HostType,
+    /// The type it was seen to be: what its controller's record says, `ssh`
+    /// when rookery logged in and found no controller. Absent when it could
+    /// not be asked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seen: Option<HostType>,
+    /// A rotation of a key it logs in with is not done on it yet.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub rotating: bool,
+    /// Whether rookery can start and stop it, and whether it runs: running
+    /// when its controller answers, else as its provisioner said last.
+    pub power: Power,
+    /// The machine a provisioner made for it, or one planned for it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine: Option<HostMachine>,
+}
+
+/// The machine of a host, as rookery's record of the resource has it.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostMachine {
+    /// rookery's id of the resource.
+    pub resource: String,
+    /// The provisioner that made it, or is to make it.
+    pub provisioner: String,
+    /// The provisioner's id of it; empty until it is made.
+    pub external_id: String,
+    /// As last seen, or `planned` for one not asked for yet.
+    pub state: String,
+}
+
+/// A key of the ring, by its public half.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct KeyInfo {
+    /// Its id; empty for the key that replaces another while it rotates.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
+    pub name: String,
+    /// The public half, a line of `authorized_keys`.
+    pub public: String,
+    /// Its SHA256 fingerprint, as `ssh-keygen -l` shows it.
+    pub fingerprint: String,
+    /// The key replacing it while a rotation runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending: Option<Box<KeyInfo>>,
+    /// The server's hosts that log in with it.
+    #[serde(default)]
+    pub hosts: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct KeyList {
+    pub keys: Vec<KeyInfo>,
+}
+
+// ── Params and results ──────────────────────────────────────────────────────
+
+/// A host by its name, or as `env://NAME`.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostRef {
+    pub host: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostList {
+    pub hosts: Vec<HostInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostSave {
+    pub host: String,
+    /// The whole profile. A workstation's has a builder object; a host of the type ssh or managed
+    /// has `type` and `access` alone.
+    pub profile: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostSaved {
+    pub host: HostInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostRename {
+    pub host: String,
+    pub to: String,
+    /// Give the machine the new name as its hostname too, at its next apply.
+    #[serde(default)]
+    pub hostname: bool,
+    #[serde(default)]
+    pub token: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostProfile {
+    pub profile: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostCheck {
+    pub host: String,
+    /// What it is to do, such as `apply`, `sessions` or `desktop`.
+    pub capability: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct Refusal {
+    pub why: String,
+    /// The action that raises the host's type so it can: `install-controller`, `apply` or `setup`.
+    pub raise: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostChecked {
+    pub allowed: bool,
+    pub refusal: Option<Refusal>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ActionList {
+    pub actions: Vec<Action>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostAct {
+    pub host: String,
+    pub action: String,
+    #[serde(flatten)]
+    pub act: Act,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct InstallationAct {
+    pub action: String,
+    #[serde(flatten)]
+    pub act: Act,
+}
+
+/// What running an action came to: the job that runs it, by its id, and its state; the session on the
+/// host for an action the host runs in a terminal; or what an action that answers at once said.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct Acted {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<JobState>,
+    /// The whole job, as `jobs.get` gives it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub info: Option<JobInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session: Option<Session>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<Value>,
+}
+
+/// A call of a host's controller: the path under `/v1` and its query.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostQuery {
+    pub host: String,
+    /// The query, as the controller takes it, such as `unit` and `lines` of the logs.
+    #[serde(default)]
+    pub query: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostPower {
+    pub host: String,
+    /// `reboot`, `poweroff` or `suspend`.
+    pub verb: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostUnit {
+    pub host: String,
+    pub unit: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostUnitAct {
+    pub host: String,
+    pub unit: String,
+    /// `start`, `stop`, `restart`, `enable` or `disable`.
+    pub verb: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostSignal {
+    pub host: String,
+    pub pid: u32,
+    #[serde(default)]
+    pub signal: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostService {
+    pub host: String,
+    pub plugin: String,
+    pub name: String,
+    pub method: String,
+    #[serde(default)]
+    pub params: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostServiceStream {
+    pub host: String,
+    pub plugin: String,
+    pub name: String,
+}
+
+/// What a host's controller answered: its JSON, or bytes as `base64` with their `content_type`.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[serde(transparent)]
+pub struct Passed(pub Value);
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct KeyRef {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct KeyAdd {
+    pub name: String,
+    /// The private half in OpenSSH's format; left out, a new key is made.
+    #[serde(default)]
+    pub private: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct Named {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ProvisionerSave {
+    pub name: String,
+    #[serde(flatten)]
+    pub saved: SavedProvisioner,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ProvisionerGet {
+    pub name: String,
+    /// Values of its arguments to ask it with, such as a server it would use.
+    #[serde(default)]
+    pub given: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ProvisionerAct {
+    pub name: String,
+    pub action: String,
+    #[serde(flatten)]
+    pub act: Act,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ResourceRef {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ResourceAct {
+    pub id: String,
+    pub action: String,
+    #[serde(flatten)]
+    pub act: Act,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ResourceChangeOf {
+    pub id: String,
+    #[serde(flatten)]
+    pub change: ResourceChange,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ResourceRemove {
+    pub id: String,
+    #[serde(default)]
+    pub token: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct ResourceLogs {
+    pub id: String,
+    /// The last so many lines; all when 0 (default 100).
+    #[serde(default)]
+    pub tail: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct Text {
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct PluginUpload {
+    /// The egg, in base64.
+    pub base64: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct PluginRef {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostOnly {
+    #[serde(default)]
+    pub host: Option<String>,
+}
+
+impl Acted {
+    /// For a job that runs it.
+    pub fn of_job(job: JobInfo) -> Acted {
+        Acted {
+            job: Some(job.id.clone()),
+            state: Some(job.state),
+            info: Some(job),
+            session: None,
+            result: None,
+        }
+    }
+}

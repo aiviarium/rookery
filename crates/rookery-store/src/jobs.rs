@@ -49,6 +49,9 @@ pub struct NewJob<'a> {
     pub run_after: Option<DateTime<Utc>>,
     pub subject: Option<&'a str>,
     pub enqueued_by: &'a str,
+    /// A caller's token: a job of the same kind, subject and `params.action` with it already is
+    /// returned in place of a new one.
+    pub token: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -94,9 +97,10 @@ impl Jobs<'_> {
         if !(1..=100).contains(&job.max_attempts) {
             return Err(Error::Invalid("maxAttempts is 1 to 100".into()));
         }
-        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "INSERT INTO rookery.jobs (id, kind, params, state, max_attempts, run_after, subject, enqueued_by)
-             SELECT $1, $2, $3, 'queued', $4, coalesce($5, now()), $6, $7 WHERE rookery.fence($8) RETURNING {COLS}"
+        let made: Option<Job> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "INSERT INTO rookery.jobs (id, kind, params, state, max_attempts, run_after, subject, enqueued_by, token)
+             SELECT $1, $2, $3, 'queued', $4, coalesce($5, now()), $6, $7, $8 WHERE rookery.fence($9)
+             ON CONFLICT DO NOTHING RETURNING {COLS}"
         )))
         .bind(new_id())
         .bind(job.kind)
@@ -105,9 +109,121 @@ impl Jobs<'_> {
         .bind(job.run_after)
         .bind(job.subject)
         .bind(job.enqueued_by)
+        .bind(job.token)
         .bind(self.fence)
-        .fetch_one(self.pool)
+        .fetch_optional(self.pool)
+        .await?;
+        match (made, job.token) {
+            (Some(made), _) => Ok(made),
+            (None, Some(token)) => self
+                .by_token(job.kind, job.subject, job.params["action"].as_str(), token)
+                .await?
+                .ok_or_else(|| {
+                    Error::Conflict("a job with the token was removed meanwhile".into())
+                }),
+            (None, None) => Err(Error::Conflict("the job was not made".into())),
+        }
+    }
+
+    /// The job a caller's token started, of a kind, subject and `params.action`.
+    pub async fn by_token(
+        &self,
+        kind: &str,
+        subject: Option<&str>,
+        action: Option<&str>,
+        token: &str,
+    ) -> Result<Option<Job>> {
+        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "SELECT {COLS} FROM rookery.jobs WHERE kind = $1 AND subject IS NOT DISTINCT FROM $2
+               AND params->>'action' IS NOT DISTINCT FROM $3 AND token = $4"
+        )))
+        .bind(kind)
+        .bind(subject)
+        .bind(action)
+        .bind(token)
+        .fetch_optional(self.pool)
         .await?)
+    }
+
+    /// The session on a host a job follows, and how far its output was copied.
+    pub async fn set_session(&self, id: Uuid, session: &str, offset: i64) -> Result<()> {
+        sqlx::query("UPDATE rookery.jobs SET session = $2, session_offset = $3 WHERE id = $1 AND rookery.fence($4)")
+            .bind(id)
+            .bind(session)
+            .bind(offset)
+            .bind(self.fence)
+            .execute(self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// The session a job follows, and how far its log has it: the offset of the last log item that
+    /// names one, which was written with the lines it covers, or where the session started.
+    pub async fn session(&self, id: Uuid) -> Result<Option<(String, i64)>> {
+        let row: Option<(Option<String>, Option<i64>)> = sqlx::query_as(
+            "SELECT j.session, COALESCE(
+                 (SELECT (l.data->>'session_offset')::bigint FROM rookery.log_items l
+                   WHERE l.job_id = j.id AND l.data ? 'session_offset'
+                   ORDER BY l.seq DESC LIMIT 1),
+                 j.session_offset)
+               FROM rookery.jobs j WHERE j.id = $1",
+        )
+        .bind(id)
+        .fetch_optional(self.pool)
+        .await?;
+        Ok(row.and_then(|(session, offset)| Some((session?, offset.unwrap_or(0)))))
+    }
+
+    /// Keeps the values a job's output masks, sealed, for a leader that follows the job on.
+    pub async fn set_hidden(&self, id: Uuid, sealed: &crate::seal::Sealed) -> Result<()> {
+        sqlx::query(
+            "UPDATE rookery.jobs SET hidden_key_id = $2, hidden_nonce = $3, hidden = $4
+              WHERE id = $1 AND rookery.fence($5)",
+        )
+        .bind(id)
+        .bind(&sealed.key_id)
+        .bind(&sealed.nonce)
+        .bind(&sealed.ciphertext)
+        .bind(self.fence)
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn hidden(&self, id: Uuid) -> Result<Option<crate::seal::Sealed>> {
+        type Kept = (Option<String>, Option<Vec<u8>>, Option<Vec<u8>>);
+        let row: Option<Kept> = sqlx::query_as(
+            "SELECT hidden_key_id, hidden_nonce, hidden FROM rookery.jobs WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(self.pool)
+        .await?;
+        Ok(row.and_then(|(key_id, nonce, ciphertext)| {
+            Some(crate::seal::Sealed {
+                key_id: key_id?,
+                nonce: nonce?,
+                ciphertext: ciphertext?,
+            })
+        }))
+    }
+
+    /// Moves the jobs of one subject to another, as when a host is renamed.
+    pub async fn move_subject(&self, from: &str, to: &str) -> Result<u64> {
+        let done = sqlx::query("UPDATE rookery.jobs SET subject = $2 WHERE subject = $1")
+            .bind(from)
+            .bind(to)
+            .execute(self.pool)
+            .await?;
+        Ok(done.rows_affected())
+    }
+
+    /// Removes the jobs that ended before `cutoff`, with their logs.
+    pub async fn prune(&self, cutoff: DateTime<Utc>) -> Result<u64> {
+        let done = sqlx::query("DELETE FROM rookery.jobs WHERE finished_at < $1")
+            .bind(cutoff)
+            .execute(self.pool)
+            .await?;
+        Ok(done.rows_affected())
     }
 
     pub async fn get(&self, id: Uuid) -> Result<Option<Job>> {
@@ -333,35 +449,31 @@ impl Jobs<'_> {
         text: &str,
         data: Option<&Value>,
     ) -> Result<i64> {
-        let mut tx = self.pool.begin().await?;
-        let attempt: i32 = sqlx::query_scalar(
-            "SELECT attempts FROM rookery.jobs WHERE id = $1
-               AND ($2::text IS NULL OR (state = 'running' AND claimed_by = $2)) AND rookery.fence($3)
-             FOR UPDATE",
+        // One statement, so no lock on the job's row outlives it: the UPDATE takes the next number
+        // of the job's log and waits for an append before it, whose number it then sees.
+        let seq: Option<i64> = sqlx::query_scalar(
+            "WITH job AS (
+                 UPDATE rookery.jobs SET log_seq = log_seq + 1
+                  WHERE id = $1
+                    AND ($2::text IS NULL OR (state = 'running' AND claimed_by = $2))
+                    AND rookery.fence($3)
+                 RETURNING id, attempts, log_seq)
+             INSERT INTO rookery.log_items (job_id, seq, attempt, level, text, data)
+             SELECT id, log_seq, attempts, $4, $5, $6 FROM job
+             RETURNING seq",
         )
         .bind(id)
         .bind(worker)
         .bind(self.fence)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| match worker {
-            Some(_) => Error::Conflict("the job's claim is gone".into()),
-            None => Error::NotFound("no such job".into()),
-        })?;
-        // Compute the next sequence in a fresh snapshot after taking the job row lock.
-        let seq = sqlx::query_scalar(
-            "INSERT INTO rookery.log_items (job_id, seq, attempt, level, text, data)
-             VALUES ($1, coalesce((SELECT max(seq) FROM rookery.log_items WHERE job_id = $1), 0) + 1, $2, $3, $4, $5)
-             RETURNING seq",
-        )
-        .bind(id)
-        .bind(attempt)
         .bind(level)
         .bind(text)
         .bind(data)
-        .fetch_one(&mut *tx)
+        .fetch_optional(self.pool)
         .await?;
-        tx.commit().await?;
+        let seq = seq.ok_or_else(|| match worker {
+            Some(_) => Error::Conflict("the job's claim is gone".into()),
+            None => Error::NotFound("no such job".into()),
+        })?;
         Ok(seq)
     }
 

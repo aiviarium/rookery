@@ -176,11 +176,22 @@ fn beside(file: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
+/// The store of `rookery serve` on Postgres, which every installation of the process uses once set.
+static SERVER: std::sync::RwLock<Option<Arc<Store>>> = std::sync::RwLock::new(None);
+
+/// Make `store` the one [`shared`] gives from now on, or none again, before anything opens a store.
+pub fn set_shared(store: Option<Arc<Store>>) {
+    *SERVER.write().unwrap_or_else(|e| e.into_inner()) = store;
+}
+
 type Opened = Mutex<HashMap<(PathBuf, PathBuf), Arc<Store>>>;
 
 /// The store of this installation, opened once per process and data
 /// directory.
 pub fn shared(paths: &Paths) -> crate::Result<Arc<Store>> {
+    if let Some(store) = SERVER.read().unwrap_or_else(|e| e.into_inner()).clone() {
+        return Ok(store);
+    }
     static OPENED: OnceLock<Opened> = OnceLock::new();
     let opened = OPENED.get_or_init(Default::default);
     // Held while opening, so that two threads do not both open it.

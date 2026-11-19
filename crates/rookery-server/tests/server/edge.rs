@@ -655,6 +655,7 @@ async fn a_leader_whose_lock_connection_ends_is_fenced_and_stands_by() {
             run_after: None,
             subject: None,
             enqueued_by: "user:x",
+            token: None,
         })
         .await
         .unwrap_err();

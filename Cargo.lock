@@ -3109,10 +3109,12 @@ dependencies = [
  "hyper",
  "hyper-util",
  "jsonschema",
+ "schemars",
  "serde",
  "serde_json",
  "tokio",
  "tokio-tungstenite 0.30.0",
+ "ts-rs",
  "utoipa",
 ]
 
@@ -3184,6 +3186,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "rookery-hosts"
+version = "0.6.0"
+dependencies = [
+ "chrono",
+ "futures-util",
+ "libc",
+ "rookery-api",
+ "rookery-core",
+ "rookery-facilities",
+ "rookery-jobs",
+ "rookery-kernel",
+ "rookery-proto",
+ "rookery-setup",
+ "rookery-store",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "rookery-jobs"
 version = "0.6.0"
 dependencies = [
@@ -3223,6 +3251,7 @@ dependencies = [
 name = "rookery-proto"
 version = "0.6.0"
 dependencies = [
+ "rookery-api",
  "schemars",
  "serde",
  "serde_json",
@@ -3251,7 +3280,9 @@ dependencies = [
  "libc",
  "ring",
  "rookery-auth",
+ "rookery-core",
  "rookery-facilities",
+ "rookery-hosts",
  "rookery-jobs",
  "rookery-kernel",
  "rookery-proto",

@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 
 crates=(-p rookery-api -p rookery-pty -p rookery-core -p rookery-setup -p rookery -p rookeryd -p box
   -p rookery-proto -p rookery-store -p rookery-kernel -p rookery-auth -p rookery-server
-  -p rookery-facilities -p rookery-jobs)
+  -p rookery-facilities -p rookery-jobs -p rookery-hosts)
 
 # Each runs as the condition of an if, where set -e does not stop it: the
 # steps are joined with && instead.
@@ -19,6 +19,10 @@ crates=(-p rookery-api -p rookery-pty -p rookery-core -p rookery-setup -p rooker
 rust-tests() {
   if cargo nextest --version >/dev/null 2>&1; then
     cargo nextest run --locked --no-fail-fast
+  elif [ -n "${CI:-}" ]; then
+    # Without nextest a test that hangs holds the job until its timeout.
+    echo "CI runs the Rust tests with cargo-nextest, which is not installed" >&2
+    false
   else
     cargo test --locked --no-fail-fast
   fi && cargo test --locked -q -p rookery-proto --features ts --test bindings

@@ -370,6 +370,9 @@ pub fn save(paths: &Paths, place: &Place, adopted: &Adopted) -> Result<Place> {
                     .label_of(crate::store::kind::PROFILE, scope, &adopted.id)?
                     .is_none() =>
         {
+            // The profile first, under its kept id, then what was learned under the other one.
+            let moved = Place::at(scope, &adopted.id, name);
+            moved.save(paths, &adopted.profile)?;
             let store = crate::store::shared(paths)?;
             let mut batch = crate::store::Batch::default();
             for kind in [crate::store::kind::ACCESS, crate::store::kind::CREDENTIALS] {
@@ -380,11 +383,13 @@ pub fn save(paths: &Paths, place: &Place, adopted: &Adopted) -> Result<Place> {
                 }
             }
             store.apply(&batch)?;
-            Place::at(scope, &adopted.id, name)
+            moved
         }
-        place => place.clone(),
+        place => {
+            place.save(paths, &adopted.profile)?;
+            place.clone()
+        }
     };
-    place.save(paths, &adopted.profile)?;
     if let Some(old) = resource::of_place(paths, place)? {
         old.forget(paths)?;
     }

@@ -105,7 +105,41 @@ pub struct Link {
     worked: std::sync::atomic::AtomicBool,
 }
 
+impl LinkSpec {
+    /// Why a fresh SSH connection to the host is refused because of its host key, if it is. A
+    /// link's own connections share one master, which a host key that changed meanwhile does not
+    /// stop, so this one goes on its own, for nothing but the check.
+    pub fn changed_host_key(&self) -> Option<String> {
+        if self.program != "ssh" || self.args.is_empty() {
+            return None;
+        }
+        let mut command = std::process::Command::new("ssh");
+        command
+            .args([
+                "-o",
+                "ControlPath=none",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "ConnectTimeout=10",
+            ])
+            .args(&self.args[..self.args.len() - 1])
+            .arg("true")
+            .envs(self.env.iter().map(|(key, value)| (key, value)))
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped());
+        let said = command.output().ok()?;
+        crate::keys::known::changed_key(&self.name, &String::from_utf8_lossy(&said.stderr))
+    }
+}
+
 impl Link {
+    /// How the link's connections are made.
+    pub fn spec(&self) -> &LinkSpec {
+        &self.spec
+    }
+
     pub fn new(spec: LinkSpec) -> Link {
         Link {
             spec,

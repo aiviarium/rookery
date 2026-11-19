@@ -29,6 +29,8 @@ pub fn config(db: &TestDb, dir: &std::path::Path) -> ServerConfig {
         outbound_allow: Vec::new(),
         shell_dir: None,
         socket: Some(dir.join("server.sock")),
+        paths: None,
+        provision: Default::default,
     }
 }
 

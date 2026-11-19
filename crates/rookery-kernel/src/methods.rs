@@ -147,6 +147,10 @@ impl Call {
     /// The plugin a call at [`Level::Plugin`] is for: the calling plugin itself, or the one an admin names.
     pub fn plugin(&self, named: Option<&str>) -> Result<String, RpcError> {
         match (&self.caller, named) {
+            // A plugin that calls itself rookery would act as the server.
+            (Caller::Plugin(own), _) if reserved_plugin(own) => Err(RpcError::forbidden(format!(
+                "{own} is Rookery's own, and no plugin acts as it"
+            ))),
             (Caller::Plugin(own), None) => Ok(own.clone()),
             (Caller::Plugin(own), Some(named)) if named == own => Ok(own.clone()),
             (Caller::Plugin(_), Some(_)) => {
@@ -177,6 +181,12 @@ impl Call {
             tracing::warn!(action, error = %e, "writing the audit log failed");
         }
     }
+}
+
+/// Whether a plugin id is Rookery's own, which no installed plugin may have: `rookery`, and
+/// `rookery.*` or `rookery/*`. The server keeps its secrets, settings and leases under it.
+pub fn reserved_plugin(id: &str) -> bool {
+    id == "rookery" || id.starts_with("rookery.") || id.starts_with("rookery/")
 }
 
 /// A plugin id: lower case letters, digits, `-` and `.`, as Hatchery names packages.
@@ -411,12 +421,21 @@ async fn allowed(
             let named = params.get("plugin").and_then(Value::as_str);
             call.plugin(named).map(|_| ())
         }
-        Level::Resource { param, grant } => {
-            let Some(uri) = params.get(param.as_str()).and_then(Value::as_str) else {
+        Level::Resource {
+            param,
+            grant,
+            scheme,
+        } => {
+            let Some(given) = params.get(param.as_str()).and_then(Value::as_str) else {
                 return Err(RpcError::invalid(format!(
                     "params: {param} names the resource"
                 )));
             };
+            let uri = match scheme {
+                Some(scheme) if !given.contains("://") => format!("{scheme}://{given}"),
+                _ => given.to_owned(),
+            };
+            let uri = uri.as_str();
             if call.is_admin() {
                 return Ok(());
             }
@@ -488,6 +507,7 @@ mod tests {
             .level(Level::Resource {
                 param: "host".into(),
                 grant: Grant::Use,
+                scheme: None,
             });
         methods
             .add("test.plugin", |_: Call, _: serde_json::Value| async {

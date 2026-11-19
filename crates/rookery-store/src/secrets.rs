@@ -47,6 +47,9 @@ struct SealedRow {
 pub struct Rekeyed {
     pub secrets: u64,
     pub connections: u64,
+    pub host_keys: u64,
+    /// Jobs that keep the values their output masks.
+    pub jobs: u64,
 }
 
 pub struct Secrets<'a> {
@@ -222,6 +225,63 @@ impl Secrets<'_> {
                     .await?;
                 *count += 1;
             }
+        }
+        // The key ring's rows are named by the text ids of keys.
+        let keys: Vec<(String, String, Vec<u8>, Vec<u8>)> = sqlx::query_as(
+            "SELECT id, key_id, nonce, ciphertext FROM rookery.host_keys WHERE key_id <> $1 FOR UPDATE",
+        )
+        .bind(new.id())
+        .fetch_all(&mut *tx)
+        .await?;
+        for (id, key_id, nonce, ciphertext) in keys {
+            let aad = crate::seal::named_row("host_keys", &id);
+            let plain = old.open(
+                &aad,
+                &Sealed {
+                    key_id,
+                    nonce,
+                    ciphertext,
+                },
+            )?;
+            let sealed = new.seal(&aad, &plain)?;
+            sqlx::query("UPDATE rookery.host_keys SET key_id = $2, nonce = $3, ciphertext = $4 WHERE id = $1")
+                .bind(&id)
+                .bind(&sealed.key_id)
+                .bind(&sealed.nonce)
+                .bind(&sealed.ciphertext)
+                .execute(&mut *tx)
+                .await?;
+            done.host_keys += 1;
+        }
+        // The values a job's output masks, for a leader that follows the job on.
+        let jobs: Vec<(Uuid, String, Vec<u8>, Vec<u8>)> = sqlx::query_as(
+            "SELECT id, hidden_key_id, hidden_nonce, hidden FROM rookery.jobs
+              WHERE hidden IS NOT NULL AND hidden_key_id <> $1 FOR UPDATE",
+        )
+        .bind(new.id())
+        .fetch_all(&mut *tx)
+        .await?;
+        for (id, key_id, nonce, ciphertext) in jobs {
+            let aad = row("jobs", id);
+            let plain = old.open(
+                &aad,
+                &Sealed {
+                    key_id,
+                    nonce,
+                    ciphertext,
+                },
+            )?;
+            let sealed = new.seal(&aad, &plain)?;
+            sqlx::query(
+                "UPDATE rookery.jobs SET hidden_key_id = $2, hidden_nonce = $3, hidden = $4 WHERE id = $1",
+            )
+            .bind(id)
+            .bind(&sealed.key_id)
+            .bind(&sealed.nonce)
+            .bind(&sealed.ciphertext)
+            .execute(&mut *tx)
+            .await?;
+            done.jobs += 1;
         }
         tx.commit().await?;
         Ok(done)
