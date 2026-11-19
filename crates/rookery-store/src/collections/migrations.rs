@@ -252,7 +252,7 @@ impl<'a> MigrationTx<'a> {
     pub async fn delete(&mut self, collection: &str, id: Uuid) -> Result<()> {
         let coll = self.coll(collection)?;
         let (space, user) = self.scope_of(&coll, id).await?;
-        write::delete(&mut self.w, &coll, &Self::system(space, user), id)
+        write::delete(&mut self.w, &coll, &Self::system(space, user), id, None)
             .await
             .map(|_| ())
     }

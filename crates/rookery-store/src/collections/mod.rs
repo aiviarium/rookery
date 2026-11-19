@@ -877,13 +877,23 @@ impl<'a> Data<'a> {
         collection: &str,
         id: Uuid,
     ) -> Result<WriteOutcome> {
+        self.delete_at(caller, collection, id, None).await
+    }
+
+    pub(crate) async fn delete_at(
+        &self,
+        caller: &Caller,
+        collection: &str,
+        id: Uuid,
+        rev: Option<i64>,
+    ) -> Result<WriteOutcome> {
         let coll = self.regular(collection)?;
         let idem = crate::idempotency::take();
         if let Some(done) = self.replay(idem.as_ref()).await? {
             return Ok(done);
         }
         let mut w = WriteTx::begin(self.store).await?;
-        let row = write::delete(&mut w, &coll, caller, id).await?;
+        let row = write::delete(&mut w, &coll, caller, id, rev).await?;
         self.finish(w, row, idem).await
     }
 
@@ -1094,7 +1104,8 @@ impl<'a> Data<'a> {
                         .await?,
                     ),
                     BatchOp::Delete { collection, id } => {
-                        write::delete(&mut w, &*self.regular(collection)?, caller, *id).await?
+                        write::delete(&mut w, &*self.regular(collection)?, caller, *id, None)
+                            .await?
                     }
                     BatchOp::Restore { collection, id } => Some(
                         write::restore(&mut w, &*self.regular(collection)?, caller, *id).await?,

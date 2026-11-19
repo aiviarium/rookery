@@ -52,9 +52,9 @@ impl ServerBackend {
         }
     }
 
-    /// Runs `work` with the data layer on a connection of its own, in a transaction of what it writes,
-    /// and with the leader's fence held: a server that no longer leads writes nothing.
-    fn data_tx<T, F>(&self, work: F) -> Result<T>
+    /// Uses the data layer for key-value operations. Each write checks the backend's fence
+    /// inside its collection transaction.
+    fn with_data<T, F>(&self, work: F) -> Result<T>
     where
         T: Send + 'static,
         F: FnOnce(rookery_store::Store) -> futures_util::future::BoxFuture<'static, Result<T>>
@@ -72,13 +72,10 @@ impl ServerBackend {
                         data
                     }
                 };
-                if let Some(epoch) = fence {
-                    sqlx::query("SELECT rookery.fence($1)")
-                        .bind(epoch)
-                        .execute(data.pool())
-                        .await
-                        .map_err(|e| Error::Database(format!("{e}")))?;
-                }
+                let data = match fence {
+                    Some(epoch) => data.fenced(epoch),
+                    None => data,
+                };
                 work(data).await
             })
         })
@@ -1260,7 +1257,7 @@ impl Backend for ServerBackend {
 
     fn get(&mut self, namespace: &str, key: &str) -> Result<Option<Entry>> {
         let (namespace, key) = (namespace.to_owned(), key.to_owned());
-        self.data_tx(move |data| {
+        self.with_data(move |data| {
             Box::pin(async move {
                 let found = data
                     .kv()
@@ -1287,7 +1284,7 @@ impl Backend for ServerBackend {
     ) -> Result<i64> {
         let (namespace, key) = (namespace.to_owned(), key.to_owned());
         let value: Value = serde_json::from_str(text).map_err(|e| Error::Given(e.to_string()))?;
-        self.data_tx(move |data| {
+        self.with_data(move |data| {
             Box::pin(async move {
                 // A revision the write must be at, 0 for a key that is not there yet.
                 let expected = match when {
@@ -1318,7 +1315,7 @@ impl Backend for ServerBackend {
 
     fn remove(&mut self, namespace: &str, key: &str, when: When) -> Result<bool> {
         let (namespace, key) = (namespace.to_owned(), key.to_owned());
-        self.data_tx(move |data| {
+        self.with_data(move |data| {
             Box::pin(async move {
                 let expected = match when {
                     When::At(revision) => Some(revision),
@@ -1347,7 +1344,7 @@ impl Backend for ServerBackend {
 
     fn list(&mut self, namespace: &str) -> Result<Vec<Entry>> {
         let namespace = namespace.to_owned();
-        self.data_tx(move |data| {
+        self.with_data(move |data| {
             Box::pin(async move {
                 let mut out = Vec::new();
                 let mut after: Option<String> = None;

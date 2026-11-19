@@ -194,21 +194,22 @@ impl Kv<'_> {
         expected: Option<i64>,
     ) -> Result<bool> {
         let scope = scope.into();
-        let Some((id, _, _, revision, _)) = self.find(plugin, scope, key).await? else {
+        let Some((id, ..)) = self.find(plugin, scope, key).await? else {
             return Ok(false);
         };
-        if let Some(expected) = expected
-            && expected != revision
-        {
-            return Err(Error::Conflict(format!(
-                "{key} is not at revision {expected}"
-            )));
-        }
-        self.store
+        match self
+            .store
             .data(PLUGIN)
-            .delete(&scope.caller(), scope.collection(), id)
-            .await?;
-        Ok(true)
+            .delete_at(&scope.caller(), scope.collection(), id, expected)
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(Error::RevConflict { expected, .. }) => Err(Error::Conflict(format!(
+                "{key} is not at revision {expected}"
+            ))),
+            Err(Error::NotFound(_)) => Ok(false),
+            Err(error) => Err(error),
+        }
     }
 
     /// The keys that start with `prefix`, in order, after `after`.

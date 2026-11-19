@@ -160,6 +160,10 @@ async fn state_lands_in_its_tables() {
         ));
         assert_eq!(s.put("box", "k", &json!(2), When::At(first)).unwrap(), 2);
         assert_eq!(s.list("box").unwrap()[0].value, json!(2));
+        assert!(matches!(
+            s.remove("box", "k", When::At(first)),
+            Err(store::Error::Conflict(Some(2)))
+        ));
         // Messages and the cursor.
         let message = |id, keep| Message {
             id,

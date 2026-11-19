@@ -123,8 +123,15 @@ pub(crate) struct WriteTx {
 
 impl WriteTx {
     pub async fn begin(store: &Store) -> Result<WriteTx> {
+        let mut tx = store.pool().begin().await?;
+        if let Some(epoch) = store.fence() {
+            sqlx::query("SELECT rookery.fence($1)")
+                .bind(epoch)
+                .execute(&mut *tx)
+                .await?;
+        }
         Ok(WriteTx {
-            tx: store.pool().begin().await?,
+            tx,
             pending: Vec::new(),
             fence: None,
             mentions: Vec::new(),
@@ -863,8 +870,15 @@ pub(crate) async fn delete(
     coll: &Collection,
     caller: &Caller,
     id: Uuid,
+    expected_rev: Option<i64>,
 ) -> Result<Option<Value>> {
     let old = lock_row(&mut w.tx, coll, caller, id).await?;
+    let actual = rev_of(&old);
+    if let Some(expected) = expected_rev
+        && expected != actual
+    {
+        return Err(Error::RevConflict { expected, actual });
+    }
     if is_deleted(&old) {
         return Err(Error::not_found(format!(
             "{} row {id} is already in the trash",
