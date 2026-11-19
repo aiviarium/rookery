@@ -26,4 +26,6 @@ secrets/
 !.claude/skills
 node_modules/
 dist/
+# The extension host's bundle is committed: a release carries it, and a test keeps it current.
+!/host/dist/
 

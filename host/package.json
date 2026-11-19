@@ -5,11 +5,14 @@
   "license": "MIT OR Apache-2.0",
   "type": "module",
   "main": "src/main.ts",
-  "description": "The Rookery extension host: one Bun worker for each plugin's host half, started by rookery serve",
+  "description": "The Rookery extension host: rookery serve starts one for each plugin's host half. dist/ is its bundle, which a release carries; bun run build writes it again",
   "dependencies": {
     "@rookery/sdk": "file:../sdk"
   },
   "devDependencies": {
     "@types/bun": "^1.3.14"
+  },
+  "scripts": {
+    "build": "bun build src/main.ts src/worker.ts src/transform.ts --target=bun --minify --splitting --outdir=dist"
   }
 }

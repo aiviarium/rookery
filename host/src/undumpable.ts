@@ -6,20 +6,36 @@ import { dlopen, FFIType } from "bun:ffi"
 
 const PR_SET_DUMPABLE = 4
 
+/** The C library's names: glibc's, then musl's on x86-64 and on ARM. */
+const LIBC = ["libc.so.6", "libc.musl-x86_64.so.1", "libc.musl-aarch64.so.1"]
+
 function undumpable(): string | null {
-  try {
-    const libc = dlopen("libc.so.6", {
-      prctl: {
-        args: [FFIType.i32, FFIType.u64, FFIType.u64, FFIType.u64, FFIType.u64],
-        returns: FFIType.i32,
-      },
-    })
-    const done = libc.symbols.prctl(PR_SET_DUMPABLE, 0, 0, 0, 0)
-    libc.close()
-    return done === 0 ? null : `prctl answered ${done}`
-  } catch (e) {
-    return String(e)
+  const tried: string[] = []
+  for (const name of LIBC) {
+    let libc: ReturnType<typeof open>
+    try {
+      libc = open(name)
+    } catch (e) {
+      tried.push(`${name}: ${String(e)}`)
+      continue
+    }
+    try {
+      const done = libc.symbols.prctl(PR_SET_DUMPABLE, 0, 0, 0, 0)
+      return done === 0 ? null : `prctl answered ${done}`
+    } finally {
+      libc.close()
+    }
   }
+  return `no C library to call prctl in (${tried.join("; ")})`
+}
+
+function open(name: string) {
+  return dlopen(name, {
+    prctl: {
+      args: [FFIType.i32, FFIType.u64, FFIType.u64, FFIType.u64, FFIType.u64],
+      returns: FFIType.i32,
+    },
+  })
 }
 
 const failed = undumpable()

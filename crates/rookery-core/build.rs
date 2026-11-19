@@ -115,6 +115,7 @@ fn main() {
         "provision/config/example.json",
         "container",
         "plugins",
+        "host/dist",
         "tests",
         "README.md",
         "LICENSE-MIT",

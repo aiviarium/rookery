@@ -15,6 +15,11 @@ export interface ServerLink {
 }
 
 /** How long a host half's cleanup may take when it is stopped. */
+/** A module beside this one: its source when the host runs from source, its bundle in `dist/`. */
+function sibling(name: string): URL {
+  return new URL(import.meta.url.endsWith(".ts") ? `./${name}.ts` : `./${name}.js`, import.meta.url)
+}
+
 const DEACTIVATE_GRACE_MS = 3000
 
 interface Slot {
@@ -74,7 +79,7 @@ export class Host {
   async activate(data: WorkerData): Promise<Registration[]> {
     if (this.slots.has(data.plugin)) await this.stop(data.plugin, false)
     if (!data.manifest?.host) return []
-    const worker = new Worker(new URL("./worker.ts", import.meta.url), {
+    const worker = new Worker(sibling("worker"), {
       workerData: { plugin: data.plugin, dir: data.dir, manifest: data.manifest } satisfies WorkerData,
     })
     const slot: Slot = { plugin: data.plugin, worker, waiting: new Map(), stopping: false }
@@ -89,7 +94,7 @@ export class Host {
 
   /** Runs a transform step of a plugin's migration in a worker of its own, until it returns. */
   async transform(t: TransformData): Promise<void> {
-    const worker = new Worker(new URL("./transform.ts", import.meta.url), {
+    const worker = new Worker(sibling("transform"), {
       workerData: t,
     })
     try {
