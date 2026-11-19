@@ -593,34 +593,12 @@ pub enum Carry {
 /// The largest frame of a caller's stream, with room for a tag.
 const CARRIED: usize = rookery_proto::stream::MAX_FRAME_PAYLOAD - 1;
 
-/// A stream that stays open for a caller whose access is checked again while
-/// it runs: cancelling `hold` ends it, and `done` is cancelled when it ends
-/// for any reason, so a check of its own stops with it.
-#[derive(Clone, Default)]
-pub struct Hold {
-    pub hold: tokio_util::sync::CancellationToken,
-    pub done: tokio_util::sync::CancellationToken,
-}
-
-/// [`pipe`], ended as soon as the caller's access is gone.
-pub async fn pipe_held(
+/// Frames both ways between a host's stream and a caller's, until either side closes or access is revoked.
+pub(crate) async fn pipe(
     upstream: rookery_core::link::LinkStream,
     stream: rookery_kernel::streams::Stream,
     carry: Carry,
-    held: Hold,
-) {
-    tokio::select! {
-        () = pipe(upstream, stream, carry) => {}
-        () = held.hold.cancelled() => {}
-    }
-    held.done.cancel();
-}
-
-/// Frames both ways between a host's stream and a caller's, until either side closes.
-pub async fn pipe(
-    upstream: rookery_core::link::LinkStream,
-    stream: rookery_kernel::streams::Stream,
-    carry: Carry,
+    access: Option<crate::AccessWatcher>,
 ) {
     use futures_util::SinkExt;
     use rookery_kernel::streams::Inbound;
@@ -691,15 +669,29 @@ pub async fn pipe(
             }
         }
     };
+    let revoked = async {
+        match access {
+            Some(mut watcher) => watcher.wait_revoked().await,
+            None => std::future::pending::<()>().await,
+        }
+    };
+    let mut close_error = None;
     tokio::select! {
         () = towards_host => {}
         () = towards_caller => {}
+        () = revoked => {
+            close_error = Some(rookery_proto::ErrorBody {
+                code: rookery_proto::ErrorCode::Forbidden,
+                message: "access revoked".into(),
+                details: None,
+            });
+        }
     }
     let _ = to_host.send(client::Frame::Close(None)).await;
-    if !eof_sent {
+    if close_error.is_none() && !eof_sent {
         writer.eof();
     }
-    writer.close(None);
+    writer.close(close_error);
 }
 
 /// Bytes both ways between a caller's stream and a connection the server made, such as to a

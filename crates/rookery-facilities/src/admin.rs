@@ -8,7 +8,6 @@ use rookery_proto::access::{
 };
 use rookery_store::users::User;
 
-use crate::access::{Change, Changes};
 use crate::{parse_id, time};
 
 fn user_info(u: User) -> UserInfo {
@@ -59,6 +58,8 @@ pub fn register(methods: &mut Methods) {
             let user = call.store().users().set_role(id, p.admin).await?;
             // Their connections end, and come back with the role they have now.
             call.kernel.conns.refresh_user(&id.to_string());
+            rookery_kernel::auth::AccessEvents::of(&call.kernel)
+                .publish(rookery_kernel::auth::AccessChange::User(id.to_string()));
             call.audit(
                 "user.setRole",
                 Some(&format!("user://{id}")),
@@ -76,6 +77,8 @@ pub fn register(methods: &mut Methods) {
             if p.disabled {
                 call.kernel.conns.revoke_user(&id.to_string());
             }
+            rookery_kernel::auth::AccessEvents::of(&call.kernel)
+                .publish(rookery_kernel::auth::AccessChange::User(id.to_string()));
             call.audit("user.setDisabled", Some(&format!("user://{id}")), serde_json::json!({ "disabled": p.disabled })).await;
             Ok(user_info(user))
         })
@@ -112,13 +115,14 @@ pub fn register(methods: &mut Methods) {
         .add("admin.deleteGroup", |call: Call, p: IdRef| async move {
             let id = parse_id("group", &p.id)?;
             call.store().access().delete_group(id).await?;
+            rookery_kernel::auth::AccessEvents::of(&call.kernel)
+                .publish(rookery_kernel::auth::AccessChange::Group(id.to_string()));
             call.audit(
                 "group.delete",
                 Some(&format!("group://{id}")),
                 serde_json::json!({}),
             )
             .await;
-            call.kernel.facility::<Changes>().send(Change::Membership);
             Ok(Empty {})
         })
         .summary("Removes a group and its grants.")
@@ -127,13 +131,14 @@ pub fn register(methods: &mut Methods) {
         .add("admin.addMember", |call: Call, p: Membership| async move {
             let (group, user) = (parse_id("group", &p.group)?, parse_id("user", &p.user)?);
             call.store().access().add_member(group, user).await?;
+            rookery_kernel::auth::AccessEvents::of(&call.kernel)
+                .publish(rookery_kernel::auth::AccessChange::User(user.to_string()));
             call.audit(
                 "group.addMember",
                 Some(&format!("group://{group}")),
                 serde_json::json!({ "user": user }),
             )
             .await;
-            call.kernel.facility::<Changes>().send(Change::Membership);
             Ok(Empty {})
         })
         .summary("Puts a person in a group.")
@@ -144,13 +149,14 @@ pub fn register(methods: &mut Methods) {
             |call: Call, p: Membership| async move {
                 let (group, user) = (parse_id("group", &p.group)?, parse_id("user", &p.user)?);
                 call.store().access().remove_member(group, user).await?;
+                rookery_kernel::auth::AccessEvents::of(&call.kernel)
+                    .publish(rookery_kernel::auth::AccessChange::User(user.to_string()));
                 call.audit(
                     "group.removeMember",
                     Some(&format!("group://{group}")),
                     serde_json::json!({ "user": user }),
                 )
                 .await;
-                call.kernel.facility::<Changes>().send(Change::Membership);
                 Ok(Empty {})
             },
         )

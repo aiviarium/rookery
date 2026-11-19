@@ -2,6 +2,6 @@
 import type { TerminalState } from "./TerminalState";
 
 /**
- * Events on the attach stream (type 1).
+ * A type-1 frame from the server.
  */
-export type TerminalEvent = { "type": "size", cols: number, rows: number, active?: string | null, } | { "type": "title", title: string, } | { "type": "state", state: TerminalState, exitCode?: number | null, } | { "type": "viewers", count: number, } | { "type": "ready" };
+export type TerminalEvent = { "type": "size", cols: number, rows: number, active?: string, } | { "type": "title", title: string, } | { "type": "state", state: TerminalState, exitCode?: number, } | { "type": "viewers", count: number, } | { "type": "ready" };

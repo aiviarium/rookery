@@ -28,12 +28,13 @@ import type {
   Delivered,
   DirListing,
   EnvInfo,
-  EnvList,
   EnvPresence,
+  EnvSession,
   ExecResult,
   ExtensionContribution,
   ExtensionList,
   FileData,
+  FileStat,
   FileWritten,
   JobEnd,
   JobInfo,
@@ -45,16 +46,20 @@ import type {
   NotificationList,
   NotifySend,
   NotifySent,
+  PortUrl,
   Revision,
   Scope,
   ScreenInfo,
+  ScreenQuery,
   Setting,
   SettingScope,
   SpaceInfo,
   SpaceList,
   StorageEntry,
+  TerminalAttach,
   TerminalInfo,
-  TerminalList,
+  TerminalOpen,
+  TerminalQuery,
 } from "../generated"
 import {
   type Collections,
@@ -238,6 +243,16 @@ export interface Jobs {
   ): Promise<JobFollower>
 }
 
+/** Bytes, or text as UTF-8, in base64. */
+function toBase64(content: string | Uint8Array): string {
+  const bytes = typeof content === "string" ? new TextEncoder().encode(content) : content
+  let binary = ""
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  }
+  return btoa(binary)
+}
+
 export interface ClientEnv {
   list(): Promise<EnvInfo[]>
   get(env: string): Promise<EnvInfo>
@@ -248,10 +263,19 @@ export interface ClientEnv {
     opts?: { cwd?: string; env?: Record<string, string>; timeoutMs?: number },
   ): Promise<ExecResult>
   readFile(env: string, path: string): Promise<FileData>
-  writeFile(env: string, path: string, content: string, opts?: { rev?: string }): Promise<FileWritten>
-  deleteFile(env: string, path: string): Promise<void>
+  /** Writes bytes, or text as UTF-8. With `ifMatch`, only while the file is at that SHA-256. */
+  writeFile(
+    env: string,
+    path: string,
+    content: string | Uint8Array,
+    opts?: { ifMatch?: string; overwrite?: boolean },
+  ): Promise<FileWritten>
+  deleteFile(env: string, path: string, opts?: { recursive?: boolean }): Promise<void>
   listDir(env: string, path: string): Promise<DirListing>
+  stat(env: string, path: string): Promise<FileStat>
   connect(env: string, port: number, opts?: StreamOptions): Promise<ClientStream>
+  /** An address that opens a port in a browser, on the ports' own origin. It works once. */
+  portUrl(env: string, port: number, path?: string): Promise<PortUrl>
 }
 
 export interface ClientAgents {
@@ -259,18 +283,19 @@ export interface ClientAgents {
 }
 
 export interface ClientTerminals {
-  open(
-    env: string,
-    opts?: { cols?: number; rows?: number; command?: string[]; cwd?: string },
-  ): Promise<ClientStream>
-  attach(terminal: string, opts?: { cols?: number; rows?: number }): Promise<ClientStream>
-  write(terminal: string, data: string): Promise<void>
-  resize(terminal: string, cols: number, rows: number): Promise<void>
-  signal(terminal: string, signal: string): Promise<void>
-  close(terminal: string): Promise<void>
-  list(env?: string): Promise<TerminalInfo[]>
-  get(terminal: string): Promise<TerminalInfo>
-  screen(terminal: string): Promise<ScreenInfo>
+  open(env: string, opts?: Omit<TerminalOpen, "env">): Promise<TerminalInfo>
+  /** The stream of a terminal; its `result` is the `TerminalAttached`. */
+  attach(id: string, opts?: Omit<TerminalAttach, "id">, stream?: StreamOptions): Promise<ClientStream>
+  write(id: string, data: string): Promise<void>
+  resize(id: string, cols: number, rows: number): Promise<void>
+  signal(id: string, signal: string): Promise<void>
+  rename(id: string, title: string): Promise<void>
+  close(id: string): Promise<void>
+  list(opts?: TerminalQuery): Promise<TerminalInfo[]>
+  get(id: string): Promise<TerminalInfo>
+  screen(id: string, opts?: Omit<ScreenQuery, "id">): Promise<ScreenInfo>
+  sessions(env: string, opts?: { preview?: boolean }): Promise<EnvSession[]>
+  adopt(env: string, session: string): Promise<TerminalInfo>
 }
 
 export interface Connections {
@@ -624,39 +649,45 @@ export function createClientRookery(s: ClientScope): ClientRookery {
       connect: (env, opts) => s.rt.stream("agents.connect", { env }, opts),
     },
     env: {
-      list: async () => ((await s.rt.call("env.list", {})) as EnvList).environments,
-      get: (env) => s.rt.call("env.get", { env }) as Promise<EnvInfo>,
-      presence: (env) => s.rt.call("env.presence", { env }) as Promise<EnvPresence>,
+      list: async () => (await call("env.list", {})).environments,
+      get: (env) => call("env.get", { env }),
+      presence: (env) => call("env.presence", { env }),
       exec: (env, command, opts = {}) =>
         s.rt.call("env.exec", { env, command, ...opts }) as Promise<ExecResult>,
-      readFile: (env, path) => s.rt.call("env.readFile", { env, path }) as Promise<FileData>,
+      readFile: (env, path) => call("env.readFile", { env, path }),
       writeFile: (env, path, content, opts = {}) =>
-        s.rt.call("env.writeFile", { env, path, content, ...opts }) as Promise<FileWritten>,
-      deleteFile: async (env, path) => {
-        await s.rt.call("env.deleteFile", { env, path })
+        call("env.writeFile", { env, path, base64: toBase64(content), ...opts }),
+      deleteFile: async (env, path, opts = {}) => {
+        await call("env.deleteFile", { env, path, ...opts })
       },
-      listDir: (env, path) => s.rt.call("env.listDir", { env, path }) as Promise<DirListing>,
+      listDir: (env, path) => call("env.listDir", { env, path }),
+      stat: (env, path) => call("env.stat", { env, path }),
       connect: (env, port, opts) => s.rt.stream("env.connect", { env, port }, opts),
+      portUrl: (env, port, path) => call("env.portUrl", { env, port, ...(path ? { path } : {}) }),
     },
     terminals: {
-      open: (env, opts = {}) => s.rt.stream("terminals.open", { env, ...opts }),
-      attach: (terminal, opts = {}) => s.rt.stream("terminals.attach", { terminal, ...opts }),
-      write: async (terminal, data) => {
-        await s.rt.call("terminals.write", { terminal, data })
+      open: (env, opts = {}) => call("terminals.open", { env, ...opts }),
+      attach: (id, opts = {}, stream) => s.rt.stream("terminals.attach", { id, ...opts }, stream),
+      write: async (id, text) => {
+        await call("terminals.write", { id, text })
       },
-      resize: async (terminal, cols, rows) => {
-        await s.rt.call("terminals.resize", { terminal, cols, rows })
+      resize: async (id, cols, rows) => {
+        await call("terminals.resize", { id, size: { cols, rows } })
       },
-      signal: async (terminal, signal) => {
-        await s.rt.call("terminals.signal", { terminal, signal })
+      signal: async (id, signal) => {
+        await call("terminals.signal", { id, signal })
       },
-      close: async (terminal) => {
-        await s.rt.call("terminals.close", { terminal })
+      rename: async (id, title) => {
+        await call("terminals.rename", { id, title })
       },
-      list: async (env) =>
-        ((await s.rt.call("terminals.list", env ? { env } : {})) as TerminalList).terminals,
-      get: (terminal) => s.rt.call("terminals.get", { terminal }) as Promise<TerminalInfo>,
-      screen: (terminal) => s.rt.call("terminals.screen", { terminal }) as Promise<ScreenInfo>,
+      close: async (id) => {
+        await call("terminals.close", { id })
+      },
+      list: async (opts = {}) => (await call("terminals.list", opts)).terminals,
+      get: (id) => call("terminals.get", { id }),
+      screen: (id, opts = {}) => call("terminals.screen", { id, ...opts }),
+      sessions: async (env, opts = {}) => (await call("terminals.sessions", { env, ...opts })).sessions,
+      adopt: (env, session) => call("terminals.adopt", { env, session }),
     },
     connections: {
       types: async () => (await call("connections.types", {})).types,

@@ -38,6 +38,7 @@ pub async fn forward(kernel: Kernel, serve: Arc<Serve>) {
 /// The server's events are its own plugin id's, as a plugin's are: `rookery/NAME`.
 pub const HOSTS_CHANGED: &str = "rookery/hosts.changed";
 pub const RESOURCES_CHANGED: &str = "rookery/resources.changed";
+pub const ENV_CHANGED: &str = "rookery/env.changed";
 
 /// Whether a connection hears of a host: an admin's, one with a grant on it, or a plugin's host half,
 /// code an admin installed that keeps up with the hosts.
@@ -63,7 +64,7 @@ async fn tell(kernel: &Kernel, serve: &Arc<Serve>, event: Event) {
             };
             let payload = json!({
                 "host": name,
-                "info": info,
+                "info": info.clone(),
                 "change": change,
                 "from": from,
                 "removed": removed,
@@ -72,6 +73,7 @@ async fn tell(kernel: &Kernel, serve: &Arc<Serve>, event: Event) {
                 sees(kernel, caller, &name)
             })
             .await;
+            env_changed(kernel, &name, from.as_deref(), info).await;
         }
         Event::Resource {
             id,
@@ -115,6 +117,58 @@ async fn tell(kernel: &Kernel, serve: &Arc<Serve>, event: Event) {
         }
         Event::Inbox(_) | Event::Job(_) | Event::Kv { .. } => {}
     }
+}
+
+/// `rookery/env.changed`, with the host as `env.get` gives it to each subscriber who may see it. A
+/// renamed host is removed under its old name.
+async fn env_changed(
+    kernel: &Kernel,
+    name: &str,
+    from: Option<&str>,
+    info: Option<rookery_proto::hosts::HostInfo>,
+) {
+    if let Some(from) = from {
+        let gone = json!(rookery_proto::env::EnvChanged {
+            env: crate::uri(from),
+            environment: None,
+            removed: true,
+        });
+        rookery_jobs::events::publish_where(kernel, ENV_CHANGED, &gone, |caller| {
+            sees(kernel, caller, name)
+        })
+        .await;
+    }
+    let env = crate::uri(name);
+    rookery_jobs::events::publish_each(kernel, ENV_CHANGED, |caller| {
+        let (env, info) = (env.clone(), info.clone());
+        async move {
+            let call = Call::new(kernel.clone(), caller, None);
+            match info {
+                Some(host) => {
+                    let environment = crate::env::visible(&call, &host).await.ok().flatten()?;
+                    serde_json::to_value(rookery_proto::env::EnvChanged {
+                        env,
+                        environment: Some(environment),
+                        removed: false,
+                    })
+                    .ok()
+                }
+                // As hosts.changed: those who may still see it.
+                None => sees(kernel, call.caller.clone(), name)
+                    .await
+                    .then(|| {
+                        serde_json::to_value(rookery_proto::env::EnvChanged {
+                            env,
+                            environment: None,
+                            removed: true,
+                        })
+                        .ok()
+                    })
+                    .flatten(),
+            }
+        }
+    })
+    .await;
 }
 
 /// The people who manage a host: its owner and those with manage on it, directly or by a group.

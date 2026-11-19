@@ -3,4 +3,4 @@
 /**
  * `hosts.ports.connect`: a TCP port on the host's loopback.
  */
-export type PortConnect = { host: string, port: number, };
+export type HostPortConnect = { host: string, port: number, };
