@@ -60,6 +60,16 @@
             "$ref": "#/$defs/name"
           },
           "uniqueItems": true
+        },
+        "serviceLevels": {
+          "description": "Access by provided service name. own (the default) allows signed-in users and plugins, plugin allows plugins and admins, and admin allows admins.",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/name"
+          },
+          "additionalProperties": {
+            "enum": ["own", "plugin", "admin"]
+          }
         }
       }
     },

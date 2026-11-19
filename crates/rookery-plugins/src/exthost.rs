@@ -25,7 +25,7 @@
 //! [`CRASHES`] times in [`CRASH_WINDOW`], after which the plugin is failed until an admin activates
 //! it or it changes. When the server stops, each host half is deactivated, which runs its cleanups.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -33,6 +33,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use rookery_jobs::JobRun;
 use rookery_kernel::conn::{ConnHandle, Outbound};
 use rookery_kernel::{Call, Caller, Kernel};
 use rookery_proto::{ErrorBody, ErrorCode, RpcError};
@@ -97,6 +98,34 @@ pub struct Registration {
     pub params: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub methods: BTreeMap<String, ServiceMethod>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceMethod {
+    #[serde(default)]
+    pub stream: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
+}
+
+#[derive(Clone)]
+pub(crate) enum Invocation {
+    Stream(mpsc::Sender<Value>),
+    Job(JobRun),
+}
+
+struct InvocationGuard {
+    link: Link,
+    id: String,
+}
+
+impl Drop for InvocationGuard {
+    fn drop(&mut self) {
+        self.link.0.invocations.lock().unwrap().remove(&self.id);
+    }
 }
 
 #[derive(Default)]
@@ -237,6 +266,8 @@ impl ExtHost {
             pid: child.id(),
             out,
             pending: Mutex::default(),
+            invocations: Mutex::default(),
+            streams: Mutex::default(),
             next: AtomicI64::new(1),
             closed: AtomicBool::new(false),
             stop: CancellationToken::new(),
@@ -382,7 +413,12 @@ impl ExtHost {
             match link
                 .call::<Activated>("plugins.activate", params, ACTIVATE_TIMEOUT)
                 .await
-            {
+                .and_then(|activated| {
+                    for registration in &activated.registrations {
+                        check_registration(&plugins, plugin, registration)?;
+                    }
+                    Ok(activated)
+                }) {
                 Ok(activated) => Ok((link, activated.registrations)),
                 Err(e) => {
                     self.stop(kernel, plugin, link.generation());
@@ -446,10 +482,9 @@ impl ExtHost {
             .await
     }
 
-    /// [`ExtHost::invoke`], which `cancel` also ends, as a job's cancel does. Only an `rpc` handler
-    /// says a level: the server itself calls the others, such as a job's.
+    /// Invokes the handler and binds any stream or job I/O to the resulting call on this pipe.
     #[allow(clippy::too_many_arguments)]
-    pub async fn invoke_until(
+    pub(crate) async fn invoke_until(
         &self,
         call: &Call,
         plugins: &Arc<crate::Plugins>,
@@ -457,7 +492,7 @@ impl ExtHost {
         kind: &str,
         key: &str,
         params: Value,
-        cancel: Option<tokio_util::sync::CancellationToken>,
+        invocation: Option<Invocation>,
     ) -> Result<Value, RpcError> {
         let Some(link) = self.active_link(plugin) else {
             return Err(RpcError::unavailable(format!(
@@ -504,38 +539,58 @@ impl ExtHost {
             "principal": call.principal(),
             "deadline": deadline,
         });
-        let invoke =
-            json!({"plugin": plugin, "kind": kind, "key": key, "params": params, "ctx": ctx});
+        let stream = matches!(invocation, Some(Invocation::Stream(_)));
+        let invoke = json!({"plugin": plugin, "kind": kind, "key": key, "params": params, "ctx": ctx, "stream": stream});
+        let job = match &invocation {
+            Some(Invocation::Job(run)) => Some(run.clone()),
+            _ => None,
+        };
+        let guard = invocation.map(|invocation| {
+            link.0
+                .invocations
+                .lock()
+                .unwrap()
+                .insert(call_id.clone(), invocation);
+            InvocationGuard {
+                link: link.clone(),
+                id: call_id.clone(),
+            }
+        });
         // The request and its deadline run in a task of their own: the kernel ends this call at its
         // deadline too, and a future dropped then must not take the host half's ending with it.
         let (kernel, plugins, id) = (call.kernel.clone(), plugins.clone(), plugin.to_owned());
         let (kind, key) = (kind.to_owned(), key.to_owned());
         let generation = link.generation();
         let deadline = call.deadline;
-        let (tx, rx) = oneshot::channel();
+        let (mut tx, rx) = oneshot::channel();
         tokio::spawn(async move {
+            let guard = guard;
             let mut request = Box::pin(link.request("plugins.invoke", invoke));
             let left = deadline.saturating_duration_since(Instant::now());
             let cancelled = async {
-                match &cancel {
-                    Some(cancel) => cancel.cancelled().await,
+                match &job {
+                    Some(job) => job.cancelled().await,
                     None => std::future::pending().await,
                 }
             };
             let reason = tokio::select! {
+                biased;
                 done = &mut request => {
+                    drop(guard);
                     let _ = tx.send(done);
                     return;
                 }
                 _ = tokio::time::sleep(left) => "timeout",
                 _ = cancelled => "cancelled",
+                _ = tx.closed() => "caller-closed",
             };
+            drop(guard);
             // The handler has its grace past the end of the call, and then its host half ends.
             link.notify(
                 "plugins.cancel",
                 json!({"plugin": id, "callId": call_id, "reason": reason}),
             );
-            let _ = tx.send(Err(if reason == "cancelled" {
+            let _ = tx.send(Err(if reason != "timeout" {
                 RpcError::unavailable(format!("{kind} {key} of {id} was cancelled"))
             } else {
                 RpcError::timeout(format!(
@@ -626,9 +681,18 @@ fn crashed(
         let (kernel, plugins, plugin) = (kernel.clone(), plugins.clone(), plugin.to_owned());
         tokio::spawn(async move {
             tokio::time::sleep(wait).await;
-            let _ = plugins.activate(&kernel, &plugin).await;
+            let restart = host_restart_pending(&plugins.host, &plugin, generation);
+            if restart {
+                let _ = plugins.activate_as(&kernel, &plugin, false).await;
+            }
         });
     }
+}
+
+fn host_restart_pending(host: &ExtHost, plugin: &str, generation: u64) -> bool {
+    host.slots.lock().unwrap().get(plugin).is_some_and(|slot| {
+        slot.generation == generation && slot.wanted && slot.state == Some(PluginState::Inactive)
+    })
 }
 
 #[derive(Deserialize)]
@@ -648,6 +712,8 @@ struct LinkInner {
     pid: Option<u32>,
     out: mpsc::UnboundedSender<String>,
     pending: Pending,
+    invocations: Mutex<HashMap<String, Invocation>>,
+    streams: Mutex<HashMap<String, Arc<tokio::sync::Mutex<crate::services::ServiceStream>>>>,
     next: AtomicI64,
     closed: AtomicBool,
     /// Ends the process.
@@ -680,13 +746,20 @@ impl Link {
     ) -> impl Future<Output = Result<Value, RpcError>> + Send + 'static {
         let (tx, rx) = oneshot::channel();
         let id = self.0.next.fetch_add(1, Ordering::Relaxed);
-        let sent = !self.0.closed.load(Ordering::Acquire) && {
-            self.0.pending.lock().unwrap().insert(id, tx);
-            self.send(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}))
+        let sent = {
+            let mut pending = self.0.pending.lock().unwrap();
+            if self.is_closed() {
+                false
+            } else {
+                pending.insert(id, tx);
+                let sent = self
+                    .send(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}));
+                if !sent {
+                    pending.remove(&id);
+                }
+                sent
+            }
         };
-        if !sent {
-            self.0.pending.lock().unwrap().remove(&id);
-        }
         async move {
             if !sent {
                 return Err(RpcError::unavailable("the extension host is not running"));
@@ -742,6 +815,7 @@ impl Link {
 
     fn fail_all(&self) {
         self.0.closed.store(true, Ordering::Release);
+        self.0.streams.lock().unwrap().clear();
         let pending: Vec<_> = self.0.pending.lock().unwrap().drain().collect();
         for (_, tx) in pending {
             let _ = tx.send(Err(RpcError::unavailable("the extension host went away")));
@@ -903,7 +977,7 @@ async fn run(
         };
         let Ok(Some(line)) = line else { break };
         let Ok(message) = serde_json::from_str::<Value>(&line) else {
-            tracing::warn!(target: "rookery::exthost", plugin, "{line}");
+            tracing::warn!(target: "rookery::exthost", plugin, "invalid extension host protocol message");
             continue;
         };
         let method = message.get("method").and_then(Value::as_str);
@@ -923,9 +997,13 @@ async fn run(
                     continue;
                 };
                 let call = Call::new(kernel.clone(), Caller::Plugin(plugin.clone()), Some(conn));
-                let done = kernel.methods.dispatch(call, method, params);
                 let link = link.clone();
-                tokio::spawn(async move { link.respond(id, done.await) });
+                let plugins = plugins.clone();
+                let method = method.to_owned();
+                tokio::spawn(async move {
+                    let done = host_request(&call, &plugins, &link, &method, params).await;
+                    link.respond(id, done);
+                });
             }
             (Some(method), None) => {
                 let params = message.get("params").cloned().unwrap_or(Value::Null);
@@ -963,6 +1041,9 @@ fn notified(
     params: Value,
 ) {
     let host = &plugins.host;
+    if host.plugin_conn(plugin, generation).is_none() {
+        return;
+    }
     match method {
         "plugins.exited" => {
             let error = params
@@ -975,7 +1056,10 @@ fn notified(
                 .get("registration")
                 .and_then(|r| serde_json::from_value(r.clone()).ok())
             {
-                host.registered(plugin, registration);
+                match check_registration(plugins, plugin, &registration) {
+                    Ok(()) => host.registered(plugin, registration),
+                    Err(e) => tracing::warn!(plugin, error = %e, "ignoring a plugin registration"),
+                }
             }
         }
         "plugins.unregistered" => {
@@ -992,5 +1076,142 @@ fn notified(
             }
         }
         _ => {}
+    }
+}
+
+/// Check both activation and later registrations against the manifest of the process on the pipe.
+fn check_registration(
+    plugins: &crate::Plugins,
+    plugin: &str,
+    registration: &Registration,
+) -> Result<(), RpcError> {
+    let loaded = plugins
+        .get(plugin)
+        .ok_or_else(|| RpcError::not_found("no such plugin"))?;
+    let key = &registration.key;
+    let declared = match registration.kind.as_str() {
+        "service" => crate::services::provides(&loaded, key),
+        "job" => crate::jobs::declared(&loaded)
+            .iter()
+            .any(|job| &job.id == key),
+        "rpc" | "command" => true,
+        _ => false,
+    };
+    if !declared {
+        return Err(RpcError::forbidden(format!(
+            "{plugin} declares no {} {key}",
+            registration.kind
+        )));
+    }
+    if registration.methods.values().any(|method| {
+        method
+            .timeout_secs
+            .is_some_and(|secs| !(1..=300).contains(&secs))
+    }) {
+        return Err(RpcError::invalid(
+            "timeoutSecs must be an integer from 1 to 300",
+        ));
+    }
+    Ok(())
+}
+
+/// Requests tied to this process and one live invocation stay on the private pipe.
+async fn host_request(
+    call: &Call,
+    plugins: &Arc<crate::Plugins>,
+    link: &Link,
+    method: &str,
+    params: Value,
+) -> Result<Value, RpcError> {
+    let text = |key: &str| {
+        params
+            .get(key)
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError::invalid(format!("{method} needs {key}")))
+    };
+    match method {
+        "host.stream.item" | "host.job.log" | "host.job.progress" => {
+            let invocation = link
+                .0
+                .invocations
+                .lock()
+                .unwrap()
+                .get(text("callId")?)
+                .cloned();
+            match (method, invocation) {
+                ("host.stream.item", Some(Invocation::Stream(out))) => {
+                    out.send(params.get("item").cloned().unwrap_or(Value::Null))
+                        .await
+                        .map_err(|_| RpcError::unavailable("the service stream closed"))?;
+                }
+                ("host.job.log", Some(Invocation::Job(run))) => {
+                    let level = text("level")?;
+                    if !matches!(level, "debug" | "info" | "warn" | "error") {
+                        return Err(RpcError::invalid("a level is debug, info, warn or error"));
+                    }
+                    run.log(level, text("text")?, None).await?;
+                }
+                ("host.job.progress", Some(Invocation::Job(run))) => {
+                    run.progress(params.get("progress").cloned().unwrap_or(Value::Null))
+                        .await?;
+                }
+                _ => {
+                    return Err(RpcError::forbidden(
+                        "the process has no such running invocation",
+                    ));
+                }
+            }
+            Ok(Value::Null)
+        }
+        "jobs.log" | "jobs.progress" => Err(RpcError::forbidden(
+            "a host half writes through its running job handler",
+        )),
+        "host.services.open" => {
+            let asked = serde_json::from_value(params)
+                .map_err(|e| RpcError::invalid(format!("params: {e}")))?;
+            let stream = crate::services::open_stream(call, plugins, asked).await?;
+            let id = uuid::Uuid::now_v7().to_string();
+            let mut streams = link.0.streams.lock().unwrap();
+            if link.is_closed() || streams.len() >= 32 {
+                return Err(RpcError::unavailable(
+                    "the plugin cannot open more service streams",
+                ));
+            }
+            streams.insert(id.clone(), Arc::new(tokio::sync::Mutex::new(stream)));
+            Ok(json!({"stream": id}))
+        }
+        "host.services.next" => {
+            let id = text("stream")?;
+            let stream = link
+                .0
+                .streams
+                .lock()
+                .unwrap()
+                .get(id)
+                .cloned()
+                .ok_or_else(|| RpcError::not_found("no such service stream"))?;
+            // A caller may never keep a provider running after its own process ends.
+            let next = tokio::select! {
+                next = async { stream.lock().await.next().await } => next,
+                _ = link.0.stop.cancelled() => Err(RpcError::unavailable("the plugin stopped")),
+            };
+            if matches!(&next, Ok(None) | Err(_)) {
+                link.0.streams.lock().unwrap().remove(id);
+            }
+            Ok(match next? {
+                Some(item) => json!({"done": false, "item": item}),
+                None => json!({"done": true}),
+            })
+        }
+        "host.services.close" => {
+            link.0.streams.lock().unwrap().remove(text("stream")?);
+            Ok(Value::Null)
+        }
+        _ => {
+            call.kernel
+                .methods
+                .dispatch(call.clone(), method, params)
+                .await
+        }
     }
 }

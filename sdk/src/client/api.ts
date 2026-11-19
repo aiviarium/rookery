@@ -346,6 +346,23 @@ export interface Plugins {
   ): Promise<ClientStream>
 }
 
+export interface ClientServices {
+  call<T = unknown>(
+    plugin: string,
+    service: string,
+    method: string,
+    params?: Record<string, unknown>,
+  ): Promise<T>
+  /** Opens a stream with one JSON value per line. */
+  stream(
+    plugin: string,
+    service: string,
+    method: string,
+    params?: Record<string, unknown>,
+    opts?: StreamOptions,
+  ): Promise<ClientStream>
+}
+
 export interface AppServices {
   url(service: string, path?: string): string
   list(): Promise<AppServiceInfo[]>
@@ -379,6 +396,7 @@ export interface ClientRookery {
   readonly blobs: Blobs
   readonly extensions: Extensions
   readonly plugins: Plugins
+  readonly services: ClientServices
   readonly appServices: AppServices
 }
 
@@ -727,6 +745,12 @@ export function createClientRookery(s: ClientScope): ClientRookery {
         s.rt.call("plugins.rpc", { plugin, method, params }) as Promise<T>,
       stream: (plugin, method, params = {}, opts) =>
         s.rt.stream("plugins.rpc", { plugin, method, params }, opts),
+    },
+    services: {
+      call: (plugin, service, method, params = {}) =>
+        s.rt.call("services.call", { plugin, service, method, params }) as Promise<any>,
+      stream: (plugin, service, method, params = {}, opts) =>
+        s.rt.stream("services.stream", { plugin, service, method, params }, opts),
     },
     appServices: {
       url: (service, path) => serviceUrl(s.plugin, service, path),

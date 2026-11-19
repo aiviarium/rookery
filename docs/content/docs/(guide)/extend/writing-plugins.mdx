@@ -144,7 +144,7 @@ The line `rookery ">=0.6"` in `requires` is a range of Rookery versions, in Carg
 | `namespace` | The first segment of its routes, its id unless set |
 | `contributes` | What it brings: `hostFeatures`, `provisioners`, `shell`, and the parts a shell shows, such as `views`, `nav` and `commands` |
 | `provides.services` | The names of the services other plugins may call |
-| `interface` | The module that `defineInterface` declares. The extension host writes `interface.json` and `interface.d.ts` from it |
+| `interface` | The module that exports `defineInterface`. The extension host loads it before activation |
 | `database`, `app`, `services` | Raw SQL for the plugin's own schema, a plugin that is an app of its own, and servers it ships |
 
 `contributes.shell` makes the plugin the server's shell, and holds its entry: `{"entry": "dist/index.html"}`. One plugin on a server has it ([Client halves and the shell](/docs/extend/plugins#client-halves-and-the-shell)).
@@ -195,11 +195,58 @@ Each method it registers with `rookery.rpc.handle` says who may call it through 
 | `own` | A person who is signed in, or the server's own machine. Not another plugin. The handler checks the rest, with `ctx.user` |
 | `admin` | An admin |
 
-A job the manifest declares under `contributes.jobs`, such as `{"id": "echo.build", "title": "Build"}`, is a kind of job of the server's, `echo/build`. The host half runs it with `rookery.jobs.handle("echo.build", { run })`. The job's `enqueue` says who may start one besides an admin. With `own`, the default, anyone signed in and the plugin itself may. With `plugin`, the plugin alone may. With `admin`, admins alone may.
+A job declared in `contributes.jobs` has an ID such as `echo.build`. The host half registers it with `rookery.jobs.handle("echo.build", { run })`, and callers enqueue it as `echo/build`. Use `job.log` and `job.progress` to record output for the current attempt. Return the result from `run`. On cancellation, `job.signal` aborts and its reason identifies the cancellation. Stop any work when that happens. The server renews the claim while the job runs and uses the queue's retry policy if the host process exits. The declaration's `timeoutSecs` limits each attempt.
+
+The job's `enqueue` sets who may start it. With `own`, the default, signed-in users and the declaring plugin may enqueue it. With `plugin`, only the declaring plugin and admins may enqueue it. With `admin`, only admins may enqueue it.
+
+Use `rookery.connections.list({ type })` and `rookery.connections.get(id)` to read metadata for connections of types your plugin declares. Omit `type` to list all of your plugin's types. `rookery.connections.resolve(id)` also opens the sealed credential and returns it to the declaring plugin's process. Host halves use global connections. The server identifies the plugin from its process, so the host half gives no plugin or user ID. Keep credentials out of logs, service responses and job results.
 
 A host half hears events with `rookery.events.subscribe`. A name without a `/` is its plugin's own, and a full name is another's, such as the server's `rookery/hosts.changed`, `rookery/resources.changed` and `rookery/jobs.changed`.
 
-A plugin offers others what it names in `provides.services`. Its host half serves a service with `rookery.services.provide("greeter", { hello })`, and others call it with `services.call`. Or one of the plugin's app services in `services` does, when its `provides` names the service. An admin places an app service at a URL with `services.setExternal`, and the server calls it there with JSON-RPC over `POST URL/rpc`, with its secret as a bearer token. A method of `contributes.rpc` with a `handler` is a method of an app service. A plugin's `extensionPoints` take contributions from other plugins under `contributes.extensions`, which `extensions.list` gives when they match the point's schema.
+#### Host services
+
+List each service name in `provides.services` and point the manifest's `interface` field at the module that declares its methods. Use the same declaration when registering the service:
+
+```ts title="interface.ts"
+import { defineInterface, z } from "@rookery/sdk"
+
+export default defineInterface({
+  services: {
+    greeter: {
+      hello: {
+        params: z.object({ name: z.string() }),
+        result: z.string(),
+        timeoutSecs: 5,
+      },
+    },
+  },
+})
+```
+
+```ts title="host.ts"
+import { definePlugin } from "@rookery/sdk"
+import api from "./interface"
+
+export default definePlugin((rookery) => {
+  rookery.services.provide(api.services.greeter, {
+    hello: (_ctx, { name }) => `Hello, ${name}`,
+  })
+})
+```
+
+Other host halves and client halves call `rookery.services.call("echo", "greeter", "hello", { name: "Ada" })`. Set `provides.serviceLevels.greeter` to control access:
+
+| Level | Who may call it |
+| --- | --- |
+| `own` (default) | Signed-in users and plugins |
+| `plugin` | Plugins and admins |
+| `admin` | Admins |
+
+A host service can read the caller's identity from `ctx.principal`. The interface validates the input and the result. `timeoutSecs` sets the method's time limit, up to 300 seconds. Methods use the server's call timeout by default.
+
+Declare `stream: true` for a method that yields chunks from an async generator. Each chunk matches the declared `result` schema. Host callers iterate over `rookery.services.stream(plugin, service, method, params)` with `for await`. Client callers use the same arguments to open a stream of newline-delimited JSON.
+
+A plugin may also implement a service with one of its app services in `services`. An admin places the app service at a URL with `services.setExternal`. The server calls it with JSON-RPC over `POST URL/rpc`, using its secret as a bearer token. A method in `contributes.rpc` with a `handler` routes to an app service. A plugin's `extensionPoints` take contributions from other plugins under `contributes.extensions`, which `extensions.list` gives when they match the point's schema.
 
 A host half is ended, and counted as a crash, when its process ends or when a handler keeps running past its call's deadline. So is one whose process holds more memory than `ROOKERY_EXTHOST_MEMORY_MB` (512 MiB unless set). After five crashes in a minute it's failed. Then only an admin starts it again, also as a dependency of another plugin.
 

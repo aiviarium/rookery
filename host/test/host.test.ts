@@ -28,7 +28,14 @@ function server() {
   return { link, calls, notes }
 }
 
-const manifest = (id: string) => ({ id, name: id, version: "1.0.0", host: "host.ts" })
+const manifest = (id: string) => ({
+  id,
+  name: id,
+  version: "1.0.0",
+  host: "host.ts",
+  provides: { services: ["greeter"] },
+  contributes: { jobs: ["echo.build", "echo.wait", "echo.wipe"].map((id) => ({ id })) },
+})
 const ctx = (deadlineMs = 5000) => ({
   callId: crypto.randomUUID(),
   user: null,
@@ -113,6 +120,90 @@ describe("the extension host", () => {
     expect(RookeryError.from(none).code).toBe("NOT_FOUND")
     await host.handle("plugins.deactivate", { plugin: "echo" })
     expect(host.plugins()).toEqual([])
+  })
+
+  test("activates a typed service and a job handler while using connections", async () => {
+    const chunks: unknown[] = []
+    const jobCalls: string[] = []
+    const host = new Host({
+      async request(method, params, plugin) {
+        expect(plugin).toBe("sample")
+        switch (method) {
+          case "connections.list":
+            return { connections: [] }
+          case "connections.get":
+            expect(params).toEqual({ id: "fixture" })
+            return { name: "Fixture" }
+          case "connections.resolve":
+            expect(params).toEqual({ id: "fixture" })
+            return { credential: "fixture-key" }
+          case "host.stream.item":
+            chunks.push(params.item)
+            return null
+          case "host.job.progress":
+          case "host.job.log":
+            jobCalls.push(method)
+            return null
+          default:
+            throw new Error(`unexpected host call ${method}`)
+        }
+      },
+      notify() {},
+    })
+    const plugin = "sample"
+    try {
+      const activated = await host.handle("plugins.activate", {
+        plugin,
+        dir: fixture("host-apis"),
+        manifest: {
+          ...manifest(plugin),
+          interface: "interface.ts",
+          provides: { services: ["sample"] },
+          contributes: { jobs: [{ id: "sample.run" }] },
+        },
+      })
+      expect(activated).toMatchObject({
+        registrations: expect.arrayContaining([
+          { kind: "job", key: "sample.run" },
+          {
+            kind: "service",
+            key: "sample",
+            methods: {
+              describe: { stream: false },
+              count: { stream: true },
+              wait: { stream: false, timeoutSecs: 1 },
+            },
+          },
+        ]),
+      })
+      const service = { plugin, kind: "service", key: "sample" }
+      expect(
+        await host.handle("plugins.invoke", {
+          ...service,
+          params: { method: "describe", params: { id: "fixture" } },
+          ctx: ctx(),
+        }),
+      ).toBe("Fixture")
+      await host.handle("plugins.invoke", {
+        ...service,
+        params: { method: "count", params: { to: 3 } },
+        ctx: ctx(),
+        stream: true,
+      })
+      expect(chunks).toEqual([1, 2, 3])
+      expect(
+        await host.handle("plugins.invoke", {
+          plugin,
+          kind: "job",
+          key: "sample.run",
+          params: { params: {}, job: { id: "fixture", attempt: 2, kind: "sample/run", maxAttempts: 3 } },
+          ctx: ctx(),
+        }),
+      ).toEqual({ attempt: 2 })
+      expect(jobCalls).toEqual(["host.job.log", "host.job.progress"])
+    } finally {
+      await host.stop(plugin, true)
+    }
   })
 
   test("a call past its deadline, or cancelled, ends", async () => {

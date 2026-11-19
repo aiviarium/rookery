@@ -1397,3 +1397,304 @@ async fn extension_points_and_services_of_host_halves_and_app_services() {
     assert_eq!(kept["value"], "s3cret");
     k.close().await;
 }
+
+const HOST_APIS: &str = r#"{
+  "apiVersion": "1", "name": "Sample", "host": "host.ts", "interface": "interface.ts",
+  "provides": {"services": ["sample"], "serviceLevels": {"sample": "plugin"}},
+  "contributes": {
+    "connectionTypes": [{
+      "id": "sample.example", "title": "Example",
+      "fields": {"type": "object", "properties": {"key": {"type": "string"}}},
+      "secret": ["key"], "scopes": ["global", "user"]
+    }],
+    "jobs": [{"id": "sample.run", "title": "Run", "enqueue": "plugin"}]
+  }
+}"#;
+
+#[tokio::test]
+async fn host_services_connections_and_job_claims_stay_with_their_plugin() {
+    if !bun_ready() {
+        return;
+    }
+    use rookery_proto::ErrorCode::*;
+    let mut methods = Methods::default();
+    rookery_facilities::register(&mut methods);
+    rookery_jobs::register(
+        &mut methods,
+        vec![],
+        rookery_jobs::Options {
+            lease: Duration::from_millis(600),
+            backoff: Duration::from_millis(200),
+            ..rookery_jobs::Options::default()
+        },
+    );
+    rookery_plugins::register(&mut methods);
+    let k = test_kernel!(methods, |config| config.call_timeout =
+        Duration::from_secs(5));
+    let scratch = tempfile::tempdir().unwrap();
+    let plugins = plugins(&k, scratch.path()).await;
+    let admin = k.person("Ada", true).await;
+    let member = k.person("Bob", false).await;
+    let sample = Caller::Plugin("sample".into());
+    let relay = Caller::Plugin("relay".into());
+
+    let fixture = checkout().join("host/test/fixtures/host-apis");
+    let host = fs::read_to_string(fixture.join("host.ts")).unwrap();
+    let interface = fs::read_to_string(fixture.join("interface.ts")).unwrap();
+    for (id, manifest) in [
+        ("sample", HOST_APIS),
+        (
+            "relay",
+            r#"{"apiVersion":"1","name":"Relay","host":"host.ts","interface":"interface.ts"}"#,
+        ),
+    ] {
+        let files = [
+            ("plugin.json", manifest),
+            ("host.ts", &host),
+            ("interface.ts", &interface),
+        ];
+        install(&k, &plugins, &package(scratch.path(), id, "1.0.0", &files)).await;
+    }
+
+    let create = |scope| {
+        json!({
+            "type": "sample.example", "name": "Example", "scope": scope, "config": {}, "credential": "fixture-key"
+        })
+    };
+    let global = k
+        .call(&admin, "connections.create", create("global"))
+        .await
+        .unwrap();
+    let personal = k
+        .call(&admin, "connections.create", create("user"))
+        .await
+        .unwrap();
+    let builtin = k.call(&admin, "connections.create", json!({
+        "type": "http", "name": "Builtin", "scope": "global", "config": {"url": "https://example.test"}
+    })).await.unwrap();
+    let global_id = &global["id"];
+    let describe = |id: &Value| {
+        json!({
+            "plugin": "sample", "service": "sample", "method": "describe", "params": {"id": id}
+        })
+    };
+    assert_eq!(
+        k.call(&member, "services.call", describe(global_id))
+            .await
+            .unwrap_err()
+            .error_code(),
+        Forbidden
+    );
+    assert_eq!(
+        k.call(&admin, "services.call", describe(global_id))
+            .await
+            .unwrap(),
+        "Example"
+    );
+    assert_eq!(
+        k.call(&admin, "services.call", describe(&personal["id"]))
+            .await
+            .unwrap_err()
+            .error_code(),
+        NotFound
+    );
+    assert_eq!(
+        k.call(&admin, "services.call", describe(&builtin["id"]))
+            .await
+            .unwrap_err()
+            .error_code(),
+        Forbidden
+    );
+    assert_eq!(
+        k.call(
+            &admin,
+            "connections.resolve",
+            json!({"plugin": "sample", "id": global_id})
+        )
+        .await
+        .unwrap_err()
+        .error_code(),
+        Forbidden
+    );
+    assert_eq!(
+        k.call(
+            &sample,
+            "connections.resolve",
+            json!({"type": "registry", "name": "anything"})
+        )
+        .await
+        .unwrap_err()
+        .error_code(),
+        Forbidden
+    );
+    assert_eq!(
+        k.call(&relay, "connections.resolve", json!({"id": global_id}))
+            .await
+            .unwrap_err()
+            .error_code(),
+        Forbidden
+    );
+    assert_eq!(
+        k.call(
+            &relay,
+            "connections.resolve",
+            json!({"plugin": "sample", "id": global_id})
+        )
+        .await
+        .unwrap_err()
+        .error_code(),
+        Forbidden
+    );
+
+    let listed = k
+        .call(
+            &member,
+            "plugins.rpc",
+            rpc("sample", "connections", json!({})),
+        )
+        .await
+        .unwrap();
+    assert_eq!(listed, json!([global]));
+    assert_eq!(
+        k.call(
+            &member,
+            "plugins.rpc",
+            rpc("relay", "connections", json!({"id": global_id}))
+        )
+        .await
+        .unwrap_err()
+        .error_code(),
+        Forbidden
+    );
+    let relayed = k
+        .call(
+            &member,
+            "plugins.rpc",
+            rpc("relay", "relay", json!({"plugin":"sample","id":global_id})),
+        )
+        .await
+        .unwrap();
+    assert_eq!(relayed, json!({"name": "Example", "chunks": [1, 2]}));
+    for (kind, name) in [("service", "sample"), ("job", "sample.run")] {
+        assert_eq!(
+            k.call(
+                &member,
+                "plugins.rpc",
+                rpc("relay", "register", json!({"type":kind,"name":name}))
+            )
+            .await
+            .unwrap_err()
+            .error_code(),
+            Forbidden
+        );
+    }
+
+    let mut inbox = k.connect(&admin);
+    let count = json!({"plugin":"sample","service":"sample","method":"count","params":{"to":3}});
+    assert_eq!(
+        k.call(&admin, "services.call", count.clone())
+            .await
+            .unwrap_err()
+            .error_code(),
+        Invalid
+    );
+    let opened = k.call_on(&inbox, "services.stream", count).await.unwrap();
+    assert_eq!(
+        inbox.lines(opened["stream"].as_u64().unwrap() as u32).await,
+        [json!(1), json!(2), json!(3)]
+    );
+    assert_eq!(
+        k.call(
+            &admin,
+            "services.call",
+            json!({"plugin":"sample","service":"sample","method":"describe"})
+        )
+        .await
+        .unwrap_err()
+        .error_code(),
+        Invalid
+    );
+    assert_eq!(
+        k.call(
+            &admin,
+            "services.call",
+            json!({"plugin":"sample","service":"undeclared","method":"wait"})
+        )
+        .await
+        .unwrap_err()
+        .error_code(),
+        NotFound
+    );
+    assert_eq!(
+        k.call(
+            &admin,
+            "services.call",
+            json!({"plugin":"sample","service":"sample","method":"wait"})
+        )
+        .await
+        .unwrap_err()
+        .error_code(),
+        Timeout
+    );
+
+    let job = |params| json!({"kind": "sample/run", "params": params});
+    for (caller, kind) in [(&relay, "sample/run"), (&sample, "sample/undeclared")] {
+        assert_eq!(
+            k.call(caller, "jobs.enqueue", json!({"kind":kind}))
+                .await
+                .unwrap_err()
+                .error_code(),
+            Forbidden
+        );
+    }
+    let retry = k
+        .call(&sample, "jobs.enqueue", job(json!({"crash": true})))
+        .await
+        .unwrap();
+    let retried = job_ends(&k, &admin, &retry["id"]).await;
+    assert_eq!(retried["state"], "succeeded", "{retried}");
+    assert_eq!(retried["result"], json!({"attempt": 2}));
+    let items = k
+        .call(&admin, "jobs.output", json!({"id": retry["id"]}))
+        .await
+        .unwrap();
+    assert!(items.to_string().contains("attempt 1") && items.to_string().contains("attempt 2"));
+
+    let waiting = k
+        .call(&sample, "jobs.enqueue", job(json!({"wait": true})))
+        .await
+        .unwrap();
+    until("job progress", || async {
+        k.call(&admin, "jobs.get", json!({"id": waiting["id"]}))
+            .await
+            .unwrap()["progress"]["done"]
+            == 1
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(850)).await;
+    let id = waiting["id"].as_str().unwrap().parse().unwrap();
+    let claim = k.kernel.store.jobs().get(id).await.unwrap().unwrap();
+    assert_eq!(claim.attempts, 1);
+    let live: bool =
+        sqlx::query_scalar("SELECT claimed_until > now() FROM rookery.jobs WHERE id = $1")
+            .bind(id)
+            .fetch_one(k.kernel.store.pool())
+            .await
+            .unwrap();
+    assert!(live, "the server renewed the plugin's claim");
+    k.call(&admin, "jobs.cancel", json!({"id": waiting["id"]}))
+        .await
+        .unwrap();
+    assert_eq!(
+        job_ends(&k, &admin, &waiting["id"]).await["state"],
+        "cancelled"
+    );
+    until("the cancellation reason reaching the plugin", || async {
+        k.call(&sample, "storage.get", json!({"key":"reason"}))
+            .await
+            .unwrap()["value"]
+            == json!({"reason": "cancelled"})
+    })
+    .await;
+    k.close().await;
+}

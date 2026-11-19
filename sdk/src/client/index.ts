@@ -42,6 +42,7 @@ export type {
   Chrome,
   ClientEnv,
   ClientRookery,
+  ClientServices,
   ClientTerminals,
   Commands,
   Connections,

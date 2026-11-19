@@ -2,6 +2,7 @@
 // host runtime, whose calls of the server go to the main thread and from there to the server.
 import { join } from "node:path"
 import { parentPort, workerData } from "node:worker_threads"
+import { isInterface } from "@rookery/sdk"
 import { RookeryError } from "@rookery/sdk/errors"
 import { activate, createHost, format, type HostTransport } from "@rookery/sdk/runtime/host"
 import type { FromWorker, ToWorker, WorkerData } from "./protocol"
@@ -50,6 +51,15 @@ port.on("message", async (m: ToWorker) => {
   switch (m.type) {
     case "activate":
       try {
+        if (data.manifest.interface) {
+          const declaration = (await import(join(data.dir, data.manifest.interface))).default
+          if (!isInterface(declaration))
+            throw new RookeryError(
+              "INVALID",
+              `the interface of ${data.plugin} must export defineInterface(...)`,
+            )
+          runtime.interface = declaration
+        }
         const mod = await import(join(data.dir, data.manifest.host))
         post({ type: "activated", id: m.id, registrations: await activate(runtime, rookery, mod) })
       } catch (e) {

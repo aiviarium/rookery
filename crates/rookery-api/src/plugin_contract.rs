@@ -276,6 +276,21 @@ pub fn manifest_problems(read: &Read, has: &dyn Fn(&str) -> bool) -> Vec<Problem
             )));
         }
     }
+    let provided = manifest
+        .pointer("/provides/services")
+        .and_then(Value::as_array);
+    if let Some(levels) = manifest
+        .pointer("/provides/serviceLevels")
+        .and_then(Value::as_object)
+    {
+        for name in levels.keys() {
+            if !provided.is_some_and(|services| services.iter().any(|service| service == name)) {
+                problems.push(problem(format!(
+                    "provides.serviceLevels names {name}, which is not in provides.services"
+                )));
+            }
+        }
+    }
     for key in ["dependencies", "optionalDependencies"] {
         for (id, range) in manifest[key].as_object().into_iter().flatten() {
             let range = range.as_str().unwrap_or("");

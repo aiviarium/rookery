@@ -127,27 +127,18 @@ impl JobHandler for PluginJob {
                     "subject": run.subject,
                 },
             });
-            let cancel = tokio_util::sync::CancellationToken::new();
-            let watch = {
-                let cancel = cancel.clone();
-                async move {
-                    run.cancelled().await;
-                    cancel.cancel();
-                }
-            };
-            let invoked = plugins.host.invoke_until(
-                &call,
-                &plugins,
-                &job.plugin,
-                "job",
-                &job.id,
-                params,
-                Some(cancel),
-            );
-            let watcher = tokio::spawn(watch);
-            let done = invoked.await;
-            watcher.abort();
-            done
+            plugins
+                .host
+                .invoke_until(
+                    &call,
+                    &plugins,
+                    &job.plugin,
+                    "job",
+                    &job.id,
+                    params,
+                    Some(crate::exthost::Invocation::Job(run)),
+                )
+                .await
         })
     }
 }

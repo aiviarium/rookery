@@ -29,6 +29,7 @@ import type {
   TopicMessage,
   User,
 } from "../generated"
+import type { MethodDecls, NoExtraMethods, ServiceDecl, ServiceImpl } from "../interface"
 import type {
   Collections,
   CommandId,
@@ -95,6 +96,10 @@ export interface Rpc {
 }
 
 export interface Services {
+  provide<N extends string, M extends MethodDecls, I extends ServiceImpl<M>>(
+    service: ServiceDecl<N, M>,
+    methods: I & NoExtraMethods<I, M>,
+  ): Disposable
   provide(service: string, methods: Record<string, (ctx: Ctx, params: any) => unknown>): Disposable
   call<T = unknown>(
     plugin: string,
@@ -102,6 +107,12 @@ export interface Services {
     method: string,
     params?: Record<string, unknown>,
   ): Promise<T>
+  stream<T = unknown>(
+    plugin: string,
+    service: string,
+    method: string,
+    params?: Record<string, unknown>,
+  ): AsyncIterable<T>
 }
 
 export interface Extensions {
