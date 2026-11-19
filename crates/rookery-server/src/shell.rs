@@ -58,16 +58,28 @@ pub async fn serve(shell: Arc<Option<PathBuf>>, kernel: Kernel, request: Request
     let path = request.uri().path().to_owned();
     let installed = match shell.as_ref() {
         Some(root) => Some((root.clone(), "index.html".to_owned())),
-        None => kernel
-            .get_facility::<rookery_plugins::Plugins>()
-            .and_then(|plugins| plugins.shell())
-            .map(|(dir, entry)| {
-                let name = Path::new(&entry)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| "index.html".into());
-                (dir, name)
-            }),
+        None => {
+            let plugins = kernel.get_facility::<rookery_plugins::Plugins>();
+            // A page loads as soon as a new leader starts, before its plugins are read.
+            if let Some(plugins) = &plugins
+                && plugins.ready_soon().await.is_err()
+            {
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "the server is reading its plugins; try again in a moment\n",
+                )
+                    .into_response();
+            }
+            plugins
+                .and_then(|plugins| plugins.shell())
+                .map(|(dir, entry)| {
+                    let name = Path::new(&entry)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| "index.html".into());
+                    (dir, name)
+                })
+        }
     };
     let Some((root, entry)) = installed.as_ref() else {
         if path == "/" {

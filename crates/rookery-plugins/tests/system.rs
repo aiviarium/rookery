@@ -36,7 +36,19 @@ async fn plugins(k: &TestKernel, scratch: &Path) -> Arc<Plugins> {
     plugins_with(k, scratch, HostOptions::default().memory_mb).await
 }
 
+/// [`plugins`], as a leader makes it before it has read the folder.
+async fn plugins_unstarted(k: &TestKernel, scratch: &Path) -> Arc<Plugins> {
+    plugins_unstarted_with(k, scratch, HostOptions::default().memory_mb).await
+}
+
 async fn plugins_with(k: &TestKernel, scratch: &Path, memory_mb: u32) -> Arc<Plugins> {
+    let plugins = plugins_unstarted_with(k, scratch, memory_mb).await;
+    plugins.start(&k.kernel).await.unwrap();
+    plugins
+}
+
+/// A plugin system with its folders in `scratch`, as a leader makes it before it reads the folder.
+async fn plugins_unstarted_with(k: &TestKernel, scratch: &Path, memory_mb: u32) -> Arc<Plugins> {
     let paths = rookery_core::paths::Paths {
         config_dir: scratch.join("config"),
         data_dir: scratch.join("data"),
@@ -55,9 +67,7 @@ async fn plugins_with(k: &TestKernel, scratch: &Path, memory_mb: u32) -> Arc<Plu
             memory_mb,
         },
     }));
-    let plugins = k.kernel.get_facility::<Plugins>().unwrap();
-    plugins.start(&k.kernel).await.unwrap();
-    plugins
+    k.kernel.get_facility::<Plugins>().unwrap()
 }
 
 /// A package folder of a plugin `id`, or `group/id`, at `version`, with these files in its target.
@@ -130,6 +140,169 @@ async fn row(k: &TestKernel, id: &str) -> Option<(String, chrono::DateTime<chron
         .unwrap()
 }
 
+/// A shell is served at `/` without a sign-in, so its folder is a subfolder of the target's folder,
+/// resolved of its links.
+#[test]
+fn a_shell_is_a_folder_of_the_target_and_never_the_target_itself() {
+    let scratch = tempfile::tempdir().unwrap();
+    // A link to a folder outside the plugin would put it on `/`, such as the server's configuration.
+    let outside = scratch.path().join("outside");
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(outside.join("secret.key"), "the server's key").unwrap();
+    let escaped = package(
+        scratch.path(),
+        "escaped",
+        "1.0.0",
+        &[(
+            "plugin.json",
+            r#"{"apiVersion": "1", "name": "Escaped", "contributes": {"shell": {"entry": "shell/secret.key"}}}"#,
+        )],
+    );
+    std::os::unix::fs::symlink(&outside, escaped.join("rookery/shell")).unwrap();
+    let loaded = rookery_plugins::loaded::load(&rookery_core::plugins::read(&escaped).unwrap());
+    assert!(!loaded.valid(), "{loaded:?}");
+    assert!(
+        loaded
+            .problem
+            .unwrap()
+            .message
+            .contains("is not a subfolder of the target's folder"),
+        "the shell's link out was taken"
+    );
+
+    // An entry at the target's top would put the manifest, the host half and the migrations on `/`.
+    let top = package(
+        scratch.path(),
+        "top",
+        "1.0.0",
+        &[
+            (
+                "plugin.json",
+                r#"{"apiVersion": "1", "name": "Top", "contributes": {"shell": {"entry": "index.html"}}}"#,
+            ),
+            ("index.html", "<!doctype html><title>Top</title>"),
+        ],
+    );
+    let loaded = rookery_plugins::loaded::load(&rookery_core::plugins::read(&top).unwrap());
+    assert!(!loaded.valid(), "{loaded:?}");
+    assert!(
+        loaded
+            .problem
+            .unwrap()
+            .message
+            .contains("served from a folder of its own"),
+        "the shell at the target's top was taken"
+    );
+
+    // One in a folder of its own is served from that folder, resolved.
+    let fine = package(
+        scratch.path(),
+        "fine",
+        "1.0.0",
+        &[
+            (
+                "plugin.json",
+                r#"{"apiVersion": "1", "name": "Fine", "contributes": {"shell": {"entry": "shell/index.html"}}}"#,
+            ),
+            ("shell/index.html", "<!doctype html><title>Fine</title>"),
+        ],
+    );
+    let loaded = rookery_plugins::loaded::load(&rookery_core::plugins::read(&fine).unwrap());
+    assert!(loaded.valid(), "{:?}", loaded.problem);
+    let found = loaded.shell.as_ref().unwrap();
+    assert_eq!(found.entry, "shell/index.html");
+    assert_eq!(
+        found.root,
+        fs::canonicalize(fine.join("rookery/shell")).unwrap()
+    );
+}
+
+/// A leader answers that its plugins are not read yet, rather than that it has none, and a change
+/// waits for the folder rather than read it half written.
+#[tokio::test]
+async fn nothing_reads_the_plugins_before_the_folder_is() {
+    let k = test_kernel!(methods());
+    let scratch = tempfile::tempdir().unwrap();
+    let plugins = plugins_unstarted(&k, scratch.path()).await;
+    let member = k.person("Bob", false).await;
+
+    // A plugin is in the folder before the leader reads it, as one installed before a restart is.
+    let panel = package(
+        scratch.path(),
+        "panel",
+        "1.0.0",
+        &[("plugin.json", r#"{"apiVersion": "1", "name": "Panel"}"#)],
+    );
+    let egg = hatchery::Egg::pack(&panel, &[&rookery_api::plugin_contract::RookeryTarget])
+        .unwrap()
+        .bytes()
+        .to_vec();
+    let manager = rookery_core::eggs::Manager::new(&plugins.setup().paths);
+    manager.upload(&egg).unwrap();
+
+    let refused = k
+        .call(&member, "plugins.list", json!({}))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        refused.error_code(),
+        rookery_proto::ErrorCode::Unavailable,
+        "{refused}"
+    );
+
+    // A reload waits for the start instead of reading what is there before the folder is in place.
+    let reloading = {
+        let (kernel, plugins) = (k.kernel.clone(), plugins.clone());
+        tokio::spawn(async move { plugins.reload(&kernel).await })
+    };
+    plugins.start(&k.kernel).await.unwrap();
+    reloading.await.unwrap().unwrap();
+    let list = k.call(&member, "plugins.list", json!({})).await.unwrap();
+    assert!(info(&list, "panel").is_some(), "{list}");
+    k.close().await;
+}
+
+/// A host half does not start once the server stops, so none is left to race the store closing.
+#[tokio::test]
+async fn a_stopping_plugin_system_starts_no_host_half() {
+    if !bun_ready() {
+        eprintln!("skipped: the extension host needs bun and `bun install`");
+        return;
+    }
+    let k = test_kernel!(methods(), |config| config.call_timeout =
+        Duration::from_secs(3));
+    let scratch = tempfile::tempdir().unwrap();
+    let plugins = plugins(&k, scratch.path()).await;
+    let member = k.person("Bob", false).await;
+    echo_like(&k, &plugins, scratch.path(), "echo").await;
+    k.call(
+        &member,
+        "plugins.rpc",
+        rpc("echo", "greet", json!({"name": "x"})),
+    )
+    .await
+    .unwrap();
+    assert!(plugins.host_pid("echo").is_some());
+
+    plugins.stop(&k.kernel, Duration::from_secs(5)).await;
+    assert_eq!(plugins.host_pid("echo"), None);
+    let refused = k
+        .call(
+            &member,
+            "plugins.rpc",
+            rpc("echo", "greet", json!({"name": "x"})),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        refused.error_code(),
+        rookery_proto::ErrorCode::Unavailable,
+        "{refused}"
+    );
+    assert_eq!(plugins.host_pid("echo"), None);
+    k.close().await;
+}
+
 const PANEL: &str = r#"{"apiVersion": "1", "name": "Panel", "client": "client/index.js", "styles": "panel.css",
   "contributes": {"views": [{"id": "panel.main", "title": "Panel"}]}}"#;
 
@@ -143,6 +316,7 @@ async fn installs_are_recorded_and_client_halves_served_by_their_hash() {
 
     let list = k.call(&member, "plugins.list", json!({})).await.unwrap();
     assert_eq!(list["plugins"], json!([]));
+    assert_eq!(list["missing"], Value::Null);
 
     // One that comes with Rookery, from the registry of the provisioning source.
     let refused = k
@@ -187,6 +361,24 @@ async fn installs_are_recorded_and_client_halves_served_by_their_hash() {
     );
     install(&k, &plugins, &panel).await;
     let list = k.call(&member, "plugins.list", json!({})).await.unwrap();
+    // Where a package sits on the server, and where it came from, are an admin's to see.
+    let seen = info(&list, "panel").unwrap();
+    assert_eq!(seen["dir"], json!(""), "{seen}");
+    assert!(seen["source"].is_null(), "{seen}");
+    let told = k.call(&admin, "plugins.list", json!({})).await.unwrap();
+    assert!(
+        info(&told, "panel").unwrap()["dir"]
+            .as_str()
+            .is_some_and(|dir| dir.ends_with("panel")),
+        "{told}"
+    );
+    assert!(
+        !info(&told, "panel").unwrap()["source"]
+            .as_str()
+            .unwrap()
+            .is_empty(),
+        "{told}"
+    );
     let client = info(&list, "panel").unwrap()["client"].clone();
     let hash = client["hash"].as_str().unwrap().to_owned();
     assert_eq!(
@@ -282,8 +474,31 @@ async fn installs_are_recorded_and_client_halves_served_by_their_hash() {
     .unwrap();
     plugins.reload(&k.kernel).await.unwrap();
     let list = k.call(&member, "plugins.list", json!({})).await.unwrap();
+    assert_eq!(list["missing"], Value::Null);
+    let list = k.call(&admin, "plugins.list", json!({})).await.unwrap();
     assert_eq!(list["missing"], json!(["gone"]));
     assert!(row(&k, "gone").await.is_some());
+
+    // A subscriber that is not an admin is told no folder or source of what changed either.
+    let mut admin_inbox = k.connect(&admin);
+    let mut member_inbox = k.connect(&member);
+    let listened = package(
+        scratch.path(),
+        "listen",
+        "1.0.0",
+        &[("plugin.json", r#"{"apiVersion": "1", "name": "Listen"}"#)],
+    );
+    install(&k, &plugins, &listened).await;
+    let told = admin_inbox.notification("plugins.changed").await;
+    assert_eq!(told["id"], "listen", "{told}");
+    assert!(
+        !told["plugin"]["dir"].as_str().unwrap().is_empty(),
+        "{told}"
+    );
+    let told = member_inbox.notification("plugins.changed").await;
+    assert_eq!(told["id"], "listen", "{told}");
+    assert_eq!(told["plugin"]["dir"], json!(""), "{told}");
+    assert!(told["plugin"]["source"].is_null(), "{told}");
 
     // What updates there are, and a removal.
     let checked = k.call(&admin, "plugins.check", json!({})).await.unwrap();
@@ -689,7 +904,8 @@ fn methods_with_tx() -> Methods {
 }
 
 const NOTES: &str = r#"{"apiVersion": "1", "name": "Notes",
-  "contributes": {"collections": [
+  "contributes": {"shell": {"entry": "shell/index.html"},
+  "collections": [
     {"name": "notes", "fields": [{"name": "text", "type": "text"}]},
     {"name": "copies", "fields": [{"name": "of", "type": "text"}, {"name": "text", "type": "text"}]}]}}"#;
 
@@ -717,6 +933,7 @@ async fn declared_data_goes_to_the_datastore_and_transform_steps_run_in_the_host
                 )
                 .unwrap(),
             ),
+            ("shell/index.html", "<!doctype html><title>Notes</title>"),
         ],
     );
     install(&k, &plugins, &notes).await;
@@ -730,6 +947,8 @@ async fn declared_data_goes_to_the_datastore_and_transform_steps_run_in_the_host
             .contains("no datastore"),
         "{found}"
     );
+    // A plugin the server does not use has no shell served, whichever page it names.
+    assert!(plugins.shell().is_none());
     if !bun_ready() {
         eprintln!("skipped the transform step: the extension host needs bun and `bun install`");
         k.close().await;
@@ -742,6 +961,11 @@ async fn declared_data_goes_to_the_datastore_and_transform_steps_run_in_the_host
     plugins.reload(&k.kernel).await.unwrap();
     let list = k.call(&admin, "plugins.list", json!({})).await.unwrap();
     assert_eq!(info(&list, "notes").unwrap()["state"], "active", "{list}");
+    // Now that the server uses it, its shell is served.
+    let (root, entry) = plugins.shell().unwrap();
+    assert_eq!(entry, "shell/index.html");
+    let installed = plugins.get("notes").unwrap().dir.join("shell");
+    assert_eq!(root, fs::canonicalize(installed).unwrap());
     assert_eq!(*data.0.lock().unwrap(), [("notes".to_owned(), 2, vec![1])]);
     let tx = TX.lock().unwrap().clone();
     let kinds: Vec<&str> = tx.iter().map(|(what, _)| what.as_str()).collect();

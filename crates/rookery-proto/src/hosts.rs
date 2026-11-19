@@ -371,13 +371,6 @@ pub struct Text {
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-pub struct PluginUpload {
-    /// The egg, in base64.
-    pub base64: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PluginRef {
     pub id: String,
 }

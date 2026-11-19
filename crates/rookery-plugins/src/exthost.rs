@@ -123,6 +123,9 @@ pub(crate) struct ExtHost {
     slots: Mutex<HashMap<String, Slot>>,
     procs: Mutex<HashMap<String, Proc>>,
     gates: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// The server is stopping: no host half starts, so none is left running past the snapshot that
+    /// stops them, to race the store closing.
+    stopping: AtomicBool,
 }
 
 impl ExtHost {
@@ -133,7 +136,17 @@ impl ExtHost {
             slots: Mutex::default(),
             procs: Mutex::default(),
             gates: Mutex::default(),
+            stopping: AtomicBool::new(false),
         }
+    }
+
+    /// Refuses every start of a host half from now on, as the server stops.
+    pub fn stopping(&self) {
+        self.stopping.store(true, Ordering::SeqCst);
+    }
+
+    fn is_stopping(&self) -> bool {
+        self.stopping.load(Ordering::SeqCst)
     }
 
     /// The state of a plugin's host half, and why it failed; `None` while it never ran.
@@ -198,6 +211,11 @@ impl ExtHost {
         plugins: &Arc<crate::Plugins>,
         plugin: &str,
     ) -> Result<Link, RpcError> {
+        if self.is_stopping() {
+            return Err(RpcError::unavailable(
+                "the server is stopping, so no host half starts",
+            ));
+        }
         if let Some(link) = self.running(plugin).filter(|l| !l.is_closed()) {
             return Ok(link);
         }
@@ -280,6 +298,8 @@ impl ExtHost {
     /// Deactivates every host half, which runs its cleanups, within `limit` in all, and ends the
     /// processes. The server calls it when it stops, before it closes the store.
     pub async fn stop_all(&self, kernel: &Kernel, limit: Duration) {
+        // Nothing starts after the snapshot, so what stops here is all that is left.
+        self.stopping();
         let plugins: Vec<String> = self.procs.lock().unwrap().keys().cloned().collect();
         let all = futures_util::future::join_all(
             plugins.iter().map(|plugin| self.deactivate(kernel, plugin)),
@@ -343,6 +363,11 @@ impl ExtHost {
     ) -> Result<(), RpcError> {
         let gate = self.gate(plugin);
         let _one = gate.lock().await;
+        if self.is_stopping() {
+            return Err(RpcError::unavailable(
+                "the server is stopping, so no host half starts",
+            ));
+        }
         if self.active_link(plugin).is_some() {
             return Ok(());
         }

@@ -29,6 +29,15 @@ fn report(
     })
 }
 
+/// `plugins.list` for a caller: the server's folder, where a plugin came from and what the folder is
+/// missing are for an admin alone.
+fn listing(plugins: &Plugins, admin: bool) -> PluginList {
+    PluginList {
+        plugins: plugins.infos_for(admin),
+        missing: if admin { plugins.missing() } else { Vec::new() },
+    }
+}
+
 /// Adds `plugins.list`, `plugins.add`, `plugins.upload`, `plugins.update`, `plugins.remove`,
 /// `plugins.check`, `plugins.reload`, `plugins.registry.list/add/remove`, `plugins.activate` and
 /// `plugins.rpc`. When the server leads it reads the plugin folder, records it in
@@ -53,10 +62,8 @@ pub fn register(methods: &mut Methods) {
     methods
         .add("plugins.list", |call: Call, _: Empty| async move {
             let plugins = plugins(&call.kernel)?;
-            Ok(PluginList {
-                plugins: plugins.infos(),
-                missing: plugins.missing(),
-            })
+            plugins.ready_soon().await?;
+            Ok(listing(&plugins, call.is_admin()))
         })
         .summary("The plugins installed on the server, with their manifests and the addresses of their client halves: what a shell loads.")
         .level(Level::Own);
@@ -178,9 +185,11 @@ pub fn register(methods: &mut Methods) {
                     )));
                 }
                 let plugins = plugins(&call.kernel)?;
+                let audit = json!({"kind": p.kind, "location": p.location});
                 let done = plugins
                     .change(&call.kernel, move |manager| manager.add_registry(&p))
                     .await?;
+                call.audit("plugin.registry.add", None, audit).await;
                 report(&plugins, done)
             },
         )
@@ -191,11 +200,13 @@ pub fn register(methods: &mut Methods) {
             "plugins.registry.remove",
             |call: Call, p: RegistryLocation| async move {
                 let plugins = plugins(&call.kernel)?;
+                let audit = json!({"location": p.location});
                 let done = plugins
                     .change(&call.kernel, move |manager| {
                         manager.remove_registry(&p.location)
                     })
                     .await?;
+                call.audit("plugin.registry.remove", None, audit).await;
                 report(&plugins, done)
             },
         )
@@ -204,6 +215,7 @@ pub fn register(methods: &mut Methods) {
     methods
         .add("plugins.activate", |call: Call, p: PluginRef| async move {
             let plugins = plugins(&call.kernel)?;
+            plugins.ready_soon().await?;
             // One that failed starts again when an admin says so.
             if plugins.info_of(&p.id).is_some_and(|i| i.state == PluginState::Failed) {
                 call.require_admin().map_err(|_| {
@@ -216,13 +228,14 @@ pub fn register(methods: &mut Methods) {
             let plugin = plugins
                 .get(&p.id)
                 .ok_or_else(|| RpcError::not_found(format!("no plugin {}", p.id)))?;
-            Ok::<PluginInfo, RpcError>(plugins.info(&plugin))
+            Ok::<PluginInfo, RpcError>(plugins.info_for(&plugin, call.is_admin()))
         })
         .summary("Starts a plugin's host half, as using what it contributes does. A shell asks for it when it shows a view of the plugin.")
         .level(Level::Own);
     methods
         .add("plugins.rpc", |call: Call, p: PluginRpc| async move {
             let plugins = plugins(&call.kernel)?;
+            plugins.ready_soon().await?;
             plugins.rpc(&call, &p.plugin, &p.method, p.params).await
         })
         .summary("Calls a method a plugin's host half registered with rookery.rpc.handle, as the caller. The host half says who may.")
