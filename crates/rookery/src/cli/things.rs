@@ -10,7 +10,7 @@ use super::follow;
 use super::host;
 use super::out::{self, Style, Table, styled};
 use super::pages;
-use rookery_api::portal::{Piece, PortalStream};
+use super::tagged::{Piece, Tagged as PortalStream};
 use rookery_api::{Act, Action, Argument, SessionKind};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -56,22 +56,6 @@ fn exited(frame: &Value) -> Option<Option<i32>> {
     let exited = frame.get("exited")?;
     let code = exited.get("exit_code").unwrap_or(exited);
     Some(code.as_i64().map(|code| code as i32))
-}
-
-/// A list of the API's answers, bare or under `key`, as the types they are.
-pub fn listed<T: serde::de::DeserializeOwned>(value: Value, key: &str) -> Vec<T> {
-    let items = match value {
-        Value::Array(items) => items,
-        Value::Object(mut object) => match object.remove(key) {
-            Some(Value::Array(items)) => items,
-            _ => vec![],
-        },
-        _ => vec![],
-    };
-    items
-        .into_iter()
-        .filter_map(|item| serde_json::from_value(item).ok())
-        .collect()
 }
 
 /// The question to answer yes to before an action runs with `values`, if it
@@ -256,7 +240,7 @@ fn finish(client: &Client, host: &str, id: &str, ended: Ended, forget: bool) -> 
     match ended {
         Ended::Exited(code) => {
             if forget {
-                let _ = client.on(host, "sessions.delete", json!({"id": id}), None);
+                let _ = client.call("terminals.close", json!({"host": host, "terminal": id}));
             }
             match code.unwrap_or(1) {
                 0 => Ok(()),
@@ -281,11 +265,11 @@ pub(super) fn attach_stream(
     id: &str,
     since: u64,
 ) -> Result<PortalStream> {
-    client.stream(
-        "sessions.attach",
-        Some(host),
-        json!({"id": id, "since": since}),
-    )
+    let stream = client.stream(
+        "terminals.attach",
+        json!({"host": host, "terminal": id, "query": {"since": since.to_string()}}),
+    )?;
+    Ok(PortalStream::new(stream))
 }
 
 /// `rookery exec HOST -- COMMAND…`: a process session, followed to its end,
@@ -297,9 +281,11 @@ pub fn exec(client: &Client, exec: &args::Exec) -> Result<()> {
     let title: String = exec.command.join(" ").chars().take(200).collect();
     let body =
         json!({"kind": "process", "command": exec.command, "user": exec.user, "title": title});
-    let session: rookery_api::Session =
-        serde_json::from_value(client.on(&exec.host, "sessions.start", json!({}), Some(body))?)
-            .map_err(Fail::from)?;
+    let session: rookery_api::Session = serde_json::from_value(client.call(
+        "terminals.open",
+        super::client::merged(json!({"host": &exec.host}), body),
+    )?)
+    .map_err(Fail::from)?;
     if exec.detach {
         out::data(&serde_json::to_value(&session)?, || {
             println!("{}", session.id)
@@ -311,18 +297,47 @@ pub fn exec(client: &Client, exec: &args::Exec) -> Result<()> {
     finish(client, &exec.host, &session.id, ended, !exec.keep)
 }
 
+/// `rookery ssh HOST [--agent] [-- COMMAND…]`: a shell on the host through the server, as the SSH user
+/// or the agent account, or a command there followed to its end.
+pub fn ssh(client: &Client, ssh: &args::Ssh) -> Result<()> {
+    let user = if ssh.agent { "agent" } else { "operator" };
+    if !ssh.command.is_empty() {
+        let exec = args::Exec {
+            host: ssh.host.clone(),
+            user: user.into(),
+            command: ssh.command.clone(),
+            detach: false,
+            keep: false,
+        };
+        return self::exec(client, &exec);
+    }
+    let (rows, cols) = terminal_size();
+    let body = json!({
+        "host": ssh.host, "kind": "terminal", "command": ["bash", "-l"], "user": user,
+        "title": format!("a shell on {}", ssh.host), "rows": rows, "cols": cols,
+    });
+    let session: rookery_api::Session =
+        serde_json::from_value(client.call("terminals.open", body)?)?;
+    let stream = attach_stream(client, &ssh.host, &session.id, 0)?;
+    let ended = client.wait(follow_terminal(stream))?;
+    finish(client, &ssh.host, &session.id, ended, true)
+}
+
 fn attach(client: &Client, host: &str, id: Option<&str>) -> Result<()> {
     let (rows, cols) = terminal_size();
     let session: rookery_api::Session = match id {
-        Some(id) => {
-            serde_json::from_value(client.on(host, "sessions.get", json!({"id": id}), None)?)?
-        }
+        Some(id) => serde_json::from_value(
+            client.call("terminals.get", json!({"host": host, "terminal": id}))?,
+        )?,
         None => {
             let body = json!({
                 "kind": "terminal", "command": ["bash", "-l"], "user": "agent",
                 "title": format!("a shell on {host}"), "rows": rows, "cols": cols,
             });
-            serde_json::from_value(client.on(host, "sessions.start", json!({}), Some(body))?)?
+            serde_json::from_value(client.call(
+                "terminals.open",
+                super::client::merged(json!({"host": host}), body),
+            )?)?
         }
     };
     let stream = attach_stream(client, host, &session.id, 0)?;
@@ -351,7 +366,7 @@ fn session_state(session: &Value) -> String {
 pub fn session(client: &Client, command: Session) -> Result<()> {
     match command {
         Session::List { host } => {
-            let found = client.on(&host, "sessions.list", json!({}), None)?;
+            let found = client.call("terminals.list", json!({"host": &host}))?;
             out::data(&found, || {
                 let mut table = Table::new(&["id", "kind", "state", "user", "started", "title"]);
                 for session in items(found.clone(), "sessions") {
@@ -377,7 +392,7 @@ pub fn session(client: &Client, command: Session) -> Result<()> {
             tail,
         } => logs(client, &host, &id, follow, tail),
         Session::Stop { host, id } => {
-            client.on(&host, "sessions.delete", json!({"id": id}), None)?;
+            client.call("terminals.close", json!({"host": &host, "terminal": id}))?;
             out::done(format!("Stopped {id} on {host}"));
             Ok(())
         }
@@ -385,8 +400,9 @@ pub fn session(client: &Client, command: Session) -> Result<()> {
 }
 
 fn logs(client: &Client, host: &str, id: &str, follow: bool, tail: Option<u64>) -> Result<()> {
-    let session: rookery_api::Session =
-        serde_json::from_value(client.on(host, "sessions.get", json!({"id": id}), None)?)?;
+    let session: rookery_api::Session = serde_json::from_value(
+        client.call("terminals.get", json!({"host": host, "terminal": id}))?,
+    )?;
     let mut out = std::io::stdout();
     if session.kind == SessionKind::Terminal {
         // A terminal's bytes are cursor movement; its screen is what reads.
@@ -394,7 +410,7 @@ fn logs(client: &Client, host: &str, id: &str, follow: bool, tail: Option<u64>) 
         if let Some(lines) = tail {
             args["tail"] = json!(lines);
         }
-        let screen = client.on(host, "sessions.screen", args, None)?;
+        let screen = client.call("terminals.screen", super::client::terminal(host, args))?;
         println!("{}", screen["text"].as_str().unwrap_or("").trim_end());
         if follow && session.running() {
             out::hint(format!(
@@ -409,8 +425,9 @@ fn logs(client: &Client, host: &str, id: &str, follow: bool, tail: Option<u64>) 
             Some(lines) => json!({"id": id, "tail": lines}),
             None => json!({"id": id, "since": since}),
         };
-        let part: rookery_api::Output =
-            serde_json::from_value(client.on(host, "sessions.output", args, None)?)?;
+        let part: rookery_api::Output = serde_json::from_value(
+            client.call("terminals.output", super::client::terminal(host, args))?,
+        )?;
         let bytes = rookery_api::unb64(&part.data_b64).unwrap_or_default();
         match &part.lines {
             Some(lines) => lines.iter().try_for_each(|line| writeln!(out, "{line}"))?,
@@ -672,7 +689,7 @@ pub fn run_action(client: &Client, run: &args::RunAction) -> Result<()> {
 pub fn provisioner(client: &Client, command: Provisioner) -> Result<()> {
     match command {
         Provisioner::List => {
-            let found = client.call("provisioners.list", json!({}), None)?;
+            let found = client.call("provisioners.list", json!({}))?;
             out::data(&found, || {
                 let mut table = Table::new(&["name", "type", "node", "usable", "label"]);
                 for provisioner in items(found.clone(), "provisioners") {
@@ -694,7 +711,7 @@ pub fn provisioner(client: &Client, command: Provisioner) -> Result<()> {
             Ok(())
         }
         Provisioner::Types => {
-            let found = client.call("provisioners.types", json!({}), None)?;
+            let found = client.call("provisioners.types", json!({}))?;
             out::data(&found, || {
                 let mut table = Table::new(&["type", "label", "makes"]);
                 for kind in items(found.clone(), "types") {
@@ -717,7 +734,10 @@ pub fn provisioner(client: &Client, command: Provisioner) -> Result<()> {
             settings,
         } => {
             let body = json!({"type": kind, "settings": arguments(&settings)?});
-            let saved = client.call("provisioners.save", json!({"name": name}), Some(body))?;
+            let saved = client.call(
+                "provisioners.save",
+                super::client::merged(json!({"name": name}), body),
+            )?;
             out::data(&saved, || {
                 out::done(format!("Added the provisioner {name}, of the type {kind}"))
             });
@@ -729,7 +749,7 @@ pub fn provisioner(client: &Client, command: Provisioner) -> Result<()> {
             for (key, value) in &given {
                 args[key] = json!(value);
             }
-            let found = client.call("provisioners.get", args, None)?;
+            let found = client.call("provisioners.get", args)?;
             let state: rookery_api::ProvisionerState = serde_json::from_value(found.clone())?;
             let actions = client
                 .actions(&Subject::Provisioner(name.clone()))
@@ -772,7 +792,7 @@ pub fn provisioner(client: &Client, command: Provisioner) -> Result<()> {
             ask::confirm(&format!(
                 "This forgets the provisioner {name} with its settings."
             ))?;
-            client.call("provisioners.remove", json!({"name": name}), None)?;
+            client.call("provisioners.remove", json!({"name": name}))?;
             out::done(format!("Removed the provisioner {name}"));
             Ok(())
         }
@@ -845,12 +865,12 @@ fn spec_of(spec: &Option<String>) -> Result<Option<String>> {
 
 /// The id of a resource given by its id, or by a name only it has.
 pub(super) fn resource_id(client: &Client, given: &str) -> Result<String> {
-    match client.call("resources.get", json!({"id": given}), None) {
+    match client.call("resources.get", json!({"id": given})) {
         Ok(_) => return Ok(given.to_owned()),
         Err(fail) if fail.code == "not_found" => {}
         Err(fail) => return Err(fail),
     }
-    let found = client.call("resources.list", json!({}), None)?;
+    let found = client.call("resources.list", json!({}))?;
     let named: Vec<String> = items(found, "resources")
         .into_iter()
         .filter(|made| made["name"] == given)
@@ -881,7 +901,7 @@ pub fn resource(client: &Client, command: Resource) -> Result<()> {
                     args[key] = json!(value);
                 }
             }
-            let found = client.call("resources.list", args, None)?;
+            let found = client.call("resources.list", args)?;
             out::data(&found, || {
                 let mut table = Table::new(&["id", "kind", "name", "provisioner", "state", "host"]);
                 for made in items(found.clone(), "resources") {
@@ -901,7 +921,7 @@ pub fn resource(client: &Client, command: Resource) -> Result<()> {
         }
         Resource::Show { id } => {
             let id = resource_id(client, &id)?;
-            let found = client.call("resources.get", json!({"id": id}), None)?;
+            let found = client.call("resources.get", json!({"id": id}))?;
             let made: rookery_api::Resource = serde_json::from_value(found.clone())?;
             let actions = client
                 .actions(&Subject::Resource(id.clone()))
@@ -919,7 +939,6 @@ pub fn resource(client: &Client, command: Resource) -> Result<()> {
             let found = client.call(
                 "resources.list",
                 json!({"provisioner": create.provisioner, "kind": kind}),
-                None,
             )?;
             let existing = items(found, "resources").into_iter().find(|made| {
                 made["name"] == create.name.as_str()
@@ -953,17 +972,10 @@ pub fn resource(client: &Client, command: Resource) -> Result<()> {
                 secrets: secrets_of(&create.secret),
                 ..Default::default()
             };
-            let made = client.call(
-                "resources.create",
-                json!({}),
-                Some(serde_json::to_value(&request)?),
-            )?;
-            let made: rookery_api::Created = serde_json::from_value(made)?;
+            let made = client.call("resources.create", serde_json::to_value(&request)?)?;
+            let made: Made = serde_json::from_value(made)?;
             let id = made.resource.id.clone();
-            let acted = rookery_api::Acted {
-                job: Some(made.job),
-                ..Default::default()
-            };
+            let acted = rookery_proto::hosts::Acted::of_job(made.job);
             follow::acted(
                 client,
                 acted,
@@ -985,10 +997,9 @@ pub fn resource(client: &Client, command: Resource) -> Result<()> {
                 secrets: (!set.secret.is_empty()).then(|| secrets_of(&set.secret)),
                 ..Default::default()
             };
-            let acted: rookery_api::Acted = serde_json::from_value(client.call(
+            let acted: rookery_proto::hosts::Acted = serde_json::from_value(client.call(
                 "resources.change",
-                json!({"id": set.id}),
-                Some(serde_json::to_value(&change)?),
+                super::client::merged(json!({"id": set.id}), serde_json::to_value(&change)?),
             )?)?;
             follow::acted(
                 client,
@@ -1002,11 +1013,8 @@ pub fn resource(client: &Client, command: Resource) -> Result<()> {
         Resource::Remove { id, detach } => {
             let id = resource_id(client, &id)?;
             ask::confirm(&format!("This removes {id} with its provisioner."))?;
-            let acted: rookery_api::Acted = serde_json::from_value(client.call(
-                "resources.remove",
-                json!({"id": id}),
-                None,
-            )?)?;
+            let acted: rookery_proto::hosts::Acted =
+                serde_json::from_value(client.call("resources.remove", json!({"id": id}))?)?;
             follow::acted(
                 client,
                 acted,
@@ -1024,8 +1032,8 @@ pub fn resource(client: &Client, command: Resource) -> Result<()> {
             }
             if !follow {
                 // A text answer comes as a string, or as its bytes in base64.
-                let found = client.call("resources.logs", args, None)?;
-                let text = match &found {
+                let found = client.call("resources.logs", args)?;
+                let text = match &found["text"] {
                     Value::String(text) => text.clone(),
                     other => other["base64"]
                         .as_str()
@@ -1036,17 +1044,15 @@ pub fn resource(client: &Client, command: Resource) -> Result<()> {
                 print!("{text}");
                 return Ok(());
             }
-            let mut stream = client.stream("resources.follow", None, args)?;
+            let mut stream = client.stream("resources.follow", args)?;
             client.wait(async {
                 let mut out = std::io::stdout();
                 loop {
                     tokio::select! {
-                        piece = stream.recv() => match piece {
-                            Some(Ok(Piece::Binary(bytes))) => { out.write_all(&bytes)?; out.flush()?; }
-                            Some(Ok(Piece::Text(said))) => {
-                                if let Some(line) = said["line"].as_str() { writeln!(out, "{line}")?; }
-                            }
-                            Some(Err(error)) => return Err(Fail::from(error)),
+                        data = stream.recv() => match data.map_err(Fail::from)? {
+                            // The last line says how it ended, as JSON.
+                            Some(bytes) if bytes.starts_with(b"{\"exited\"") => return Ok(()),
+                            Some(bytes) => { out.write_all(&bytes)?; out.flush()?; }
                             None => return Ok(()),
                         },
                         _ = tokio::signal::ctrl_c() => return Ok(()),
@@ -1204,4 +1210,11 @@ mod tests {
         let refused = complete(&action, &mut given("no"), "studio").unwrap_err();
         assert!(refused.message.starts_with("Remove studio? Confirm"));
     }
+}
+
+/// What `resources.create` answers: the resource and the job that makes it.
+#[derive(serde::Deserialize)]
+struct Made {
+    resource: rookery_api::Resource,
+    job: rookery_proto::jobs::JobInfo,
 }
