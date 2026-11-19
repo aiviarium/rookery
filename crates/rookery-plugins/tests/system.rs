@@ -1086,6 +1086,9 @@ async fn declared_jobs_run_in_the_host_half_for_whom_the_manifest_allows() {
     echo_with(&k, &plugins, scratch.path(), "echo", JOBS).await;
     use rookery_proto::ErrorCode;
 
+    assert!(rookery_jobs::handles(&k.kernel, "echo/build"));
+    assert!(!rookery_jobs::handles(&k.kernel, "echo/nothing"));
+
     // A member enqueues a job of a kind the plugin declares; its host half starts and runs it.
     let job = k
         .call(

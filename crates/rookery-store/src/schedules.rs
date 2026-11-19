@@ -181,6 +181,7 @@ async fn enqueue(
             run_after: None,
             subject: s.subject.as_deref(),
             enqueued_by: &s.principal,
+            token: None,
         },
         fence,
     )

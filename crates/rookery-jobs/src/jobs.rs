@@ -160,7 +160,7 @@ impl Signals {
 
 /// Whether a handler in the server runs jobs of a kind.
 pub fn handles(kernel: &Kernel, kind: &str) -> bool {
-    registry(kernel).is_ok_and(|r| r.handlers.contains_key(kind))
+    registry(kernel).is_ok_and(|r| r.handler(kernel, kind).is_some())
 }
 
 /// Wakes the worker, after code elsewhere in the server enqueued jobs, such as a batch of writes.
