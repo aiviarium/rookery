@@ -58,6 +58,7 @@ impl Users<'_> {
             inserted: bool,
         }
         let role = if login.admin { "admin" } else { "member" };
+        let mut tx = self.pool.begin().await?;
         // xmax is 0 for a row this statement inserted, and set for one it updated.
         let row: Upserted = sqlx::query_as(AssertSqlSafe(format!(
             "INSERT INTO rookery.users AS u (id, issuer, subject, name, email, role, last_seen_at)
@@ -73,8 +74,13 @@ impl Users<'_> {
         .bind(&login.name)
         .bind(&login.email)
         .bind(role)
-        .fetch_one(self.pool)
+        .fetch_one(&mut *tx)
         .await?;
+        index_user(&mut tx, &row.user, row.inserted).await?;
+        if row.inserted {
+            crate::spaces::ensure_personal(&mut tx, &row.user).await?;
+        }
+        tx.commit().await?;
         Ok((row.user, row.inserted))
     }
 
@@ -187,4 +193,33 @@ impl Users<'_> {
         tx.commit().await?;
         Ok(user)
     }
+}
+
+/// A person's entity, `user://<id>`, which mentions and references name. Everyone may see it, and it
+/// is private: what hangs below it, such as a person's own rows, does not inherit that.
+async fn index_user(conn: &mut sqlx::PgConnection, user: &User, created: bool) -> Result<()> {
+    let uri = crate::uri::user_uri(user.id);
+    crate::entities::upsert(
+        &mut *conn,
+        &crate::entities::EntityRecord {
+            uri: uri.clone(),
+            title: user.name.clone(),
+            subtitle: user.email.clone(),
+            search_text: user.email.clone(),
+            owner_id: Some(user.id),
+            private: true,
+            ..Default::default()
+        },
+        None,
+    )
+    .await?;
+    if created {
+        sqlx::query(
+            "INSERT INTO rookery.grants (resource, principal, level, created_by) VALUES ($1, 'everyone', 1, 'system:rookery') ON CONFLICT DO NOTHING",
+        )
+        .bind(&uri)
+        .execute(conn)
+        .await?;
+    }
+    Ok(())
 }

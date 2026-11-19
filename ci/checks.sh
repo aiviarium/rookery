@@ -7,7 +7,8 @@ cd "$(dirname "$0")/.."
 
 crates=(-p rookery-api -p rookery-pty -p rookery-core -p rookery-setup -p rookery -p rookeryd -p box
   -p rookery-proto -p rookery-store -p rookery-kernel -p rookery-auth -p rookery-server
-  -p rookery-facilities -p rookery-jobs -p rookery-hosts -p rookery-client -p rookery-plugins)
+  -p rookery-facilities -p rookery-jobs -p rookery-hosts -p rookery-client -p rookery-plugins
+  -p rookery-filter)
 
 # Each runs as the condition of an if, where set -e does not stop it: the
 # steps are joined with && instead.

@@ -47,7 +47,7 @@ services:
   # The database the store's tests use, empty at each start and gone after.
   # Its password is made up: it is reachable only from the project's network.
   postgres:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:0.8.0-pg17
     profiles: [dev]
     environment:
       POSTGRES_USER: rookery

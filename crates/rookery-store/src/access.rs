@@ -1,13 +1,17 @@
-//! Grants on resources, owners and groups.
+//! Grants on resources, owners and groups, and the check of a level.
 //!
 //! A caller's level on a resource is the highest of the grants to its principals (itself, its user,
-//! the user's groups and `everyone`), and manage for the resource's owner. Levels: 1 view, 2 use,
-//! 3 manage.
+//! the user's groups and `everyone`) on the resource or an ancestor, and manage for the owner of the
+//! resource or of an ancestor. Ancestors are found by walking `parent` in the entity index, stopping
+//! after a private entity, so a row of a space inherits the space's members. The walk is the SQL
+//! function `rookery.effective_level`, which reads of collections filter rows with. Levels: 1 view,
+//! 2 use, 3 manage. Admins hold manage on everything.
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::caller::{Caller, Level};
 use crate::error::{Error, Result};
 use crate::util::new_id;
 
@@ -44,32 +48,7 @@ pub fn check_principal(principal: &str) -> Result<()> {
     principal_name(principal).map(|_| ())
 }
 
-/// A principal as grants keep it, with a user or group's id in the one spelling the callers'
-/// principals have, so that `user:<UUID>` in capitals or without hyphens names the same person. A
-/// plugin's id is kept as it is: a package's id, and none Rookery keeps for itself.
-pub fn principal_name(principal: &str) -> Result<String> {
-    if principal == "everyone" {
-        return Ok(principal.to_owned());
-    }
-    if let Some(id) = principal.strip_prefix("plugin:") {
-        return if rookery_api::plugin_ids::valid_plugin_id(id) {
-            Ok(format!("plugin:{id}"))
-        } else {
-            Err(Error::Invalid(format!(
-                "{principal:?} does not name a plugin after plugin:"
-            )))
-        };
-    }
-    let named = ["user:", "group:"].iter().find_map(|kind| {
-        let id = principal.strip_prefix(kind)?;
-        Uuid::parse_str(id).ok().map(|id| format!("{kind}{id}"))
-    });
-    named.ok_or_else(|| {
-        Error::Invalid(format!(
-            "{principal:?} is not user:<id>, group:<id>, plugin:<id> or everyone"
-        ))
-    })
-}
+pub use crate::caller::principal_name;
 
 /// A resource URI such as `env://studio`.
 pub fn check_resource(resource: &str) -> Result<()> {
@@ -89,12 +68,6 @@ pub fn check_resource(resource: &str) -> Result<()> {
         )))
     }
 }
-
-/// The principals a level counts, by the caller's own principal: `everyone` reaches a person, and
-/// never a plugin, which needs a grant of its own on the host.
-const PRINCIPALS: &str = "SELECT unnest(CASE WHEN $2::text LIKE 'plugin:%' THEN ARRAY[$2::text] ELSE ARRAY[$2::text, 'everyone'] END
-    || CASE WHEN $3::uuid IS NULL THEN '{}'::text[] ELSE ARRAY['user:' || $3::text] END
-    || coalesce((SELECT array_agg('group:' || m.group_id::text) FROM rookery.group_members m WHERE m.user_id = $3), '{}'::text[]))";
 
 impl Access<'_> {
     pub async fn grant(
@@ -215,38 +188,56 @@ impl Access<'_> {
 
     /// The level `who` holds on a resource: 0 for none.
     pub async fn level(&self, resource: &str, who: &Who<'_>) -> Result<i16> {
-        let level: Option<i16> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT greatest(
-                 (SELECT max(g.level) FROM rookery.grants g WHERE g.resource = $1 AND g.principal IN ({PRINCIPALS})),
-                 (SELECT 3::smallint FROM rookery.owners o WHERE o.resource = $1 AND o.user_id = $3))"
-        )))
+        Ok(sqlx::query_scalar(
+            "SELECT rookery.effective_level(coalesce((SELECT target FROM rookery.entity_aliases WHERE uri = $1), $1),
+                 $3, rookery.principals_of($3, $2))",
+        )
         .bind(resource)
         .bind(who.principal)
         .bind(who.user)
         .fetch_one(self.pool)
-        .await?;
-        Ok(level.unwrap_or(0))
+        .await?)
     }
 
-    /// Those of `resources` on which `who` holds at least `level`.
+    /// Those of `resources` on which `who` holds at least `level`, in their order.
     pub async fn filter(
         &self,
         resources: &[String],
         who: &Who<'_>,
         level: i16,
     ) -> Result<Vec<String>> {
-        Ok(sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-            "SELECT r FROM unnest($1::text[]) AS r WHERE greatest(
-                 (SELECT max(g.level) FROM rookery.grants g WHERE g.resource = r AND g.principal IN ({PRINCIPALS_4})),
-                 (SELECT 3::smallint FROM rookery.owners o WHERE o.resource = r AND o.user_id = $3)) >= $4",
-            PRINCIPALS_4 = PRINCIPALS
-        )))
+        Ok(sqlx::query_scalar(
+            "WITH p AS (SELECT rookery.principals_of($3, $2) AS ps)
+             SELECT r FROM unnest($1::text[]) WITH ORDINALITY AS t(r, n), p
+             WHERE rookery.effective_level(r, $3, p.ps) >= $4 ORDER BY n",
+        )
         .bind(resources)
         .bind(who.principal)
         .bind(who.user)
         .bind(level)
         .fetch_all(self.pool)
         .await?)
+    }
+
+    /// The caller's level on a resource, or `None` for none.
+    pub async fn level_of(&self, caller: &Caller, resource: &str) -> Result<Option<Level>> {
+        let mut conn = self.pool.acquire().await?;
+        level(&mut conn, caller, resource).await
+    }
+
+    /// `FORBIDDEN` unless the caller holds at least `need` on a resource.
+    pub async fn require(&self, caller: &Caller, resource: &str, need: Level) -> Result<()> {
+        let mut conn = self.pool.acquire().await?;
+        require(&mut conn, caller, resource, need).await
+    }
+
+    /// The principals the caller acts as.
+    pub async fn principals(&self, caller: &Caller) -> Result<Vec<String>> {
+        Ok(sqlx::query_scalar("SELECT rookery.principals_of($1, $2)")
+            .bind(caller.user)
+            .bind(caller.actor())
+            .fetch_one(self.pool)
+            .await?)
     }
 
     // ── groups ──────────────────────────────────────────────────────────────────────────────────
@@ -346,5 +337,38 @@ impl Access<'_> {
         .await?;
         tx.commit().await?;
         Ok(())
+    }
+}
+
+/// The caller's level on a resource. An alias has the access of the entity it names.
+pub(crate) async fn level(
+    conn: &mut sqlx::PgConnection,
+    caller: &Caller,
+    resource: &str,
+) -> Result<Option<Level>> {
+    if caller.admin {
+        return Ok(Some(Level::Manage));
+    }
+    let l: i16 = sqlx::query_scalar(
+        "SELECT rookery.effective_level(coalesce((SELECT target FROM rookery.entity_aliases WHERE uri = $1), $1),
+             $2, rookery.principals_of($2, $3))",
+    )
+    .bind(resource)
+    .bind(caller.user)
+    .bind(caller.actor())
+    .fetch_one(conn)
+    .await?;
+    Ok(Level::from_i16(l))
+}
+
+pub(crate) async fn require(
+    conn: &mut sqlx::PgConnection,
+    caller: &Caller,
+    resource: &str,
+    need: Level,
+) -> Result<()> {
+    match level(conn, caller, resource).await? {
+        Some(l) if l >= need => Ok(()),
+        _ => Err(Error::forbidden(format!("this needs {need} on {resource}"))),
     }
 }

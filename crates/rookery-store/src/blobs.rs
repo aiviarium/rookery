@@ -103,4 +103,14 @@ impl Blobs<'_> {
         }
         Ok(true)
     }
+
+    /// Whether a row of a collection names the blob in a field of type `blob`.
+    pub async fn referenced(&self, id: Uuid) -> Result<bool> {
+        Ok(sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM rookery.refs WHERE dst_scheme = 'blob' AND dst_id = $1 AND NOT src_deleted)",
+        )
+        .bind(id.to_string())
+        .fetch_one(self.store.pool())
+        .await?)
+    }
 }

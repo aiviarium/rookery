@@ -66,3 +66,23 @@ impl Audit<'_> {
         .await?)
     }
 }
+
+/// Adds an entry in a transaction of the caller's, so that it commits with the change it records.
+pub(crate) async fn record_on(
+    conn: &mut sqlx::PgConnection,
+    principal: &str,
+    action: &str,
+    resource: Option<&str>,
+    details: Value,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO rookery.audit (principal, action, resource, details) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(principal)
+    .bind(action)
+    .bind(resource)
+    .bind(details)
+    .execute(conn)
+    .await?;
+    Ok(())
+}

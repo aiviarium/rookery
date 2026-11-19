@@ -4,11 +4,19 @@
 //! [`Store::open`] runs. A store is cheap to clone: the clones share one pool.
 
 pub mod access;
+pub mod activity;
 pub mod audit;
 pub mod auth;
 pub mod blobs;
+pub mod caller;
+pub mod collections;
 pub mod connections;
+pub mod documents;
+pub mod entities;
 pub mod error;
+pub mod feed;
+pub mod history;
+pub mod idempotency;
 pub mod jobs;
 pub mod kv;
 pub mod layout;
@@ -17,14 +25,20 @@ pub mod leases;
 pub mod links;
 mod migrate;
 pub mod notify;
+pub mod pins;
+pub mod recents;
+pub mod refs;
 pub mod seal;
+pub mod search;
 pub mod secrets;
 pub mod settings;
+pub mod spaces;
 pub mod state;
 pub mod terminals;
 #[cfg(feature = "testing")]
 pub mod testing;
 pub mod topics;
+pub mod uri;
 pub mod users;
 pub mod util;
 
@@ -35,7 +49,9 @@ use std::time::Duration;
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
-pub use error::{Error, Result};
+pub use caller::{Caller, EVERYONE, Level};
+pub use error::{Error, Result, SchemaDifference};
+pub use uri::Uri;
 
 /// How to open a [`Store`].
 #[derive(Debug, Clone)]
@@ -48,6 +64,11 @@ pub struct StoreOptions {
     pub secret_key: Option<seal::Key>,
     /// `ROOKERY_BLOBS`: the folder of the blobs' files.
     pub blobs: Option<PathBuf>,
+    /// Typed tables of other crates, such as those of hosts, that are collections of Rookery's too.
+    pub system_tables: Vec<collections::system::SystemTable>,
+    /// How many changes the change feed keeps in memory for each subscriber before one that lags reads
+    /// them from the change log instead.
+    pub feed_capacity: usize,
 }
 
 impl StoreOptions {
@@ -57,6 +78,8 @@ impl StoreOptions {
             max_connections: 16,
             secret_key: None,
             blobs: None,
+            feed_capacity: 4096,
+            system_tables: Vec::new(),
         }
     }
 }
@@ -68,13 +91,51 @@ pub struct Store {
     blobs: Option<Arc<PathBuf>>,
     /// The leader's epoch its writes to jobs and leases name, or `None` for a store that leads nothing.
     fence: Option<i64>,
+    /// What the clones share of the data layer: the collections and the change feed.
+    data: Arc<DataState>,
+}
+
+/// The collections in memory and the change feed, shared by every clone of a store.
+pub(crate) struct DataState {
+    pub registry: std::sync::RwLock<
+        std::collections::HashMap<(String, String), Arc<collections::Collection>>,
+    >,
+    /// Held while the registry is read from the database and replaced, so that a reload which read the
+    /// table before another plugin's apply committed cannot write its older view over a newer one.
+    pub reload_lock: tokio::sync::Mutex<()>,
+    pub feed: feed::FeedState,
+    /// Rookery's typed tables registered as collections, which a reload keeps.
+    pub system: std::sync::RwLock<
+        Vec<(
+            Arc<collections::system::SystemTable>,
+            collections::CollectionDef,
+        )>,
+    >,
+    /// Log collections: per table, the end of the period whose partition and the next one exist.
+    pub log_partitions:
+        std::sync::Mutex<std::collections::HashMap<String, chrono::DateTime<chrono::Utc>>>,
+}
+
+impl DataState {
+    fn new(feed_capacity: usize) -> Arc<DataState> {
+        Arc::new(DataState {
+            registry: Default::default(),
+            reload_lock: tokio::sync::Mutex::new(()),
+            feed: feed::FeedState::new(feed_capacity),
+            system: Default::default(),
+            log_partitions: Default::default(),
+        })
+    }
 }
 
 impl Store {
     /// Connects and runs the migrations that have not run yet.
     pub async fn open(options: StoreOptions) -> Result<Store> {
+        let tables = options.system_tables.clone();
         let store = Store::connect(options).await?;
         migrate::run(&store.pool).await?;
+        store.reload().await?;
+        store.collections().install_system(&tables).await?;
         Ok(store)
     }
 
@@ -117,7 +178,14 @@ impl Store {
             key: options.secret_key.map(Arc::new),
             blobs: options.blobs.map(Arc::new),
             fence: None,
+            data: DataState::new(options.feed_capacity),
         }
+    }
+
+    /// Reads the collections and the change feed's head from the database again.
+    pub async fn reload(&self) -> Result<()> {
+        self.collections().reload().await?;
+        self.feed().init_head().await
     }
 
     /// The same store, whose writes to jobs and leases fail with `UNAVAILABLE` once the leader's epoch
@@ -192,7 +260,7 @@ impl Store {
         secrets::Secrets { store: self }
     }
     pub fn kv(&self) -> kv::Kv<'_> {
-        kv::Kv { pool: &self.pool }
+        kv::Kv { store: self }
     }
     pub fn connections(&self) -> connections::Connections<'_> {
         connections::Connections { store: self }
@@ -207,7 +275,7 @@ impl Store {
         }
     }
     pub fn layout(&self) -> layout::Layout<'_> {
-        layout::Layout { pool: &self.pool }
+        layout::Layout { store: self }
     }
     pub fn jobs(&self) -> jobs::Jobs<'_> {
         jobs::Jobs {
@@ -226,6 +294,47 @@ impl Store {
     }
     pub fn notify(&self) -> notify::Notify<'_> {
         notify::Notify { pool: &self.pool }
+    }
+    pub fn entities(&self) -> entities::Entities<'_> {
+        entities::Entities { store: self }
+    }
+    pub fn refs(&self) -> refs::Refs<'_> {
+        refs::Refs { store: self }
+    }
+    /// The definitions of collections and their tables.
+    pub fn collections(&self) -> collections::Collections<'_> {
+        collections::Collections { store: self }
+    }
+    /// The collections of one plugin, for reads and writes.
+    pub fn data<'a>(&'a self, plugin: &'a str) -> collections::Data<'a> {
+        collections::Data {
+            store: self,
+            plugin,
+        }
+    }
+    pub fn feed(&self) -> feed::Feed<'_> {
+        feed::Feed { store: self }
+    }
+    pub fn history(&self) -> history::History<'_> {
+        history::History { store: self }
+    }
+    pub fn search(&self) -> search::Search<'_> {
+        search::Search { store: self }
+    }
+    pub fn spaces(&self) -> spaces::Spaces<'_> {
+        spaces::Spaces { store: self }
+    }
+    pub fn documents(&self) -> documents::Documents<'_> {
+        documents::Documents { store: self }
+    }
+    pub fn recents(&self) -> recents::Recents<'_> {
+        recents::Recents { store: self }
+    }
+    pub fn pins(&self) -> pins::Pins<'_> {
+        pins::Pins { store: self }
+    }
+    pub fn activity(&self) -> activity::ActivityFeed<'_> {
+        activity::ActivityFeed { store: self }
     }
 }
 

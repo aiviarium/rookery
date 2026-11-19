@@ -1,0 +1,56 @@
+{
+  "collection": {
+    "kind": "log",
+    "scope": "space",
+    "fields": [
+      { "name": "model", "type": "text" },
+      { "name": "latencyMs", "type": "integer" },
+      { "name": "state", "type": "enum", "values": ["ok", "failed"] },
+      { "name": "raw", "type": "bytes" },
+      { "name": "embedding", "type": "vector" },
+      { "name": "tags", "type": "refs" },
+      { "name": "meta", "type": "json" }
+    ]
+  },
+  "rows": [
+    { "id": "r1", "seq": 1, "createdAt": "2026-11-01T08:00:00+00:00", "createdBy": "01900000-0000-7000-8000-00000000000a", "model": "alpha", "latencyMs": 10, "state": "ok", "raw": null, "embedding": null, "tags": [], "meta": null },
+    { "id": "r2", "seq": 2, "createdAt": "2026-11-02T08:00:00+00:00", "createdBy": "01900000-0000-7000-8000-00000000000a", "model": "beta", "latencyMs": 250, "state": "failed", "raw": "AAE=", "embedding": [1, 0], "tags": ["tag://a"], "meta": { "x": 1 } },
+    { "id": "r3", "seq": 3, "createdAt": "2026-11-02T20:30:00+00:00", "createdBy": "01900000-0000-7000-8000-00000000000b", "model": "alpha", "latencyMs": null, "state": "ok", "raw": "AA==", "embedding": null, "tags": ["tag://a", "tag://b"], "meta": null },
+    { "id": "r4", "seq": 4, "createdAt": "2026-11-10T00:00:00+00:00", "createdBy": null, "model": "gamma", "latencyMs": 90, "state": null, "raw": null, "embedding": [0, 1], "tags": [], "meta": [1] }
+  ],
+  "cases": [
+    { "where": { "seq": 3 }, "matches": ["r3"] },
+    { "where": { "seq": { "gt": 1, "lte": 3 } }, "matches": ["r2", "r3"] },
+    { "where": { "seq": { "in": [1, 4, 9] } }, "matches": ["r1", "r4"] },
+    { "where": { "seq": { "ne": 2 } }, "matches": ["r1", "r3", "r4"] },
+    { "where": { "createdAt": { "gte": "2026-11-02T00:00:00Z", "lt": "2026-11-03T00:00:00Z" } }, "matches": ["r2", "r3"] },
+    { "where": { "createdAt": { "lt": "2026-11-02T10:00:00+02:00" } }, "matches": ["r1"] },
+    { "where": { "createdBy": "01900000-0000-7000-8000-00000000000a" }, "matches": ["r1", "r2"] },
+    { "where": { "createdBy": null }, "matches": ["r4"] },
+    { "where": { "model": "alpha", "latencyMs": { "gte": 10 } }, "matches": ["r1"] },
+    { "where": { "latencyMs": null }, "matches": ["r3"] },
+    { "where": { "state": { "in": ["failed", null] } }, "matches": ["r2", "r4"] },
+    { "where": { "raw": { "ne": null } }, "matches": ["r2", "r3"] },
+    { "where": { "embedding": null }, "matches": ["r1", "r3"] },
+    { "where": { "embedding": { "ne": null }, "seq": { "gt": 2 } }, "matches": ["r4"] },
+    { "where": { "tags": { "contains": "tag://a" } }, "matches": ["r2", "r3"] },
+    { "where": { "tags": { "contains": ["tag://a", "tag://b"] } }, "matches": ["r3"] },
+    { "where": { "or": [{ "seq": 1 }, { "model": "gamma" }] }, "matches": ["r1", "r4"] },
+    { "where": { "not": { "model": "alpha" } }, "matches": ["r2", "r4"] }
+  ],
+  "invalid": [
+    { "rev": 1 },
+    { "updatedAt": { "gt": "2026-11-01T00:00:00Z" } },
+    { "updatedBy": null },
+    { "deletedAt": null },
+    { "userId": "01900000-0000-7000-8000-00000000000a" },
+    { "seq": "one" },
+    { "seq": { "contains": 1 } },
+    { "seq": 1.5 },
+    { "createdAt": "yesterday" },
+    { "createdBy": "not-a-uuid" },
+    { "raw": "AAE=" },
+    { "embedding": { "gt": null } },
+    { "tags": { "in": [["tag://a"]] } }
+  ]
+}

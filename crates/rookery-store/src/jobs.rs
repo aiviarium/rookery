@@ -86,6 +86,64 @@ pub enum Outcome {
     Cancelled,
 }
 
+/// Enqueues a job on a connection of the caller's, such as in the transaction of a batch of writes.
+pub(crate) async fn enqueue_on(
+    conn: &mut sqlx::PgConnection,
+    job: &NewJob<'_>,
+    fence: Option<i64>,
+) -> Result<Job> {
+    if !(1..=100).contains(&job.max_attempts) {
+        return Err(Error::Invalid("maxAttempts is 1 to 100".into()));
+    }
+    let made: Option<Job> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "INSERT INTO rookery.jobs (id, kind, params, state, max_attempts, run_after, subject, enqueued_by, token)
+         SELECT $1, $2, $3, 'queued', $4, coalesce($5, now()), $6, $7, $8 WHERE rookery.fence($9)
+         ON CONFLICT DO NOTHING RETURNING {COLS}"
+    )))
+    .bind(new_id())
+    .bind(job.kind)
+    .bind(job.params)
+    .bind(job.max_attempts)
+    .bind(job.run_after)
+    .bind(job.subject)
+    .bind(job.enqueued_by)
+    .bind(job.token)
+    .bind(fence)
+    .fetch_optional(&mut *conn)
+    .await?;
+    match (made, job.token) {
+        (Some(made), _) => Ok(made),
+        (None, Some(token)) => {
+            by_token_on(conn, job.kind, job.subject, job.params["action"].as_str(), token)
+                .await?
+                .ok_or_else(|| {
+                    Error::Conflict("a job with the token was removed meanwhile".into())
+                })
+        }
+        (None, None) => Err(Error::Conflict("the job was not made".into())),
+    }
+}
+
+/// The job a caller's token started, of a kind, subject and `params.action`.
+async fn by_token_on(
+    conn: &mut sqlx::PgConnection,
+    kind: &str,
+    subject: Option<&str>,
+    action: Option<&str>,
+    token: &str,
+) -> Result<Option<Job>> {
+    Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT {COLS} FROM rookery.jobs WHERE kind = $1 AND subject IS NOT DISTINCT FROM $2
+           AND params->>'action' IS NOT DISTINCT FROM $3 AND token = $4"
+    )))
+    .bind(kind)
+    .bind(subject)
+    .bind(action)
+    .bind(token)
+    .fetch_optional(conn)
+    .await?)
+}
+
 pub struct Jobs<'a> {
     pub(crate) pool: &'a PgPool,
     /// The leader's epoch every write names: see [`crate::leader`].
@@ -94,35 +152,8 @@ pub struct Jobs<'a> {
 
 impl Jobs<'_> {
     pub async fn enqueue(&self, job: NewJob<'_>) -> Result<Job> {
-        if !(1..=100).contains(&job.max_attempts) {
-            return Err(Error::Invalid("maxAttempts is 1 to 100".into()));
-        }
-        let made: Option<Job> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "INSERT INTO rookery.jobs (id, kind, params, state, max_attempts, run_after, subject, enqueued_by, token)
-             SELECT $1, $2, $3, 'queued', $4, coalesce($5, now()), $6, $7, $8 WHERE rookery.fence($9)
-             ON CONFLICT DO NOTHING RETURNING {COLS}"
-        )))
-        .bind(new_id())
-        .bind(job.kind)
-        .bind(job.params)
-        .bind(job.max_attempts)
-        .bind(job.run_after)
-        .bind(job.subject)
-        .bind(job.enqueued_by)
-        .bind(job.token)
-        .bind(self.fence)
-        .fetch_optional(self.pool)
-        .await?;
-        match (made, job.token) {
-            (Some(made), _) => Ok(made),
-            (None, Some(token)) => self
-                .by_token(job.kind, job.subject, job.params["action"].as_str(), token)
-                .await?
-                .ok_or_else(|| {
-                    Error::Conflict("a job with the token was removed meanwhile".into())
-                }),
-            (None, None) => Err(Error::Conflict("the job was not made".into())),
-        }
+        let mut conn = self.pool.acquire().await?;
+        enqueue_on(&mut conn, &job, self.fence).await
     }
 
     /// The job a caller's token started, of a kind, subject and `params.action`.
@@ -133,16 +164,8 @@ impl Jobs<'_> {
         action: Option<&str>,
         token: &str,
     ) -> Result<Option<Job>> {
-        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "SELECT {COLS} FROM rookery.jobs WHERE kind = $1 AND subject IS NOT DISTINCT FROM $2
-               AND params->>'action' IS NOT DISTINCT FROM $3 AND token = $4"
-        )))
-        .bind(kind)
-        .bind(subject)
-        .bind(action)
-        .bind(token)
-        .fetch_optional(self.pool)
-        .await?)
+        let mut conn = self.pool.acquire().await?;
+        by_token_on(&mut conn, kind, subject, action, token).await
     }
 
     /// The session on a host a job follows, and how far its output was copied.

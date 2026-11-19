@@ -109,6 +109,42 @@ impl TestDb {
         })
     }
 
+    /// A person signed in through a test issuer, with their personal space.
+    pub async fn user(&self, name: &str) -> uuid::Uuid {
+        let (u, _) = self
+            .store
+            .users()
+            .upsert_login(&crate::users::Login {
+                issuer: "test".into(),
+                subject: name.into(),
+                name: name.into(),
+                email: Some(format!("{name}@example.test")),
+                ..Default::default()
+            })
+            .await
+            .expect("signing in a test user");
+        u.id
+    }
+
+    /// The options of another store on this database.
+    pub fn options(&self) -> StoreOptions {
+        let mut options = StoreOptions::new(&self.url);
+        options.max_connections = 4;
+        options
+    }
+
+    /// Another store on this database, as another server process has, with this store's key.
+    pub async fn second_store(&self) -> crate::Result<Store> {
+        let mut options = self.options();
+        options.secret_key = self.store.key().ok().cloned();
+        Store::open(options).await
+    }
+
+    /// The caller of a test user.
+    pub fn caller(&self, user: uuid::Uuid) -> crate::Caller {
+        crate::Caller::user(user)
+    }
+
     /// Closes the pool and drops the database.
     pub async fn close(self) {
         self.store.close().await;

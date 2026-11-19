@@ -1,0 +1,15 @@
+[package]
+name = "rookery-filter"
+description = "Structured filters over JSON rows: parsing, validation and in-memory matching."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+chrono.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
