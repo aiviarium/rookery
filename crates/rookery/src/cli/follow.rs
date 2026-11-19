@@ -14,7 +14,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::Paragraph,
 };
-use rookery_api::portal::Piece;
 use serde_json::{Value, json};
 use std::io::Write;
 use std::time::{Duration, Instant};
@@ -119,12 +118,6 @@ impl Inline {
     }
 }
 
-/// What a frame of `jobs.follow` says when it is the end.
-fn exit_of(said: &Value) -> Option<i32> {
-    said.get("exited")
-        .map(|exited| exited["exit_code"].as_i64().unwrap_or(1) as i32)
-}
-
 /// What following a job came to before it ended.
 enum Watched {
     Ended,
@@ -175,69 +168,47 @@ pub fn job(client: &Client, id: &str, title: &str, own: bool) -> Result<Ended> {
     };
     let since = Instant::now();
     let mut lines = Lines::default();
-    let mut code = None;
-    let mut warned = false;
-    let mut offset = 0u64;
+    let mut after = 0i64;
     let mut asked_to_stop = false;
-    let in_process = client.in_process();
     let stopped = loop {
-        let mut stream = client.stream("jobs.follow", None, json!({"id": id, "since": offset}))?;
+        let mut stream = client.stream("jobs.follow", json!({"id": id, "after": after}))?;
         let watched = client.wait(async {
             let mut tick = tokio::time::interval(Duration::from_millis(100));
+            let mut buffer = vec![];
             loop {
                 tokio::select! {
-                    piece = stream.recv() => match piece {
-                        Some(Ok(Piece::Binary(bytes))) => {
-                            offset += bytes.len() as u64;
-                            lines.take(&bytes);
+                    line = stream.line(&mut buffer) => match line.map_err(Fail::from)? {
+                        Some(item) if item.get("seq").is_some() => {
+                            after = item["seq"].as_i64().unwrap_or(after);
+                            let mut text = item["text"].as_str().unwrap_or("").to_owned();
+                            text.push('\n');
+                            lines.take(text.as_bytes());
                             if own {
                                 let mut stdout = std::io::stdout().lock();
-                                let _ = stdout.write_all(&bytes);
+                                let _ = stdout.write_all(text.as_bytes());
                                 let _ = stdout.flush();
                             } else if inline.is_none() && !shown.quiet {
-                                let text = String::from_utf8_lossy(&bytes);
-                                let text = match colour { true => text.into_owned(), false => out::strip_ansi(&text) };
+                                let text = match colour { true => text, false => out::strip_ansi(&text) };
                                 let mut stderr = std::io::stderr().lock();
                                 let _ = stderr.write_all(text.as_bytes());
                                 let _ = stderr.flush();
                             }
                         }
-                        Some(Ok(Piece::Text(said))) => {
-                            if let Some(exit) = exit_of(&said) {
-                                code = Some(exit);
-                            }
-                        }
-                        Some(Err(error)) => return Err(Fail::from(error)),
-                        None => return Ok(Watched::Ended),
+                        // The last line says how it ended.
+                        Some(_) | None => return Ok::<_, Fail>(Watched::Ended),
                     },
                     _ = tick.tick() => {
                         if let Some(inline) = &mut inline {
                             inline.draw(title, since, &lines);
                         }
                     }
-                    _ = tokio::signal::ctrl_c() => {
-                        if in_process && !warned {
-                            warned = true;
-                            let say = format!("{title} runs in this rookery and stops when it ends. Ctrl+C again stops it; rookery serve keeps jobs running after rookery ends");
-                            match &mut inline {
-                                Some(inline) => {
-                                    let said = say.clone();
-                                    let _ = inline.terminal.insert_before(1, |buffer| {
-                                        Paragraph::new(Line::styled(said, out::look(Role::Warn))).render(buffer.area, buffer);
-                                    });
-                                }
-                                None => out::warn(say),
-                            }
-                            continue;
-                        }
-                        return Ok(Watched::Interrupted);
-                    }
+                    _ = tokio::signal::ctrl_c() => return Ok(Watched::Interrupted),
                 }
             }
         })?;
         match watched {
             Watched::Ended => break false,
-            Watched::Interrupted if in_process || asked_to_stop || !shown.ask => break true,
+            Watched::Interrupted if asked_to_stop || !shown.ask => break true,
             Watched::Interrupted => {
                 // The question needs the terminal's lines to itself.
                 if let Some(drawn) = inline.take() {
@@ -247,7 +218,7 @@ pub fn job(client: &Client, id: &str, title: &str, own: bool) -> Result<Ended> {
                     break true;
                 }
                 asked_to_stop = true;
-                client.call("jobs.stop", json!({"id": id}), None)?;
+                client.call("jobs.cancel", json!({"id": id}))?;
                 out::note(format!("Asked {id} to stop. Ctrl+C again stops watching"));
                 if !shown.quiet && !own {
                     inline = Inline::start();
@@ -260,12 +231,9 @@ pub fn job(client: &Client, id: &str, title: &str, own: bool) -> Result<Ended> {
         inline.end();
     }
     if stopped {
-        let message = match in_process {
-            true => format!("Stopped: {title} ended with rookery"),
-            false => format!(
-                "Stopped watching. The job goes on where the server runs: rookery job logs {id} -f"
-            ),
-        };
+        let message = format!(
+            "Stopped watching. The job goes on where the server runs: rookery job logs {id} -f"
+        );
         return Err(Fail {
             status: 130,
             code: "stopped".into(),
@@ -273,11 +241,15 @@ pub fn job(client: &Client, id: &str, title: &str, own: bool) -> Result<Ended> {
         });
     }
     let job = client
-        .call("jobs.get", json!({"id": id}), None)
+        .call("jobs.get", json!({"id": id}))
         .unwrap_or(Value::Null);
-    let code = code
-        .or_else(|| job["exit_code"].as_i64().map(|code| code as i32))
-        .unwrap_or(1);
+    let code = match job["state"].as_str() {
+        Some("succeeded") => 0,
+        Some("cancelled") => 130,
+        _ => super::jobs::exit_of(&job)
+            .filter(|code| *code != 0)
+            .unwrap_or(1),
+    };
     let took = elapsed(since);
     if !shown.quiet {
         match code {
@@ -298,13 +270,18 @@ pub fn job(client: &Client, id: &str, title: &str, own: bool) -> Result<Ended> {
                         let _ = writeln!(stderr, "  {line}");
                     }
                 }
-                let said = match job["stopped_by"].as_str() {
-                    Some(by) => {
-                        format!("stopped by {by} after {took}. Its log: rookery job logs {id}")
+                let said = match job["state"].as_str() {
+                    Some("cancelled") => {
+                        format!("stopped after {took}. Its log: rookery job logs {id}")
                     }
-                    None => format!(
-                        "failed with exit status {code} after {took}. Its log: rookery job logs {id}"
-                    ),
+                    _ => match job["error"]["message"].as_str() {
+                        Some(why) if super::jobs::exit_of(&job).is_none() => {
+                            format!("failed after {took}: {why}. Its log: rookery job logs {id}")
+                        }
+                        _ => format!(
+                            "failed with exit status {code} after {took}. Its log: rookery job logs {id}"
+                        ),
+                    },
                 };
                 eprintln!(
                     "{} {title} {}",
@@ -321,14 +298,12 @@ pub fn job(client: &Client, id: &str, title: &str, own: bool) -> Result<Ended> {
     })
 }
 
-use ratatui::widgets::Widget;
-
 /// What a command that started a job does with it: print its id and leave
 /// with `--detach`, or follow it to its end. The exit status is the job's:
 /// 1 when it failed, or its own when `own` says so, as for a command on a host.
 pub fn acted(
     client: &Client,
-    acted: rookery_api::Acted,
+    acted: rookery_proto::hosts::Acted,
     title: &str,
     detach: bool,
     own: bool,
@@ -343,15 +318,11 @@ pub fn acted(
         return Ok(Value::Null);
     };
     if detach {
-        if client.in_process() {
-            return Err(Fail::refused(
-                "--detach needs a rookery serve to keep the job running after rookery ends. Start one with rookery serve, or leave out --detach",
-            ));
-        }
-        out::data(&serde_json::to_value(&job)?, || println!("{}", job.id));
+        let info = serde_json::to_value(&acted.info)?;
+        out::data(&info, || println!("{job}"));
         return Ok(Value::Null);
     }
-    let ended = self::job(client, &job.id, title, own)?;
+    let ended = self::job(client, &job, title, own)?;
     if out::get().json {
         out::json(&ended.job);
     }

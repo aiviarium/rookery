@@ -44,7 +44,7 @@ pub fn keys_help() -> String {
 
 /// What the server gives the set-up of a new host.
 pub fn catalogue(client: &Client) -> Result<Catalogue> {
-    let found = client.call("setup.catalogue", json!({}), None)?;
+    let found = client.call("setup.catalogue", json!({}))?;
     let features = found["features"]
         .as_array()
         .into_iter()
@@ -61,11 +61,11 @@ pub fn catalogue(client: &Client) -> Result<Catalogue> {
         })
         .collect();
     let secrets = client
-        .call("secrets.list", json!({}), None)
+        .call("installation.secrets.list", json!({}))
         .map(|found| names(&found["names"]))
         .unwrap_or_default();
     let own_key = client
-        .call("keys.list", json!({}), None)
+        .call("keys.list", json!({}))
         .ok()
         .and_then(|found| {
             found["keys"]
@@ -107,7 +107,7 @@ impl Maker for Server<'_> {
         };
         let made = self
             .0
-            .call("setup.generate", json!({}), Some(asked))
+            .call("setup.generate", asked)
             .map_err(|fail| fail.message)?;
         Ok(made["value"].as_str().unwrap_or("").to_owned())
     }
@@ -138,10 +138,7 @@ fn starting_profile(client: &Client, from: &str) -> Result<Value> {
 /// or taken from the flags, then saved, then run as its way says.
 pub fn create(client: &Client, create: &args::HostCreate) -> Result<()> {
     let name = &create.name;
-    if client
-        .call("hosts.get", json!({"name": name}), None)
-        .is_ok()
-    {
+    if client.call("hosts.get", json!({"host": name})).is_ok() {
         // A duplicate's machine is planned with its provisioner already.
         let planned =
             host::machine_of(client, name)?.filter(|machine| machine["state"] == "planned");
@@ -212,7 +209,7 @@ pub fn create(client: &Client, create: &args::HostCreate) -> Result<()> {
 
 /// The provisioners that can make a host, as the Install tab lists them.
 fn provisioners(client: &Client) -> Result<Vec<rookery_api::ProvisionerInfo>> {
-    let listed = client.call("provisioners.list", json!({}), None)?;
+    let listed = client.call("provisioners.list", json!({}))?;
     Ok(serde_json::from_value(listed)?)
 }
 
@@ -317,16 +314,9 @@ fn run_way(client: &Client, flow: &Flow, create: &args::HostCreate) -> Result<()
     let host_type = rookery_api::profile::host_type(&flow.config);
     if flow.action == Action::Machine {
         let request = flow.request().map_err(Fail::usage)?;
-        let made = client.call(
-            "resources.create",
-            json!({}),
-            Some(serde_json::to_value(&request)?),
-        )?;
-        let made: rookery_api::Created = serde_json::from_value(made)?;
-        let acted = rookery_api::Acted {
-            job: Some(made.job),
-            ..rookery_api::Acted::default()
-        };
+        let made = client.call("resources.create", serde_json::to_value(&request)?)?;
+        let made: Made = serde_json::from_value(made)?;
+        let acted = rookery_proto::hosts::Acted::of_job(made.job);
         let title = format!("Creating {name} with {}", request.provisioner);
         follow::acted(client, acted, &title, create.detach.detach, false)?;
         return Ok(());
@@ -398,7 +388,7 @@ fn run_way(client: &Client, flow: &Flow, create: &args::HostCreate) -> Result<()
 pub fn key(client: &Client, command: Key) -> Result<()> {
     match command {
         Key::List => {
-            let found = client.call("keys.list", json!({}), None)?;
+            let found = client.call("keys.list", json!({}))?;
             out::data(&found, || {
                 let mut table = Table::new(&["name", "fingerprint", "hosts"]);
                 for key in found["keys"].as_array().into_iter().flatten() {
@@ -417,7 +407,7 @@ pub fn key(client: &Client, command: Key) -> Result<()> {
             Ok(())
         }
         Key::Show { name } => {
-            let found = client.call("keys.list", json!({}), None)?;
+            let found = client.call("keys.list", json!({}))?;
             let key = found["keys"]
                 .as_array()
                 .into_iter()
@@ -433,7 +423,7 @@ pub fn key(client: &Client, command: Key) -> Result<()> {
             Ok(())
         }
         Key::Create { name } => {
-            let made = client.call("keys.add", json!({"name": name}), None)?;
+            let made = client.call("keys.add", json!({"name": name}))?;
             out::data(&made, || {
                 out::done(format!("Made the key {name}"));
                 println!("{}", made["public"].as_str().unwrap_or(""));
@@ -443,7 +433,10 @@ pub fn key(client: &Client, command: Key) -> Result<()> {
         Key::Import { name, file } => {
             let private = host::read_file(&file)?;
             let data = json!({"base64": rookery_api::b64(&private)});
-            let made = client.call("keys.add", json!({"name": name}), Some(data))?;
+            let made = client.call(
+                "keys.add",
+                super::client::merged(json!({"name": name}), data),
+            )?;
             out::data(&made, || {
                 out::done(format!(
                     "Added the key {name}: {}",
@@ -456,7 +449,7 @@ pub fn key(client: &Client, command: Key) -> Result<()> {
             ask::confirm(&format!(
                 "This removes the key {name} from rookery's key ring."
             ))?;
-            client.call("keys.remove", json!({"name": name}), None)?;
+            client.call("keys.remove", json!({"name": name}))?;
             out::done(format!("Removed the key {name}"));
             Ok(())
         }
@@ -464,8 +457,8 @@ pub fn key(client: &Client, command: Key) -> Result<()> {
             ask::confirm(&format!(
                 "This replaces the key {name} on every host that takes it."
             ))?;
-            let acted: rookery_api::Acted =
-                serde_json::from_value(client.call("keys.rotate", json!({"name": name}), None)?)?;
+            let acted: rookery_proto::hosts::Acted =
+                serde_json::from_value(client.call("keys.rotate", json!({"name": name}))?)?;
             follow::acted(
                 client,
                 acted,
@@ -499,7 +492,7 @@ pub fn key(client: &Client, command: Key) -> Result<()> {
 pub fn secret(client: &Client, command: Secret) -> Result<()> {
     match command {
         Secret::List => {
-            let found = client.call("secrets.list", json!({}), None)?;
+            let found = client.call("installation.secrets.list", json!({}))?;
             out::data(&found, || {
                 let all = names(&found["names"]);
                 if all.is_empty() {
@@ -517,25 +510,26 @@ pub fn secret(client: &Client, command: Secret) -> Result<()> {
                 "--value-file FILE",
             )?;
             client.call(
-                "secrets.set",
-                json!({"name": name}),
-                Some(json!({"value": value})),
+                "installation.secrets.set",
+                super::client::merged(json!({"name": name}), json!({"value": value})),
             )?;
             out::done(format!("Set the secret {name}"));
             Ok(())
         }
         Secret::Rename { name, new } => {
             client.call(
-                "secrets.rename",
-                json!({"name": name}),
-                Some(json!({"name": new})),
+                "installation.secrets.rename",
+                super::client::merged(
+                    json!({"name": name}),
+                    json!({"value": json!({"name": new})["name"].clone()}),
+                ),
             )?;
             out::done(format!("{name} is called {new} now"));
             Ok(())
         }
         Secret::Remove { name } => {
             ask::confirm(&format!("This removes the secret {name}."))?;
-            client.call("secrets.remove", json!({"name": name}), None)?;
+            client.call("installation.secrets.remove", json!({"name": name}))?;
             out::done(format!("Removed the secret {name}"));
             Ok(())
         }
@@ -559,12 +553,12 @@ pub fn registry(global: &Global, command: Registry) -> Result<()> {
     }
     let client = Client::open(global)?;
     let registries = || -> Result<serde_json::Map<String, Value>> {
-        let found = client.call("registries.list", json!({}), None)?;
+        let found = client.call("registries.list", json!({}))?;
         Ok(found["registries"].as_object().cloned().unwrap_or_default())
     };
     match command {
         Registry::List => {
-            let found = client.call("registries.list", json!({}), None)?;
+            let found = client.call("registries.list", json!({}))?;
             out::data(&found, || {
                 let mut table = Table::new(&["name", "type", "url", "user", "repositories"]);
                 for (name, registry) in found["registries"].as_object().into_iter().flatten() {
@@ -606,7 +600,10 @@ pub fn registry(global: &Global, command: Registry) -> Result<()> {
             if let Some(known) = registries()?.get(&name) {
                 registry["repositories"] = known["repositories"].clone();
             }
-            client.call("registries.save", json!({"name": name}), Some(registry))?;
+            client.call(
+                "registries.save",
+                super::client::merged(json!({"name": name}), json!({"value": registry})),
+            )?;
             out::done(format!("Saved the registry {name}"));
             out::hint(format!(
                 "Keep its login with: rookery registry login {name}"
@@ -635,7 +632,10 @@ pub fn registry(global: &Global, command: Registry) -> Result<()> {
             repositories.retain(|known| known["name"] != repository.as_str());
             repositories.push(entry);
             registry["repositories"] = json!(repositories);
-            client.call("registries.save", json!({"name": name}), Some(registry))?;
+            client.call(
+                "registries.save",
+                super::client::merged(json!({"name": name}), json!({"value": registry})),
+            )?;
             out::done(format!("Added {repository} to {name}"));
             Ok(())
         }
@@ -655,9 +655,11 @@ pub fn registry(global: &Global, command: Registry) -> Result<()> {
                 "--password-stdin",
             )?;
             client.call(
-                "secrets.set",
-                json!({"name": format!("registry/{name}")}),
-                Some(json!({"value": value})),
+                "installation.secrets.set",
+                super::client::merged(
+                    json!({"name": format!("registry/{name}")}),
+                    json!({"value": value}),
+                ),
             )?;
             out::done(format!("Kept the login of {name}"));
             Ok(())
@@ -670,7 +672,7 @@ pub fn registry(global: &Global, command: Registry) -> Result<()> {
             let mut all = serde_json::Map::new();
             let mut failed = false;
             for name in names {
-                let checked = client.call("registries.check", json!({"name": name}), None)?;
+                let checked = client.call("registries.check", json!({"name": name}))?;
                 failed |= checked["lines"]
                     .as_array()
                     .into_iter()
@@ -694,15 +696,17 @@ pub fn registry(global: &Global, command: Registry) -> Result<()> {
         Registry::Rename { name, new } => {
             client.call(
                 "registries.rename",
-                json!({"name": name}),
-                Some(json!({"name": new})),
+                super::client::merged(
+                    json!({"name": name}),
+                    json!({"value": json!({"name": new})["name"].clone()}),
+                ),
             )?;
             out::done(format!("{name} is called {new} now, with its login"));
             Ok(())
         }
         Registry::Remove { name } => {
             ask::confirm(&format!("This removes the registry {name} with its login."))?;
-            client.call("registries.remove", json!({"name": name}), None)?;
+            client.call("registries.remove", json!({"name": name}))?;
             out::done(format!("Removed the registry {name}"));
             Ok(())
         }
@@ -743,7 +747,7 @@ fn report(found: &Value) {
 pub fn plugin(client: &Client, command: Plugin) -> Result<()> {
     match command {
         Plugin::List => {
-            let found = client.call("plugins.list", json!({}), None)?;
+            let found = client.call("plugins.list", json!({}))?;
             out::data(&found, || {
                 let mut table = Table::new(&["id", "version", "from", "features"]);
                 let mut refused = vec![];
@@ -784,7 +788,7 @@ pub fn plugin(client: &Client, command: Plugin) -> Result<()> {
             Ok(())
         }
         Plugin::Show { id } => {
-            let found = client.call("plugins.list", json!({}), None)?;
+            let found = client.call("plugins.list", json!({}))?;
             let plugins: Vec<rookery_api::PluginInfo> =
                 serde_json::from_value(found["plugins"].clone())?;
             let Some(plugin) = plugins.into_iter().find(|plugin| plugin.id == id) else {
@@ -814,11 +818,7 @@ pub fn plugin(client: &Client, command: Plugin) -> Result<()> {
                     git_ref,
                     allow_young,
                 };
-                report(&client.call(
-                    "plugins.add",
-                    json!({}),
-                    Some(serde_json::to_value(asked)?),
-                )?);
+                report(&client.call("plugins.install", serde_json::to_value(asked)?)?);
                 return Ok(());
             }
             // A file or folder of this machine is sent as an egg.
@@ -832,12 +832,12 @@ pub fn plugin(client: &Client, command: Plugin) -> Result<()> {
                 )));
             }
             let data = json!({"base64": rookery_api::b64(&package)});
-            report(&client.call("plugins.upload", json!({}), Some(data))?);
+            report(&client.call("plugins.upload", data)?);
             Ok(())
         }
         Plugin::Remove { id } => {
             // A plugin is named by its id or by its package.
-            let found = client.call("plugins.list", json!({}), None)?;
+            let found = client.call("plugins.list", json!({}))?;
             let id = found["plugins"]
                 .as_array()
                 .into_iter()
@@ -847,11 +847,11 @@ pub fn plugin(client: &Client, command: Plugin) -> Result<()> {
                 .map(str::to_owned)
                 .unwrap_or(id);
             ask::confirm(&format!("This removes the plugin {id}."))?;
-            report(&client.call("plugins.remove", json!({"id": id}), None)?);
+            report(&client.call("plugins.remove", json!({"id": id}))?);
             Ok(())
         }
         Plugin::Update { id, check: true } => {
-            let found = client.call("plugins.check", json!({}), None)?;
+            let found = client.call("plugins.check", json!({}))?;
             out::data(&found, || {
                 let mut table = Table::new(&["id", "version", "latest"]);
                 for plugin in found["plugins"].as_array().into_iter().flatten() {
@@ -881,7 +881,7 @@ pub fn plugin(client: &Client, command: Plugin) -> Result<()> {
                 Some(id) => json!({"id": id}),
                 None => json!({}),
             };
-            report(&client.call("plugins.update", json!({}), Some(body))?);
+            report(&client.call("plugins.update", body)?);
             Ok(())
         }
         Plugin::Check { dir } => check_plugin(&dir),
@@ -892,7 +892,7 @@ pub fn plugin(client: &Client, command: Plugin) -> Result<()> {
 fn plugin_registry(client: &Client, command: args::PluginRegistry) -> Result<()> {
     match command {
         args::PluginRegistry::List => {
-            let found = client.call("plugins.registries", json!({}), None)?;
+            let found = client.call("plugins.registry.list", json!({}))?;
             out::data(&found, || {
                 let listed: rookery_api::PluginRegistries =
                     serde_json::from_value(found.clone()).unwrap_or_default();
@@ -963,20 +963,12 @@ fn plugin_registry(client: &Client, command: args::PluginRegistry) -> Result<()>
                 unsigned_tags,
                 builtin: false,
             };
-            report(&client.call(
-                "plugins.registries.add",
-                json!({}),
-                Some(serde_json::to_value(asked)?),
-            )?);
+            report(&client.call("plugins.registry.add", serde_json::to_value(asked)?)?);
             Ok(())
         }
         args::PluginRegistry::Remove { location } => {
             ask::confirm(&format!("This removes the plugin registry {location}."))?;
-            report(&client.call(
-                "plugins.registries.remove",
-                json!({}),
-                Some(json!({"location": location})),
-            )?);
+            report(&client.call("plugins.registry.remove", json!({"location": location}))?);
             Ok(())
         }
         args::PluginRegistry::Disable { name } => {
@@ -985,11 +977,7 @@ fn plugin_registry(client: &Client, command: args::PluginRegistry) -> Result<()>
                 location: name,
                 ..rookery_api::PluginRegistry::default()
             };
-            report(&client.call(
-                "plugins.registries.add",
-                json!({}),
-                Some(serde_json::to_value(asked)?),
-            )?);
+            report(&client.call("plugins.registry.add", serde_json::to_value(asked)?)?);
             Ok(())
         }
     }
@@ -1118,7 +1106,7 @@ fn set_client(key: &str, value: &str) -> Result<()> {
 
 pub fn config(client: &Client, command: args::Config) -> Result<()> {
     let settings = || -> Result<Vec<Value>> {
-        let found = client.call("settings.list", json!({}), None)?;
+        let found = client.call("installation.settings.list", json!({}))?;
         // A server's own server and token are not this rookery's: those are the client's.
         let mut all: Vec<Value> = found
             .as_array()
@@ -1150,9 +1138,8 @@ pub fn config(client: &Client, command: args::Config) -> Result<()> {
         }
         known(key)?;
         client.call(
-            "settings.set",
-            json!({"key": key}),
-            Some(json!({"value": value})),
+            "installation.settings.set",
+            json!({"name": key, "value": json!({"value": value})["value"].clone()}),
         )?;
         Ok(())
     };
@@ -1218,4 +1205,10 @@ pub fn config(client: &Client, command: args::Config) -> Result<()> {
             Ok(())
         }
     }
+}
+
+/// What `resources.create` answers: the resource and the job that makes it.
+#[derive(serde::Deserialize)]
+struct Made {
+    job: rookery_proto::jobs::JobInfo,
 }

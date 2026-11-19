@@ -74,7 +74,7 @@ fn state_of(host: &Value) -> String {
 }
 
 pub fn list(client: &Client) -> Result<()> {
-    let hosts = client.call("hosts.list", json!({}), None)?;
+    let hosts = client.call("hosts.list", json!({}))?["hosts"].take();
     out::data(&hosts, || {
         let mut table = Table::new(&["name", "type", "address", "state", "rookeryd"]);
         for host in hosts.as_array().into_iter().flatten() {
@@ -95,7 +95,7 @@ pub fn list(client: &Client) -> Result<()> {
 }
 
 pub fn show(client: &Client, name: &str) -> Result<()> {
-    let host = client.call("hosts.get", json!({"name": name}), None)?;
+    let host = client.call("hosts.get", json!({"host": name}))?;
     let machine = machine_of(client, name).ok().flatten();
     // The profile needs the role admin, and the actions a host that answers: each is left out without.
     let given = profile_of(client, name).ok();
@@ -171,29 +171,25 @@ pub fn show(client: &Client, name: &str) -> Result<()> {
 
 /// The profile the server keeps of a host.
 pub fn profile_of(client: &Client, name: &str) -> Result<Value> {
-    client.call("hosts.profile", json!({"name": name}), None)
+    Ok(client.call("hosts.profile", json!({"host": name}))?["profile"].take())
 }
 
 /// Save a profile as a host's.
 pub fn save(client: &Client, name: &str, profile: &Value) -> Result<()> {
-    client.call("hosts.save", json!({"name": name}), Some(profile.clone()))?;
+    client.call("hosts.save", json!({"host": name, "profile": profile}))?;
     Ok(())
 }
 
 /// The machine a provisioner made for a host, as its resource.
 pub fn machine_of(client: &Client, name: &str) -> Result<Option<Value>> {
-    let found = client.call(
-        "resources.list",
-        json!({"kind": "machine", "host": name}),
-        None,
-    )?;
+    let found = client.call("resources.list", json!({"kind": "machine", "host": name}))?;
     Ok(found
         .as_array()
         .and_then(|all| all.iter().find(|made| made["host"] == name).cloned()))
 }
 
 fn exists(client: &Client, name: &str) -> Result<bool> {
-    match client.call("hosts.get", json!({"name": name}), None) {
+    match client.call("hosts.get", json!({"host": name})) {
         Ok(_) => Ok(true),
         Err(fail) if fail.code == "not_found" => Ok(false),
         Err(fail) => Err(fail),
@@ -267,7 +263,7 @@ fn add(client: &Client, add: &args::HostAdd) -> Result<()> {
             add.name, add.name
         ))
     })?;
-    let host = client.call("hosts.get", json!({"name": add.name}), None)?;
+    let host = client.call("hosts.get", json!({"host": add.name}))?;
     let seen = host["seen"].as_str().and_then(HostType::parse);
     if let Some(said) = rookery_api::type_mismatch(&add.name, host_type, seen) {
         out::warn(said);
@@ -425,11 +421,11 @@ pub fn sudo_password(client: &Client, name: &str) -> Result<Option<String>> {
     if !profile::asks_become_pass(&profile) || profile["access"]["link"].is_array() {
         return Ok(None);
     }
-    let kept = client.call("secrets.list", json!({}), None)?;
+    let kept = client.call("secrets.list", json!({"plugin": "rookery"}))?;
     let secret = format!("sudo/{name}");
-    if kept["names"]
+    if kept["secrets"]
         .as_array()
-        .is_some_and(|names| names.iter().any(|known| known == secret.as_str()))
+        .is_some_and(|all| all.iter().any(|known| known["name"] == secret.as_str()))
     {
         return Ok(None);
     }
@@ -544,7 +540,7 @@ fn installer(client: &Client, iso: &args::HostIso) -> Result<()> {
         follow::acted(client, acted, &title, iso.detach.detach, false)?;
         return Ok(());
     };
-    let ended = follow::job(client, &job.id, &title, false)?;
+    let ended = follow::job(client, job, &title, false)?;
     // Until when its key joins the tailnet, which the job's output says among its lines.
     for line in &ended.tail {
         if line.contains("joins the tailnet until") {
@@ -651,7 +647,7 @@ fn adopt(client: &Client, adopt: &args::HostAdopt) -> Result<()> {
 }
 
 fn credentials(client: &Client, name: &str, show: bool) -> Result<()> {
-    let found = client.call("hosts.credentials", json!({"name": name}), None)?;
+    let found = client.call("hosts.credentials", json!({"host": name}))?;
     if !out::get().terminal.0 && !show && !out::get().json {
         return Err(Fail::refused(
             "The passwords go to a terminal only. Add --show to print them here",

@@ -1,12 +1,10 @@
-//! What rookery does on the machine its installation is on, which is Linux:
-//! `rookery serve`, the server its commands use when no other is set, and
-//! what only makes sense where the server runs: its setup key, its store,
-//! its API documents, and the commands that need the installation's own
-//! files, such as `rookery ssh` with its key.
+//! What rookery does on the machine its server runs on, which is Linux:
+//! `rookery serve`, and what only makes sense there: its sign-in links and
+//! tokens, its secrets' key, the import of an older store, and the commands
+//! an apply runs that read the server's tables.
 
 mod deploy;
-pub mod serve;
-mod store_command;
+pub mod import;
 
 pub use deploy::server_context;
 
@@ -16,25 +14,6 @@ use crate::cli::fail::{Fail, Result as Done};
 use crate::cli::{client, out};
 use rookery_core::{host::Host, paths::Paths};
 use serde_json::{Value, json};
-
-/// The server of this machine: a `rookery serve` of this user, or one in this
-/// process, whose jobs the second part waits for. With `ask`, a host whose
-/// sudo asks for a password has it asked for on the terminal when the
-/// server starts, as `rookery serve` does.
-pub fn server(ask: bool) -> Result<Option<crate::Local>> {
-    let (server, here) = serve::here::local(&Paths::locate()?, ask)?;
-    if let Some(here) = &here {
-        crate::cli::net::serve_here(here.dial());
-    }
-    Ok(Some((server, Box::new(move || serve::here::finish(here)))))
-}
-
-/// Give the server in this process a host's sudo password for this run, as
-/// `rookery serve` takes one on its terminal at the start. Whether there is
-/// such a server.
-pub fn give_sudo_password(name: &str, password: &str) -> bool {
-    serve::here::give_sudo_password(name, password)
-}
 
 /// ssh runs rookery as its askpass helper, the program of SSH_ASKPASS, with
 /// the prompt as its one argument and the variable that says where the
@@ -54,77 +33,29 @@ pub fn askpass(args: &[String]) -> Result<bool> {
     Ok(true)
 }
 
-/// Put back the plugins rookery's store has and this machine's plugin
-/// directory lacks, as on a machine restored from the store, then install
-/// the plugins that come with this rookery, and say so on standard error.
-pub(crate) fn restore_plugins(paths: &Paths) {
-    match rookery_core::plugin_state::restore(paths) {
-        Ok(notices) => notices.iter().for_each(|notice| eprintln!("{notice}")),
-        Err(error) => {
-            eprintln!("rookery: the plugins in rookery's store were not checked: {error}")
-        }
-    }
-    match rookery_core::eggs::builtins(paths) {
-        Ok(notices) => notices.iter().for_each(|notice| eprintln!("{notice}")),
-        Err(error) => {
-            eprintln!("rookery: the plugins that come with rookery were not installed: {error}")
-        }
-    }
-}
-
 /// What only works with the installation on this machine is refused when
 /// rookery is set to use a server elsewhere.
 fn here_only(global: &Global, what: &str) -> Done<Paths> {
     if let Some(server) = client::named(global)
-        && !crate::cli::net::local(&server)
+        && !rookery_client::net::local(&server)
     {
         return Err(Fail::refused(format!(
             "{what} works where the rookery server runs, and this rookery uses the one at {server}. Run it there"
         )));
     }
+    attach()?;
     Ok(Paths::locate()?)
 }
 
-/// `rookery ssh HOST [--agent] [-- COMMAND…]`: plain SSH with the
-/// installation's key, for a host whose controller cannot be reached.
-pub fn ssh(global: &Global, ssh: &args::Ssh) -> Done<()> {
-    let paths = here_only(
-        global,
-        "rookery ssh, which logs in with the server's own key,",
-    )
-    .map_err(|fail| {
-        Fail::refused(format!(
-            "{} rookery session attach {} reaches a host through any server",
-            fail.message, ssh.host
+/// The server's tables, from `ROOKERY_DATABASE_URL` and its key, for a command of the server's
+/// machine that reads them as the server does.
+fn attach() -> Done<()> {
+    let config = rookery_server::ServerConfig::from_env().map_err(|e| {
+        Fail::usage(format!(
+            "this works where rookery serve runs, with its ROOKERY_DATABASE_URL: {e}"
         ))
     })?;
-    let host = Host::load(&paths, &ssh.host)?;
-    if !host.access().reachable() {
-        return Err(Fail::failed(format!("{} has no SSH address yet", ssh.host)));
-    }
-    let mut command = host.ssh(&paths)?;
-    command.arg(host.target());
-    if ssh.agent {
-        // Root login and the agent's own key are not a given, so it goes
-        // through the SSH user and sudo; agent-env adds the display and tools.
-        let agent = host.agent();
-        if agent.starts_with('-')
-            || !agent
-                .chars()
-                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
-        {
-            return Err(Fail::failed("The agent's account name is not a valid one"));
-        }
-        command.arg("-t").arg(format!(
-            "sudo -iu {agent} sh -c 'command -v agent-env >/dev/null && exec agent-env; exec bash -l'"
-        ));
-    }
-    command.args(&ssh.command);
-    let status = command.status()?;
-    match status.code() {
-        Some(0) => Ok(()),
-        code => Err(Fail::exit(code.unwrap_or(1))),
-    }
+    rookery_hosts::attach(&config.database_url, config.secret_key).map_err(Fail::failed)
 }
 
 /// Several hosts' inventories as one.
@@ -167,6 +98,7 @@ pub fn inventory(global: &Global, names: &[String]) -> Done<()> {
 /// The enrollment key an apply asks for, for a host not on the tailnet yet;
 /// it goes to the role on standard output.
 pub fn tailnet_key(host: &str) -> Done<()> {
+    attach()?;
     let paths = Paths::locate()?;
     println!("{}", rookery_core::tailnet::key_for(&paths, host)?);
     Ok(())
@@ -241,22 +173,9 @@ pub fn push_image(global: &Global, destination: &str, tag: &str) -> Done<()> {
     Ok(())
 }
 
-/// `rookery serve`: on Postgres when `ROOKERY_DATABASE_URL` is set, else the server of before, as
-/// `rookery server run`.
-pub fn serve(run: args::ServerRun) -> Done<()> {
-    if std::env::var("ROOKERY_DATABASE_URL").map_or(true, |url| url.trim().is_empty()) {
-        return server_command(args::Server::Run(run));
-    }
-    if run.listen.is_some()
-        || run.expose
-        || run.simulate
-        || run.seed.is_some()
-        || run.data.is_some()
-    {
-        return Err(Fail::usage(
-            "rookery serve on Postgres is set up with ROOKERY_* variables, not flags: ROOKERY_LISTEN, ROOKERY_ALLOW_PUBLIC and the rest",
-        ));
-    }
+/// `rookery serve`: the server on the Postgres of `ROOKERY_DATABASE_URL`, set up by the `ROOKERY_*`
+/// variables.
+pub fn serve() -> Done<()> {
     let config =
         rookery_server::ServerConfig::from_env().map_err(|e| Fail::usage(e.to_string()))?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -268,28 +187,22 @@ pub fn serve(run: args::ServerRun) -> Done<()> {
         .map_err(Fail::failed)
 }
 
-/// `rookery server setup-key` for rookery serve on Postgres: a sign-in link for the first admin, from
-/// the server's socket. `None` when no such server runs here.
-fn setup_link() -> Done<Option<String>> {
-    let Some(socket) = rookery_server::config::default_socket(&|name| std::env::var(name).ok())
-    else {
-        return Ok(None);
-    };
-    if !socket.exists() {
-        return Ok(None);
-    }
+/// A call of the server on this machine, over its socket.
+fn socket_call(method: &str, params: Value) -> Done<Value> {
+    let socket = rookery_server::config::default_socket(&|name| std::env::var(name).ok())
+        .filter(|socket| socket.exists())
+        .ok_or_else(|| {
+            Fail::unreachable(
+                "No rookery serve runs on this machine for this user: its socket is not there (ROOKERY_SOCKET names another)",
+            )
+        })?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| Fail::failed(e.to_string()))?;
-    let made = runtime
-        .block_on(rookery_server::client::call(
-            &socket,
-            "auth.createLink",
-            json!({"kind": "setup"}),
-        ))
-        .map_err(Fail::failed)?;
-    Ok(made["url"].as_str().map(str::to_owned))
+    runtime
+        .block_on(rookery_server::client::call(&socket, method, params))
+        .map_err(Fail::failed)
 }
 
 /// `rookery server secrets rekey`: every sealed row of rookery serve on Postgres moves to a new key.
@@ -340,9 +253,10 @@ fn rekey(
         .block_on(rookery_server::rekey(&config, &new))
         .map_err(Fail::failed)?;
     out::done(format!(
-        "Sealed {} secrets and {} credentials again under the key {}. Start rookery serve with it as ROOKERY_SECRET_KEY_FILE.",
+        "Sealed {} secrets, {} credentials and {} keys of the key ring again under the key {}. Start rookery serve with it as ROOKERY_SECRET_KEY_FILE.",
         moved.secrets,
         moved.connections,
+        moved.host_keys,
         new.id()
     ));
     Ok(())
@@ -350,90 +264,35 @@ fn rekey(
 
 /// `rookery server …`: the server of this machine itself.
 pub fn server_command(command: args::Server) -> Done<()> {
-    if let args::Server::SetupKey { revoke: false } = &command
-        && let Some(url) = setup_link()?
-    {
-        println!("{url}");
-        out::done(
-            "The link signs in the first admin once, within a day. Open it in a browser, or pass it to rookery login.",
-        );
-        return Ok(());
-    }
-    // Before rookery's own directories are looked for, which it never uses.
-    if let args::Server::Run(run) = &command
-        && (run.simulate || serve::simulate::asked())
-    {
-        return Ok(serve::simulate::command(run)?);
-    }
-    let paths = Paths::locate()?;
     match command {
-        args::Server::Run(run) => {
-            let mut words = vec![];
-            if let Some(listen) = &run.listen {
-                words.extend(["--listen", listen.as_str()]);
-            }
-            if run.expose {
-                words.push("--expose");
-            }
-            Ok(serve::command(&paths, &words)?)
+        args::Server::SetupKey => {
+            let made = socket_call("auth.createLink", json!({"kind": "setup"}))?;
+            println!("{}", made["url"].as_str().unwrap_or(""));
+            out::done(
+                "The link signs in the first admin once, within a day. Open it in a browser, or pass it to rookery login.",
+            );
+            Ok(())
         }
-        args::Server::SetupKey { revoke } => {
-            let words: &[&str] = if revoke { &["--remove"] } else { &[] };
-            Ok(serve::setup_key::command(&paths, words)?)
+        args::Server::Token { user, name, admin } => {
+            let made = socket_call(
+                "admin.createToken",
+                json!({"user": user, "name": name, "admin": admin}),
+            )?;
+            println!("{}", made["token"].as_str().unwrap_or(""));
+            out::done(format!(
+                "An access token of {user}, shown once. Scripts send it as ROOKERY_TOKEN; rookery login URL --token-stdin keeps it"
+            ));
+            Ok(())
         }
-        args::Server::Store(store) => {
-            let target;
-            let file;
-            let words: Vec<&str> = match &store {
-                args::Store::Status => vec![],
-                args::Store::Encrypt => vec!["encrypt"],
-                args::Store::Rekey => vec!["rekey"],
-                args::Store::Decrypt => {
-                    crate::cli::ask::confirm("This writes the store's values plain again.")?;
-                    vec!["decrypt", "--yes"]
-                }
-                args::Store::Copy {
-                    target: given,
-                    target_file,
-                    into_existing,
-                } => {
-                    let mut words = vec!["copy"];
-                    match (given, target_file) {
-                        (Some(given), None) => {
-                            target = given.clone();
-                            words.push(&target);
-                        }
-                        (None, Some(path)) => {
-                            file = path.display().to_string();
-                            words.extend(["--target-file", file.as_str()]);
-                        }
-                        _ => {
-                            return Err(Fail::usage(
-                                "rookery server store copy takes a TARGET or --target-file FILE",
-                            ));
-                        }
-                    }
-                    if *into_existing {
-                        words.push("--into-existing");
-                    }
-                    words
-                }
-            };
-            Ok(store_command::command(&paths, &words)?)
-        }
+        args::Server::Import {
+            from,
+            key_file,
+            owner,
+        } => import::import(&from, key_file.as_deref(), owner.as_deref()),
         args::Server::Secrets(args::Secrets::Rekey {
             new_key_file,
             write_new_key,
         }) => rekey(new_key_file, write_new_key),
-        args::Server::Api(api) => {
-            let document = match api {
-                args::Api::Openapi => serde_json::to_value(serve::openapi())?,
-                args::Api::Asyncapi => serve::asyncapi(),
-                args::Api::Operations => serve::operations(),
-            };
-            out::json(&document);
-            Ok(())
-        }
         args::Server::Image { tag } => deploy::image(tag),
         args::Server::Deploy(deploy) => deploy::deploy(&deploy),
     }

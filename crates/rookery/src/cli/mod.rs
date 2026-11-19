@@ -13,11 +13,11 @@ mod host;
 mod jobs;
 pub mod login;
 mod look;
-pub mod net;
 pub mod out;
 mod pages;
 pub mod settings;
 pub mod setup;
+mod tagged;
 pub mod things;
 mod upgrade;
 
@@ -290,7 +290,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Ls => host::list(&open()?),
         Command::Apply(apply) => host::apply(&open()?, &apply),
         Command::Exec(exec) => things::exec(&open()?, &exec),
-        Command::Ssh(ssh) => crate::local::ssh(&global, &ssh),
+        Command::Ssh(ssh) => things::ssh(&Client::open(&global)?, &ssh),
         Command::Run(run) => things::run_action(&open()?, &run),
         Command::Host(command) => host::command(&global, command),
         Command::Rollout(rollout) => jobs::rollout(&open()?, &rollout),
@@ -320,9 +320,7 @@ fn run(cli: Cli) -> Result<()> {
         #[cfg(target_os = "linux")]
         Command::Server(command) => crate::local::server_command(command),
         #[cfg(target_os = "linux")]
-        Command::Serve(serve) => crate::local::serve(serve),
-        #[cfg(target_os = "linux")]
-        Command::ServeLegacy(serve) => crate::local::server_command(args::Server::Run(serve)),
+        Command::Serve => crate::local::serve(),
         Command::Login(login) => login::login(&global, &login),
         Command::Logout => login::logout(),
         Command::Update(update) => crate::update::command(&update),

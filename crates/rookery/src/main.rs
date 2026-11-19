@@ -15,9 +15,6 @@ use std::error::Error;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
-/// A server on this machine, and what to do once it is no longer needed.
-type Local = (String, Box<dyn FnOnce()>);
-
 /// End quietly when what reads rookery's output has gone, as `head` does after
 /// its lines: printing then panics, which is no fault of rookery's to report.
 fn end_quietly_on_a_closed_pipe() {

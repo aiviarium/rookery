@@ -153,18 +153,14 @@ pub enum Command {
     /// Services that plugins run on a host.
     #[command(subcommand)]
     Service(Service),
-    /// The rookery server of this machine: running it, its setup key, its store and its API documents.
+    /// The rookery server of this machine: its sign-in links and tokens, importing an older store, its secrets and its image.
     #[cfg(target_os = "linux")]
     #[command(subcommand)]
     Server(Server),
-    /// Run rookery serve: on Postgres when ROOKERY_DATABASE_URL is set, as rookery server run without it.
+    /// Run the rookery server on the Postgres database of ROOKERY_DATABASE_URL.
     #[cfg(target_os = "linux")]
-    Serve(ServerRun),
-    /// The server of before Postgres, for the tests that still use it.
-    #[cfg(target_os = "linux")]
-    #[command(hide = true)]
-    ServeLegacy(ServerRun),
-    /// Use the rookery server at URL, with a setup key made there.
+    Serve,
+    /// Use the rookery server at URL: sign in through a browser, with a sign-in link, or with a token.
     Login(Login),
     /// Stop using the rookery server rookery login kept.
     Logout,
@@ -422,7 +418,7 @@ pub struct Exec {
 #[derive(Args, Debug, Clone)]
 pub struct Ssh {
     pub host: String,
-    /// Log in as the agent account.
+    /// As the agent account, rather than the SSH user.
     #[arg(long)]
     pub agent: bool,
     /// A command to run there, after --.
@@ -1010,23 +1006,35 @@ pub enum Service {
 #[cfg(target_os = "linux")]
 #[derive(Subcommand, Debug)]
 pub enum Server {
-    /// Serve the API over all hosts on a socket of this user, and over HTTP with --listen.
-    Run(ServerRun),
-    /// A one-time sign-in link for the first admin of rookery serve on Postgres; without one running here, a key, valid for a day, that lets the first user collect the server's token.
-    SetupKey {
-        /// End the key that is open.
+    /// A one-time sign-in link for the first admin of the rookery serve on this machine, valid for a day.
+    SetupKey,
+    /// An access token of a person for scripts, made over the server's socket; the person is made too when there is none of that name.
+    Token {
+        /// The person, by name or email.
+        #[arg(long, value_name = "NAME")]
+        user: String,
+        /// What the token is for, which its list shows.
+        #[arg(long, value_name = "NAME", default_value = "cli")]
+        name: String,
+        /// A person made for it is an admin.
         #[arg(long)]
-        revoke: bool,
+        admin: bool,
     },
-    /// Where the server keeps its state, and sealing it.
-    #[command(subcommand)]
-    Store(Store),
-    /// The secrets of rookery serve on Postgres.
+    /// Bring an existing Rookery store into the server's database, once, into an empty one; the old store is only read.
+    Import {
+        /// The store: its SQLite file, or postgres://… of one on PostgreSQL.
+        #[arg(long, value_name = "FILE|URL")]
+        from: String,
+        /// The old store's key file, when it is sealed; the server's own key is ROOKERY_SECRET_KEY or ROOKERY_SECRET_KEY_FILE.
+        #[arg(long, value_name = "FILE")]
+        key_file: Option<PathBuf>,
+        /// The person, by name or email, who owns every imported host; without one only admins see them.
+        #[arg(long, value_name = "NAME")]
+        owner: Option<String>,
+    },
+    /// The secrets of rookery serve.
     #[command(subcommand)]
     Secrets(Secrets),
-    /// The server's API documents.
-    #[command(subcommand)]
-    Api(Api),
     /// Build the server's image from this rookery with this machine's Docker engine.
     Image {
         /// The image's tag: rookery:VERSION, this rookery's version, unless another is given.
@@ -1068,74 +1076,16 @@ pub struct Deploy {
     pub release: Option<String>,
 }
 
-#[cfg(target_os = "linux")]
-#[derive(Args, Debug, Clone, Default)]
-pub struct ServerRun {
-    /// Also listen over HTTP, behind a token.
-    #[arg(long, value_name = "ADDRESS:PORT")]
-    pub listen: Option<String>,
-    /// Allow an address other than this machine's own.
-    #[arg(long, requires = "listen")]
-    pub expose: bool,
-    /// Run a simulated server to test an application against: the real API on a scratch store, with hosts and provisioners that reach no machine.
-    #[arg(long)]
-    pub simulate: bool,
-    /// A JSON file with the hosts, provisioners, secrets and token the simulated server starts with.
-    #[arg(long, value_name = "FILE", requires = "simulate")]
-    pub seed: Option<PathBuf>,
-    /// Seconds a simulated step takes, 2 unless given; 0 for none.
-    #[arg(long, value_name = "SECONDS", requires = "simulate")]
-    pub delay: Option<f64>,
-    /// Keep the simulated server's state in DIR, an empty one or one of an earlier simulation, instead of a scratch directory.
-    #[arg(long, value_name = "DIR", requires = "simulate")]
-    pub data: Option<PathBuf>,
-    /// Leave the scratch directory when the simulated server ends.
-    #[arg(long, requires = "simulate")]
-    pub keep: bool,
-}
-
-#[cfg(target_os = "linux")]
-#[derive(Subcommand, Debug)]
-pub enum Store {
-    /// Where the store is, and whether it is sealed.
-    Status,
-    /// Seal the store's values with a new key file.
-    Encrypt,
-    /// Seal them with another key.
-    Rekey,
-    /// Write them plain again.
-    Decrypt,
-    /// Copy the store into another SQLite file or PostgreSQL database, and switch to it.
-    Copy {
-        /// A file, a PostgreSQL URL, or - to read it from standard input.
-        target: Option<String>,
-        /// Read the target from FILE.
-        #[arg(long, value_name = "FILE")]
-        target_file: Option<PathBuf>,
-        /// Copy into a database that holds a store already.
-        #[arg(long)]
-        into_existing: bool,
-    },
-}
-
-#[cfg(target_os = "linux")]
-#[derive(Subcommand, Debug)]
-pub enum Api {
-    /// The OpenAPI document.
-    Openapi,
-    /// The AsyncAPI document of the streams.
-    Asyncapi,
-    /// The operations, with their routes and roles.
-    Operations,
-}
-
 #[derive(Args, Debug, Clone)]
 pub struct Login {
-    /// https://HOST or http://HOST:PORT.
+    /// https://HOST or http://HOST:PORT, or a sign-in link of the server.
     pub url: String,
-    /// Read the setup key from standard input.
+    /// Read a sign-in link from standard input, as `rookery server setup-key` prints one.
     #[arg(long)]
-    pub setup_key_stdin: bool,
+    pub link_stdin: bool,
+    /// Ask for a sign-in link instead of opening a browser.
+    #[arg(long)]
+    pub no_browser: bool,
 }
 
 #[derive(Args, Debug, Clone)]

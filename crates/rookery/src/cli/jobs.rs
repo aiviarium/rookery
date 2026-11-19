@@ -7,13 +7,32 @@ use super::fail::{Fail, Result};
 use super::follow;
 use super::out::{self, Style, Table, styled};
 use rookery_api::Act;
-use rookery_api::portal::Piece;
 use serde_json::{Value, json};
 use std::io::Write;
 
+/// What a job does, its hosts, its exit code and when it started, as its record says them.
+pub fn action_of(job: &Value) -> String {
+    job["params"]["action"]
+        .as_str()
+        .unwrap_or_else(|| job["kind"].as_str().unwrap_or(""))
+        .to_owned()
+}
+
+pub fn host_of(job: &Value) -> String {
+    job["params"]["host"].as_str().unwrap_or("").to_owned()
+}
+
+/// The exit code a job ended with: in its result, or in its error's details.
+pub fn exit_of(job: &Value) -> Option<i32> {
+    job["result"]["exit"]
+        .as_i64()
+        .or_else(|| job["error"]["details"]["exit"].as_i64())
+        .map(|code| code as i32)
+}
+
 /// A job's arguments as words a shell reads back; `None` when it has none.
 fn job_arguments(job: &Value) -> Option<String> {
-    let arguments: Vec<String> = job["arguments"]
+    let arguments: Vec<String> = job["params"]["arguments"]
         .as_array()?
         .iter()
         .filter_map(|word| word.as_str().map(str::to_owned))
@@ -65,13 +84,27 @@ fn summary(report: &rookery_api::RolloutReport) -> Vec<String> {
 }
 
 fn state_of(job: &Value) -> String {
-    if job["ended"].is_null() {
-        return styled("running", Style::Accent);
+    match job["state"].as_str().unwrap_or("") {
+        "queued" => styled("queued", Style::Accent),
+        "running" => styled("running", Style::Accent),
+        "succeeded" => styled("done", Style::Good),
+        "cancelled" => styled("stopped", Style::Bad),
+        _ => match exit_of(job) {
+            Some(code) => styled(&format!("failed ({code})"), Style::Bad),
+            None => styled("failed", Style::Bad),
+        },
     }
-    match job["exit_code"].as_i64() {
-        Some(0) => styled("done", Style::Good),
-        Some(code) => styled(&format!("failed ({code})"), Style::Bad),
-        None => styled("failed", Style::Bad),
+}
+
+/// The resource a subject given on the command line is: a host by its name, or `KIND:NAME`.
+fn subject_uri(given: &str) -> String {
+    match given.split_once(':') {
+        Some(("host", name)) => format!("env://{name}"),
+        Some(("provisioner", name)) => format!("provisioner://{name}"),
+        Some(("resource", id)) => format!("resource://{id}"),
+        _ if given == "installation" => "rookery://installation".into(),
+        _ if given.contains("://") => given.to_owned(),
+        _ => format!("env://{given}"),
     }
 }
 
@@ -85,29 +118,31 @@ pub fn command(client: &Client, command: Job) -> Result<()> {
             before,
         } => {
             let mut args = json!({"limit": limit});
-            for (key, value) in [("host", host), ("subject", subject), ("before", before)] {
-                if let Some(value) = value {
-                    args[key] = json!(value);
-                }
+            if let Some(subject) = subject.or(host) {
+                args["subject"] = json!(subject_uri(&subject));
+            }
+            if let Some(before) = before {
+                args["before"] = json!(before);
             }
             if running {
-                args["running"] = json!(true);
+                args["state"] = json!("running");
             }
-            let found = client.call("jobs.list", args, None)?;
-            out::data(&found, || {
+            let found = client.call("jobs.list", args)?;
+            let jobs = found["jobs"].clone();
+            out::data(&jobs, || {
                 let mut table = Table::new(&["id", "action", "subject", "state", "started"]);
-                for job in found.as_array().into_iter().flatten() {
+                for job in jobs.as_array().into_iter().flatten() {
                     let text = |key: &str| job[key].as_str().unwrap_or("").to_owned();
-                    let subject = match text("host").as_str() {
+                    let subject = match host_of(job).as_str() {
                         "" => text("subject"),
                         host => host.to_owned(),
                     };
                     table.row(vec![
                         text("id"),
-                        text("action"),
+                        action_of(job),
                         subject,
                         state_of(job),
-                        text("started"),
+                        text("createdAt"),
                     ]);
                 }
                 table.print("No jobs yet");
@@ -115,26 +150,29 @@ pub fn command(client: &Client, command: Job) -> Result<()> {
             Ok(())
         }
         Job::Show { id } => {
-            let job = client.call("jobs.get", json!({"id": id}), None)?;
+            let job = client.call("jobs.get", json!({"id": id}))?;
             out::data(&job, || {
                 let text = |key: &str| job[key].as_str().unwrap_or("").to_owned();
                 out::fields(&[
                     ("Id", text("id")),
-                    ("Action", text("action")),
+                    ("Action", action_of(&job)),
                     ("Subject", text("subject")),
-                    ("Host", text("host")),
+                    ("Host", host_of(&job)),
                     (
-                        match text("action").as_str() {
+                        match action_of(&job).as_str() {
                             "exec" => "Command",
                             _ => "Arguments",
                         },
                         job_arguments(&job).unwrap_or_default(),
                     ),
                     ("State", state_of(&job)),
-                    ("Started", text("started")),
-                    ("Ended", text("ended")),
+                    ("Started", text("startedAt")),
+                    ("Ended", text("finishedAt")),
                 ]);
-                if let Some(report) = job["report"].as_object() {
+                if let Some(report) = job["result"]["report"]
+                    .as_object()
+                    .or_else(|| job["error"]["details"]["report"].as_object())
+                {
                     let report: rookery_api::RolloutReport =
                         serde_json::from_value(Value::Object(report.clone())).unwrap_or_default();
                     for line in summary(&report) {
@@ -146,7 +184,7 @@ pub fn command(client: &Client, command: Job) -> Result<()> {
         }
         Job::Logs { id, follow } => logs(client, &id, follow),
         Job::Stop { id } => {
-            let job = client.call("jobs.stop", json!({"id": id}), None)?;
+            let job = client.call("jobs.cancel", json!({"id": id}))?;
             out::data(&job, || {
                 out::done(format!(
                     "Asked {id} to stop. rookery job wait {id} waits for its end"
@@ -155,12 +193,8 @@ pub fn command(client: &Client, command: Job) -> Result<()> {
             Ok(())
         }
         Job::Wait { id } => {
-            let job = client.call("jobs.get", json!({"id": id}), None)?;
-            let title = format!(
-                "{} {}",
-                job["action"].as_str().unwrap_or("job"),
-                job["host"].as_str().unwrap_or("")
-            );
+            let job = client.call("jobs.get", json!({"id": id}))?;
+            let title = format!("{} {}", action_of(&job), host_of(&job));
             let ended = follow::job(client, &id, title.trim(), false)?;
             if out::get().json {
                 out::json(&ended.job);
@@ -188,46 +222,38 @@ fn logs(client: &Client, id: &str, follow: bool) -> Result<()> {
         stdout.flush()
     };
     if !follow {
-        let found = client.call("jobs.output", json!({"id": id}), None)?;
-        let bytes = match &found["data_b64"] {
-            Value::String(data) => rookery_api::unb64(data).unwrap_or_default(),
-            _ => match &found["lines"] {
-                Value::Array(lines) => lines
-                    .iter()
-                    .map(|line| format!("{}\n", line.as_str().unwrap_or("")))
-                    .collect::<String>()
-                    .into_bytes(),
-                _ => found["base64"]
-                    .as_str()
-                    .and_then(rookery_api::unb64)
-                    .unwrap_or_default(),
-            },
-        };
-        write(&bytes)?;
-        return Ok(());
+        let mut after = 0;
+        loop {
+            let found = client.call("jobs.output", json!({"id": id, "after": after}))?;
+            let items = found["items"].as_array().cloned().unwrap_or_default();
+            for item in &items {
+                after = item["seq"].as_i64().unwrap_or(after);
+                write(format!("{}\n", item["text"].as_str().unwrap_or("")).as_bytes())?;
+            }
+            if items.len() < 1000 {
+                return Ok(());
+            }
+        }
     }
-    let mut stream = client.stream("jobs.follow", None, json!({"id": id}))?;
-    let code = client.wait(async {
-        let mut code = None;
+    let mut stream = client.stream("jobs.follow", json!({"id": id, "after": 0}))?;
+    let job = client.wait(async {
+        let mut buffer = vec![];
         loop {
             tokio::select! {
-                piece = stream.recv() => match piece {
-                    Some(Ok(Piece::Binary(bytes))) => write(&bytes)?,
-                    Some(Ok(Piece::Text(said))) => {
-                        if let Some(exited) = said.get("exited") {
-                            code = Some(exited["exit_code"].as_i64().unwrap_or(1) as i32);
-                        }
+                line = stream.line(&mut buffer) => match line.map_err(Fail::from)? {
+                    Some(line) if line.get("seq").is_some() => {
+                        write(format!("{}\n", line["text"].as_str().unwrap_or("")).as_bytes())?;
                     }
-                    Some(Err(error)) => return Err(Fail::from(error)),
-                    None => return Ok(code),
+                    Some(end) => return Ok::<_, Fail>(Some(end)),
+                    None => return Ok(None),
                 },
-                _ = tokio::signal::ctrl_c() => return Ok(Some(0)),
+                _ = tokio::signal::ctrl_c() => return Ok(None),
             }
         }
     })?;
-    match code.unwrap_or(0) {
-        0 => Ok(()),
-        _ => Err(Fail::exit(1)),
+    match job {
+        Some(end) if end["state"] != "succeeded" => Err(Fail::exit(1)),
+        _ => Ok(()),
     }
 }
 
@@ -251,12 +277,15 @@ pub fn rollout(client: &Client, rollout: &args::Rollout) -> Result<()> {
         return Ok(());
     };
     // The line of each host is said whether the roll-out ended well or not.
-    let ended = follow::job(client, &job.id, "Rolling out", false)?;
+    let ended = follow::job(client, job, "Rolling out", false)?;
+    let report = match ended.job["result"]["report"].is_object() {
+        true => ended.job["result"]["report"].clone(),
+        false => ended.job["error"]["details"]["report"].clone(),
+    };
     if out::get().json {
         out::json(&ended.job);
-    } else if ended.job["report"].is_object() {
-        let report: rookery_api::RolloutReport =
-            serde_json::from_value(ended.job["report"].clone()).unwrap_or_default();
+    } else if report.is_object() {
+        let report: rookery_api::RolloutReport = serde_json::from_value(report).unwrap_or_default();
         for line in summary(&report) {
             println!("{line}");
         }

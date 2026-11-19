@@ -1,30 +1,56 @@
 //! The server a command talks to: the one named by `--server` or
-//! `ROOKERY_SERVER`, the one `rookery login` kept, a `rookery serve` of this
-//! user on this machine, or one in this process for as long as the command
-//! runs. Every command is a call of its API.
+//! `ROOKERY_SERVER`, the one `rookery login` kept, or the `rookery serve` on
+//! this machine, by its socket. Every command is a call of its API over
+//! `/ws`, through rookery-client.
 
 use super::args::Global;
 use super::fail::{Fail, Result};
-use super::net;
 use super::settings::{self, Settings};
-use rookery_api::portal::{Portal, PortalStream};
+use rookery_client::net;
+use rookery_proto::hosts::Acted;
 use serde_json::{Value, json};
 use std::future::Future;
-
-/// What is done when the command ends: the server in this process waits for
-/// the jobs it runs.
-type Finish = Box<dyn FnOnce()>;
+use std::sync::OnceLock;
 
 pub struct Client {
     /// The server's address, as `--server` takes it.
     pub url: String,
-    /// The token it was opened with, for a request over HTTP and to open it again.
+    /// The token it was opened with, to open it again.
     token: String,
-    portal: Portal,
-    finish: Option<Finish>,
-    /// The hosts whose sudo password the server in this process was given
-    /// or found it needs none, in this run.
-    sudo_ready: std::cell::RefCell<std::collections::BTreeSet<String>>,
+    inner: rookery_client::Client,
+}
+
+/// The runtime the connections run on; the command line stays on the main
+/// thread.
+pub fn runtime() -> &'static tokio::runtime::Runtime {
+    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("the runtime starts")
+    })
+}
+
+/// The socket of a `rookery serve` on this machine, when there is one:
+/// `ROOKERY_SOCKET`, the one in the user's runtime folder, or the system's.
+pub fn local_socket() -> Option<String> {
+    if !cfg!(unix) {
+        return None;
+    }
+    let mut places = vec![];
+    if let Some(path) = variable("ROOKERY_SOCKET") {
+        places.push(std::path::PathBuf::from(path));
+    }
+    if let Some(dir) = variable("XDG_RUNTIME_DIR") {
+        places.push(std::path::PathBuf::from(dir).join("rookery/server.sock"));
+    }
+    places.push("/run/rookery/server.sock".into());
+    places
+        .into_iter()
+        .find(|path| path.exists())
+        .map(|path| format!("unix:{}", path.display()))
 }
 
 /// The settings of this user that `rookery login` keeps.
@@ -89,190 +115,113 @@ impl Client {
 
     /// Reach the server this run uses, with these settings.
     pub fn open_in(global: &Global, kept: &Settings) -> Result<Client> {
-        let (url, token, finish) = match named_in(global, kept) {
-            Some(url) => {
-                let token = token(global, &url, kept)?;
-                (url, token, None)
+        let url = match named_in(global, kept).or_else(local_socket) {
+            Some(url) => url,
+            None => {
+                return Err(Fail::unreachable(
+                    "No rookery server is set. Name one with rookery login URL, or with --server URL for one command",
+                ));
             }
-            None => match crate::local::server(false)? {
-                Some((url, finish)) => (url, String::new(), Some(finish)),
-                None => {
-                    return Err(Fail::unreachable(
-                        "No rookery server is set. Name one with rookery login URL, or with --server URL for one command",
-                    ));
-                }
-            },
         };
-        let in_process = finish.is_some();
-        let client = Client {
-            portal: connect(&url, &token)?,
-            url,
-            token,
-            finish,
-            sudo_ready: Default::default(),
+        let token = match net::local(&url) {
+            true => String::new(),
+            false => token(global, &url, kept)?,
         };
-        // One in this process is this rookery; any other may be older.
-        if !in_process {
-            let (version, api) = client.server_version()?;
-            if let Some(older) = rookery_api::compat::older_server(&client.url, &version, api) {
-                return Err(Fail::refused(older));
-            }
-        }
-        Ok(client)
+        Client::reach(url, token)
     }
 
-    /// Reach the server this run uses, whatever its version, only to ask it.
+    /// The same, as `open_in`, kept for callers that ask the server whatever its version.
     pub fn open_any(global: &Global, kept: &Settings) -> Result<Client> {
-        let url =
-            named_in(global, kept).ok_or_else(|| Fail::unreachable("No rookery server is set"))?;
-        let token = token(global, &url, kept)?;
-        Ok(Client {
-            portal: connect(&url, &token)?,
-            url,
-            token,
-            finish: None,
-            sudo_ready: Default::default(),
-        })
+        Client::open_in(global, kept)
+    }
+
+    fn reach(url: String, token: String) -> Result<Client> {
+        let inner = runtime()
+            .block_on(rookery_client::Client::connect(&url, Some(&token)))
+            .map_err(|error| reached(&url, error))?;
+        Ok(Client { url, token, inner })
     }
 
     /// The same server again, as when it was replaced and answers anew.
     pub fn reopen(&self) -> Result<Client> {
-        Ok(Client {
-            portal: connect(&self.url, &self.token)?,
-            url: self.url.clone(),
-            token: self.token.clone(),
-            finish: None,
-            sudo_ready: Default::default(),
-        })
+        Client::reach(self.url.clone(), self.token.clone())
     }
 
     /// The server's version and the number of its API.
     pub fn server_version(&self) -> Result<(String, u32)> {
-        let said = self.call("version", json!({}), None)?;
+        let said = self.call("auth.me", json!({}))?;
         let version = said["version"].as_str().unwrap_or("").to_owned();
-        let api = said["api"].as_u64().unwrap_or(0) as u32;
+        let api = said["apiVersion"].as_u64().unwrap_or(0) as u32;
         Ok((version, api))
     }
 
-    /// Whether the server runs in this process, and ends with it.
-    pub fn in_process(&self) -> bool {
-        self.url == net::HERE
-    }
-
     pub fn wait<F: Future>(&self, future: F) -> F::Output {
-        net::runtime().block_on(future)
+        runtime().block_on(future)
     }
 
-    /// One operation of the server, waited for.
-    pub fn call(&self, op: &str, args: Value, data: Option<Value>) -> Result<Value> {
-        self.wait(self.portal.call(op, None, args, data))
+    /// One method of the server, waited for.
+    pub fn call(&self, method: &str, params: Value) -> Result<Value> {
+        self.wait(self.inner.call(method, params))
             .map_err(Fail::from)
     }
 
-    /// Before the server in this process reaches `host`, give it the host's
-    /// sudo password when its sudo asks for one and no secret `sudo/HOST`
-    /// keeps it: from `--sudo-password-stdin`, or asked once on the terminal.
-    /// A server elsewhere has its own.
-    fn sudo_for(&self, host: &str) -> Result<()> {
-        if !self.in_process() || !self.sudo_ready.borrow_mut().insert(host.to_owned()) {
-            return Ok(());
-        }
-        if let Some(password) = super::host::sudo_password(self, host)? {
-            crate::local::give_sudo_password(host, &password);
-        }
-        Ok(())
-    }
-
-    /// One operation of a host's controller, through the server.
-    pub fn on(&self, host: &str, op: &str, args: Value, data: Option<Value>) -> Result<Value> {
-        self.sudo_for(host)?;
-        self.wait(self.portal.call(op, Some(host), args, data))
+    /// A method that opens a stream, and the stream.
+    pub fn stream(&self, method: &str, params: Value) -> Result<rookery_client::Stream> {
+        self.wait(self.inner.open(method, params))
             .map_err(Fail::from)
     }
 
-    /// Open a stream of the server, or of a host's controller.
-    pub fn stream(&self, op: &str, host: Option<&str>, args: Value) -> Result<PortalStream> {
-        if let Some(host) = host {
-            self.sudo_for(host)?;
-        }
-        self.wait(self.portal.open(op, host, args))
-            .map_err(Fail::from)
-    }
-
-    pub fn portal(&self) -> &Portal {
-        &self.portal
+    /// The connection, for work that runs on the runtime itself.
+    pub fn inner(&self) -> &rookery_client::Client {
+        &self.inner
     }
 
     /// Run an action of a subject: a host, a provisioner, a resource, or
     /// the installation.
-    pub fn act(
-        &self,
-        subject: &Subject,
-        action: &str,
-        act: &rookery_api::Act,
-    ) -> Result<rookery_api::Acted> {
-        if let Subject::Host(name) = subject {
-            self.sudo_for(name)?;
-        }
-        let (op, args) = match subject {
-            Subject::Host(name) => ("hosts.act", json!({"name": name, "action": action})),
-            Subject::Provisioner(name) => {
-                ("provisioners.act", json!({"name": name, "action": action}))
+    pub fn act(&self, subject: &Subject, action: &str, act: &rookery_api::Act) -> Result<Acted> {
+        let mut params = serde_json::to_value(act)?;
+        let method = match subject {
+            Subject::Host(name) => {
+                params["host"] = json!(name);
+                "hosts.act"
             }
-            Subject::Resource(id) => ("resources.act", json!({"id": id, "action": action})),
-            Subject::Installation => ("installation.act", json!({"action": action})),
+            Subject::Provisioner(name) => {
+                params["name"] = json!(name);
+                "provisioners.act"
+            }
+            Subject::Resource(id) => {
+                params["id"] = json!(id);
+                "resources.act"
+            }
+            Subject::Installation => "installation.act",
         };
-        let large = act
-            .input_b64
-            .as_ref()
-            .is_some_and(|input| input.len() > rookery_api::ops::PORTAL_BYTES);
-        if let (true, Subject::Host(name)) = (large, subject) {
-            return self.act_over_http(name, action, act);
-        }
-        let acted = self.call(op, args, Some(serde_json::to_value(act)?))?;
-        Ok(serde_json::from_value(acted)?)
-    }
-
-    /// Run a host's action with more input than the portal carries: the
-    /// same request, over HTTP.
-    fn act_over_http(
-        &self,
-        host: &str,
-        action: &str,
-        act: &rookery_api::Act,
-    ) -> Result<rookery_api::Acted> {
-        let path = format!(
-            "/v1/hosts/{}/actions/{}",
-            rookery_api::client::encode(host),
-            rookery_api::client::encode(action)
-        );
-        let body = serde_json::to_vec(act)?;
-        let answer = self
-            .wait(net::send("POST", &self.url, &path, &self.token, body))
-            .map_err(Fail::unreachable)?;
-        answer.json().map_err(Fail::from)
+        params["action"] = json!(action);
+        Ok(serde_json::from_value(self.call(method, params)?)?)
     }
 
     /// The actions of a subject.
     pub fn actions(&self, subject: &Subject) -> Result<Vec<rookery_api::Action>> {
-        if let Subject::Host(name) = subject {
-            self.sudo_for(name)?;
-        }
-        let (op, args) = match subject {
-            Subject::Host(name) => ("hosts.actions", json!({"name": name})),
+        let (method, params) = match subject {
+            Subject::Host(name) => ("hosts.actions", json!({"host": name})),
             Subject::Provisioner(name) => ("provisioners.actions", json!({"name": name})),
             Subject::Resource(id) => ("resources.actions", json!({"id": id})),
             Subject::Installation => ("installation.actions", json!({})),
         };
-        Ok(serde_json::from_value(self.call(op, args, None)?)?)
+        let listed = self.call(method, params)?;
+        Ok(serde_json::from_value(listed["actions"].clone())?)
     }
 }
 
-impl Drop for Client {
-    fn drop(&mut self) {
-        if let Some(finish) = self.finish.take() {
-            finish();
-        }
+/// Why the server at `url` was not reached, for a person.
+fn reached(url: &str, error: rookery_client::Error) -> Fail {
+    use rookery_proto::ErrorCode::*;
+    match error.code() {
+        Unauthenticated | Forbidden => Fail::refused(format!(
+            "The rookery server at {url} did not take the token. Log in again with: rookery login {url}"
+        )),
+        _ => Fail::unreachable(format!(
+            "The rookery server at {url} cannot be reached: {error}"
+        )),
     }
 }
 
@@ -297,24 +246,31 @@ impl Subject {
     }
 }
 
-/// Open the portal of the server at `url` with `token`.
-pub fn connect(url: &str, token: &str) -> Result<Portal> {
-    let target = net::target(url, rookery_api::ops::PORTAL).map_err(Fail::usage)?;
-    net::runtime().block_on(async {
-        let stream = net::connect(&target).await.map_err(|error| {
-            Fail::unreachable(format!("The rookery server at {url} cannot be reached: {error}"))
-        })?;
-        let socket = rookery_api::client::websocket_at(stream, &target.authority, &target.path, token)
-            .await
-            .map_err(|error| match error.status() {
-                401 | 403 => Fail::refused(format!(
-                    "The rookery server at {url} did not take the token. Log in again with: rookery login {url}"
-                )),
-                _ => Fail::unreachable(format!(
-                    "The rookery server at {url} cannot be reached: {}",
-                    net::describe(&error)
-                )),
-            })?;
-        Ok(Portal::over(socket))
-    })
+/// Params of a method: `args` with the fields of `data` added.
+pub fn merged(mut args: Value, data: Value) -> Value {
+    if let (Some(args), Value::Object(data)) = (args.as_object_mut(), data) {
+        for (key, value) in data {
+            args.insert(key, value);
+        }
+    }
+    args
+}
+
+/// Params of a method of a session on a host from `{"id": ID, …}`: the rest as its query.
+pub fn terminal(host: &str, args: Value) -> Value {
+    let mut query = serde_json::Map::new();
+    let mut id = String::new();
+    for (key, value) in args.as_object().cloned().unwrap_or_default() {
+        match (key.as_str(), value) {
+            ("id", Value::String(given)) => id = given,
+            (_, Value::String(text)) => {
+                query.insert(key, json!(text));
+            }
+            (_, Value::Null) => {}
+            (_, other) => {
+                query.insert(key, json!(other.to_string()));
+            }
+        }
+    }
+    json!({"host": host, "terminal": id, "query": query})
 }
