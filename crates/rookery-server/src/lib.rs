@@ -280,6 +280,8 @@ async fn run(
     // A graceful stop drains requests before another server can take over.
     let kernel = edge.kernel();
     if let Some(kernel) = &kernel {
+        // The edge stops answering first, so no request starts a host half once they are stopped.
+        edge.clear_kernel();
         stop_plugins(kernel).await;
         kernel.shutdown.cancel();
     }

@@ -81,8 +81,9 @@ UNITS = {
                  keep=[*RUST_READS, 'client/src/generated/', 'host/', 'sdk/', 'package.json', 'bun.lock']),
     'python': dict(out=['crates/', 'Cargo.toml', 'Cargo.lock', 'tests/e2e/', 'api/', *TS_PATHS]),
     # rookery carries the provisioning source, so the end-to-end tests read
-    # most of the tree; the Python tests and the recipes are not theirs.
-    'e2e': dict(out=['recipes/', 'tests/test_', 'tests/fixtures/', *TS_PATHS, *SERVER]),
+    # most of the tree; the Python tests and the recipes are not theirs. The
+    # core embeds host/dist, so the extension host is theirs too.
+    'e2e': dict(out=['recipes/', 'tests/test_', 'tests/fixtures/', *TS_PATHS, *SERVER], keep=['host/']),
     'role': dict(out=['recipes/', 'tests/test_', 'tests/fixtures/', 'crates/', 'api/', *TS_PATHS], keep=SEAM),
     'ts': dict(only=TS_PATHS),
 }

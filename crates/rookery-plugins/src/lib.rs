@@ -44,6 +44,10 @@ pub struct Setup {
     pub host: HostOptions,
 }
 
+/// How long a read waits for the plugin folder before it says the server is not ready, rather than
+/// answer as if no plugin were installed.
+const READY_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// The plugin system's state on a leader.
 pub struct Plugins {
     setup: Setup,
@@ -55,6 +59,10 @@ pub struct Plugins {
     changing: tokio::sync::Mutex<()>,
     pub(crate) host: exthost::ExtHost,
     started: AtomicBool,
+    /// The folder was read, as a new leader reads it before anything else uses the plugins.
+    ready: std::sync::OnceLock<()>,
+    /// Why the folder could not be read, when it could not.
+    failed: std::sync::OnceLock<String>,
 }
 
 impl Plugins {
@@ -67,6 +75,8 @@ impl Plugins {
             missing: RwLock::default(),
             changing: tokio::sync::Mutex::new(()),
             started: AtomicBool::new(false),
+            ready: std::sync::OnceLock::new(),
+            failed: std::sync::OnceLock::new(),
         }
     }
 
@@ -86,12 +96,43 @@ impl Plugins {
         self.loaded.read().unwrap().values().cloned().collect()
     }
 
+    /// Waits until the plugin folder was read, as the leader does before it answers, so that a request
+    /// that comes just after a start or a failover does not see a server with no plugins.
+    pub async fn ready(&self) -> Result<(), RpcError> {
+        loop {
+            if self.ready.get().is_some() {
+                return Ok(());
+            }
+            if let Some(why) = self.failed.get() {
+                return Err(RpcError::unavailable(format!(
+                    "the plugins could not be read: {why}"
+                )));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    }
+
+    /// [`Plugins::ready`] with a short bound, for a request that answers rather than wait.
+    pub async fn ready_soon(&self) -> Result<(), RpcError> {
+        match tokio::time::timeout(READY_WAIT, self.ready()).await {
+            Ok(ready) => ready,
+            Err(_) => Err(RpcError::unavailable(
+                "the server is reading its plugins; try again in a moment",
+            )),
+        }
+    }
+
     /// The shell a plugin contributes: its folder and its entry. The server serves it at `/`.
+    ///
+    /// A plugin the server does not use has no shell served: its manifest may name one that its files,
+    /// or the data it declares, do not bear out.
     pub fn shell(&self) -> Option<(std::path::PathBuf, String)> {
         self.all().into_iter().find_map(|plugin| {
-            let entry = plugin.shell()?;
-            let file = loaded::inside(&plugin.dir, entry)?;
-            Some((file.parent()?.to_path_buf(), entry.to_owned()))
+            if !plugin.valid() {
+                return None;
+            }
+            let shell = plugin.shell.as_ref()?;
+            Some((shell.root.clone(), shell.entry.clone()))
         })
     }
 
@@ -147,6 +188,17 @@ impl Plugins {
         self.missing.read().unwrap().clone()
     }
 
+    /// A plugin as a caller sees it: where its package is on the server and where it came from are for
+    /// an admin alone.
+    pub fn info_for(&self, plugin: &Loaded, admin: bool) -> PluginInfo {
+        let mut info = self.info(plugin);
+        if !admin {
+            info.dir.clear();
+            info.source.clear();
+        }
+        info
+    }
+
     pub fn info_of(&self, id: &str) -> Option<PluginInfo> {
         self.get(id).map(|p| self.info(&p))
     }
@@ -155,9 +207,16 @@ impl Plugins {
         self.all().iter().map(|p| self.info(p)).collect()
     }
 
+    /// [`Plugins::infos`] as a caller sees them. Missing plugins are the server's folder against the
+    /// database, which is an admin's to know.
+    pub fn infos_for(&self, admin: bool) -> Vec<PluginInfo> {
+        self.all().iter().map(|p| self.info_for(p, admin)).collect()
+    }
+
     /// Reads the plugin folder again, records it and tells clients what changed. Host halves of
     /// plugins that changed or went away stop; those that start with the server start.
     pub async fn reload(self: &Arc<Self>, kernel: &Kernel) -> Result<(), RpcError> {
+        self.ready().await?;
         let _one = self.changing.lock().await;
         self.reload_held(kernel, &[]).await
     }
@@ -255,17 +314,21 @@ impl Plugins {
         }
     }
 
-    /// Tells every person's connection that these plugins changed.
+    /// Tells every person's connection that these plugins changed. What a subscriber that is not an
+    /// admin is told leaves out where a plugin's package is and where it came from.
     pub fn changed(&self, kernel: &Kernel, ids: &[String]) {
         for id in ids {
-            let message = PluginChanged {
-                id: id.clone(),
-                plugin: self.get(id).map(|p| self.info(&p)),
-            };
+            let plugin = self.get(id);
             for conn in kernel.conns.all() {
-                if matches!(conn.caller(), Caller::User { .. } | Caller::Local) {
-                    conn.notify("plugins.changed", &message);
+                if !matches!(conn.caller(), Caller::User { .. } | Caller::Local) {
+                    continue;
                 }
+                let admin = conn.caller().is_admin();
+                let message = PluginChanged {
+                    id: id.clone(),
+                    plugin: plugin.as_ref().map(|p| self.info_for(p, admin)),
+                };
+                conn.notify("plugins.changed", &message);
             }
         }
     }
@@ -364,13 +427,28 @@ impl Plugins {
     }
 
     /// Starts the plugin system on a leader: reads the plugins, records them and starts the host halves
-    /// that start with the server. It runs once.
+    /// that start with the server. It runs once, and sets the ready signal the rest waits on.
     pub async fn start(self: &Arc<Self>, kernel: &Kernel) -> Result<(), RpcError> {
         if self.started.swap(true, Ordering::SeqCst) {
+            self.ready().await?;
             return Ok(());
         }
-        Self::folder_ready(kernel).await;
-        self.reload(kernel).await
+        let done = async {
+            Self::folder_ready(kernel).await;
+            // The folder is read under the change lock, before anything else may use the plugins.
+            let _one = self.changing.lock().await;
+            self.reload_held(kernel, &[]).await
+        }
+        .await;
+        match &done {
+            Ok(()) => {
+                let _ = self.ready.set(());
+            }
+            Err(e) => {
+                let _ = self.failed.set(e.message.clone());
+            }
+        }
+        done
     }
 
     /// Runs a change of the plugin folder, then reads it again, and has the hosts read it too. Gives
@@ -380,6 +458,7 @@ impl Plugins {
         kernel: &Kernel,
         change: impl FnOnce(&rookery_core::eggs::Manager) -> rookery_core::Result<T> + Send + 'static,
     ) -> Result<(T, Vec<rookery_api::HostBehind>), RpcError> {
+        self.ready().await?;
         Self::folder_ready(kernel).await;
         let _one = self.changing.lock().await;
         let manager = self.manager();
@@ -420,6 +499,7 @@ impl Plugins {
         &self,
         look: impl FnOnce(&rookery_core::eggs::Manager) -> rookery_core::Result<T> + Send + 'static,
     ) -> Result<T, RpcError> {
+        self.ready().await?;
         let manager = self.manager();
         tokio::task::spawn_blocking(move || look(&manager).map_err(|e| e.to_string()))
             .await

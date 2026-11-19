@@ -32,6 +32,8 @@ pub struct Loaded {
     /// Why it cannot be used, with each problem in `details.problems`.
     pub problem: Option<ErrorBody>,
     pub client: Option<ClientHalf>,
+    /// The shell it contributes, with its folder resolved when the plugin was read.
+    pub shell: Option<Shell>,
     /// Its collections, raw schema and migrations, which the datastore applies.
     pub declared: crate::data::Declared,
     /// SHA-256 over the target's files, as hosts record it.
@@ -55,6 +57,18 @@ pub struct ClientHalf {
     pub files: Arc<BTreeMap<String, axum::body::Bytes>>,
 }
 
+/// A plugin's shell: the folder the server serves at `/`, without a sign-in.
+///
+/// Its folder is a subfolder of the target's folder, resolved of its links, so that a manifest cannot
+/// put the server's configuration folder, or the rest of a plugin, on `/`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Shell {
+    /// The folder served, canonical: a subfolder of the target's folder.
+    pub root: PathBuf,
+    /// The entry, relative to the target's folder, such as `shell/index.html`.
+    pub entry: String,
+}
+
 impl Loaded {
     pub fn valid(&self) -> bool {
         self.problem.is_none() && self.manifest.is_some()
@@ -75,7 +89,7 @@ impl Loaded {
     }
 
     /// The shell it contributes: its entry, relative to the target's folder.
-    pub fn shell(&self) -> Option<&str> {
+    pub fn shell_entry(&self) -> Option<&str> {
         self.manifest
             .as_ref()?
             .pointer("/contributes/shell/entry")?
@@ -185,6 +199,7 @@ pub fn load(plugin: &rookery_core::plugins::Plugin) -> Loaded {
         manifest: None,
         problem: None,
         client: None,
+        shell: None,
         declared: Default::default(),
         digest: rookery_core::plugins::digest(&plugin.dir),
         core: plugin.info(),
@@ -241,6 +256,16 @@ pub fn load(plugin: &rookery_core::plugins::Plugin) -> Loaded {
             return loaded;
         }
     }
+    match shell(&plugin.dir, &manifest) {
+        Ok(found) => loaded.shell = found,
+        Err(problem) => {
+            loaded.problem = Some(invalid(
+                format!("the shell of {} cannot be served: {problem}", plugin.id),
+                vec![problem],
+            ));
+            return loaded;
+        }
+    }
     loaded.manifest = Some(manifest);
     loaded
 }
@@ -259,6 +284,45 @@ pub fn inside(dir: &Path, path: &str) -> Option<PathBuf> {
 
 /// The most a client half's files may hold together, as they are kept in memory.
 pub const MAX_CLIENT_BYTES: usize = 64 << 20;
+
+/// The shell a manifest contributes, with its folder resolved of its links.
+///
+/// `GET /` serves it without a sign-in, so it is a subfolder of the target's folder: an entry at the
+/// top would put the plugin's host half, its manifest and its migrations on the web, and a link to a
+/// folder elsewhere would put that there.
+fn shell(dir: &Path, manifest: &Value) -> Result<Option<Shell>, String> {
+    let Some(entry) = manifest
+        .pointer("/contributes/shell/entry")
+        .and_then(Value::as_str)
+    else {
+        return Ok(None);
+    };
+    let entry = entry.trim_start_matches("./");
+    let root = Path::new(entry)
+        .parent()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if root.is_empty() {
+        return Err(format!(
+            "the entry {entry} is at the target's top, and a shell is served from a folder of its own"
+        ));
+    }
+    let target = fs::canonicalize(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let root_dir = fs::canonicalize(dir.join(&root)).map_err(|e| format!("{root}: {e}"))?;
+    if !root_dir.starts_with(&target) || root_dir == target {
+        return Err(format!(
+            "the shell's folder {root} is not a subfolder of the target's folder"
+        ));
+    }
+    let real = fs::canonicalize(dir.join(entry)).map_err(|e| format!("{entry}: {e}"))?;
+    if !real.starts_with(&root_dir) {
+        return Err(format!("the shell's entry {entry} leads out of its folder"));
+    }
+    Ok(Some(Shell {
+        root: root_dir,
+        entry: entry.to_owned(),
+    }))
+}
 
 /// The client half of a manifest: its files, read into memory, and their hash. A link that leads out
 /// of the client half's folder (out of the target's folder, for the stylesheet) is not one of them.

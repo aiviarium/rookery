@@ -123,6 +123,9 @@ pub(crate) struct ExtHost {
     slots: Mutex<HashMap<String, Slot>>,
     procs: Mutex<HashMap<String, Proc>>,
     gates: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// The server is stopping: no host half starts, so none is left running past the snapshot that
+    /// stops them, to race the store closing.
+    stopping: AtomicBool,
 }
 
 impl ExtHost {
@@ -133,7 +136,17 @@ impl ExtHost {
             slots: Mutex::default(),
             procs: Mutex::default(),
             gates: Mutex::default(),
+            stopping: AtomicBool::new(false),
         }
+    }
+
+    /// Refuses every start of a host half from now on, as the server stops.
+    pub fn stopping(&self) {
+        self.stopping.store(true, Ordering::SeqCst);
+    }
+
+    fn is_stopping(&self) -> bool {
+        self.stopping.load(Ordering::SeqCst)
     }
 
     /// The state of a plugin's host half, and why it failed; `None` while it never ran.
@@ -198,6 +211,11 @@ impl ExtHost {
         plugins: &Arc<crate::Plugins>,
         plugin: &str,
     ) -> Result<Link, RpcError> {
+        if self.is_stopping() {
+            return Err(RpcError::unavailable(
+                "the server is stopping, so no host half starts",
+            ));
+        }
         if let Some(link) = self.running(plugin).filter(|l| !l.is_closed()) {
             return Ok(link);
         }
@@ -280,6 +298,8 @@ impl ExtHost {
     /// Deactivates every host half, which runs its cleanups, within `limit` in all, and ends the
     /// processes. The server calls it when it stops, before it closes the store.
     pub async fn stop_all(&self, kernel: &Kernel, limit: Duration) {
+        // Nothing starts after the snapshot, so what stops here is all that is left.
+        self.stopping();
         let plugins: Vec<String> = self.procs.lock().unwrap().keys().cloned().collect();
         let all = futures_util::future::join_all(
             plugins.iter().map(|plugin| self.deactivate(kernel, plugin)),
@@ -343,6 +363,11 @@ impl ExtHost {
     ) -> Result<(), RpcError> {
         let gate = self.gate(plugin);
         let _one = gate.lock().await;
+        if self.is_stopping() {
+            return Err(RpcError::unavailable(
+                "the server is stopping, so no host half starts",
+            ));
+        }
         if self.active_link(plugin).is_some() {
             return Ok(());
         }
@@ -456,37 +481,48 @@ impl ExtHost {
         let deadline = chrono::Utc::now().timestamp_millis()
             + i64::try_from(left.as_millis()).unwrap_or(i64::MAX / 2);
         let ctx = json!({
-            "callId": call_id,
+            "callId": call_id.clone(),
             "user": call.user(),
             "principal": call.principal(),
             "deadline": deadline,
         });
         let invoke =
             json!({"plugin": plugin, "kind": kind, "key": key, "params": params, "ctx": ctx});
-        let mut request = Box::pin(link.request("plugins.invoke", invoke));
-        tokio::select! {
-            done = &mut request => return done,
-            _ = tokio::time::sleep(left) => {}
-        }
-        link.notify(
-            "plugins.cancel",
-            json!({"plugin": plugin, "callId": call_id}),
-        );
+        // The request and its deadline run in a task of their own: the kernel ends this call at its
+        // deadline too, and a future dropped then must not take the host half's ending with it.
         let (kernel, plugins, id) = (call.kernel.clone(), plugins.clone(), plugin.to_owned());
+        let (kind, key) = (kind.to_owned(), key.to_owned());
         let generation = link.generation();
+        let deadline = call.deadline;
+        let (tx, rx) = oneshot::channel();
         tokio::spawn(async move {
-            if tokio::time::timeout(CANCEL_GRACE, request).await.is_err() {
-                let error = ErrorBody {
-                    code: ErrorCode::Timeout,
-                    message: format!("{id} did not stop a call {CANCEL_GRACE:?} past its deadline"),
-                    details: None,
-                };
-                crashed(&kernel, &plugins, &id, generation, Some(error));
+            let mut request = Box::pin(link.request("plugins.invoke", invoke));
+            let left = deadline.saturating_duration_since(Instant::now());
+            match tokio::time::timeout(left, &mut request).await {
+                Ok(done) => {
+                    let _ = tx.send(done);
+                }
+                Err(_) => {
+                    // The handler has its grace past the call's deadline, and then its host half ends.
+                    link.notify("plugins.cancel", json!({"plugin": id, "callId": call_id}));
+                    let _ = tx.send(Err(RpcError::timeout(format!(
+                        "{id} did not answer {kind} {key} before the call's deadline"
+                    ))));
+                    if tokio::time::timeout(CANCEL_GRACE, request).await.is_err() {
+                        let error = ErrorBody {
+                            code: ErrorCode::Timeout,
+                            message: format!(
+                                "{id} did not stop a call {CANCEL_GRACE:?} past its deadline"
+                            ),
+                            details: None,
+                        };
+                        crashed(&kernel, &plugins, &id, generation, Some(error));
+                    }
+                }
             }
         });
-        Err(RpcError::timeout(format!(
-            "{plugin} did not answer {kind} {key} before the call's deadline"
-        )))
+        rx.await
+            .unwrap_or_else(|_| Err(RpcError::unavailable("the call went away")))
     }
 
     /// Counts a crash of a plugin's host half. Says how long to wait before it is activated again, or

@@ -28,6 +28,14 @@ async fn serve(
     let Some(plugins) = kernel.get_facility::<crate::Plugins>() else {
         return not_found();
     };
+    // A client half is asked for as soon as a shell loads, which may be just after a new leader starts.
+    if plugins.ready_soon().await.is_err() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "the server is reading its plugins; try again in a moment\n",
+        )
+            .into_response();
+    }
     let Some(plugin) = plugins.get(&id) else {
         return not_found();
     };
