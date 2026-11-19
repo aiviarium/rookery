@@ -1096,12 +1096,13 @@ impl Sql<'_> {
             // `terminate`/`cancel` re-check the start time: the pid is the same session that was looked at.
             let end = |terminate: bool| {
                 sqlx::query_scalar::<_, bool>(sqlx::AssertSqlSafe(if terminate {
-                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid = $1 AND backend_start = $2"
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid = $1 AND backend_start = $2 AND usename = $3 AND datname = current_database()"
                 } else {
-                    "SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE pid = $1 AND backend_start = $2"
+                    "SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE pid = $1 AND backend_start = $2 AND usename = $3 AND datname = current_database()"
                 }.to_string()))
                 .bind(pid)
                 .bind(started)
+                .bind(&role)
                 .fetch_optional(pool)
             };
             if purpose.is_none() && !direct && age > grace {

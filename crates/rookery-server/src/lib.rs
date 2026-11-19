@@ -84,7 +84,7 @@ pub async fn rekey(
                 for plugin in plugins {
                     if let Err(e) = sql.rotate(&plugin).await {
                         done = Err(format!(
-                            "the secrets are sealed under the new key, but the raw SQL role of {plugin} kept its password: {e}; run rookery store rekey again"
+                            "the secrets are sealed under the new key, but the raw SQL role of {plugin} kept its password: {e}; run rookery server secrets rekey again"
                         ));
                         break;
                     }

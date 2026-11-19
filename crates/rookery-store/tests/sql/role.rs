@@ -1345,3 +1345,56 @@ async fn a_plugin_has_at_most_four_transactions_open_at_once() {
     sql.begin("alpha", None).await.map(|_| ()).unwrap();
     db.close().await;
 }
+
+#[tokio::test]
+async fn disabling_sql_leaves_other_databases_sessions_alive() {
+    let Some(w) = World::new().await else { return };
+    let other = rookery_store::testing::TestDb::new().await.unwrap();
+    setup(&w.db, "alpha", true).await;
+    let sql = w.db.store.sql();
+    let url = sql.connection_url("alpha").await.unwrap().unwrap();
+    let options: sqlx::postgres::PgConnectOptions = url.parse().unwrap();
+    let other_options = other.store.pool().connect_options();
+    let mut session =
+        PgConnection::connect_with(&options.database(other_options.get_database().unwrap()))
+            .await
+            .unwrap();
+
+    assert!(sql.disable("alpha").await.unwrap());
+    assert_eq!(
+        sqlx::query_scalar::<_, i32>("SELECT 1")
+            .fetch_one(&mut session)
+            .await
+            .unwrap(),
+        1
+    );
+    session.close().await.unwrap();
+    other.close().await;
+    w.db.close().await;
+}
+
+#[tokio::test]
+async fn disabling_sql_leaves_an_unowned_roles_sessions_alive() {
+    let Some(w) = World::new().await else { return };
+    setup(&w.db, "alpha", true).await;
+    let mut session = direct(&w.db, "alpha").await;
+    let sql = w.db.store.sql();
+    let role = sql.names("alpha").unwrap().role;
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "COMMENT ON ROLE \"{role}\" IS NULL"
+    )))
+    .execute(w.db.store.pool())
+    .await
+    .unwrap();
+
+    assert!(sql.disable("alpha").await.unwrap());
+    assert_eq!(
+        sqlx::query_scalar::<_, i32>("SELECT 1")
+            .fetch_one(&mut session)
+            .await
+            .unwrap(),
+        1
+    );
+    session.close().await.unwrap();
+    w.db.close().await;
+}

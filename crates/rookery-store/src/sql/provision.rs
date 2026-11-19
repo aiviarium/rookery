@@ -90,10 +90,10 @@ fn new_password() -> String {
 }
 
 impl Sql<'_> {
-    /// Makes pgvector available outside the kernel's schema. The role can use no object of `crow`, and without
+    /// Makes pgvector available outside the kernel's schema. The role can use no object of `rookery`, and without
     /// `public` or another schema of its own pgvector's `vector` type and operators would be out of its reach.
     /// With `CREATE EXTENSION ... vector` run by the kernel's user, the extension lands in the schema named like
-    /// that user (`crow`) on a default deployment, so it is moved to `public` (the extension is relocatable, and
+    /// that user (`rookery`) on a default deployment, so it is moved to `public` (the extension is relocatable, and
     /// columns refer to the type by id). Best effort: a server without pgvector, or a user who may not, leaves
     /// raw SQL without it.
     async fn ensure_vector(&self) {
@@ -113,7 +113,7 @@ impl Sql<'_> {
                         .execute(&mut *tx)
                         .await?;
                 }
-                Some("crow") => {
+                Some("rookery") => {
                     sqlx::query("ALTER EXTENSION vector SET SCHEMA public").execute(&mut *tx).await?;
                 }
                 Some(_) => {}
@@ -442,7 +442,9 @@ impl Sql<'_> {
             .await?;
         }
         self.forget(plugin).await;
-        self.terminate_sessions(&names.role).await;
+        if ours {
+            self.terminate_sessions(&names.role).await;
+        }
         let mut tx = self.store.pool().begin().await?;
         lock_plugin(&mut tx, plugin).await?;
         lock_catalog(&mut tx).await?;
@@ -473,8 +475,10 @@ impl Sql<'_> {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        // Any session that logged in between the two.
-        self.terminate_sessions(&names.role).await;
+        // Any session that logged in before NOLOGIN took effect.
+        if ours {
+            self.terminate_sessions(&names.role).await;
+        }
         Ok(had)
     }
 
@@ -623,10 +627,10 @@ impl Sql<'_> {
         Ok(Some(url.to_string()))
     }
 
-    /// Ends the role's sessions (the kernel's user is a member of the role).
+    /// Ends the owned role's sessions in this deployment's database.
     pub(crate) async fn terminate_sessions(&self, role: &str) {
         let _ = sqlx::query(
-            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = $1 AND pid <> pg_backend_pid()",
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = $1 AND datname = current_database() AND pid <> pg_backend_pid()",
         )
         .bind(role)
         .execute(self.store.pool())

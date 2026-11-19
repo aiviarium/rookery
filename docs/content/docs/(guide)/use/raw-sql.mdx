@@ -53,9 +53,9 @@ Then restart PostgreSQL. Rookery reads the numbers when it starts and logs what 
 
 ## The role
 
-Each plugin gets a role, `rookery_x_<plugin>` (with `ROOKERY_DATABASE_ROLE_TAG` set, `rookery_<tag>_x_<plugin>`, for several deployments on one PostgreSQL server). It owns the schema `x_<plugin>` and reads the plugin's collections through views in `v_<plugin>`, which show it what the data API shows the plugin. Its password is sealed with the server's secret key, and `rookery store rekey` gives every role a new password.
+Each plugin gets a role, `rookery_x_<plugin>` (with `ROOKERY_DATABASE_ROLE_TAG` set, `rookery_<tag>_x_<plugin>`, for several deployments on one PostgreSQL server). It owns the schema `x_<plugin>` and reads the plugin's collections through views in `v_<plugin>`, which show it what the data API shows the plugin. Its password is sealed with the server's secret key, and `rookery server secrets rekey` gives every role a new password.
 
-A role cannot read or write another plugin's schema or Rookery's own, become another role, take advisory locks, change its own limits, or read the secrets. It may hold 10 connections and four open transactions through the server.
+A role cannot read or write another plugin's schema or Rookery's own, become another role, take advisory locks or read the secrets. It may hold 10 connections and four open transactions through the server.
 
 ## Limits
 
@@ -75,4 +75,4 @@ Some things every PostgreSQL role may do, and a role per plugin cannot take them
 
 - `temp_file_limit` covers the files of sorts and hashes, not temporary tables or large objects. A role may make `TEMP` tables, as every role may (`TEMPORARY` on the database is granted to `PUBLIC`), and may write large objects. Both count against the disk of the server and are limited only by it. Revoke `TEMPORARY` on the database from `PUBLIC` if no other application needs it.
 - What `PUBLIC` holds: `CONNECT` on the database, `USAGE` on `public` and the built-in languages and types, and `EXECUTE` on functions other than the advisory locks.
-- A direct connection's statements are limited by the role's `statement_timeout`, which the role cannot change, but its CPU and memory are only limited by the server's settings.
+- A role can change its session's `statement_timeout`. Rookery also watches direct connections and cancels statements that run past its limit. PostgreSQL's server settings govern CPU and memory.
