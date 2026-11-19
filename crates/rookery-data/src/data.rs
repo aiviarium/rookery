@@ -16,7 +16,7 @@ use rookery_store::collections::{
 };
 use serde_json::Value;
 
-use crate::{parse_id, rpc, target, time};
+use crate::{parse_id, rpc, target, time, write_target};
 
 pub fn register(methods: &mut Methods) {
     methods
@@ -218,7 +218,7 @@ async fn tail(call: Call, p: DataTail) -> Result<DataTailResult, RpcError> {
 }
 
 async fn insert(call: Call, p: DataInsert) -> Result<DataRow, RpcError> {
-    let (plugin, caller) = target(&call, &p.target).await?;
+    let (plugin, caller) = write_target(&call, &p.target).await?;
     let out = call
         .store()
         .data(&plugin)
@@ -230,7 +230,7 @@ async fn insert(call: Call, p: DataInsert) -> Result<DataRow, RpcError> {
 }
 
 async fn upsert(call: Call, p: DataUpsert) -> Result<DataRow, RpcError> {
-    let (plugin, caller) = target(&call, &p.target).await?;
+    let (plugin, caller) = write_target(&call, &p.target).await?;
     let out = call
         .store()
         .data(&plugin)
@@ -242,7 +242,7 @@ async fn upsert(call: Call, p: DataUpsert) -> Result<DataRow, RpcError> {
 }
 
 async fn update(call: Call, p: DataUpdate) -> Result<DataRow, RpcError> {
-    let (plugin, caller) = target(&call, &p.target).await?;
+    let (plugin, caller) = write_target(&call, &p.target).await?;
     let id = parse_id("id", &p.id)?;
     let out = call
         .store()
@@ -262,7 +262,7 @@ async fn update(call: Call, p: DataUpdate) -> Result<DataRow, RpcError> {
 }
 
 async fn delete(call: Call, p: DataRowRef) -> Result<DataRow, RpcError> {
-    let (plugin, caller) = target(&call, &p.target).await?;
+    let (plugin, caller) = write_target(&call, &p.target).await?;
     let out = call
         .store()
         .data(&plugin)
@@ -273,7 +273,7 @@ async fn delete(call: Call, p: DataRowRef) -> Result<DataRow, RpcError> {
 }
 
 async fn restore(call: Call, p: DataRowRef) -> Result<DataRow, RpcError> {
-    let (plugin, caller) = target(&call, &p.target).await?;
+    let (plugin, caller) = write_target(&call, &p.target).await?;
     let out = call
         .store()
         .data(&plugin)
@@ -284,7 +284,7 @@ async fn restore(call: Call, p: DataRowRef) -> Result<DataRow, RpcError> {
 }
 
 async fn purge(call: Call, p: DataRowRef) -> Result<DataRow, RpcError> {
-    let (plugin, caller) = target(&call, &p.target).await?;
+    let (plugin, caller) = write_target(&call, &p.target).await?;
     call.store()
         .data(&plugin)
         .purge(&caller, &p.target.collection, parse_id("id", &p.id)?)
@@ -306,7 +306,7 @@ async fn batch(call: Call, p: DataBatch) -> Result<DataBatchResult, RpcError> {
         collection: String::new(),
         space: p.space.clone(),
     };
-    let (plugin, caller) = target(&call, &t).await?;
+    let (plugin, caller) = write_target(&call, &t).await?;
     let mut ops_ = Vec::with_capacity(p.ops.len());
     let mut topics = Vec::new();
     for op in &p.ops {
@@ -405,7 +405,7 @@ fn scoped(plugin: &str, name: &str) -> Result<String, RpcError> {
 }
 
 async fn import(call: Call, p: DataImport) -> Result<DataImportResult, RpcError> {
-    let (plugin, caller) = target(&call, &p.target).await?;
+    let (plugin, caller) = write_target(&call, &p.target).await?;
     let options: ImportOptions =
         serde_json::from_value(serde_json::json!({ "mode": p.mode, "on": p.on }))
             .map_err(|e| RpcError::invalid(format!("import: {e}")))?;

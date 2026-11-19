@@ -3,8 +3,11 @@
 //! Each subscription is a task with a subscription of its own to the store's feed, so it gets every
 //! change after its cursor once and in order: from memory after commit when it keeps up, from the
 //! change log when it lags or resumes. `data.live` sends the changes of one collection in the
-//! subscription's spaces, each with the row as the subscriber may read it now (`null` when it may not,
-//! or the row is gone); the client applies them to its result with its own copy of the filter. A
+//! subscription's spaces, each with the row as the subscriber may read it now (`null` when the row is
+//! gone, in the trash, or out of its reach); the client applies them to its result with its own copy of
+//! the filter. A change of a row the subscriber may not read is not sent: where reads check each row,
+//! only rows it was shown, or whose entity it sees, are. Each change checks that the subscriber still
+//! views the space it follows; one who lost it gets nothing more. A
 //! plugin's `data.subscribe` sends every change of its collections. A subscriber whose cursor is older
 //! than the log gets `reset` and reads again. Subscriptions end with their connection.
 
@@ -172,7 +175,17 @@ async fn live(call: &Call, p: LiveQuery) -> Result<LiveStarted, RpcError> {
         store.data(&plugin).filter(&collection, w).map_err(rpc)?;
     }
     let (mut sub, rows, next, included) = match p.after {
-        Some(after) => (store.feed().subscribe_from(after), None, None, None),
+        Some(after) => {
+            // A resumed query reads no page, and is held to the same checks as one that does.
+            let mut probe = q.clone();
+            probe.limit = Some(1);
+            store
+                .data(&plugin)
+                .find(&caller, &collection, &probe)
+                .await
+                .map_err(rpc)?;
+            (store.feed().subscribe_from(after), None, None, None)
+        }
         None => {
             // Subscribe before reading, so that nothing committed in between is missed.
             let sub = store.feed().subscribe().await.map_err(rpc)?;
@@ -190,7 +203,27 @@ async fn live(call: &Call, p: LiveQuery) -> Result<LiveStarted, RpcError> {
     let sid = id.clone();
     let user = caller.user;
     let conn_id = conn.id();
+    // Where reads check each row, a change of a row the subscriber cannot read is not sent, not even its
+    // id: only those of rows it was shown, when they go away or out of its reach.
+    let checks_rows = coll.checks_rows();
+    let mut shown: std::collections::HashSet<Uuid> = rows
+        .iter()
+        .flatten()
+        .filter(|_| checks_rows)
+        .filter_map(|r| r.get("id").and_then(|v| v.as_str()))
+        .filter_map(|v| Uuid::parse_str(v).ok())
+        .collect();
     let task = tokio::spawn(async move {
+        let notify = |changes: Vec<Change>, reset: Option<i64>| {
+            conn.notify(
+                "data.changed",
+                DataChanged {
+                    subscription: sid.clone(),
+                    changes,
+                    reset,
+                },
+            );
+        };
         loop {
             let ev = match sub.next().await {
                 Ok(Some(ev)) => ev,
@@ -198,27 +231,13 @@ async fn live(call: &Call, p: LiveQuery) -> Result<LiveStarted, RpcError> {
                 Err(e) => {
                     tracing::warn!(error = %e, "a live query's feed failed; the client reads again");
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                    conn.notify(
-                        "data.changed",
-                        DataChanged {
-                            subscription: sid.clone(),
-                            changes: Vec::new(),
-                            reset: Some(store.feed().head()),
-                        },
-                    );
+                    notify(Vec::new(), Some(store.feed().head()));
                     continue;
                 }
             };
             let c = match ev {
                 FeedEvent::Reset { head } => {
-                    conn.notify(
-                        "data.changed",
-                        DataChanged {
-                            subscription: sid.clone(),
-                            changes: Vec::new(),
-                            reset: Some(head),
-                        },
-                    );
+                    notify(Vec::new(), Some(head));
                     continue;
                 }
                 FeedEvent::Change(c) => c,
@@ -234,11 +253,25 @@ async fn live(call: &Call, p: LiveQuery) -> Result<LiveStarted, RpcError> {
             if !in_scope {
                 continue;
             }
-            // The row as this subscriber may read it now: the store checks.
             let reader = StoreCaller {
                 space: c.space_id.or(caller.space),
                 ..caller.clone()
             };
+            // Following a space needs view on it still: the subscription of one who lost it ends, and
+            // sends nothing more.
+            if let Some(space) = c.space_id.filter(|_| coll.def.scope == Scope::Space)
+                && !holds(
+                    &store,
+                    &reader,
+                    &plugin,
+                    &rookery_store::uri::space_uri(space),
+                    StoreLevel::View,
+                )
+                .await
+            {
+                return;
+            }
+            // The row as this subscriber may read it now: the store checks.
             let row = match store.data(&plugin).get(&reader, &collection, c.id).await {
                 Ok(r) => r,
                 Err(e) => {
@@ -246,15 +279,38 @@ async fn live(call: &Call, p: LiveQuery) -> Result<LiveStarted, RpcError> {
                     None
                 }
             };
+            let send = match &row {
+                Some(_) => {
+                    if checks_rows {
+                        shown.insert(c.id);
+                    }
+                    true
+                }
+                // A row it was shown, gone or out of its reach now; or one in the trash whose entity it
+                // sees, as a resumed query learns of rows it never read.
+                None if checks_rows => {
+                    let was_shown = shown.remove(&c.id);
+                    was_shown
+                        || match coll.entity_uri(c.id) {
+                            Some(uri) => store
+                                .entities()
+                                .get(&reader, &uri)
+                                .await
+                                .is_ok_and(|e| e.is_some()),
+                            None => false,
+                        }
+                }
+                // A row of a scope it reads, gone: told only while it still reads the scope.
+                None => {
+                    let container = coll.container(c.space_id, c.user_id);
+                    holds(&store, &reader, &plugin, &container, coll.def.access.read).await
+                }
+            };
+            if !send {
+                continue;
+            }
             let row = row.map(|r| coll.project(r, select.as_deref()));
-            conn.notify(
-                "data.changed",
-                DataChanged {
-                    subscription: sid.clone(),
-                    changes: vec![wire_change(&c, row)],
-                    reset: None,
-                },
-            );
+            notify(vec![wire_change(&c, row)], None);
         }
     });
     call.kernel
@@ -267,6 +323,26 @@ async fn live(call: &Call, p: LiveQuery) -> Result<LiveStarted, RpcError> {
         included,
         seq,
     })
+}
+
+/// Whether the caller holds `level` on `resource`, as the admin of the plugin's collections it may.
+async fn holds(
+    store: &rookery_store::Store,
+    caller: &StoreCaller,
+    plugin: &str,
+    resource: &str,
+    level: StoreLevel,
+) -> bool {
+    if caller.admin_on(plugin) {
+        return true;
+    }
+    match store.access().level_of(caller, resource).await {
+        Ok(held) => held.is_some_and(|l| l >= level),
+        Err(e) => {
+            tracing::debug!(error = %e, "a live query's check failed");
+            false
+        }
+    }
 }
 
 async fn subscribe(call: &Call, p: FeedSubscribe) -> Result<FeedSubscription, RpcError> {

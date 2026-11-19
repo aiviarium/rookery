@@ -177,6 +177,14 @@ pub fn register(methods: &mut Methods) {
             if text.is_empty() || text.len() > 200 {
                 return Err(RpcError::invalid("search for 1 to 200 bytes of a name or email"));
             }
+            // Everyone manages their own user://, which shares nothing with anyone.
+            if p.resource.starts_with("user://") {
+                return Err(RpcError::forbidden(
+                    "people are searched for a resource to share, and a person is none",
+                ));
+            }
+            // Emails are for admins; others find a person by one only when they type it whole.
+            let emails = call.is_admin();
             let people = call
                 .store()
                 .users()
@@ -188,12 +196,12 @@ pub fn register(methods: &mut Methods) {
                     .map(|u| Person {
                         id: u.id.to_string(),
                         name: u.name,
-                        email: u.email,
+                        email: u.email.filter(|_| emails),
                     })
                     .collect(),
             })
         })
-        .summary("People whose name or email starts with some words, for someone who holds manage on the resource they share.")
+        .summary("People whose name starts with some words, or whose email is the text, for someone who holds manage on the resource they share. Only admins see emails.")
         .level(manage());
     methods
         .add(

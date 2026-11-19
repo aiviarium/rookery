@@ -125,6 +125,16 @@ impl Collection {
         self.def.is_log()
     }
 
+    /// Whether reads check each row, not only the row's scope: entity collections and typed tables.
+    pub fn checks_rows(&self) -> bool {
+        self.is_typed() || self.def.entity.is_some()
+    }
+
+    /// The resource reads of a row in `space` or of `user` are checked on, when they do not check rows.
+    pub fn container(&self, space: Option<Uuid>, user: Option<Uuid>) -> String {
+        container_uri(self, space, user)
+    }
+
     pub(crate) fn column(&self, name: &str) -> Option<(String, Kind)> {
         query::column(self, name)
     }

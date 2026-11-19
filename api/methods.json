@@ -11954,7 +11954,7 @@
   },
   {
     "name": "users.search",
-    "summary": "People whose name or email starts with some words, for someone who holds manage on the resource they share.",
+    "summary": "People whose name starts with some words, or whose email is the text, for someone who holds manage on the resource they share. Only admins see emails.",
     "level": {
       "kind": "resource",
       "param": "resource",
@@ -11963,7 +11963,7 @@
     "params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "`users.search`: people whose name or email starts with words, to share a resource with.",
+      "description": "`users.search`: people whose name starts with words, or whose email is the text, to share a\nresource with. Only admins see emails.",
       "properties": {
         "limit": {
           "default": null,
@@ -11974,7 +11974,7 @@
           ]
         },
         "resource": {
-          "description": "The resource the caller shares, which they hold manage on.",
+          "description": "The resource the caller shares, which they hold manage on; not a person (`user://`).",
           "type": "string"
         },
         "text": {

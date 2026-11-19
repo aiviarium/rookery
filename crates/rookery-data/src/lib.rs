@@ -75,7 +75,21 @@ pub async fn target(call: &Call, t: &DataTarget) -> Result<(String, StoreCaller)
     };
     let mut caller = store_caller(call, t.space.as_deref())?;
     if matches!(&call.caller, Caller::Plugin(own) if *own == plugin && own != ROOKERY) {
-        caller.admin = true;
+        // Admin of its own collections only: what it reads of another plugin's, as through `include`,
+        // it reads as a plugin.
+        caller = caller.admin_of(plugin.clone());
+    }
+    Ok((plugin, caller))
+}
+
+/// [`target`] for a write: Rookery's own collections are written by Rookery's own methods (storage.*,
+/// layouts, its typed tables), never through `data.*`.
+pub async fn write_target(call: &Call, t: &DataTarget) -> Result<(String, StoreCaller), RpcError> {
+    let (plugin, caller) = target(call, t).await?;
+    if plugin == ROOKERY {
+        return Err(RpcError::forbidden(
+            "Rookery's own collections are written through their own methods, not data.*",
+        ));
     }
     Ok((plugin, caller))
 }

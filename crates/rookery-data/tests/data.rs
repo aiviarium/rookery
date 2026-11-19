@@ -640,3 +640,27 @@ fn migrations_are_read_from_their_folder_in_order() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn rookerys_own_collections_are_not_written_through_data() {
+    let k: TestKernel = test_kernel!(methods());
+    let admin = k.person("Maria", true).await;
+    for (method, params) in [
+        (
+            "data.insert",
+            json!({ "plugin": "rookery", "collection": "storage", "values": { "plugin": "x", "key": "k" } }),
+        ),
+        (
+            "data.import",
+            json!({ "plugin": "rookery", "collection": "storage", "rows": [] }),
+        ),
+        ("data.batch", json!({ "plugin": "rookery", "ops": [] })),
+    ] {
+        assert_eq!(
+            code(k.call(&admin, method, params).await),
+            "FORBIDDEN",
+            "{method}"
+        );
+    }
+    k.close().await;
+}

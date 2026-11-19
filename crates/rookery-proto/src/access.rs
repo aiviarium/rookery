@@ -68,9 +68,10 @@ wire! {
 }
 
 wire! {
-    /// `users.search`: people whose name or email starts with words, to share a resource with.
+    /// `users.search`: people whose name starts with words, or whose email is the text, to share a
+    /// resource with. Only admins see emails.
     pub struct UserSearch {
-        /// The resource the caller shares, which they hold manage on.
+        /// The resource the caller shares, which they hold manage on; not a person (`user://`).
         pub resource: String,
         pub text: String,
         #[serde(default)]

@@ -24,6 +24,7 @@ async-trait = "0.1"
 futures-util.workspace = true
 
 [dev-dependencies]
+sqlx.workspace = true
 rookery-proto.workspace = true
 rookery-kernel = { workspace = true, features = ["testing"] }
 rookery-store = { workspace = true, features = ["testing"] }
