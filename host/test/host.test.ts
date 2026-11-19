@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { fileURLToPath } from "node:url"
 import { RookeryError } from "@rookery/sdk/errors"
+import type { Registration } from "@rookery/sdk/runtime/host"
 import { Host, type ServerLink } from "../src/host"
 
 const fixture = (name: string) => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url))
@@ -28,7 +29,14 @@ function server() {
   return { link, calls, notes }
 }
 
-const manifest = (id: string) => ({ id, name: id, version: "1.0.0", host: "host.ts" })
+const manifest = (id: string) => ({
+  id,
+  name: id,
+  version: "1.0.0",
+  host: "host.ts",
+  provides: { services: ["greeter"] },
+  contributes: { jobs: ["echo.build", "echo.wait", "echo.wipe"].map((id) => ({ id })) },
+})
 const ctx = (deadlineMs = 5000) => ({
   callId: crypto.randomUUID(),
   user: null,
@@ -115,8 +123,115 @@ describe("the extension host", () => {
     expect(host.plugins()).toEqual([])
   })
 
-  test("a call past its deadline, or cancelled, ends", async () => {
-    const { link } = server()
+  test("activates a typed service and a job handler while using connections", async () => {
+    const chunks: unknown[] = []
+    const jobCalls: string[] = []
+    const logs: string[] = []
+    const credential = 'sentinel-"credential"-value'
+    const host = new Host({
+      async request(method, params, plugin) {
+        expect(plugin).toBe("sample")
+        switch (method) {
+          case "connections.list":
+            return { connections: [] }
+          case "connections.get":
+            expect(params).toEqual({ id: "fixture" })
+            return { name: "Fixture" }
+          case "connections.resolve":
+            expect(params).toEqual({ id: "fixture" })
+            return { credential }
+          case "host.stream.item":
+            chunks.push(params.item)
+            return null
+          case "host.job.progress":
+          case "host.job.log":
+            jobCalls.push(method)
+            return null
+          default:
+            throw new Error(`unexpected host call ${method}`)
+        }
+      },
+      notify(method, params) {
+        if (method === "plugins.log") logs.push(String(params.message))
+      },
+    })
+    const plugin = "sample"
+    try {
+      const activated = await host.handle("plugins.activate", {
+        plugin,
+        dir: fixture("host-apis"),
+        manifest: {
+          ...manifest(plugin),
+          interface: "interface.ts",
+          provides: { services: ["sample"] },
+          contributes: { jobs: [{ id: "sample.run" }] },
+        },
+      })
+      const { registrations } = activated as { registrations: Registration[] }
+      expect(registrations).toContainEqual({ kind: "job", key: "sample.run" })
+      expect(registrations.find((entry) => entry.kind === "service")).toMatchObject({
+        key: "sample",
+        methods: {
+          describe: { stream: false },
+          count: { stream: true },
+          wait: { stream: false, timeoutSecs: 1 },
+        },
+      })
+      const service = { plugin, kind: "service", key: "sample" }
+      expect(
+        await host.handle("plugins.invoke", {
+          ...service,
+          params: { method: "describe", params: { id: "fixture" } },
+          ctx: ctx(),
+        }),
+      ).toBe("Fixture")
+      await host.handle("plugins.invoke", {
+        ...service,
+        params: { method: "count", params: { to: 3 } },
+        ctx: ctx(),
+        stream: true,
+      })
+      expect(chunks).toEqual([1, 2, 3])
+      expect(
+        await host.handle("plugins.invoke", {
+          plugin,
+          kind: "job",
+          key: "sample.run",
+          params: { params: {}, job: { id: "fixture", attempt: 2, kind: "sample/run", maxAttempts: 3 } },
+          ctx: ctx(),
+        }),
+      ).toEqual({ attempt: 2 })
+      expect(jobCalls).toEqual(["host.job.log", "host.job.progress"])
+      for (const plain of [false, true]) {
+        const error = await host
+          .handle("plugins.invoke", {
+            plugin,
+            kind: "rpc",
+            key: "leak",
+            params: { id: "fixture", plain },
+            ctx: ctx(),
+          })
+          .catch(RookeryError.from)
+        expect(JSON.stringify(error)).not.toContain(credential)
+        expect((error as RookeryError).message).toBe("exception [redacted]")
+        if (!plain) {
+          expect((error as RookeryError).details).toEqual({ nested: [{ "[redacted]": "[redacted]" }] })
+        }
+      }
+      expect(logs.filter((line) => line.includes("logged"))).toEqual([
+        "logged [redacted]",
+        "logged [redacted]",
+      ])
+      expect(logs.join("\n")).not.toContain(credential)
+      expect(logs.join("\n")).not.toContain(JSON.stringify(credential).slice(1, -1))
+      expect(logs.some((line) => line.includes("Error: exception [redacted]"))).toBe(true)
+    } finally {
+      await host.stop(plugin, true)
+    }
+  })
+
+  test("a unary invocation acknowledges cancellation after its handler finishes", async () => {
+    const { link, notes } = server()
     const host = new Host(link)
     await host.handle("plugins.activate", {
       plugin: "echo",
@@ -127,6 +242,8 @@ describe("the extension host", () => {
       .handle("plugins.invoke", { plugin: "echo", kind: "rpc", key: "slow", params: {}, ctx: ctx(50) })
       .catch((e) => e)
     expect(RookeryError.from(late).code).toBe("TIMEOUT")
+    expect(notes.some(({ params }) => params.message === "unary handler finished cleanup")).toBe(true)
+    notes.length = 0
     const c = ctx()
     const running = host
       .handle("plugins.invoke", { plugin: "echo", kind: "rpc", key: "slow", params: {}, ctx: c })
@@ -134,6 +251,7 @@ describe("the extension host", () => {
     await Bun.sleep(20)
     host.notification("plugins.cancel", { plugin: "echo", callId: c.callId })
     expect(RookeryError.from(await running).code).toBe("TIMEOUT")
+    expect(notes.some(({ params }) => params.message === "unary handler finished cleanup")).toBe(true)
     await host.handle("plugins.deactivate", { plugin: "echo" })
   })
 

@@ -18,6 +18,7 @@ import type {
   Principal,
   User,
 } from "../generated"
+import type { Interface, MethodDecls, ServiceDecl } from "../interface"
 import { type Disposable, disposable } from "../types"
 import type {
   Ctx,
@@ -43,6 +44,12 @@ export interface Registration {
   level?: "own" | "admin"
   params?: Record<string, unknown>
   description?: string
+  methods?: Record<string, ServiceMethod>
+}
+
+interface ServiceMethod {
+  stream: boolean
+  timeoutSecs?: number
 }
 
 /** The context the server sends with each invocation. */
@@ -60,6 +67,7 @@ export interface Invoke {
   kind: Registration["kind"]
   key: string
   params: unknown
+  stream?: boolean
   ctx: CallContext
 }
 
@@ -78,7 +86,8 @@ interface Handler {
   level?: Registration["level"]
   params?: { parse(input: unknown): unknown }
   description?: string
-  run(ctx: Ctx, params: any): unknown
+  methods?: Record<string, ServiceMethod>
+  run(ctx: Ctx, params: any, invocation?: Invoke): unknown
 }
 
 export function format(args: unknown[]): string {
@@ -144,6 +153,7 @@ export class HostRuntime {
   readonly disposers: Array<() => unknown> = []
   readonly running = new Map<string, AbortController>()
   active = false
+  interface?: Interface
 
   constructor(
     readonly plugin: string,
@@ -167,6 +177,7 @@ export class HostRuntime {
     const params = jsonSchema(h.params)
     if (params) r.params = params
     if (h.description) r.description = h.description
+    if (h.methods) r.methods = h.methods
     return r
   }
 
@@ -209,19 +220,15 @@ export class HostRuntime {
       Math.max(0, inv.ctx.deadline - Date.now()),
     )
     this.running.set(inv.ctx.callId, abort)
-    const aborted = new Promise<never>((_, reject) => {
-      const fail = () => reject(RookeryError.from(abort.signal.reason))
-      if (abort.signal.aborted) fail()
-      else abort.signal.addEventListener("abort", fail, { once: true })
-    })
     try {
-      const run = (async () => {
-        const params = parse(h, inv.params)
-        return h.run(this.context(inv.ctx, abort.signal), params)
-      })()
-      run.catch(() => {})
-      const result = await Promise.race([run, aborted])
-      return result === undefined ? null : result
+      if (inv.ctx.deadline <= Date.now()) {
+        throw new RookeryError("TIMEOUT", "the call's deadline passed")
+      }
+      const params = parse(h, inv.params)
+      const result = await h.run(this.context(inv.ctx, abort.signal), params, inv)
+      // Acknowledging cancellation tells the server that the handler has stopped.
+      abort.signal.throwIfAborted()
+      return result ?? null
     } finally {
       clearTimeout(timer)
       this.running.delete(inv.ctx.callId)
@@ -230,13 +237,11 @@ export class HostRuntime {
 
   /** `plugins.cancel`: the deadline passed (`timeout`), or someone cancelled the job (`cancelled`). */
   cancel(callId: string, reason?: string) {
-    this.running
-      .get(callId)
-      ?.abort(
-        reason === "cancelled"
-          ? new RookeryError("UNAVAILABLE", "the job was cancelled")
-          : new RookeryError("TIMEOUT", "the call was cancelled"),
-      )
+    const error =
+      reason === "timeout" || reason === undefined
+        ? new RookeryError("TIMEOUT", "the call's deadline passed")
+        : new RookeryError("UNAVAILABLE", "the call was cancelled", { reason })
+    this.running.get(callId)?.abort(error)
   }
 
   /** `plugins.notify`: what the server sent the plugin's connection. */
@@ -378,8 +383,11 @@ function createApi(rt: HostRuntime): Rookery {
     },
     jobs: {
       // A job the manifest declares (`contributes.jobs`), run here when the server runs one of its kind.
-      handle: (name, def: JobDef) =>
-        rt.register({
+      handle: (name, def: JobDef) => {
+        if (!rt.manifest.contributes?.jobs?.some((job) => job.id === name && !job.worker)) {
+          throw new RookeryError("FORBIDDEN", `${plugin} declares no host job ${name}`)
+        }
+        return rt.register({
           kind: "job",
           key: name,
           run: (
@@ -388,7 +396,9 @@ function createApi(rt: HostRuntime): Rookery {
               params?: unknown
               job: { id: string; attempt: number; maxAttempts: number; kind: string; subject?: string | null }
             },
+            invocation,
           ) => {
+            const callId = invocation?.ctx.callId
             const params = def.params ? parseWith(def.params, `job ${name}`, p.params ?? {}) : p.params
             const handle: JobHandle = {
               id: p.job.id,
@@ -401,8 +411,8 @@ function createApi(rt: HostRuntime): Rookery {
                 maxAttempts: p.job.maxAttempts,
               },
               progress: async (done, total, message) => {
-                await rt.call("jobs.progress", {
-                  id: p.job.id,
+                await rt.call("host.job.progress", {
+                  callId,
                   progress: {
                     done,
                     ...(total !== undefined ? { total } : {}),
@@ -411,13 +421,20 @@ function createApi(rt: HostRuntime): Rookery {
                 })
               },
               log: async (message, level = "info") => {
-                await rt.call("jobs.log", { id: p.job.id, level, text: message })
+                await rt.call("host.job.log", { callId, level, text: message })
               },
             }
             return def.run(handle, params)
           },
-        }),
-      enqueue: (kind, params = {}) => rt.call("jobs.enqueue", { kind, params }) as Promise<any>,
+        })
+      },
+      enqueue: (name, params = {}) => {
+        const declared = rt.manifest.contributes?.jobs?.some((job) => job.id === name)
+        const ownPrefix = `${plugin}.`
+        const kind =
+          declared && name.startsWith(ownPrefix) ? `${plugin}/${name.slice(ownPrefix.length)}` : name
+        return rt.call("jobs.enqueue", { kind, params })
+      },
       get: (id) => rt.call("jobs.get", { id }) as Promise<any>,
       cancel: async (id) => {
         await rt.call("jobs.cancel", { id })
@@ -469,23 +486,12 @@ function createApi(rt: HostRuntime): Rookery {
       },
     },
     services: {
-      // A service of `provides.services`, served by this host half; `services.call` reaches it.
-      provide: (service, methods) =>
-        rt.register({
-          kind: "service",
-          key: service,
-          run: async (ctx, p: { method: string; params?: unknown }) => {
-            const method = methods[p.method]
-            if (typeof method !== "function")
-              throw new RookeryError(
-                "NOT_FOUND",
-                `the service ${service} of ${plugin} has no method ${p.method}`,
-              )
-            return method(ctx, p.params ?? {})
-          },
-        }),
+      provide: (service: string | ServiceDecl, methods: Record<string, (ctx: Ctx, params: any) => unknown>) =>
+        provide(rt, service, methods),
       call: (provider, service, method, params = {}) =>
-        rt.call("services.call", { plugin: provider, service, method, params }) as Promise<any>,
+        rt.call("services.call", { plugin: provider, service, method, params }),
+      stream: (provider, service, method, params = {}) =>
+        streamService(rt, { plugin: provider, service, method, params }),
     },
     extensions: {
       list: async (point) =>
@@ -502,7 +508,7 @@ function createApi(rt: HostRuntime): Rookery {
         return (await rt.call<ConnectionList>("connections.list", { type: opts.type })).connections
       },
       get: (id) => rt.call<ConnectionInfo>("connections.get", { id }),
-      resolve: (id) => rt.call<ConnectionResolved>("connections.resolve", { plugin, id }),
+      resolve: (id) => rt.call<ConnectionResolved>("connections.resolve", { id }),
     },
     blobs: unavailable("blobs"),
     audit: unavailable("audit"),
@@ -521,6 +527,82 @@ function createApi(rt: HostRuntime): Rookery {
     },
   }
   return api
+}
+
+function provide(
+  rt: HostRuntime,
+  requested: string | ServiceDecl,
+  methods: Record<string, (ctx: Ctx, params: any) => unknown>,
+): Disposable {
+  const name = typeof requested === "string" ? requested : requested.name
+  if (!rt.manifest.provides?.services?.includes(name)) {
+    throw new RookeryError("FORBIDDEN", `${rt.plugin} declares no service ${name}`)
+  }
+  const service = rt.interface?.services[name]
+  if (rt.interface && !service) {
+    throw new RookeryError("FORBIDDEN", `the interface of ${rt.plugin} declares no service ${name}`)
+  }
+  const declarations: MethodDecls | undefined =
+    service?.methods ?? (typeof requested === "string" ? undefined : requested.methods)
+  if (
+    declarations &&
+    (Object.keys(declarations).some(
+      (method) => typeof methods[method] !== "function" || !Object.hasOwn(methods, method),
+    ) ||
+      Object.keys(methods).some((method) => !Object.hasOwn(declarations, method)))
+  ) {
+    throw new RookeryError("INVALID", `the implementation of ${name} must match its interface methods`)
+  }
+  const handlers = Object.entries(methods)
+  return rt.register({
+    kind: "service",
+    key: name,
+    methods: Object.fromEntries(
+      handlers.map(([method]) => [
+        method,
+        { stream: declarations?.[method]?.stream === true, timeoutSecs: declarations?.[method]?.timeoutSecs },
+      ]),
+    ),
+    run: async (ctx, p: { method: string; params?: unknown }, invocation) => {
+      const handler = Object.hasOwn(methods, p.method) ? methods[p.method] : undefined
+      if (typeof handler !== "function")
+        throw new RookeryError("NOT_FOUND", `the service ${name} of ${rt.plugin} has no method ${p.method}`)
+      const decl = declarations?.[p.method]
+      if (Boolean(invocation?.stream) !== Boolean(decl?.stream))
+        throw new RookeryError(
+          "INVALID",
+          `use ${decl?.stream ? "services.stream" : "services.call"} for ${name}.${p.method}`,
+        )
+      const params = decl ? parseWith(decl.params, `${name}.${p.method}`, p.params) : (p.params ?? {})
+      const result = await handler(ctx, params)
+      const checked = (value: unknown) => {
+        try {
+          return decl ? decl.result.parse(value) : value
+        } catch {
+          throw new RookeryError("INTERNAL", `the result of ${name}.${p.method} does not match its interface`)
+        }
+      }
+      if (!invocation?.stream) return checked(result)
+      for await (const item of result as AsyncIterable<unknown>) {
+        ctx.signal.throwIfAborted()
+        await rt.call("host.stream.item", { callId: invocation.ctx.callId, item: checked(item) ?? null })
+      }
+      return null
+    },
+  })
+}
+
+async function* streamService<T>(rt: HostRuntime, params: Record<string, unknown>): AsyncGenerator<T> {
+  const { stream } = await rt.call<{ stream: string }>("host.services.open", params)
+  try {
+    for (;;) {
+      const next = await rt.call<{ done: boolean; item: T }>("host.services.next", { stream })
+      if (next.done) return
+      yield next.item
+    }
+  } finally {
+    await rt.call("host.services.close", { stream }).catch(() => {})
+  }
 }
 
 /** Makes the runtime and the `rookery` handle of one plugin. */

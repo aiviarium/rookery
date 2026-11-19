@@ -26178,6 +26178,63 @@
     }
   },
   {
+    "name": "services.stream",
+    "summary": "Streams a host service method as one JSON value per line.",
+    "level": {
+      "kind": "self"
+    },
+    "stream": true,
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`services.call`: a service a plugin provides, by its plugin and name.",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "params": {
+          "default": {}
+        },
+        "plugin": {
+          "type": "string"
+        },
+        "service": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin",
+        "service",
+        "method"
+      ],
+      "title": "ServiceCall",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of a method that opens a stream. A source that can be resumed says where it starts.",
+      "properties": {
+        "offset": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stream": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stream"
+      ],
+      "title": "StreamOpened",
+      "type": "object"
+    }
+  },
+  {
     "name": "settings.get",
     "summary": "A plugin's setting as it resolves for the caller: their own, else the global one, else the default.",
     "level": {

@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use futures_util::future::BoxFuture;
 use rookery_proto::methods::MethodInfo;
@@ -225,6 +225,7 @@ pub struct MethodDef {
     summary: &'static str,
     level: Option<Level>,
     stream: bool,
+    max_timeout: Option<Duration>,
     params: Value,
     result: Value,
     handler: Handler,
@@ -246,6 +247,12 @@ impl MethodDef {
     /// The result names a stream that carries the rest.
     pub fn stream(&mut self) -> &mut Self {
         self.stream = true;
+        self
+    }
+
+    /// The outer limit for a method that applies its own deadline after resolving a target.
+    pub fn max_timeout(&mut self, limit: Duration) -> &mut Self {
+        self.max_timeout = Some(limit);
         self
     }
 
@@ -307,6 +314,7 @@ impl Methods {
             summary: "",
             level: None,
             stream: false,
+            max_timeout: None,
             params: schema::<P>(),
             result: schema::<R>(),
             handler,
@@ -397,7 +405,10 @@ impl Methods {
         };
         let handler = def.handler.clone();
         let access = self.access.clone();
-        let deadline = tokio::time::Instant::from_std(call.deadline);
+        let deadline = tokio::time::Instant::from_std(
+            def.max_timeout
+                .map_or(call.deadline, |limit| Instant::now() + limit),
+        );
         let name = def.name;
         Box::pin(async move {
             let run = async {
