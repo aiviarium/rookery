@@ -91,7 +91,9 @@ HOSTS = {
 SHARDS = {
     'studio': ['e2e_apply.Apply', 'e2e_host', 'e2e_secrets', 'e2e_local', 'e2e_controller.OnAWorkstation',
                'e2e_serve.Methods', 'e2e_serve.Streams', 'e2e_serve.Grants', 'e2e_serve.SetUp',
-               'e2e_client.Client', 'e2e_client.AccessToken', 'e2e_restore'],
+               'e2e_client.Client', 'e2e_client.AccessToken'],
+    # A server of its own, restored from a dump of its database: two minutes on its own host.
+    'restore': ['e2e_restore'],
     'adopt': ['e2e_adopt.Adopt'],
     'extended': ['e2e_apply.Again', 'e2e_plugins.Plugin', 'e2e_tailnet.AutomaticKey', 'e2e_update.Update',
                  'e2e_update.ShippedChanged'],

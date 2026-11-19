@@ -87,7 +87,7 @@ UNITS = {
 
 # The shards that apply nothing but the first apply: they test rookery's own
 # code, so they run for any change rookery is built from.
-SMOKE = {'studio', 'forge'}
+SMOKE = {'studio', 'restore', 'forge'}
 
 
 def files():
