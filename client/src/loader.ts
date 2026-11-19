@@ -109,9 +109,15 @@ export interface PluginLoader {
   pluginApi(plugin: string): ReturnType<typeof createClientApi>
 }
 
+function stripTrailingSlashes(s: string): string {
+  let end = s.length
+  while (end > 0 && s.charCodeAt(end - 1) === 47) end--
+  return end === s.length ? s : s.slice(0, end)
+}
+
 function resolveAssetUrl(baseUrl: string | undefined, path: string): string {
   if (!baseUrl || /^https?:\/\/|^data:|^blob:/.test(path)) return path
-  const base = baseUrl.replace(/\/+$/, "")
+  const base = stripTrailingSlashes(baseUrl)
   const rel = path.startsWith("/") ? path : `/${path}`
   return `${base}${rel}`
 }

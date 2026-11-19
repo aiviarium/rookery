@@ -19,11 +19,14 @@ export interface RouteMatch {
   params: Record<string, string>
 }
 
+function stripLeadingSlashes(s: string): string {
+  let start = 0
+  while (start < s.length && s.charCodeAt(start) === 47) start++
+  return start === 0 ? s : s.slice(start)
+}
+
 function splitPath(path: string): string[] {
-  return path
-    .replace(/^\/+|\/+$/g, "")
-    .split("/")
-    .filter(Boolean)
+  return path.split("/").filter(Boolean)
 }
 
 function decodeSegment(s: string): string {
@@ -52,7 +55,7 @@ export function buildRouteTable(
     if (!manifest || p.state === "invalid") continue
     const ns = manifest.namespace ?? manifest.id
     for (const r of manifest.contributes.routes as RouteContribution[]) {
-      const rel = r.path.replace(/^\/+/, "")
+      const rel = stripLeadingSlashes(r.path)
       const full = rel ? `/${ns}/${rel}` : `/${ns}`
       entries.push({
         view: r.view,

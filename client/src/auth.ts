@@ -17,9 +17,15 @@ export interface AuthFetchOptions {
   fetch?: typeof fetch
 }
 
+function stripTrailingSlashes(s: string): string {
+  let end = s.length
+  while (end > 0 && s.charCodeAt(end - 1) === 47) end--
+  return end === s.length ? s : s.slice(0, end)
+}
+
 function joinUrl(baseUrl: string | undefined, path: string): string {
   if (!baseUrl) return path
-  return `${baseUrl.replace(/\/+$/, "")}${path}`
+  return `${stripTrailingSlashes(baseUrl)}${path}`
 }
 
 /** Queries `GET /auth/session` to see whether a device session is active and which sign-in methods exist. */
