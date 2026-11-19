@@ -300,8 +300,8 @@ mod tests {
         (dir, paths)
     }
 
-    fn store(paths: &Paths) -> Store {
-        Store::open(&crate::store::default_file(paths)).unwrap()
+    fn store(paths: &Paths) -> std::sync::Arc<Store> {
+        crate::store::shared(paths).unwrap()
     }
 
     fn put(store: &Store, rows: &[(&str, &[u8])]) {

@@ -177,24 +177,11 @@ const fn bytes(mut op: Op) -> Op {
     op
 }
 
-/// An operation that takes `key` as its bearer and no role. It is for a
-/// caller that has no token yet, so the portal, which needs one, does not carry it.
-const fn keyed(mut op: Op, key: &'static str) -> Op {
-    op.key = key;
-    op.http_only = "it is for a caller that has no token yet";
-    op
-}
-
 /// An operation of rookeryd that `rookery serve` calls itself after checks of
 /// its own, and that no caller reaches through it.
 const fn server_only(mut op: Op, why: &'static str) -> Op {
     op.server_only = why;
     op.http_only = why;
-    op
-}
-
-const fn headers(mut op: Op, headers: &'static [(&'static str, &'static str)]) -> Op {
-    op.headers = headers;
     op
 }
 
@@ -249,156 +236,6 @@ pub static HOST: &[Op] = &[
         stream("endpoints.connect", "/v1/endpoints/{address}/{port}"),
         "rookery serve dials it itself, only for an endpoint a provisioner reported: open the endpoint with resources.connect",
     ),
-];
-
-const IF_MATCH: (&str, &str) = ("if_match", "if-match");
-
-/// What the operations of a setup key take as their bearer.
-pub const SETUP_KEY: &str = "the setup key";
-
-/// The operations of `rookery serve` itself. A host's are reached with `host`.
-pub static SERVE: &[Op] = &[
-    call("version", "GET", "/v1/version"),
-    call("access", "GET", "/v1/access"),
-    keyed(call("setup_key.check", "GET", "/v1/setup-key"), SETUP_KEY),
-    keyed(call("setup_key.claim", "POST", "/v1/setup-key"), SETUP_KEY),
-    keyed(call("setup_key.done", "DELETE", "/v1/setup-key"), SETUP_KEY),
-    call("hosts.list", "GET", "/v1/hosts"),
-    call("hosts.get", "GET", "/v1/hosts/{name}"),
-    admin(call("hosts.remove", "DELETE", "/v1/hosts/{name}")),
-    admin(call("hosts.profile", "GET", "/v1/hosts/{name}/profile")),
-    admin(call("hosts.save", "PUT", "/v1/hosts/{name}/profile")),
-    admin(call(
-        "hosts.credentials",
-        "GET",
-        "/v1/hosts/{name}/credentials",
-    )),
-    call("hosts.actions", "GET", "/v1/hosts/{name}/actions"),
-    // Anyone let in may ask; the action's own role is checked when it is run.
-    role(
-        call("hosts.act", "POST", "/v1/hosts/{name}/actions/{action}"),
-        Role::View,
-    ),
-    call("installation.actions", "GET", "/v1/installation/actions"),
-    role(
-        call(
-            "installation.act",
-            "POST",
-            "/v1/installation/actions/{action}",
-        ),
-        Role::View,
-    ),
-    admin(call("secrets.list", "GET", "/v1/secrets")),
-    admin(call("secrets.set", "PUT", "/v1/secrets/{name}")),
-    admin(call("secrets.remove", "DELETE", "/v1/secrets/{name}")),
-    admin(call("secrets.rename", "POST", "/v1/secrets/{name}/rename")),
-    admin(call("keys.list", "GET", "/v1/keys")),
-    admin(bytes(call("keys.add", "PUT", "/v1/keys/{name}"))),
-    admin(call("keys.remove", "DELETE", "/v1/keys/{name}")),
-    admin(call("keys.rotate", "POST", "/v1/keys/{name}/rotate")),
-    admin(call("registries.list", "GET", "/v1/registries")),
-    admin(call("registries.save", "PUT", "/v1/registries/{name}")),
-    admin(call("registries.remove", "DELETE", "/v1/registries/{name}")),
-    admin(call(
-        "registries.rename",
-        "POST",
-        "/v1/registries/{name}/rename",
-    )),
-    admin(call(
-        "registries.check",
-        "POST",
-        "/v1/registries/{name}/check",
-    )),
-    admin(call("settings.list", "GET", "/v1/settings")),
-    admin(call("settings.set", "PUT", "/v1/settings/{key}")),
-    admin(call("plugins.list", "GET", "/v1/plugins")),
-    admin(call("plugins.add", "POST", "/v1/plugins")),
-    admin(bytes(call("plugins.upload", "POST", "/v1/plugins/package"))),
-    admin(call("plugins.remove", "DELETE", "/v1/plugins/{id}")),
-    admin(call("plugins.check", "GET", "/v1/plugins/updates")),
-    admin(call("plugins.update", "POST", "/v1/plugins/update")),
-    admin(call("plugins.registries", "GET", "/v1/plugins/registries")),
-    admin(call(
-        "plugins.registries.add",
-        "POST",
-        "/v1/plugins/registries",
-    )),
-    admin(call(
-        "plugins.registries.remove",
-        "POST",
-        "/v1/plugins/registries/remove",
-    )),
-    admin(call("setup.catalogue", "GET", "/v1/setup")),
-    admin(call("setup.generate", "POST", "/v1/setup/generate")),
-    call("provisioners.list", "GET", "/v1/provisioners"),
-    call("provisioners.types", "GET", "/v1/provisioner-types"),
-    call("provisioners.get", "GET", "/v1/provisioners/{name}"),
-    admin(call("provisioners.save", "PUT", "/v1/provisioners/{name}")),
-    admin(call(
-        "provisioners.remove",
-        "DELETE",
-        "/v1/provisioners/{name}",
-    )),
-    call(
-        "provisioners.actions",
-        "GET",
-        "/v1/provisioners/{name}/actions",
-    ),
-    // Anyone let in may ask; the action's own role is checked when it is run.
-    role(
-        call(
-            "provisioners.act",
-            "POST",
-            "/v1/provisioners/{name}/actions/{action}",
-        ),
-        Role::View,
-    ),
-    call("resources.list", "GET", "/v1/resources"),
-    admin(call("resources.create", "POST", "/v1/resources")),
-    call("resources.get", "GET", "/v1/resources/{id}"),
-    admin(call("resources.change", "PUT", "/v1/resources/{id}")),
-    admin(call("resources.remove", "DELETE", "/v1/resources/{id}")),
-    call("resources.actions", "GET", "/v1/resources/{id}/actions"),
-    // Anyone let in may ask; the action's own role is checked when it is run.
-    role(
-        call(
-            "resources.act",
-            "POST",
-            "/v1/resources/{id}/actions/{action}",
-        ),
-        Role::View,
-    ),
-    role(
-        call("resources.logs", "GET", "/v1/resources/{id}/logs"),
-        Role::Operate,
-    ),
-    stream("resources.follow", "/v1/resources/{id}/logs"),
-    stream(
-        "resources.connect",
-        "/v1/resources/{id}/endpoints/{endpoint}",
-    ),
-    call("jobs.list", "GET", "/v1/jobs"),
-    call("jobs.get", "GET", "/v1/jobs/{id}"),
-    role(stream("jobs.follow", "/v1/jobs/{id}"), Role::View),
-    call("jobs.output", "GET", "/v1/jobs/{id}/output"),
-    // Anyone let in may ask; the role that starts a job of its kind is checked.
-    role(call("jobs.stop", "POST", "/v1/jobs/{id}/stop"), Role::View),
-    call("inbox.list", "GET", "/v1/inbox"),
-    role(stream("inbox.follow", "/v1/inbox"), Role::View),
-    call("inbox.done", "POST", "/v1/inbox/{host}/{id}/done"),
-    call("inbox.reopen", "DELETE", "/v1/inbox/{host}/{id}/done"),
-    call("kv.list", "GET", "/v1/kv/{namespace}"),
-    role(stream("kv.follow", "/v1/kv/{namespace}"), Role::View),
-    call("kv.get", "GET", "/v1/kv/{namespace}/{key}"),
-    headers(
-        call("kv.set", "PUT", "/v1/kv/{namespace}/{key}"),
-        &[IF_MATCH, ("if_none_match", "if-none-match")],
-    ),
-    headers(
-        call("kv.delete", "DELETE", "/v1/kv/{namespace}/{key}"),
-        &[IF_MATCH],
-    ),
-    role(stream("events.follow", "/v1/events"), Role::View),
 ];
 
 pub fn find<'a>(table: &'a [Op], name: &str) -> Option<&'a Op> {
@@ -463,7 +300,7 @@ mod tests {
 
     #[test]
     fn names_are_unique_and_requests_are_recognised() {
-        for table in [HOST, SERVE] {
+        for table in [HOST] {
             for (index, op) in table.iter().enumerate() {
                 assert!(
                     !table[..index].iter().any(|other| other.name == op.name),
@@ -504,41 +341,8 @@ mod tests {
         assert_eq!(role(HOST, "applied.profile"), Role::Admin);
         assert_eq!(role(HOST, "sessions.attach"), Role::Operate);
         assert_eq!(role(HOST, "ports.connect"), Role::Operate);
-        assert_eq!(role(SERVE, "hosts.save"), Role::Admin);
-        assert_eq!(role(SERVE, "hosts.act"), Role::View);
-        assert_eq!(role(SERVE, "provisioners.get"), Role::View);
-        assert_eq!(role(SERVE, "provisioners.act"), Role::View);
-        assert_eq!(role(SERVE, "provisioners.save"), Role::Admin);
-        assert_eq!(role(SERVE, "provisioners.remove"), Role::Admin);
-        assert_eq!(role(SERVE, "resources.get"), Role::View);
-        assert_eq!(role(SERVE, "resources.create"), Role::Admin);
-        assert_eq!(role(SERVE, "resources.act"), Role::View);
-        assert_eq!(role(SERVE, "resources.logs"), Role::Operate);
-        assert_eq!(role(SERVE, "resources.follow"), Role::Operate);
-        assert_eq!(role(SERVE, "resources.connect"), Role::Operate);
-        let (op, args) = recognise(
-            SERVE,
-            Kind::Call,
-            "POST",
-            "/v1/provisioners/docker/actions/prune",
-        )
-        .unwrap();
-        assert_eq!(op.name, "provisioners.act");
-        assert_eq!(args[0], ("name", "docker".to_owned()));
-        assert_eq!(args[1], ("action", "prune".to_owned()));
-        assert_eq!(role(SERVE, "plugins.upload"), Role::Admin);
-        assert_eq!(role(SERVE, "kv.set"), Role::Operate);
         assert!(Role::View < Role::Operate && Role::Operate < Role::Admin);
         assert_eq!(Role::named("operate"), Some(Role::Operate));
-        // A setup key is its own way in, for a caller without a token.
-        let claim = find(SERVE, "setup_key.claim").unwrap();
-        assert!(claim.key == SETUP_KEY && !claim.http_only.is_empty());
-        assert!(
-            SERVE
-                .iter()
-                .filter(|op| !op.key.is_empty())
-                .all(|op| op.name.starts_with("setup_key."))
-        );
         assert_eq!(
             names("/v1/channel/{*topic}").collect::<Vec<_>>(),
             vec![("topic", true)]
