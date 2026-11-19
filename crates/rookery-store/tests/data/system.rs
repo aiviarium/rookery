@@ -630,3 +630,42 @@ async fn a_connection_read_as_a_collection_keeps_its_credential_sealed() {
     assert!(found.rows[0].get("ciphertext").is_none());
     db.close().await;
 }
+
+#[tokio::test]
+async fn moving_a_resource_moves_its_jobs_and_grants() {
+    let Some(db) = TestDb::new().await else {
+        return;
+    };
+    let ops = db.user("ops").await;
+    let job = enqueue(&db, "apply", Some("env://studio"), "system:rookery").await;
+    db.store
+        .access()
+        .grant("env://studio", &format!("user:{ops}"), 3, "system:rookery")
+        .await
+        .unwrap();
+    db.store
+        .access()
+        .move_resource("env://studio", "env://forge")
+        .await
+        .unwrap();
+    // The job's subject names the host, so it moves with the host's grants in the same transaction.
+    let moved = db.store.jobs().get(job).await.unwrap().unwrap();
+    assert_eq!(moved.subject.as_deref(), Some("env://forge"));
+    assert_eq!(
+        db.store
+            .access()
+            .level_of(&Caller::user(ops), "env://forge")
+            .await
+            .unwrap(),
+        Some(Level::Manage)
+    );
+    assert_eq!(
+        db.store
+            .access()
+            .level_of(&Caller::user(ops), "env://studio")
+            .await
+            .unwrap(),
+        None
+    );
+    db.close().await;
+}

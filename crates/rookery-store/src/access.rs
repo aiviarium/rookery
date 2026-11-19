@@ -150,6 +150,12 @@ impl Access<'_> {
             .bind(to)
             .execute(&mut *tx)
             .await?;
+        // The jobs of the resource, such as a host's actions, go with it: their subject names it.
+        sqlx::query("UPDATE rookery.jobs SET subject = $2 WHERE subject = $1")
+            .bind(from)
+            .bind(to)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
