@@ -304,6 +304,78 @@ async fn hosts_are_saved_shared_acted_on_and_renamed() {
         Some(ErrorCode::Forbidden)
     );
 
+    // The profile is manage's to read. Who manages a host changes how it is reached and set
+    // up, but not which of the installation's secrets, registries and features it gets.
+    assert_eq!(
+        code(
+            server
+                .call(&member, "hosts.profile", json!({"host": "studio"}))
+                .await
+        ),
+        Some(ErrorCode::Forbidden)
+    );
+    let manager = server.person("Cy", false).await;
+    let cy = match &manager {
+        Caller::User { user, .. } => format!("user:{}", user.id),
+        _ => unreachable!(),
+    };
+    server
+        .call(
+            &admin,
+            "access.grant",
+            json!({"resource": "env://studio", "principal": cy, "level": "manage"}),
+        )
+        .await
+        .unwrap();
+    let kept = server
+        .call(&manager, "hosts.profile", json!({"host": "studio"}))
+        .await
+        .unwrap()["profile"]
+        .clone();
+    for (key, value) in [
+        (
+            "secrets",
+            json!([{"name": "deploy-token", "env": "DEPLOY_TOKEN"}]),
+        ),
+        ("registries", json!(["images"])),
+    ] {
+        let mut changed = kept.clone();
+        changed[key] = value;
+        let refused = server
+            .call(
+                &manager,
+                "hosts.save",
+                json!({"host": "studio", "profile": changed}),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(refused.error_code(), ErrorCode::Forbidden, "{key}");
+    }
+    let mut featured = kept.clone();
+    featured["ansible_vars"] = json!({"rookery_plugin_features": ["example/tool"]});
+    assert_eq!(
+        code(
+            server
+                .call(
+                    &manager,
+                    "hosts.save",
+                    json!({"host": "studio", "profile": featured})
+                )
+                .await
+        ),
+        Some(ErrorCode::Forbidden)
+    );
+    let mut renamed = kept.clone();
+    renamed["description"] = json!("the studio, described by its manager");
+    server
+        .call(
+            &manager,
+            "hosts.save",
+            json!({"host": "studio", "profile": renamed}),
+        )
+        .await
+        .unwrap();
+
     // A host's own action runs as a session there, which a job follows.
     let listed = server
         .call(&admin, "hosts.actions", json!({"host": "studio"}))

@@ -3365,7 +3365,7 @@
     "level": {
       "kind": "resource",
       "param": "host",
-      "grant": "view",
+      "grant": "use",
       "scheme": "env"
     },
     "params": {
@@ -4047,7 +4047,7 @@
     "level": {
       "kind": "resource",
       "param": "host",
-      "grant": "view",
+      "grant": "use",
       "scheme": "env"
     },
     "params": {
@@ -4117,7 +4117,7 @@
     "level": {
       "kind": "resource",
       "param": "host",
-      "grant": "view",
+      "grant": "manage",
       "scheme": "env"
     },
     "params": {
@@ -8814,8 +8814,8 @@
     }
   },
   {
-    "name": "plugins.list",
-    "summary": "The plugins installed on the server.",
+    "name": "plugins.installed",
+    "summary": "The plugins installed on the server, with their features and provisioners. plugins.list is the plugin system's, with client halves.",
     "level": {
       "kind": "admin"
     },

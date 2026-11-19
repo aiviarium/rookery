@@ -181,7 +181,7 @@ fn register_hosts(methods: &mut Methods) {
             Ok(HostProfile { profile })
         })
         .summary("A host's saved profile.")
-        .level(host(Grant::View));
+        .level(host(Grant::Manage));
     methods
         .add("hosts.save", |call: Call, p: HostSave| async move {
             let state = serve(&call)?;
@@ -205,11 +205,12 @@ fn register_hosts(methods: &mut Methods) {
             // The one who made it owns it, which gives them manage on it.
             if !exists && let Ok(user) = call.user_id() {
                 call.store().access().set_owner(&uri, user).await?;
-                let _ = sqlx::query("UPDATE rookery.hosts SET owner = $2 WHERE name = $1")
+                sqlx::query("UPDATE rookery.hosts SET owner = $2 WHERE name = $1")
                     .bind(&name)
                     .bind(user)
                     .execute(call.store().pool())
-                    .await;
+                    .await
+                    .map_err(|e| RpcError::internal(format!("keeping the owner of {name}: {e}")))?;
             }
             call.audit(if exists { "host.change" } else { "host.add" }, Some(&uri), json!({})).await;
             Ok(HostSaved {
@@ -382,7 +383,7 @@ fn register_controller(methods: &mut Methods) {
             },
         )
         .summary("A picture of a workstation's desktop, as a PNG in base64.")
-        .level(host(Grant::View));
+        .level(host(Grant::Use));
     methods
         .add("hosts.units.list", |call: Call, p: HostRef| async move {
             pass(
@@ -470,7 +471,7 @@ fn register_controller(methods: &mut Methods) {
             },
         )
         .summary("The processes on a host.")
-        .level(host(Grant::View));
+        .level(host(Grant::Use));
     methods
         .add(
             "hosts.processes.signal",
@@ -791,10 +792,10 @@ fn register_setup(methods: &mut Methods) {
         .summary("Makes something up for a profile, such as a password or a key.")
         .level(Level::Admin);
     methods
-        .add("plugins.list", |call: Call, _: Empty| async move {
+        .add("plugins.installed", |call: Call, _: Empty| async move {
             answer(&call, setup::plugins(serve(&call)?)).await
         })
-        .summary("The plugins installed on the server.")
+        .summary("The plugins installed on the server, with their features and provisioners. plugins.list is the plugin system's, with client halves.")
         .level(Level::Admin);
     methods
         .add("plugins.install", |call: Call, p: PluginSpec| async move {

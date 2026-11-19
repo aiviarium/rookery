@@ -70,6 +70,7 @@ pub async fn save_profile(
 ) -> Answer<Json<Done>> {
     // A caller on the socket or in rookery itself is the server's own user.
     let own_user = access.is_none();
+    let role = access.as_ref().map(|caller| caller.role);
     let place = own_place(&state.paths, &name)?;
     if !profile.is_object() {
         return Err(bad("A profile is an object"));
@@ -114,11 +115,50 @@ pub async fn save_profile(
             "access.auth ssh is the SSH configuration of the server's own account, and is set on the server itself",
         ));
     }
+    // What the host is sent and installs comes from the installation: its secrets, registries and
+    // features. Someone who only manages the host could apply it and read them as root there, so
+    // only an admin changes which of them it gets.
+    if role.is_some_and(|role| role != super::auth::Role::Admin) {
+        let changed = guarded_changes(kept.as_ref(), &profile);
+        if !changed.is_empty() {
+            return Err(Fail::new(
+                code::FORBIDDEN,
+                format!(
+                    "changing a host's {} needs the role admin",
+                    changed.join(", ")
+                ),
+            ));
+        }
+    }
     place.save(&state.paths, &profile).map_err(internal)?;
     // Where it is and how it is reached may be different now.
     state.forget(&name);
     state.refresh(false);
     Ok(Json(Done { ok: true }))
+}
+
+/// The parts of a profile only an admin changes, by what a person calls them: those that differ
+/// between the kept profile, or none, and the new one.
+pub(crate) fn guarded_changes(kept: Option<&Value>, profile: &Value) -> Vec<&'static str> {
+    let part = |profile: Option<&Value>, at: &[&str]| -> Value {
+        let mut found = profile;
+        for key in at {
+            found = found.and_then(|value| value.get(key));
+        }
+        match found {
+            None | Some(Value::Null) => Value::Array(vec![]),
+            Some(value) => value.clone(),
+        }
+    };
+    [
+        ("secrets", &["secrets"][..]),
+        ("registries", &["registries"][..]),
+        ("features", &["ansible_vars", "rookery_plugin_features"][..]),
+    ]
+    .into_iter()
+    .filter(|(_, at)| part(kept, at) != part(Some(profile), at))
+    .map(|(what, _)| what)
+    .collect()
 }
 
 pub async fn remove_host(state: Arc<Serve>, name: String) -> Answer<Json<Done>> {
