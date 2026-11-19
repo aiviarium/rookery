@@ -41,6 +41,7 @@ const WAIT: (&str, &str) = (
 #[rustfmt::skip]
 pub const ROUTES: &[Route] = &[
     Route { method: "GET", path: "/v1/version", summary: "The version of rookeryd and of its API.", level: "both", query: &[], body: "", reply: "Version", stream: "", handler: || get(version) },
+    Route { method: "GET", path: "/v1/paths", summary: "The folders the file calls may touch, and where checkouts go.", level: "host", query: &[], body: "", reply: "Paths", stream: "", handler: || get(files::paths) },
     Route { method: "GET", path: "/v1/applied/profile", summary: "The profile the host keeps of itself, as the last apply or the first boot wrote it.", level: "host", query: &[], body: "", reply: "KeptProfile", stream: "", handler: || get(kept_profile) },
     Route { method: "POST", path: "/v1/reload", summary: "Read the configuration files again. Sessions go on.", level: "host", query: &[], body: "", reply: "Done", stream: "", handler: || post(reload) },
 

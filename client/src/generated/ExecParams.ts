@@ -2,14 +2,32 @@
 import type { EnvUser } from "./EnvUser";
 
 /**
- * `env.exec`: runs a command to the end and returns its output.
+ * `env.exec`: runs a command on a host to its end and answers with its output. As the agent
+ * account, or as `operator` or `root` with manage.
  */
-export type ExecParams = { env: string, command: Array<string>, cwd?: string, vars?: { [key in string]: string }, 
+export type ExecParams = { env: string, 
 /**
- * Written to stdin, then stdin is closed.
+ * The words of the command: a program and its arguments, not a shell line.
  */
-stdin?: string, user?: EnvUser, 
+command: Array<string>, 
 /**
- * Default 60 s.
+ * An absolute folder inside the host's roots. Default: the controller's own folder,
+ * which is the agent account's home on a host Rookery set up.
+ */
+cwd?: string, 
+/**
+ * Variables for the command, which the host adds to the agent's own environment.
+ */
+vars?: { [key in string]: string }, 
+/**
+ * Text written to standard input, which is then closed.
+ */
+stdin?: string, 
+/**
+ * `agent` unless the caller has manage on the host.
+ */
+user?: EnvUser, 
+/**
+ * Ends the command after this long, as `TIMEOUT`. Default 60 s, at most an hour.
  */
 timeoutMs?: number, };

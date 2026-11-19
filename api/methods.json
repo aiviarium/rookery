@@ -2605,6 +2605,200 @@
     }
   },
   {
+    "name": "env.checkouts",
+    "summary": "The git checkouts and worktrees under a host's checkouts folder, with their branch, HEAD and remote. A remote's credential is left out.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`{ env }`: a host as `env://NAME` or its name.",
+      "properties": {
+        "env": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "env"
+      ],
+      "title": "EnvRef",
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "Checkout": {
+          "additionalProperties": false,
+          "description": "A clone of a repository on one host, or a git worktree of one, under the host's checkouts\nfolder.",
+          "properties": {
+            "branch": {
+              "description": "Its current branch, absent when its HEAD is detached.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "env": {
+              "description": "`env://<name>`.",
+              "type": "string"
+            },
+            "head": {
+              "description": "The commit its HEAD names.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "description": "Its folder name under the checkouts folder.",
+              "type": "string"
+            },
+            "path": {
+              "description": "The checkout's absolute path.",
+              "type": "string"
+            },
+            "url": {
+              "description": "`origin`'s URL.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "worktreeOf": {
+              "description": "For a worktree: the checkout it belongs to.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "env",
+            "path",
+            "name"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "The result of `env.checkouts`.",
+      "properties": {
+        "checkouts": {
+          "items": {
+            "$ref": "#/$defs/Checkout"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "checkouts"
+      ],
+      "title": "CheckoutList",
+      "type": "object"
+    }
+  },
+  {
+    "name": "env.clone",
+    "summary": "Clones a repository into a host's checkouts folder, and answers the checkout it made.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`env.clone`: clones a repository into `<checkouts folder>/<name>`.",
+      "properties": {
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "env": {
+          "type": "string"
+        },
+        "name": {
+          "description": "Default: the last segment of the address without `.git`, with anything else as `-`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "repository": {
+          "description": "The address git clones, such as `https://example.test/acme/widgets.git`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "env",
+        "repository"
+      ],
+      "title": "CheckoutCreate",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A clone of a repository on one host, or a git worktree of one, under the host's checkouts\nfolder.",
+      "properties": {
+        "branch": {
+          "description": "Its current branch, absent when its HEAD is detached.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "env": {
+          "description": "`env://<name>`.",
+          "type": "string"
+        },
+        "head": {
+          "description": "The commit its HEAD names.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "Its folder name under the checkouts folder.",
+          "type": "string"
+        },
+        "path": {
+          "description": "The checkout's absolute path.",
+          "type": "string"
+        },
+        "url": {
+          "description": "`origin`'s URL.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "worktreeOf": {
+          "description": "For a worktree: the checkout it belongs to.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "env",
+        "path",
+        "name"
+      ],
+      "title": "Checkout",
+      "type": "object"
+    }
+  },
+  {
     "name": "env.connect",
     "summary": "A byte stream to a TCP port on a host's loopback.",
     "level": {
@@ -2699,6 +2893,123 @@
       "additionalProperties": false,
       "description": "Params or a result with nothing in it: `{}`.",
       "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "env.exec",
+    "summary": "Runs a command on a host to its end and answers its output, as the agent account or, with manage, as the operator or root, up to an hour. A result is at most what one message holds, and truncated says when it is not all.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$defs": {
+        "EnvUser": {
+          "description": "The account a terminal runs as. Anything but `agent` needs manage on the host.",
+          "enum": [
+            "agent",
+            "operator",
+            "root"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`env.exec`: runs a command on a host to its end and answers with its output. As the agent\naccount, or as `operator` or `root` with manage.",
+      "properties": {
+        "command": {
+          "description": "The words of the command: a program and its arguments, not a shell line.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "cwd": {
+          "description": "An absolute folder inside the host's roots. Default: the controller's own folder,\nwhich is the agent account's home on a host Rookery set up.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "env": {
+          "type": "string"
+        },
+        "stdin": {
+          "description": "Text written to standard input, which is then closed.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timeoutMs": {
+          "description": "Ends the command after this long, as `TIMEOUT`. Default 60 s, at most an hour.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "user": {
+          "$ref": "#/$defs/EnvUser",
+          "default": "agent",
+          "description": "`agent` unless the caller has manage on the host."
+        },
+        "vars": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Variables for the command, which the host adds to the agent's own environment.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "env",
+        "command"
+      ],
+      "title": "ExecParams",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "The result of `env.exec`. It carries what fits the budget of a message, and the start of\nthe rest is left out when `truncated` says so.",
+      "properties": {
+        "exitCode": {
+          "description": "The exit code, absent when the command was killed without one.",
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lost": {
+          "default": false,
+          "description": "The command ended with the host's controller, not by itself.",
+          "type": "boolean"
+        },
+        "stderr": {
+          "type": "string"
+        },
+        "stdout": {
+          "description": "As text, invalid UTF-8 replaced.",
+          "type": "string"
+        },
+        "truncated": {
+          "default": false,
+          "description": "It wrote more than the result carries, or the host dropped what it wrote before this\ncall could read it, so `stdout` and `stderr` are not all of it.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "stdout",
+        "stderr"
+      ],
+      "title": "ExecResult",
       "type": "object"
     }
   },
@@ -3336,6 +3647,47 @@
     }
   },
   {
+    "name": "env.removeCheckout",
+    "summary": "Removes a checkout, or a worktree through `git worktree remove`, from a host's checkouts folder. Without force, one with changes is a CONFLICT, and any caller with use may force it.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`env.removeCheckout`: removes a checkout, or a worktree through `git worktree remove`.",
+      "properties": {
+        "env": {
+          "type": "string"
+        },
+        "force": {
+          "default": false,
+          "description": "Remove it with its changes.",
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "env",
+        "path"
+      ],
+      "title": "CheckoutRemove",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
     "name": "env.stat",
     "summary": "What a path on a host is, inside its roots; no entry when nothing is there.",
     "level": {
@@ -3428,6 +3780,109 @@
         "path"
       ],
       "title": "FileStat",
+      "type": "object"
+    }
+  },
+  {
+    "name": "env.worktree",
+    "summary": "Makes a git worktree of a checkout, on a new branch, in a host's checkouts folder.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`env.worktree`: a git worktree of a checkout, on a new branch, at\n`<checkouts folder>/<name>`.",
+      "properties": {
+        "base": {
+          "description": "What the branch starts from. Default: the checkout's HEAD.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "branch": {
+          "description": "The branch to make, in the checkout.",
+          "type": "string"
+        },
+        "checkout": {
+          "description": "The checkout's path, inside the host's checkouts folder.",
+          "type": "string"
+        },
+        "env": {
+          "type": "string"
+        },
+        "name": {
+          "description": "Default: `<checkout name>-<branch>`, with `/` as `-`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "env",
+        "checkout",
+        "branch"
+      ],
+      "title": "WorktreeCreate",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A clone of a repository on one host, or a git worktree of one, under the host's checkouts\nfolder.",
+      "properties": {
+        "branch": {
+          "description": "Its current branch, absent when its HEAD is detached.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "env": {
+          "description": "`env://<name>`.",
+          "type": "string"
+        },
+        "head": {
+          "description": "The commit its HEAD names.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "Its folder name under the checkouts folder.",
+          "type": "string"
+        },
+        "path": {
+          "description": "The checkout's absolute path.",
+          "type": "string"
+        },
+        "url": {
+          "description": "`origin`'s URL.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "worktreeOf": {
+          "description": "For a worktree: the checkout it belongs to.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "env",
+        "path",
+        "name"
+      ],
+      "title": "Checkout",
       "type": "object"
     }
   },

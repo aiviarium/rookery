@@ -6,7 +6,7 @@
 FROM ubuntu:26.04
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl fd-find iproute2 openssh-server procps python3 sudo tini \
+      ca-certificates curl fd-find git iproute2 openssh-server procps python3 sudo tini \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system render \
     && useradd --create-home --shell /bin/bash --groups sudo ops \
