@@ -3,13 +3,13 @@
 
 use std::sync::Arc;
 
-use rookery_kernel::{Call, Empty, Kernel, Level, Methods, RpcError};
+use rookery_kernel::{Call, Caller, Empty, Kernel, Level, Methods, RpcError};
 use serde_json::json;
 
 use crate::Plugins;
 use crate::wire::{
     PluginAdd, PluginInfo, PluginList, PluginNewer, PluginRef, PluginReport, PluginRpc,
-    PluginState, PluginUpdate, PluginUpdates,
+    PluginState, PluginUpdate, PluginUpdates, PluginUpload, RegistryLocation,
 };
 
 fn plugins(kernel: &Kernel) -> Result<Arc<Plugins>, RpcError> {
@@ -18,15 +18,20 @@ fn plugins(kernel: &Kernel) -> Result<Arc<Plugins>, RpcError> {
         .ok_or_else(|| RpcError::unavailable("this server has no plugin folder"))
 }
 
-fn report(plugins: &Plugins, lines: Vec<String>) -> Result<PluginReport, RpcError> {
+fn report(
+    plugins: &Plugins,
+    (lines, behind): (Vec<String>, Vec<rookery_api::HostBehind>),
+) -> Result<PluginReport, RpcError> {
     Ok(PluginReport {
         lines,
         plugins: plugins.infos(),
+        behind,
     })
 }
 
-/// Adds `plugins.list`, `plugins.add`, `plugins.update`, `plugins.remove`, `plugins.check`,
-/// `plugins.activate` and `plugins.rpc`. When the server leads it reads the plugin folder, records it in
+/// Adds `plugins.list`, `plugins.add`, `plugins.upload`, `plugins.update`, `plugins.remove`,
+/// `plugins.check`, `plugins.reload`, `plugins.registry.list/add/remove`, `plugins.activate` and
+/// `plugins.rpc`. When the server leads it reads the plugin folder, records it in
 /// `rookery.plugins` and starts the host halves that start with it, if a [`crate::Setup`] was set.
 pub fn register(methods: &mut Methods) {
     methods.on_started(|kernel| {
@@ -65,7 +70,7 @@ pub fn register(methods: &mut Methods) {
                 git_ref: p.git_ref.clone(),
                 allow_young: p.allow_young,
             };
-            let lines = plugins
+            let done = plugins
                 .change(&call.kernel, move |manager| manager.add(&asked))
                 .await?;
             call.audit(
@@ -74,20 +79,33 @@ pub fn register(methods: &mut Methods) {
                 json!({"spec": p.spec, "git": p.git, "path": p.path}),
             )
             .await;
-            report(&plugins, lines)
+            report(&plugins, done)
         })
         .summary("Installs a plugin through Hatchery: a package of the plugin registries, the https address of an egg, or one folder of a git repository.")
+        .level(Level::Admin);
+    methods
+        .add("plugins.upload", |call: Call, p: PluginUpload| async move {
+            let plugins = plugins(&call.kernel)?;
+            let egg = rookery_api::unb64(&p.base64)
+                .ok_or_else(|| RpcError::invalid("base64: not base64"))?;
+            let done = plugins
+                .change(&call.kernel, move |manager| manager.upload(&egg))
+                .await?;
+            call.audit("plugin.upload", None, json!({})).await;
+            report(&plugins, done)
+        })
+        .summary("Installs a plugin from an egg the caller sends, in base64.")
         .level(Level::Admin);
     methods
         .add("plugins.update", |call: Call, p: PluginUpdate| async move {
             let plugins = plugins(&call.kernel)?;
             let id = p.id.clone();
-            let lines = plugins
+            let done = plugins
                 .change(&call.kernel, move |manager| manager.update(id.as_deref()))
                 .await?;
             call.audit("plugin.update", None, json!({"plugin": p.id}))
                 .await;
-            report(&plugins, lines)
+            report(&plugins, done)
         })
         .summary("Updates one plugin, or every plugin, to the newest version its registry offers.")
         .level(Level::Admin);
@@ -95,12 +113,12 @@ pub fn register(methods: &mut Methods) {
         .add("plugins.remove", |call: Call, p: PluginRef| async move {
             let plugins = plugins(&call.kernel)?;
             let id = p.id.clone();
-            let lines = plugins
+            let done = plugins
                 .change(&call.kernel, move |manager| manager.remove(&id))
                 .await?;
             call.audit("plugin.remove", None, json!({"plugin": p.id}))
                 .await;
-            report(&plugins, lines)
+            report(&plugins, done)
         })
         .summary("Removes a plugin, by its id or package. Its host half stops first.")
         .level(Level::Admin);
@@ -124,6 +142,64 @@ pub fn register(methods: &mut Methods) {
             })
         })
         .summary("Asks the registries whether a newer version of each plugin is there.")
+        .level(Level::Admin);
+    methods
+        .add("plugins.reload", |call: Call, _: Empty| async move {
+            let plugins = plugins(&call.kernel)?;
+            plugins.reload(&call.kernel).await?;
+            rookery_hosts::plugins_changed(&call.kernel).await;
+            Ok(PluginList {
+                plugins: plugins.infos(),
+                missing: plugins.missing(),
+            })
+        })
+        .summary("Reads the plugin folder again, as after a change made beside the server.")
+        .level(Level::Admin);
+    methods
+        .add("plugins.registry.list", |call: Call, _: Empty| async move {
+            plugins(&call.kernel)?
+                .look(|manager| manager.registries())
+                .await
+        })
+        .summary("The plugin registries, with their keys.")
+        .level(Level::Admin);
+    methods
+        .add(
+            "plugins.registry.add",
+            |call: Call, p: rookery_api::PluginRegistry| async move {
+                // A folder of the server is read with its rights, so only a caller on its machine
+                // names one.
+                if call.caller != Caller::Local
+                    && rookery_core::eggs::local_registry(&p.kind, &p.location)
+                {
+                    return Err(RpcError::forbidden(format!(
+                        "{} is a folder of the server's machine, and only a caller there adds it as a registry, over the server's socket: run rookery plugin registry add there",
+                        p.location.trim()
+                    )));
+                }
+                let plugins = plugins(&call.kernel)?;
+                let done = plugins
+                    .change(&call.kernel, move |manager| manager.add_registry(&p))
+                    .await?;
+                report(&plugins, done)
+            },
+        )
+        .summary("Adds a plugin registry, or changes one, such as to turn it off.")
+        .level(Level::Admin);
+    methods
+        .add(
+            "plugins.registry.remove",
+            |call: Call, p: RegistryLocation| async move {
+                let plugins = plugins(&call.kernel)?;
+                let done = plugins
+                    .change(&call.kernel, move |manager| {
+                        manager.remove_registry(&p.location)
+                    })
+                    .await?;
+                report(&plugins, done)
+            },
+        )
+        .summary("Removes a plugin registry, by its location or name.")
         .level(Level::Admin);
     methods
         .add("plugins.activate", |call: Call, p: PluginRef| async move {

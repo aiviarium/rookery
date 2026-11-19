@@ -4,15 +4,11 @@
 
 use super::{
     Serve,
-    api::{Answer, Bytes, Fail, Json, internal},
+    api::{Answer, Fail, Json, internal},
     auth::Access,
 };
-use rookery_api::{
-    Done, PluginList, PluginOrigin, PluginRegistries, PluginRegistry, PluginReport, PluginSpec,
-    PluginUpdateSpec, PluginUpdates, code,
-};
+use rookery_api::{Done, code};
 use rookery_core::{
-    eggs,
     paths::{SETTINGS, layout},
     plugins,
     profiles::{self, Place},
@@ -470,149 +466,6 @@ pub async fn set_setting(
 }
 
 // ── Plugins ─────────────────────────────────────────────────────────────────
-
-/// One change at a time works on the plugins.
-static PLUGINS: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// Run work on the plugins, which waits for registries and git, on a
-/// thread for blocking work. An error that names no plugin is the asker's.
-async fn on_plugins<T: Send + 'static>(
-    work: impl FnOnce() -> rookery_core::Result<T> + Send + 'static,
-) -> Answer<T> {
-    tokio::task::spawn_blocking(move || {
-        let _one = PLUGINS
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        work().map_err(|error| error.to_string())
-    })
-    .await
-    .map_err(internal)?
-    .map_err(|error| match error.starts_with("No plugin") {
-        true => missing(error),
-        false => bad(error),
-    })
-}
-
-/// Run a change of the plugins and say what it did.
-async fn change_plugins(
-    work: impl FnOnce() -> rookery_core::Result<Vec<String>> + Send + 'static,
-) -> Answer<Json<PluginReport>> {
-    let lines = on_plugins(work).await?;
-    Ok(Json(PluginReport {
-        lines,
-        behind: vec![],
-    }))
-}
-
-pub async fn plugins(state: Arc<Serve>) -> Answer<Json<PluginList>> {
-    Ok(Json(eggs::Manager::new(&state.paths).list()))
-}
-
-pub async fn add_plugin(state: Arc<Serve>, asked: PluginSpec) -> Answer<Json<PluginReport>> {
-    let paths = state.paths.clone();
-    change_plugins(move || eggs::Manager::new(&paths).add(&asked)).await
-}
-
-pub async fn upload_plugin(state: Arc<Serve>, body: Bytes) -> Answer<Json<PluginReport>> {
-    let paths = state.paths.clone();
-    change_plugins(move || eggs::Manager::new(&paths).upload(&body)).await
-}
-
-pub async fn remove_plugin(state: Arc<Serve>, id: String) -> Answer<Json<PluginReport>> {
-    let manager = eggs::Manager::new(&state.paths);
-    let plugin = manager
-        .scan()
-        .into_iter()
-        .find(|plugin| plugin.id == id || plugin.package == id)
-        .ok_or_else(|| missing(format!("No plugin {id}")))?;
-    if plugin.origin == PluginOrigin::Shipped {
-        return Err(Fail::new(
-            code::CONFLICT,
-            format!(
-                "{} comes with rookery and stays while its registry is on: rookery plugin registry disable rookery turns that off",
-                plugin.label
-            ),
-        ));
-    }
-    change_plugins(move || manager.remove(&id)).await
-}
-
-pub async fn check_plugins(state: Arc<Serve>) -> Answer<Json<PluginUpdates>> {
-    let paths = state.paths.clone();
-    Ok(Json(
-        on_plugins(move || eggs::Manager::new(&paths).check()).await?,
-    ))
-}
-
-pub async fn update_plugins(state: Arc<Serve>, body: Bytes) -> Answer<Json<PluginReport>> {
-    let asked: PluginUpdateSpec = match body.is_empty() {
-        true => PluginUpdateSpec::default(),
-        false => serde_json::from_slice(&body).map_err(bad)?,
-    };
-    let paths = state.paths.clone();
-    let Json(mut report) =
-        change_plugins(move || eggs::Manager::new(&paths).update(asked.id.as_deref())).await?;
-    report.behind = super::api::behind_hosts(&state).await;
-    Ok(Json(report))
-}
-
-pub async fn plugin_registries(state: Arc<Serve>) -> Answer<Json<PluginRegistries>> {
-    let paths = state.paths.clone();
-    Ok(Json(
-        on_plugins(move || eggs::Manager::new(&paths).registries()).await?,
-    ))
-}
-
-pub async fn add_plugin_registry(
-    state: Arc<Serve>,
-    access: Option<Access>,
-    asked: PluginRegistry,
-) -> Answer<Json<PluginReport>> {
-    // A folder of the server is read with its rights, so only a caller on
-    // this machine names one.
-    if access.is_some() && eggs::local_registry(&asked.kind, &asked.location) {
-        return Err(Fail::new(
-            code::FORBIDDEN,
-            format!(
-                "{} is a folder of the server's machine, and only a caller there adds it as a registry, over the server's socket: run rookery plugin registry add there",
-                asked.location.trim()
-            ),
-        ));
-    }
-    let paths = state.paths.clone();
-    change_plugins(move || eggs::Manager::new(&paths).add_registry(&asked)).await
-}
-
-/// A plugin registry, by its location or name.
-#[derive(Deserialize, schemars::JsonSchema)]
-pub struct RegistryLocation {
-    pub location: String,
-}
-
-pub async fn remove_plugin_registry(
-    state: Arc<Serve>,
-    asked: RegistryLocation,
-) -> Answer<Json<PluginReport>> {
-    let paths = state.paths.clone();
-    let lines = tokio::task::spawn_blocking(move || {
-        let _one = PLUGINS
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        eggs::Manager::new(&paths)
-            .remove_registry(&asked.location)
-            .map_err(|error| error.to_string())
-    })
-    .await
-    .map_err(internal)?
-    .map_err(|error| match error.starts_with("No plugin registry") {
-        true => missing(error),
-        false => bad(error),
-    })?;
-    Ok(Json(PluginReport {
-        lines,
-        behind: vec![],
-    }))
-}
 
 // ── What a set-up screen needs ──────────────────────────────────────────────
 

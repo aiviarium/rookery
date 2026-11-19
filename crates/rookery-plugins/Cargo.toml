@@ -14,7 +14,9 @@ doctest = false
 testing = []
 
 [dependencies]
-rookery-api = { workspace = true, features = ["plugins"] }
+rookery-api = { workspace = true, features = ["plugins", "schema"] }
+# After a change of the plugins, the hosts read them again.
+rookery-hosts.workspace = true
 rookery-core.workspace = true
 rookery-proto.workspace = true
 rookery-store.workspace = true

@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::Arc;
 
-use rookery_api::{Act, PluginRegistry, PluginSpec, PluginUpdateSpec};
+use rookery_api::Act;
 use rookery_core::host_type::Capability;
 use rookery_kernel::streams::Initiator;
 use rookery_kernel::{Call, Empty, Grant, Level, Methods, RpcError};
@@ -1488,86 +1488,5 @@ fn register_setup(methods: &mut Methods) {
             },
         )
         .summary("Makes something up for a profile, such as a password or a key.")
-        .level(Level::Admin);
-    methods
-        .add("plugins.installed", |call: Call, _: Empty| async move {
-            answer(&call, setup::plugins(serve(&call)?)).await
-        })
-        .summary("The plugins installed on the server, with their features and provisioners. plugins.list is the plugin system's, with client halves.")
-        .level(Level::Admin);
-    methods
-        .add("plugins.install", |call: Call, p: PluginSpec| async move {
-            let report = answer(&call, setup::add_plugin(serve(&call)?, p)).await?;
-            call.audit("plugin.install", None, json!({})).await;
-            Ok(report)
-        })
-        .summary(
-            "Installs a plugin from the plugin registries, an egg's address or a git repository.",
-        )
-        .level(Level::Admin);
-    methods
-        .add("plugins.upload", |call: Call, p: PluginUpload| async move {
-            let egg = rookery_api::unb64(&p.base64)
-                .ok_or_else(|| RpcError::invalid("base64: not base64"))?;
-            answer(&call, setup::upload_plugin(serve(&call)?, egg)).await
-        })
-        .summary("Installs a plugin from an egg the caller sends.")
-        .level(Level::Admin);
-    methods
-        .add("plugins.remove", |call: Call, p: PluginRef| async move {
-            let report = answer(&call, setup::remove_plugin(serve(&call)?, p.id.clone())).await?;
-            call.audit("plugin.remove", None, json!({"plugin": p.id}))
-                .await;
-            Ok(report)
-        })
-        .summary("Removes one of the server's plugins.")
-        .level(Level::Admin);
-    methods
-        .add("plugins.check", |call: Call, _: Empty| async move {
-            answer(&call, setup::check_plugins(serve(&call)?)).await
-        })
-        .summary("Which plugins have a newer version.")
-        .level(Level::Admin);
-    methods
-        .add(
-            "plugins.update",
-            |call: Call, p: PluginUpdateSpec| async move {
-                answer(&call, setup::update_plugins(serve(&call)?, body(&p)?)).await
-            },
-        )
-        .summary("Updates plugins to their newest versions.")
-        .level(Level::Admin);
-    methods
-        .add("plugins.registry.list", |call: Call, _: Empty| async move {
-            answer(&call, setup::plugin_registries(serve(&call)?)).await
-        })
-        .summary("The plugin registries, with their keys.")
-        .level(Level::Admin);
-    methods
-        .add(
-            "plugins.registry.add",
-            |call: Call, p: PluginRegistry| async move {
-                let caller = access(&call, None).await?;
-                answer(&call, setup::add_plugin_registry(serve(&call)?, caller, p)).await
-            },
-        )
-        .summary("Adds a plugin registry.")
-        .level(Level::Admin);
-    methods
-        .add(
-            "plugins.registry.remove",
-            |call: Call, p: setup::RegistryLocation| async move {
-                answer(&call, setup::remove_plugin_registry(serve(&call)?, p)).await
-            },
-        )
-        .summary("Removes a plugin registry.")
-        .level(Level::Admin);
-    methods
-        .add("plugins.reload", |call: Call, _: Empty| async move {
-            let state = serve(&call)?;
-            state.refresh_now(false).await;
-            Ok(Empty {})
-        })
-        .summary("Reads the plugins and the saved hosts again.")
         .level(Level::Admin);
 }

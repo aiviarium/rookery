@@ -20,4 +20,12 @@ origin?: string, source?: string,
 /**
  * It still has a `rookery.json`, read as a `plugin.json` with host features and provisioners.
  */
-legacy?: boolean, installedAt?: string, updatedAt?: string, };
+legacy?: boolean, 
+/**
+ * Its name and summary from `package.kdl`, where it is on the server, and why Rookery does not use it.
+ */
+label?: string, description?: string, dir?: string, problem?: string, 
+/**
+ * Its host features and provisioners as the host core reads them.
+ */
+features?: unknown[], provisioners?: unknown[], installedAt?: string, updatedAt?: string, };

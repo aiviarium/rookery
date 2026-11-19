@@ -60,6 +60,23 @@ pub struct PluginInfo {
     /// It still has a `rookery.json`, read as a `plugin.json` with host features and provisioners.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub legacy: bool,
+    /// Its name, from `package.kdl`, and its summary.
+    #[serde(default)]
+    pub label: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    /// Where its package is on the server.
+    #[serde(default)]
+    pub dir: String,
+    /// Why Rookery does not use it, as `error` says, in a sentence.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub problem: String,
+    /// Its host features and provisioners as the host core reads them, with their actions, services
+    /// and channels: what `rookery plugin list` and `show` print.
+    #[serde(default)]
+    pub features: Vec<rookery_api::PluginFeature>,
+    #[serde(default)]
+    pub provisioners: Vec<rookery_api::ProvisionerInfo>,
     /// When this server first recorded it, and when its version or files last changed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub installed_at: Option<String>,
@@ -117,6 +134,21 @@ pub struct PluginUpdate {
 pub struct PluginReport {
     pub lines: Vec<String>,
     pub plugins: Vec<PluginInfo>,
+    /// After an update: the saved hosts whose configuration is now behind.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub behind: Vec<rookery_api::HostBehind>,
+}
+
+/// `plugins.upload`: an egg the caller sends, in base64.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct PluginUpload {
+    pub base64: String,
+}
+
+/// `plugins.registry.remove`: a registry by its location or name.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct RegistryLocation {
+    pub location: String,
 }
 
 /// Whether a newer version of a plugin is there, as its registry says.

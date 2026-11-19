@@ -96,6 +96,7 @@ async fn try_install(
     plugins
         .change(&k.kernel, move |manager| manager.upload(&bytes))
         .await
+        .map(|(lines, _)| lines)
 }
 
 fn info<'a>(list: &'a Value, id: &str) -> Option<&'a Value> {

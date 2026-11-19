@@ -744,7 +744,7 @@ fn report(found: &Value) {
 pub fn plugin(client: &Client, command: Plugin) -> Result<()> {
     match command {
         Plugin::List => {
-            let found = client.call("plugins.installed", json!({}))?;
+            let found = client.call("plugins.list", json!({}))?;
             out::data(&found, || {
                 let mut table = Table::new(&["id", "version", "from", "features"]);
                 let mut refused = vec![];
@@ -785,7 +785,7 @@ pub fn plugin(client: &Client, command: Plugin) -> Result<()> {
             Ok(())
         }
         Plugin::Show { id } => {
-            let found = client.call("plugins.installed", json!({}))?;
+            let found = client.call("plugins.list", json!({}))?;
             let plugins: Vec<rookery_api::PluginInfo> =
                 serde_json::from_value(found["plugins"].clone())?;
             let Some(plugin) = plugins.into_iter().find(|plugin| plugin.id == id) else {
@@ -815,7 +815,7 @@ pub fn plugin(client: &Client, command: Plugin) -> Result<()> {
                     git_ref,
                     allow_young,
                 };
-                report(&client.call("plugins.install", serde_json::to_value(asked)?)?);
+                report(&client.call("plugins.add", serde_json::to_value(asked)?)?);
                 return Ok(());
             }
             // A file or folder of this machine is sent as an egg.
@@ -834,7 +834,7 @@ pub fn plugin(client: &Client, command: Plugin) -> Result<()> {
         }
         Plugin::Remove { id } => {
             // A plugin is named by its id or by its package.
-            let found = client.call("plugins.installed", json!({}))?;
+            let found = client.call("plugins.list", json!({}))?;
             let id = found["plugins"]
                 .as_array()
                 .into_iter()

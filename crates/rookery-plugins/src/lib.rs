@@ -127,6 +127,16 @@ impl Plugins {
             origin: loaded::origin_name(plugin.origin).into(),
             source: plugin.source.clone(),
             legacy: plugin.format == Some(rookery_api::plugin_contract::Format::Legacy),
+            label: plugin.core.label.clone(),
+            description: plugin.core.description.clone(),
+            dir: plugin.core.dir.clone(),
+            problem: plugin
+                .problem
+                .as_ref()
+                .map(|p| p.message.clone())
+                .unwrap_or_default(),
+            features: plugin.core.features.clone(),
+            provisioners: plugin.core.provisioners.clone(),
             installed_at: row.as_ref().map(record::Row::installed_at),
             updated_at: row.as_ref().map(record::Row::updated_at),
         }
@@ -344,21 +354,33 @@ impl Plugins {
         self.host.stop_all(kernel, limit).await;
     }
 
+    /// Waits until the hosts have put the plugin folder in place from the database, as a new leader
+    /// does, so that nothing reads or changes it half written. Nothing to wait for without hosts.
+    async fn folder_ready(kernel: &Kernel) {
+        // The hosts' facility is made when they start, which may come after this.
+        if kernel.get_facility::<rookery_hosts::Setup>().is_some() {
+            let _ = kernel.facility::<rookery_hosts::Hosts>().ready().await;
+        }
+    }
+
     /// Starts the plugin system on a leader: reads the plugins, records them and starts the host halves
     /// that start with the server. It runs once.
     pub async fn start(self: &Arc<Self>, kernel: &Kernel) -> Result<(), RpcError> {
         if self.started.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
+        Self::folder_ready(kernel).await;
         self.reload(kernel).await
     }
 
-    /// Runs a change of the plugin folder, then reads it again.
+    /// Runs a change of the plugin folder, then reads it again, and has the hosts read it too. Gives
+    /// what the change said, and the saved hosts that are behind what is installed now.
     pub async fn change<T: Send + 'static>(
         self: &Arc<Self>,
         kernel: &Kernel,
         change: impl FnOnce(&rookery_core::eggs::Manager) -> rookery_core::Result<T> + Send + 'static,
-    ) -> Result<T, RpcError> {
+    ) -> Result<(T, Vec<rookery_api::HostBehind>), RpcError> {
+        Self::folder_ready(kernel).await;
         let _one = self.changing.lock().await;
         let manager = self.manager();
         let held: BTreeMap<String, String> = self
@@ -388,8 +410,9 @@ impl Plugins {
             .filter(|id| !after.contains(id))
             .collect();
         self.reload_held(kernel, &removed).await?;
+        let behind = rookery_hosts::plugins_changed(kernel).await;
         let done = done.map_err(RpcError::invalid)?;
-        Ok(done)
+        Ok((done, behind))
     }
 
     /// Runs something of the plugin folder that changes nothing, such as asking for updates.

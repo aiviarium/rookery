@@ -36,6 +36,8 @@ pub struct Loaded {
     pub declared: crate::data::Declared,
     /// SHA-256 over the target's files, as hosts record it.
     pub digest: String,
+    /// What the host core reads of it: its features and provisioners, and where it is.
+    pub core: rookery_api::PluginInfo,
 }
 
 /// A plugin's built client half: the folder of its entry, and its stylesheet.
@@ -185,6 +187,7 @@ pub fn load(plugin: &rookery_core::plugins::Plugin) -> Loaded {
         client: None,
         declared: Default::default(),
         digest: rookery_core::plugins::digest(&plugin.dir),
+        core: plugin.info(),
     };
     let read = match plugin_contract::read_dir(&plugin.dir) {
         Ok(read) => read,

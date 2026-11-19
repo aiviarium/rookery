@@ -44,6 +44,8 @@ import type {
   NotifyRead,
   NotifySend,
   NotifySent,
+  PluginInfo,
+  PluginList,
   Revision,
   SettingList,
   SettingRef,
@@ -97,6 +99,12 @@ export const WIRE = {
   "notify.read": {} as WireCall<NotifyRead, Count>,
   "notify.send": {} as WireCall<NotifySend, NotifySent>,
   "notify.setPref": {} as WireCall<NotifyPref, Empty>,
+  "plugins.activate": {} as WireCall<{ id: string }, PluginInfo>,
+  "plugins.list": {} as WireCall<Empty, PluginList>,
+  "plugins.rpc": {} as WireCall<
+    { plugin: string; method: string; params?: Record<string, unknown> },
+    unknown
+  >,
   "settings.get": {} as WireCall<SettingRef, SettingValue>,
   "settings.list": {} as WireCall<SettingsOf, SettingList>,
   "settings.reset": {} as WireCall<SettingReset, Empty>,
@@ -175,9 +183,6 @@ export const NOT_ON_SERVER = [
   "commands.list",
   "commands.run",
   "extensions.list",
-  "plugins.activate",
-  "plugins.list",
-  "plugins.rpc",
   "services.list",
   "services.status",
   // The data layer and its live queries, which `createCollection` and `createLive` call.
