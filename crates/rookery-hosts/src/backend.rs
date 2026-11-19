@@ -632,6 +632,14 @@ enum ValueBind {
 // ── The kinds kept in a column, and the secrets ─────────────────────────────
 
 /// A JSON column of a row of its own, `rookery.hosts.tailnet` or `rookery.resources.record`.
+/// A resource's column as rookery-core keeps it: the record as JSON, the specification as its text.
+fn resource_out(col: &str, text: String) -> Vec<u8> {
+    match (col, serde_json::from_str::<Value>(&text)) {
+        ("spec", Ok(Value::String(spec))) => spec.into_bytes(),
+        _ => text.into_bytes(),
+    }
+}
+
 async fn column_get(
     c: &mut PgConnection,
     table: &str,
@@ -775,7 +783,7 @@ async fn state_get(
         Spot::Resource(col) => column_get(c, "resources", col, Some(name))
             .await?
             .pop()
-            .map(|(n, v, at)| plain_row(kind, n, v.into_bytes(), at, None)),
+            .map(|(n, v, at)| plain_row(kind, n, resource_out(col, v), at, None)),
         Spot::Named(plugin) => named_get(c, key, plugin, Some(name))
             .await?
             .pop()
@@ -806,7 +814,7 @@ async fn state_all(
         Spot::Resource(col) => column_get(c, "resources", col, None)
             .await?
             .into_iter()
-            .map(|(n, v, at)| plain_row(kind, n, v.into_bytes(), at, None))
+            .map(|(n, v, at)| plain_row(kind, n, resource_out(col, v), at, None))
             .collect(),
         Spot::Named(plugin) => named_get(c, key, plugin, None)
             .await?
@@ -849,14 +857,21 @@ async fn state_put(c: &mut PgConnection, key: &Option<Arc<Key>>, row: &StateRow)
             }
         }
         Spot::Resource(col) => {
-            json_of(kind, &row.name, &row.value)?;
+            let value = match col {
+                // A specification is text, such as a Compose file, kept as a JSON string.
+                "spec" => Value::String(String::from_utf8_lossy(&row.value).into_owned()).to_string(),
+                _ => {
+                    json_of(kind, &row.name, &row.value)?;
+                    String::from_utf8_lossy(&row.value).into_owned()
+                }
+            };
             let sql = format!(
                 "INSERT INTO rookery.resources (id, {col}) VALUES ($1, $2::jsonb)
                  ON CONFLICT (id) DO UPDATE SET {col} = EXCLUDED.{col}, updated_at = now()"
             );
             sqlx::query(sqlx::AssertSqlSafe(sql))
                 .bind(&row.name)
-                .bind(String::from_utf8_lossy(&row.value).into_owned())
+                .bind(value)
                 .execute(&mut *c)
                 .await
                 .map_err(db)?;

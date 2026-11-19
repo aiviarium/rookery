@@ -126,6 +126,12 @@ async fn state_lands_in_its_tables() {
             vec![("retention_days".to_owned(), b"30".to_vec())]
         );
         s.write(kind::SPEC, own, "r1", b"{\"size\":1}").unwrap();
+        // A specification is text, such as YAML, and comes back as it went in.
+        let compose = b"services:\n  web:\n    image: busybox:1.37\n";
+        s.write(kind::SPEC, own, "r2", compose).unwrap();
+        assert_eq!(s.read(kind::SPEC, own, "r2").unwrap().unwrap(), compose);
+        assert_eq!(s.read(kind::SPEC, own, "r1").unwrap().unwrap(), b"{\"size\":1}");
+        assert!(s.forget(kind::SPEC, own, "r2").unwrap());
         s.write(kind::RESOURCE, own, "r1", b"{\"id\":\"r1\"}")
             .unwrap();
         assert!(s.forget(kind::SPEC, own, "r1").unwrap());
