@@ -223,9 +223,20 @@ pub fn register(methods: &mut Methods) {
                     RpcError::forbidden(format!("{} failed: an admin activates it again", p.id))
                 })?;
             }
-            plugins
-                .activate_as(&call.kernel, &p.id, call.is_admin())
-                .await?;
+            if plugins.get(&p.id).is_none() {
+                return Err(RpcError::not_found(format!("no plugin {}", p.id)));
+            }
+            let permit = plugins.host.reserve_invocation(&p.id, false)?;
+            let activation = {
+                let (plugins, kernel, id, admin) = (
+                    plugins.clone(), call.kernel.clone(), p.id.clone(), call.is_admin(),
+                );
+                tokio::spawn(async move {
+                    let _permit = permit;
+                    plugins.activate_as(&kernel, &id, admin).await
+                })
+            };
+            activation.await.map_err(|_| RpcError::unavailable("the activation ended"))??;
             let plugin = plugins
                 .get(&p.id)
                 .ok_or_else(|| RpcError::not_found(format!("no plugin {}", p.id)))?;

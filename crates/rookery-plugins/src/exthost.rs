@@ -25,14 +25,15 @@
 //! [`CRASHES`] times in [`CRASH_WINDOW`], after which the plugin is failed until an admin activates
 //! it or it changes. When the server stops, each host half is deactivated, which runs its cleanups.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use rookery_jobs::JobRun;
 use rookery_kernel::conn::{ConnHandle, Outbound};
 use rookery_kernel::{Call, Caller, Kernel};
 use rookery_proto::{ErrorBody, ErrorCode, RpcError};
@@ -40,9 +41,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
+use crate::loaded::Loaded;
 use crate::wire::PluginState;
 
 /// How a plugin's host half that keeps ending is given up on.
@@ -61,6 +63,9 @@ pub const PROTOCOL: &str = "1";
 /// How often a host's memory is read.
 pub const MEMORY_CHECK: Duration = Duration::from_secs(2);
 /// What of the server's environment a host half gets.
+const MAX_CALLS: usize = 64;
+const MAX_STREAMS: usize = 32;
+
 const KEPT_ENV: &[&str] = &["PATH", "HOME", "LANG", "LC_ALL", "TZ"];
 
 /// How the server starts the extension host.
@@ -97,6 +102,41 @@ pub struct Registration {
     pub params: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub methods: BTreeMap<String, ServiceMethod>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceMethod {
+    #[serde(default)]
+    pub stream: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
+}
+
+#[derive(Clone)]
+pub(crate) enum Invocation {
+    Stream {
+        items: mpsc::Sender<Value>,
+        cancelled: CancellationToken,
+    },
+    Job(JobRun),
+}
+
+struct InvocationGuard {
+    link: Link,
+    id: String,
+}
+
+impl Drop for InvocationGuard {
+    fn drop(&mut self) {
+        if let Some(Invocation::Stream { cancelled, .. }) =
+            self.link.0.invocations.lock().unwrap().remove(&self.id)
+        {
+            cancelled.cancel();
+        }
+    }
 }
 
 #[derive(Default)]
@@ -117,11 +157,47 @@ struct Proc {
     conn: ConnHandle,
 }
 
+struct Capacity {
+    incoming: Arc<Semaphore>,
+    calls: Arc<Semaphore>,
+    streams: Arc<Semaphore>,
+}
+
+impl Default for Capacity {
+    fn default() -> Self {
+        Self {
+            incoming: Arc::new(Semaphore::new(MAX_CALLS)),
+            calls: Arc::new(Semaphore::new(MAX_CALLS)),
+            streams: Arc::new(Semaphore::new(MAX_STREAMS)),
+        }
+    }
+}
+
+fn reserve(semaphore: &Arc<Semaphore>) -> Result<OwnedSemaphorePermit, RpcError> {
+    semaphore
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| RpcError::unavailable("the plugin has reached its call or stream limit"))
+}
+
+pub(crate) struct InvocationPermits {
+    _call: OwnedSemaphorePermit,
+    pub stream: Option<Arc<OwnedSemaphorePermit>>,
+    pub caller_stream: Option<Arc<OwnedSemaphorePermit>>,
+}
+
+pub(crate) struct Target {
+    pub link: Link,
+    plugin: String,
+    pub registration: Registration,
+}
+
 pub(crate) struct ExtHost {
     options: HostOptions,
     generation: AtomicU64,
     slots: Mutex<HashMap<String, Slot>>,
     procs: Mutex<HashMap<String, Proc>>,
+    capacity: Mutex<HashMap<String, Arc<Capacity>>>,
     gates: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// The server is stopping: no host half starts, so none is left running past the snapshot that
     /// stops them, to race the store closing.
@@ -135,6 +211,7 @@ impl ExtHost {
             generation: AtomicU64::new(0),
             slots: Mutex::default(),
             procs: Mutex::default(),
+            capacity: Mutex::default(),
             gates: Mutex::default(),
             stopping: AtomicBool::new(false),
         }
@@ -142,7 +219,33 @@ impl ExtHost {
 
     /// Refuses every start of a host half from now on, as the server stops.
     pub fn stopping(&self) {
+        let _procs = self.procs.lock().unwrap();
         self.stopping.store(true, Ordering::SeqCst);
+    }
+
+    fn capacity(&self, plugin: &str) -> Arc<Capacity> {
+        self.capacity
+            .lock()
+            .unwrap()
+            .entry(plugin.to_owned())
+            .or_default()
+            .clone()
+    }
+
+    pub(crate) fn reserve_invocation(
+        &self,
+        plugin: &str,
+        stream: bool,
+    ) -> Result<InvocationPermits, RpcError> {
+        let capacity = self.capacity(plugin);
+        Ok(InvocationPermits {
+            _call: reserve(&capacity.calls)?,
+            stream: stream
+                .then(|| reserve(&capacity.streams))
+                .transpose()?
+                .map(Arc::new),
+            caller_stream: None,
+        })
     }
 
     fn is_stopping(&self) -> bool {
@@ -156,14 +259,6 @@ impl ExtHost {
             Some(slot) => (slot.state, slot.error.clone()),
             None => (None, None),
         }
-    }
-
-    pub fn registrations(&self, plugin: &str) -> Vec<Registration> {
-        let slots = self.slots.lock().unwrap();
-        slots
-            .get(plugin)
-            .map(|slot| slot.registrations.clone())
-            .unwrap_or_default()
     }
 
     /// The link of a plugin's running process.
@@ -184,11 +279,42 @@ impl ExtHost {
 
     /// The link of a plugin whose host half is active in its running process.
     pub fn active_link(&self, plugin: &str) -> Option<Link> {
-        let link = self.running(plugin)?;
+        let procs = self.procs.lock().unwrap();
+        let link = &procs.get(plugin)?.link;
         let slots = self.slots.lock().unwrap();
         let slot = slots.get(plugin)?;
-        (slot.state == Some(PluginState::Active) && slot.generation == link.generation())
-            .then_some(link)
+        (link.is_accepting()
+            && slot.state == Some(PluginState::Active)
+            && slot.generation == link.generation())
+        .then(|| link.clone())
+    }
+
+    pub(crate) fn target(
+        &self,
+        plugin: &str,
+        link: Link,
+        kind: &str,
+        key: &str,
+    ) -> Result<Target, RpcError> {
+        let slots = self.slots.lock().unwrap();
+        let slot = slots
+            .get(plugin)
+            .filter(|slot| {
+                slot.state == Some(PluginState::Active) && slot.generation == link.generation()
+            })
+            .filter(|_| link.is_accepting())
+            .ok_or_else(|| RpcError::unavailable("the host half changed"))?;
+        let registration = slot
+            .registrations
+            .iter()
+            .find(|r| r.kind == kind && r.key == key)
+            .ok_or_else(|| RpcError::not_found(format!("{plugin} has no {kind} {key}")))?
+            .clone();
+        Ok(Target {
+            link,
+            plugin: plugin.to_owned(),
+            registration,
+        })
     }
 
     fn plugin_conn(&self, plugin: &str, generation: u64) -> Option<ConnHandle> {
@@ -216,54 +342,75 @@ impl ExtHost {
                 "the server is stopping, so no host half starts",
             ));
         }
-        if let Some(link) = self.running(plugin).filter(|l| !l.is_closed()) {
-            return Ok(link);
+        if let Some(link) = self.running(plugin) {
+            if !link.is_stopping() {
+                return Ok(link);
+            }
+            link.reaped().await;
         }
-        let Some(entry) = self.options.entry.clone() else {
-            return Err(RpcError::unavailable(
-                "no extension host is set up on this server (ROOKERY_EXTHOST), so no host half can run",
+        let (link, said_hello) = {
+            // Shutdown takes this same lock before its snapshot.
+            let mut procs = self.procs.lock().unwrap();
+            if self.is_stopping() {
+                return Err(RpcError::unavailable(
+                    "the server is stopping, so no host half starts",
+                ));
+            }
+            let Some(entry) = &self.options.entry else {
+                return Err(RpcError::unavailable(
+                    "no extension host is set up on this server (ROOKERY_EXTHOST), so no host half can run",
+                ));
+            };
+            let child = spawn(&self.options, entry).map_err(|e| {
+                RpcError::unavailable(format!(
+                    "the extension host of {plugin} could not start with {}: {e}",
+                    self.options.bun.display()
+                ))
+            })?;
+            let generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
+            let (out, rx) = mpsc::unbounded_channel::<String>();
+            let link = Link(Arc::new(LinkInner {
+                generation,
+                pid: child.id(),
+                out,
+                pending: Mutex::default(),
+                invocations: Mutex::default(),
+                streams: Mutex::default(),
+                next: AtomicI64::new(1),
+                stop: CancellationToken::new(),
+                draining: AtomicBool::new(false),
+                reaped: CancellationToken::new(),
+                crash: Mutex::default(),
+                plugin: OnceLock::new(),
+                capacity: self.capacity(plugin),
+                credentials: Mutex::default(),
+            }));
+            let (conn, notices) = ConnHandle::detached(kernel, Caller::Plugin(plugin.to_owned()));
+            tokio::spawn(forward(notices, link.clone(), plugin.to_owned()));
+            procs.insert(
+                plugin.to_owned(),
+                Proc {
+                    link: link.clone(),
+                    conn,
+                },
+            );
+            let (ready, said_hello) = oneshot::channel();
+            tokio::spawn(run(
+                kernel.clone(),
+                plugins.clone(),
+                plugin.to_owned(),
+                child,
+                link.clone(),
+                rx,
+                ready,
             ));
+            (link, said_hello)
         };
-        let child = spawn(&self.options, &entry).map_err(|e| {
-            RpcError::unavailable(format!(
-                "the extension host of {plugin} could not start with {}: {e}",
-                self.options.bun.display()
-            ))
-        })?;
-        let generation = self.generation.fetch_add(1, Ordering::Relaxed) + 1;
-        let (out, rx) = mpsc::unbounded_channel::<String>();
-        let link = Link(Arc::new(LinkInner {
-            generation,
-            pid: child.id(),
-            out,
-            pending: Mutex::default(),
-            next: AtomicI64::new(1),
-            closed: AtomicBool::new(false),
-            stop: CancellationToken::new(),
-        }));
-        let (conn, notices) = ConnHandle::detached(kernel, Caller::Plugin(plugin.to_owned()));
-        tokio::spawn(forward(notices, link.clone(), plugin.to_owned()));
-        self.procs.lock().unwrap().insert(
-            plugin.to_owned(),
-            Proc {
-                link: link.clone(),
-                conn,
-            },
-        );
-        let (ready, said_hello) = oneshot::channel();
-        tokio::spawn(run(
-            kernel.clone(),
-            plugins.clone(),
-            plugin.to_owned(),
-            child,
-            link.clone(),
-            rx,
-            ready,
-        ));
         match tokio::time::timeout(CONNECT_TIMEOUT, said_hello).await {
             Ok(Ok(())) => Ok(link),
             _ => {
-                self.stop(kernel, plugin, generation);
+                link.stop();
+                link.reaped().await;
                 Err(RpcError::unavailable(format!(
                     "the extension host of {plugin} did not start"
                 )))
@@ -271,52 +418,28 @@ impl ExtHost {
         }
     }
 
-    /// Ends a plugin's process on purpose: what it was doing does not count as a crash.
-    fn stop(&self, kernel: &Kernel, plugin: &str, generation: u64) {
-        let proc = {
-            let mut procs = self.procs.lock().unwrap();
-            match procs.get(plugin) {
-                Some(p) if p.link.generation() == generation => procs.remove(plugin),
-                _ => None,
-            }
-        };
-        if let Some(proc) = proc {
-            proc.link.stop();
-            proc.conn.close_detached(kernel);
-            // What was active in it is not any more; it starts again when it is next used.
-            let mut slots = self.slots.lock().unwrap();
-            if let Some(slot) = slots.get_mut(plugin)
-                && slot.generation == generation
-                && slot.state == Some(PluginState::Active)
-            {
-                slot.state = Some(PluginState::Inactive);
-                slot.registrations.clear();
-            }
-        }
-    }
-
-    /// Deactivates every host half, which runs its cleanups, within `limit` in all, and ends the
-    /// processes. The server calls it when it stops, before it closes the store.
+    /// Lets processes clean up, then kills and reaps any remaining processes before returning.
     pub async fn stop_all(&self, kernel: &Kernel, limit: Duration) {
-        // Nothing starts after the snapshot, so what stops here is all that is left.
         self.stopping();
-        let plugins: Vec<String> = self.procs.lock().unwrap().keys().cloned().collect();
-        let all = futures_util::future::join_all(
-            plugins.iter().map(|plugin| self.deactivate(kernel, plugin)),
-        );
-        if tokio::time::timeout(limit, all).await.is_err() {
-            tracing::warn!("host halves did not finish their cleanups in time");
-        }
-        let left: Vec<(String, u64)> = self
+        let procs: Vec<_> = self
             .procs
             .lock()
             .unwrap()
             .iter()
-            .map(|(id, p)| (id.clone(), p.link.generation()))
+            .map(|(plugin, proc)| (plugin.clone(), proc.link.clone()))
             .collect();
-        for (plugin, generation) in left {
-            self.stop(kernel, &plugin, generation);
+        let all = futures_util::future::join_all(
+            procs
+                .iter()
+                .map(|(plugin, _)| self.deactivate(kernel, plugin)),
+        );
+        if tokio::time::timeout(limit, all).await.is_err() {
+            tracing::warn!("host halves did not finish their cleanups in time");
         }
+        for (_, link) in &procs {
+            link.stop();
+        }
+        futures_util::future::join_all(procs.iter().map(|(_, link)| link.reaped())).await;
     }
 
     /// Runs a transform step of a plugin's migration in its process, in a worker of its own. Its calls
@@ -337,13 +460,15 @@ impl ExtHost {
         match done {
             Ok(done) => {
                 if idle {
-                    self.stop(kernel, plugin, link.generation());
+                    link.stop();
+                    link.reaped().await;
                 }
                 done.map(|_| ())
             }
             Err(_) => {
                 // Its worker is still running: the process goes, and with it the step.
-                self.stop(kernel, plugin, link.generation());
+                link.stop();
+                link.reaped().await;
                 Err(RpcError::timeout(format!(
                     "the transform step of {plugin} did not end in {} seconds",
                     limit.as_secs()
@@ -357,10 +482,9 @@ impl ExtHost {
         &self,
         kernel: &Kernel,
         plugins: Arc<crate::Plugins>,
-        plugin: &str,
-        dir: &Path,
-        manifest: &Value,
-    ) -> Result<(), RpcError> {
+        loaded: Arc<Loaded>,
+    ) -> Result<Link, RpcError> {
+        let plugin = &loaded.id;
         let gate = self.gate(plugin);
         let _one = gate.lock().await;
         if self.is_stopping() {
@@ -368,8 +492,10 @@ impl ExtHost {
                 "the server is stopping, so no host half starts",
             ));
         }
-        if self.active_link(plugin).is_some() {
-            return Ok(());
+        plugins.with_current(&loaded, || Ok(()))?;
+        if let Some(link) = self.active_link(plugin) {
+            link.check_plugin(&loaded)?;
+            return Ok(link);
         }
         self.set(plugin, |slot| {
             slot.state = Some(PluginState::Activating);
@@ -378,14 +504,20 @@ impl ExtHost {
         });
         let activated = async {
             let link = self.start(kernel, &plugins, plugin).await?;
-            let params = json!({"plugin": plugin, "dir": dir, "manifest": manifest});
+            let params = json!({"plugin": plugin, "dir": loaded.dir, "manifest": loaded.manifest});
             match link
                 .call::<Activated>("plugins.activate", params, ACTIVATE_TIMEOUT)
                 .await
-            {
+                .and_then(|activated| {
+                    for registration in &activated.registrations {
+                        check_registration(&loaded, registration)?;
+                    }
+                    Ok(activated)
+                }) {
                 Ok(activated) => Ok((link, activated.registrations)),
                 Err(e) => {
-                    self.stop(kernel, plugin, link.generation());
+                    link.stop();
+                    link.reaped().await;
                     Err(e)
                 }
             }
@@ -393,13 +525,28 @@ impl ExtHost {
         .await;
         match activated {
             Ok((link, registrations)) => {
-                tracing::info!(plugin, pid = ?link.pid(), "a plugin's host half is active");
-                self.set(plugin, |slot| {
-                    slot.state = Some(PluginState::Active);
-                    slot.generation = link.generation();
-                    slot.registrations = registrations;
+                let activate = plugins.with_current(&loaded, || {
+                    let procs = self.procs.lock().unwrap();
+                    if link.is_stopping() || !procs.contains_key(plugin) {
+                        return Err(RpcError::unavailable(
+                            "the host half ended during activation",
+                        ));
+                    }
+                    link.0.plugin.set(loaded.clone()).ok();
+                    self.set(plugin, |slot| {
+                        slot.state = Some(PluginState::Active);
+                        slot.generation = link.generation();
+                        slot.registrations = registrations;
+                    });
+                    Ok(())
                 });
-                Ok(())
+                if let Err(error) = activate {
+                    link.stop();
+                    link.reaped().await;
+                    return Err(error);
+                }
+                tracing::info!(plugin, pid = ?link.pid(), "a plugin's host half is active");
+                Ok(link)
             }
             Err(e) => {
                 tracing::warn!(plugin, error = %e, "a plugin's host half did not activate");
@@ -414,13 +561,14 @@ impl ExtHost {
     }
 
     /// Stops a plugin's host half and its process, after its cleanups. It is not started again.
-    pub async fn deactivate(&self, kernel: &Kernel, plugin: &str) {
+    pub async fn deactivate(&self, _kernel: &Kernel, plugin: &str) {
         let gate = self.gate(plugin);
         let _one = gate.lock().await;
         self.slots.lock().unwrap().remove(plugin);
         let Some(link) = self.running(plugin) else {
             return;
         };
+        link.0.draining.store(true, Ordering::Release);
         let _ = link
             .call::<Value>(
                 "plugins.deactivate",
@@ -428,49 +576,41 @@ impl ExtHost {
                 DEACTIVATE_TIMEOUT,
             )
             .await;
-        self.stop(kernel, plugin, link.generation());
+        link.stop();
+        link.reaped().await;
     }
 
-    /// Runs one of a plugin's handlers, as the caller of `call`. An `rpc` handler says who may call it.
-    /// A handler that does not stop within [`CANCEL_GRACE`] of its deadline ends its host half.
-    pub async fn invoke(
+    /// Checks the registration again and sends the request on its original pipe before returning.
+    pub(crate) fn begin(
         &self,
         call: &Call,
-        plugins: &Arc<crate::Plugins>,
-        plugin: &str,
-        kind: &str,
-        key: &str,
+        target: Target,
         params: Value,
-    ) -> Result<Value, RpcError> {
-        self.invoke_until(call, plugins, plugin, kind, key, params, None)
-            .await
-    }
-
-    /// [`ExtHost::invoke`], which `cancel` also ends, as a job's cancel does. Only an `rpc` handler
-    /// says a level: the server itself calls the others, such as a job's.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn invoke_until(
-        &self,
-        call: &Call,
-        plugins: &Arc<crate::Plugins>,
-        plugin: &str,
-        kind: &str,
-        key: &str,
-        params: Value,
-        cancel: Option<tokio_util::sync::CancellationToken>,
-    ) -> Result<Value, RpcError> {
-        let Some(link) = self.active_link(plugin) else {
-            return Err(RpcError::unavailable(format!(
-                "the host half of {plugin} does not run"
-            )));
-        };
-        let Some(registration) = self
-            .registrations(plugin)
-            .into_iter()
-            .find(|r| r.kind == kind && r.key == key)
-        else {
-            return Err(RpcError::not_found(format!("{plugin} has no {kind} {key}")));
-        };
+        invocation: Option<Invocation>,
+        permits: InvocationPermits,
+    ) -> Result<InvocationResult, RpcError> {
+        let Target {
+            link,
+            plugin,
+            registration,
+        } = target;
+        let kind = &registration.kind;
+        let key = &registration.key;
+        let procs = self.procs.lock().unwrap();
+        let slots = self.slots.lock().unwrap();
+        let current = procs
+            .get(&plugin)
+            .is_some_and(|proc| proc.link.generation() == link.generation())
+            && slots.get(&plugin).is_some_and(|slot| {
+                slot.generation == link.generation()
+                    && slot.state == Some(PluginState::Active)
+                    && slot.registrations.contains(&registration)
+            });
+        if !current || !link.is_accepting() || self.is_stopping() {
+            return Err(RpcError::unavailable(
+                "the host half changed during the call",
+            ));
+        }
         match registration.level.as_deref() {
             _ if kind != "rpc" => {}
             // A person signed in, or the server's own machine; not another plugin.
@@ -496,74 +636,108 @@ impl ExtHost {
         }
         let call_id = uuid::Uuid::now_v7().to_string();
         let left = call.deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(RpcError::timeout("the call's deadline passed"));
+        }
         let deadline = chrono::Utc::now().timestamp_millis()
             + i64::try_from(left.as_millis()).unwrap_or(i64::MAX / 2);
         let ctx = json!({
-            "callId": call_id.clone(),
+            "callId": call_id,
             "user": call.user(),
             "principal": call.principal(),
             "deadline": deadline,
         });
-        let invoke =
-            json!({"plugin": plugin, "kind": kind, "key": key, "params": params, "ctx": ctx});
-        // The request and its deadline run in a task of their own: the kernel ends this call at its
-        // deadline too, and a future dropped then must not take the host half's ending with it.
-        let (kernel, plugins, id) = (call.kernel.clone(), plugins.clone(), plugin.to_owned());
-        let (kind, key) = (kind.to_owned(), key.to_owned());
-        let generation = link.generation();
+        let stream = matches!(invocation, Some(Invocation::Stream { .. }));
+        let invoke = json!({"plugin": plugin, "kind": kind, "key": key, "params": params, "ctx": ctx, "stream": stream});
+        let job = match &invocation {
+            Some(Invocation::Job(run)) => Some(run.clone()),
+            _ => None,
+        };
+        let guard = invocation.map(|invocation| {
+            link.0
+                .invocations
+                .lock()
+                .unwrap()
+                .insert(call_id.clone(), invocation);
+            InvocationGuard {
+                link: link.clone(),
+                id: call_id.clone(),
+            }
+        });
+        let request = link.request("plugins.invoke", invoke);
         let deadline = call.deadline;
-        let (tx, rx) = oneshot::channel();
+        let (mut tx, rx) = oneshot::channel();
         tokio::spawn(async move {
-            let mut request = Box::pin(link.request("plugins.invoke", invoke));
-            let left = deadline.saturating_duration_since(Instant::now());
+            let _permits = permits;
+            let mut request = Box::pin(request);
             let cancelled = async {
-                match &cancel {
-                    Some(cancel) => cancel.cancelled().await,
+                match &job {
+                    Some(job) => job.cancelled().await,
                     None => std::future::pending().await,
                 }
             };
             let reason = tokio::select! {
+                biased;
                 done = &mut request => {
+                    drop(guard);
+                    if job.is_some() && !link.is_accepting() {
+                        link.reaped().await;
+                    }
                     let _ = tx.send(done);
                     return;
                 }
-                _ = tokio::time::sleep(left) => "timeout",
+                _ = tokio::time::sleep_until(deadline.into()) => "timeout",
                 _ = cancelled => "cancelled",
+                _ = tx.closed() => "caller-closed",
             };
-            // The handler has its grace past the end of the call, and then its host half ends.
             link.notify(
                 "plugins.cancel",
-                json!({"plugin": id, "callId": call_id, "reason": reason}),
+                json!({"plugin": plugin, "callId": call_id, "reason": reason}),
             );
-            let _ = tx.send(Err(if reason == "cancelled" {
-                RpcError::unavailable(format!("{kind} {key} of {id} was cancelled"))
-            } else {
+            // Releasing the stream sender also wakes a write waiting for reader credit.
+            drop(guard);
+            let error = if reason == "timeout" {
                 RpcError::timeout(format!(
-                    "{id} did not answer {kind} {key} before the call's deadline"
+                    "the handler of {plugin} did not answer before the call's deadline"
                 ))
-            }));
+            } else {
+                RpcError::unavailable(format!("the call to {plugin} was cancelled"))
+            };
+            // Only the job queue needs to wait for teardown. It holds and renews the claim until then.
+            let finish_job = if job.is_some() {
+                Some(tx)
+            } else {
+                let _ = tx.send(Err(error.clone()));
+                None
+            };
             if tokio::time::timeout(CANCEL_GRACE, request).await.is_err() {
-                let error = ErrorBody {
-                    code: ErrorCode::Timeout,
-                    message: format!("{id} did not stop a call {CANCEL_GRACE:?} past its deadline"),
-                    details: None,
-                };
-                crashed(&kernel, &plugins, &id, generation, Some(error));
+                link.crash(
+                    RpcError::timeout(format!(
+                        "{plugin} did not stop a call {CANCEL_GRACE:?} past its deadline"
+                    ))
+                    .body(),
+                );
+            }
+            if !link.is_accepting() {
+                link.reaped().await;
+            }
+            if let Some(tx) = finish_job {
+                let _ = tx.send(Err(error));
             }
         });
-        rx.await
-            .unwrap_or_else(|_| Err(RpcError::unavailable("the call went away")))
+        Ok(InvocationResult(rx))
     }
 
     /// Counts a crash of a plugin's host half. Says how long to wait before it is activated again, or
     /// `None` when it ended too often or is not wanted.
-    fn exited(&self, plugin: &str, error: Option<ErrorBody>) -> Option<Duration> {
+    fn exited(&self, plugin: &str, generation: u64, error: Option<ErrorBody>) -> Option<Duration> {
         let now = Instant::now();
         let mut slots = self.slots.lock().unwrap();
         let slot = slots.get_mut(plugin)?;
         slot.crashes
             .retain(|at| now.duration_since(*at) < CRASH_WINDOW);
         slot.crashes.push(now);
+        slot.generation = generation;
         slot.registrations.clear();
         let crashes = slot.crashes.len();
         if slot.wanted && crashes < CRASHES {
@@ -602,33 +776,72 @@ impl ExtHost {
     }
 }
 
-/// A plugin's host half ended, or is ended, without being asked to: its process goes, the crash is
-/// counted against the plugin, and it is activated again when it may be.
-fn crashed(
+/// Removes a reaped generation before releasing its invocations or allowing a new process to start.
+fn reaped(
     kernel: &Kernel,
     plugins: &Arc<crate::Plugins>,
     plugin: &str,
-    generation: u64,
+    link: &Link,
     error: Option<ErrorBody>,
 ) {
     let host = &plugins.host;
-    let current = host
-        .running(plugin)
-        .is_some_and(|l| l.generation() == generation);
-    if !current || kernel.shutdown.is_cancelled() {
-        return;
-    }
-    host.stop(kernel, plugin, generation);
-    tracing::warn!(plugin, ?error, "a plugin's host half ended");
-    let again = host.exited(plugin, error);
+    let generation = link.generation();
+    let (proc, again) = {
+        let mut procs = host.procs.lock().unwrap();
+        let proc = procs
+            .remove(plugin)
+            .expect("the process stays registered until it is reaped");
+        let again = if let Some(error) =
+            error.filter(|_| !host.is_stopping() && !kernel.shutdown.is_cancelled())
+        {
+            tracing::warn!(plugin, message = %error.message, "a plugin's host half ended");
+            host.exited(plugin, generation, Some(error))
+        } else {
+            if let Some(slot) = host.slots.lock().unwrap().get_mut(plugin)
+                && slot.generation == generation
+            {
+                slot.state = Some(PluginState::Inactive);
+                slot.registrations.clear();
+            }
+            None
+        };
+        (proc, again)
+    };
+    proc.conn.close_detached(kernel);
+    link.fail_all();
+    link.0.reaped.cancel();
     plugins.changed(kernel, &[plugin.to_owned()]);
     if let Some(wait) = again {
         let (kernel, plugins, plugin) = (kernel.clone(), plugins.clone(), plugin.to_owned());
         tokio::spawn(async move {
             tokio::time::sleep(wait).await;
-            let _ = plugins.activate(&kernel, &plugin).await;
+            if host_restart_pending(&plugins.host, &plugin, generation) {
+                let _ = plugins.activate_as(&kernel, &plugin, false).await;
+            }
         });
     }
+}
+
+fn host_restart_pending(host: &ExtHost, plugin: &str, generation: u64) -> bool {
+    host.slots.lock().unwrap().get(plugin).is_some_and(|slot| {
+        slot.generation == generation && slot.wanted && slot.state == Some(PluginState::Inactive)
+    })
+}
+
+pub(crate) struct InvocationResult(oneshot::Receiver<Result<Value, RpcError>>);
+
+impl InvocationResult {
+    pub(crate) async fn result(&mut self) -> Result<Value, RpcError> {
+        (&mut self.0)
+            .await
+            .unwrap_or_else(|_| Err(RpcError::unavailable("the call went away")))
+    }
+}
+
+struct HostStream {
+    source: tokio::sync::Mutex<crate::services::ServiceStream>,
+    closed: CancellationToken,
+    _capacity: Arc<OwnedSemaphorePermit>,
 }
 
 #[derive(Deserialize)]
@@ -648,10 +861,16 @@ struct LinkInner {
     pid: Option<u32>,
     out: mpsc::UnboundedSender<String>,
     pending: Pending,
+    invocations: Mutex<HashMap<String, Invocation>>,
+    streams: Mutex<HashMap<String, Arc<HostStream>>>,
     next: AtomicI64,
-    closed: AtomicBool,
-    /// Ends the process.
     stop: CancellationToken,
+    draining: AtomicBool,
+    reaped: CancellationToken,
+    crash: Mutex<Option<ErrorBody>>,
+    plugin: OnceLock<Arc<Loaded>>,
+    capacity: Arc<Capacity>,
+    credentials: Mutex<Vec<String>>,
 }
 
 impl Link {
@@ -671,6 +890,36 @@ impl Link {
         self.0.stop.cancel();
     }
 
+    fn crash(&self, error: ErrorBody) {
+        self.0.crash.lock().unwrap().get_or_insert(error);
+        self.stop();
+    }
+
+    async fn reaped(&self) {
+        self.0.reaped.cancelled().await;
+    }
+
+    fn is_stopping(&self) -> bool {
+        self.0.stop.is_cancelled()
+    }
+
+    fn is_accepting(&self) -> bool {
+        !self.is_stopping() && !self.0.draining.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn check_plugin(&self, expected: &Arc<Loaded>) -> Result<(), RpcError> {
+        if self
+            .0
+            .plugin
+            .get()
+            .is_some_and(|loaded| Arc::ptr_eq(loaded, expected))
+        {
+            Ok(())
+        } else {
+            Err(RpcError::unavailable("the plugin changed during the call"))
+        }
+    }
+
     /// A request. It answers `UNAVAILABLE` when the process goes away first, and has no time limit of
     /// its own.
     pub fn request(
@@ -680,13 +929,20 @@ impl Link {
     ) -> impl Future<Output = Result<Value, RpcError>> + Send + 'static {
         let (tx, rx) = oneshot::channel();
         let id = self.0.next.fetch_add(1, Ordering::Relaxed);
-        let sent = !self.0.closed.load(Ordering::Acquire) && {
-            self.0.pending.lock().unwrap().insert(id, tx);
-            self.send(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}))
+        let sent = {
+            let mut pending = self.0.pending.lock().unwrap();
+            if self.is_stopping() {
+                false
+            } else {
+                pending.insert(id, tx);
+                let sent = self
+                    .send(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}));
+                if !sent {
+                    pending.remove(&id);
+                }
+                sent
+            }
         };
-        if !sent {
-            self.0.pending.lock().unwrap().remove(&id);
-        }
         async move {
             if !sent {
                 return Err(RpcError::unavailable("the extension host is not running"));
@@ -733,30 +989,87 @@ impl Link {
             return;
         };
         let result = match message.get("error") {
-            Some(error) => Err(serde_json::from_value::<RpcError>(error.clone())
-                .unwrap_or_else(|_| RpcError::internal(error.to_string()))),
+            Some(error) => {
+                let mut error = serde_json::from_value::<RpcError>(error.clone())
+                    .unwrap_or_else(|_| RpcError::internal("the plugin returned an invalid error"));
+                error.message = self.redact(&error.message);
+                if let Some(details) = error.data.as_mut().and_then(|data| data.details.as_mut()) {
+                    self.redact_details(details);
+                }
+                Err(error)
+            }
             None => Ok(message.get("result").cloned().unwrap_or(Value::Null)),
         };
         let _ = tx.send(result);
     }
 
+    fn remember_credential(&self, result: &Result<Value, RpcError>) {
+        if let Some(credential) = result
+            .as_ref()
+            .ok()
+            .and_then(|result| result.get("credential"))
+            .and_then(Value::as_str)
+            .filter(|credential| !credential.is_empty())
+        {
+            let mut credentials = self.0.credentials.lock().unwrap();
+            if !credentials.iter().any(|known| known == credential) {
+                let quoted = serde_json::to_string(credential).expect("a string serializes");
+                let escaped = &quoted[1..quoted.len() - 1];
+                if escaped != credential {
+                    credentials.push(escaped.to_owned());
+                }
+                credentials.push(credential.to_owned());
+                // Log formatters can emit escaped credentials, and one value can contain another.
+                credentials.sort_by_key(|value| std::cmp::Reverse(value.len()));
+            }
+        }
+    }
+
+    fn redact(&self, text: &str) -> String {
+        let mut sanitized = text.to_owned();
+        for credential in self.0.credentials.lock().unwrap().iter() {
+            if sanitized.contains(credential) {
+                sanitized = sanitized.replace(credential, "[redacted]");
+            }
+        }
+        sanitized
+    }
+
+    fn redact_details(&self, details: &mut Value) {
+        match details {
+            Value::String(text) => *text = self.redact(text),
+            Value::Array(values) => values.iter_mut().for_each(|item| self.redact_details(item)),
+            Value::Object(values) => {
+                for (key, mut item) in std::mem::take(values) {
+                    self.redact_details(&mut item);
+                    values.insert(self.redact(&key), item);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn close_stream(&self, id: &str) {
+        if let Some(stream) = self.0.streams.lock().unwrap().remove(id) {
+            stream.closed.cancel();
+        }
+    }
+
     fn fail_all(&self) {
-        self.0.closed.store(true, Ordering::Release);
+        for (_, stream) in self.0.streams.lock().unwrap().drain() {
+            stream.closed.cancel();
+        }
         let pending: Vec<_> = self.0.pending.lock().unwrap().drain().collect();
         for (_, tx) in pending {
             let _ = tx.send(Err(RpcError::unavailable("the extension host went away")));
         }
-    }
-
-    fn is_closed(&self) -> bool {
-        self.0.closed.load(Ordering::Acquire)
     }
 }
 
 /// What the kernel sends a plugin's connection goes to its process.
 async fn forward(mut rx: mpsc::Receiver<Outbound>, link: Link, plugin: String) {
     while let Some(out) = rx.recv().await {
-        if link.is_closed() {
+        if link.is_stopping() {
             break;
         }
         let Outbound::Text(text) = out else {
@@ -853,15 +1166,17 @@ async fn run(
             }
         }
     });
-    if let Some(err) = child.stderr.take() {
+    let stderr = child.stderr.take().map(|err| {
         let plugin = plugin.clone();
+        let link = link.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(err).lines();
             while let Ok(Some(line)) = lines.next_line().await {
+                let line = link.redact(&line);
                 tracing::info!(target: "rookery::exthost", plugin, "{line}");
             }
-        });
-    }
+        })
+    });
     let stdout = child.stdout.take().expect("stdout is piped");
     let mut lines = BufReader::new(stdout).lines();
     let mut ready = Some(ready);
@@ -873,7 +1188,7 @@ async fn run(
     let mut over: Option<ErrorBody> = None;
     loop {
         let line = tokio::select! {
-            line = lines.next_line() => line,
+            biased;
             _ = stop.cancelled() => break,
             _ = memory.tick() => {
                 if let Some(used) = pid.and_then(resident_mb).filter(|used| *used > limit) {
@@ -889,6 +1204,7 @@ async fn run(
                 continue;
             }
             _ = kernel.shutdown.cancelled(), if !leaving => {
+                link.0.draining.store(true, Ordering::Release);
                 // A host half's cleanups run before the server goes; this loop reads their answer.
                 leaving = true;
                 let (link, plugin) = (link.clone(), plugin.clone());
@@ -900,10 +1216,11 @@ async fn run(
                 });
                 continue;
             }
+            line = lines.next_line() => line,
         };
         let Ok(Some(line)) = line else { break };
         let Ok(message) = serde_json::from_str::<Value>(&line) else {
-            tracing::warn!(target: "rookery::exthost", plugin, "{line}");
+            tracing::warn!(target: "rookery::exthost", plugin, "invalid extension host protocol message");
             continue;
         };
         let method = message.get("method").and_then(Value::as_str);
@@ -923,59 +1240,87 @@ async fn run(
                     continue;
                 };
                 let call = Call::new(kernel.clone(), Caller::Plugin(plugin.clone()), Some(conn));
-                let done = kernel.methods.dispatch(call, method, params);
+                let permit = match reserve(&link.0.capacity.incoming) {
+                    Ok(permit) => permit,
+                    Err(error) => {
+                        link.respond(id, Err(error));
+                        continue;
+                    }
+                };
                 let link = link.clone();
-                tokio::spawn(async move { link.respond(id, done.await) });
+                let plugins = plugins.clone();
+                let method = method.to_owned();
+                tokio::spawn(async move {
+                    let _permit = permit;
+                    let done = host_request(&call, &plugins, &link, &method, params).await;
+                    if method == "connections.resolve" {
+                        link.remember_credential(&done);
+                    }
+                    link.respond(id, done);
+                });
             }
             (Some(method), None) => {
                 let params = message.get("params").cloned().unwrap_or(Value::Null);
-                notified(&kernel, &plugins, &plugin, generation, method, params);
+                notified(&plugins, &plugin, &link, method, params);
             }
-            (None, Some(_)) => link.resolve(&message),
-            (None, None) => {}
+            (None, Some(_)) if !link.is_stopping() => link.resolve(&message),
+            (None, _) => {}
         }
     }
-    link.fail_all();
+    let requested = link.is_stopping();
+    link.stop();
     writer.abort();
     let _ = child.start_kill();
     let status = child.wait().await;
+    if let Some(stderr) = stderr {
+        stderr.abort();
+    }
     tracing::info!(
         plugin,
         ?status,
         generation,
         "a plugin's extension host ended"
     );
-    let error = over.unwrap_or_else(|| ErrorBody {
-        code: ErrorCode::Unavailable,
-        message: format!("the extension host of {plugin} ended ({status:?})"),
-        details: None,
+    let error = link.0.crash.lock().unwrap().take().or(over).or_else(|| {
+        (!requested).then(|| ErrorBody {
+            code: ErrorCode::Unavailable,
+            message: format!("the extension host of {plugin} ended ({status:?})"),
+            details: None,
+        })
     });
-    crashed(&kernel, &plugins, &plugin, generation, Some(error));
+    reaped(&kernel, &plugins, &plugin, &link, error);
 }
 
 /// A notification of a plugin's process, about that plugin alone.
-fn notified(
-    kernel: &Kernel,
-    plugins: &Arc<crate::Plugins>,
-    plugin: &str,
-    generation: u64,
-    method: &str,
-    params: Value,
-) {
+fn notified(plugins: &crate::Plugins, plugin: &str, link: &Link, method: &str, params: Value) {
     let host = &plugins.host;
+    if link.is_stopping() || host.plugin_conn(plugin, link.generation()).is_none() {
+        return;
+    }
     match method {
         "plugins.exited" => {
-            let error = params
-                .get("error")
-                .and_then(|e| serde_json::from_value(e.clone()).ok());
-            crashed(kernel, plugins, plugin, generation, error);
+            let error = params.get("error").cloned().and_then(|mut error| {
+                link.redact_details(&mut error);
+                serde_json::from_value(error).ok()
+            });
+            link.crash(
+                error.unwrap_or_else(|| RpcError::unavailable("the plugin worker ended").body()),
+            );
         }
         "plugins.registered" => {
             if let Some(registration) = params
                 .get("registration")
                 .and_then(|r| serde_json::from_value(r.clone()).ok())
             {
-                host.registered(plugin, registration);
+                let Some(loaded) = link.0.plugin.get() else {
+                    return;
+                };
+                match check_registration(loaded, &registration) {
+                    Ok(()) => host.registered(plugin, registration),
+                    Err(e) => {
+                        tracing::warn!(plugin, error = %link.redact(&e.message), "ignoring a plugin registration")
+                    }
+                }
             }
         }
         "plugins.unregistered" => {
@@ -983,7 +1328,7 @@ fn notified(
             host.unregistered(plugin, text("kind"), text("key"));
         }
         "plugins.log" => {
-            let message = params.get("message").and_then(Value::as_str).unwrap_or("");
+            let message = link.redact(params.get("message").and_then(Value::as_str).unwrap_or(""));
             match params.get("level").and_then(Value::as_str) {
                 Some("error") => tracing::error!(target: "rookery::plugin", plugin, "{message}"),
                 Some("warn") => tracing::warn!(target: "rookery::plugin", plugin, "{message}"),
@@ -992,5 +1337,171 @@ fn notified(
             }
         }
         _ => {}
+    }
+}
+
+/// Check both activation and later registrations against the manifest of the process on the pipe.
+fn check_registration(loaded: &Loaded, registration: &Registration) -> Result<(), RpcError> {
+    let plugin = &loaded.id;
+    let key = &registration.key;
+    let declared = match registration.kind.as_str() {
+        "service" => crate::services::provides(loaded, key),
+        "job" => crate::jobs::declared(loaded)
+            .iter()
+            .any(|job| &job.id == key),
+        "rpc" | "command" => true,
+        _ => false,
+    };
+    if !declared {
+        return Err(RpcError::forbidden(format!(
+            "{plugin} declares no {} {key}",
+            registration.kind
+        )));
+    }
+    if registration.methods.values().any(|method| {
+        method
+            .timeout_secs
+            .is_some_and(|secs| !(1..=300).contains(&secs))
+    }) {
+        return Err(RpcError::invalid(
+            "timeoutSecs must be an integer from 1 to 300",
+        ));
+    }
+    Ok(())
+}
+
+/// Requests tied to this process and one live invocation stay on the private pipe.
+async fn host_request(
+    call: &Call,
+    plugins: &Arc<crate::Plugins>,
+    link: &Link,
+    method: &str,
+    params: Value,
+) -> Result<Value, RpcError> {
+    let text = |key: &str| {
+        params
+            .get(key)
+            .and_then(Value::as_str)
+            .ok_or_else(|| RpcError::invalid(format!("{method} needs {key}")))
+    };
+    match method {
+        "host.stream.item" | "host.job.log" | "host.job.progress" => {
+            let invocation = link
+                .0
+                .invocations
+                .lock()
+                .unwrap()
+                .get(text("callId")?)
+                .cloned();
+            match (method, invocation) {
+                ("host.stream.item", Some(Invocation::Stream { items, cancelled })) => {
+                    tokio::select! {
+                        biased;
+                        _ = cancelled.cancelled() => return Err(RpcError::unavailable("the service stream closed")),
+                        _ = link.0.stop.cancelled() => return Err(RpcError::unavailable("the plugin stopped")),
+                        sent = items.send(params.get("item").cloned().unwrap_or(Value::Null)) =>
+                            sent.map_err(|_| RpcError::unavailable("the service stream closed"))?,
+                    }
+                }
+                ("host.job.log", Some(Invocation::Job(run))) => {
+                    let level = text("level")?;
+                    if !matches!(level, "debug" | "info" | "warn" | "error") {
+                        return Err(RpcError::invalid("a level is debug, info, warn or error"));
+                    }
+                    run.log(level, &link.redact(text("text")?), None).await?;
+                }
+                ("host.job.progress", Some(Invocation::Job(run))) => {
+                    let mut progress = params.get("progress").cloned().unwrap_or(Value::Null);
+                    link.redact_details(&mut progress);
+                    run.progress(progress).await?;
+                }
+                _ => {
+                    return Err(RpcError::forbidden(
+                        "the process has no such running invocation",
+                    ));
+                }
+            }
+            Ok(Value::Null)
+        }
+        "jobs.log" | "jobs.progress" => Err(RpcError::forbidden(
+            "a host half writes through its running job handler",
+        )),
+        "host.services.open" => {
+            let capacity = Arc::new(reserve(&link.0.capacity.streams)?);
+            let asked = serde_json::from_value(params)
+                .map_err(|e| RpcError::invalid(format!("params: {e}")))?;
+            let source =
+                crate::services::open_stream(call, plugins, asked, Some(capacity.clone())).await?;
+            let deadline = source.deadline();
+            let id = uuid::Uuid::now_v7().to_string();
+            let closed = CancellationToken::new();
+            {
+                let mut streams = link.0.streams.lock().unwrap();
+                if !link.is_accepting() {
+                    return Err(RpcError::unavailable("the plugin stopped"));
+                }
+                streams.insert(
+                    id.clone(),
+                    Arc::new(HostStream {
+                        source: tokio::sync::Mutex::new(source),
+                        closed: closed.clone(),
+                        _capacity: capacity,
+                    }),
+                );
+            }
+            let (link, stream) = (link.clone(), id.clone());
+            tokio::spawn(async move {
+                tokio::select! {
+                    _ = tokio::time::sleep_until(deadline.into()) => link.close_stream(&stream),
+                    _ = closed.cancelled() => {}
+                }
+            });
+            Ok(json!({"stream": id}))
+        }
+        "host.services.next" => {
+            let id = text("stream")?;
+            let stream = link
+                .0
+                .streams
+                .lock()
+                .unwrap()
+                .get(id)
+                .cloned()
+                .ok_or_else(|| RpcError::not_found("no such service stream"))?;
+            let mut source = stream
+                .source
+                .try_lock()
+                .map_err(|_| RpcError::conflict("the service stream already has a reader"))?;
+            let deadline = source.deadline();
+            let next = tokio::select! {
+                biased;
+                _ = link.0.stop.cancelled() => Err(RpcError::unavailable("the plugin stopped")),
+                _ = stream.closed.cancelled() => Err(
+                    if Instant::now() >= deadline {
+                        RpcError::timeout("the service stream timed out")
+                    } else {
+                        RpcError::unavailable("the service stream closed")
+                    }
+                ),
+                next = source.next() => next,
+            };
+            if !matches!(next, Ok(Some(_))) {
+                link.close_stream(id);
+            }
+            Ok(match next? {
+                Some(item) => json!({"done": false, "item": item}),
+                None => json!({"done": true}),
+            })
+        }
+        "host.services.close" => {
+            link.close_stream(text("stream")?);
+            Ok(Value::Null)
+        }
+        _ => {
+            call.kernel
+                .methods
+                .dispatch(call.clone(), method, params)
+                .await
+        }
     }
 }

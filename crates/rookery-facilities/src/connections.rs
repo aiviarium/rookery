@@ -190,6 +190,22 @@ fn check_connection(
     Ok(())
 }
 
+/// Host halves can see and resolve only the types declared by the plugin on the pipe.
+fn require_kind(call: &Call, plugin: &str, id: &str) -> Result<(), RpcError> {
+    if kind(id).is_none()
+        && call
+            .kernel
+            .get_facility::<PluginKinds>()
+            .is_some_and(|kinds| kinds.0.get(id).is_some_and(|kind| kind.plugin == plugin))
+    {
+        Ok(())
+    } else {
+        Err(RpcError::forbidden(
+            "a plugin reaches only the connection types it declares",
+        ))
+    }
+}
+
 fn config_schema(kind: &Kind) -> Value {
     let mut properties = json!({ "url": { "type": "string", "format": "uri" } });
     if kind.id == "registry" {
@@ -371,6 +387,13 @@ pub fn register(methods: &mut Methods) {
         .add(
             "connections.list",
             |call: Call, p: ConnectionsOf| async move {
+                let plugin = match &call.caller {
+                    Caller::Plugin(_) => Some(call.plugin(None)?),
+                    _ => None,
+                };
+                if let (Some(plugin), Some(id)) = (&plugin, &p.kind) {
+                    require_kind(&call, plugin, id)?;
+                }
                 let user = call.user().and_then(|u| uuid::Uuid::parse_str(&u.id).ok());
                 let all = call
                     .store()
@@ -378,7 +401,15 @@ pub fn register(methods: &mut Methods) {
                     .list(p.kind.as_deref(), user)
                     .await?;
                 Ok(ConnectionList {
-                    connections: all.into_iter().map(info).collect(),
+                    connections: all
+                        .into_iter()
+                        .filter(|c| {
+                            plugin
+                                .as_ref()
+                                .is_none_or(|plugin| require_kind(&call, plugin, &c.kind).is_ok())
+                        })
+                        .map(info)
+                        .collect(),
                 })
             },
         )
@@ -393,7 +424,12 @@ pub fn register(methods: &mut Methods) {
                 .await?;
             let user = call.user().and_then(|u| uuid::Uuid::parse_str(&u.id).ok());
             match found {
-                Some(c) if c.user_id.is_none() || c.user_id == user => Ok(info(c)),
+                Some(c) if c.user_id.is_none() || c.user_id == user => {
+                    if matches!(call.caller, Caller::Plugin(_)) {
+                        require_kind(&call, &call.plugin(None)?, &c.kind)?;
+                    }
+                    Ok(info(c))
+                }
                 _ => Err(RpcError::not_found("no such connection")),
             }
         })
@@ -532,6 +568,9 @@ pub fn register(methods: &mut Methods) {
                     Caller::User { user, .. } => uuid::Uuid::parse_str(&user.id).ok(),
                     _ => None,
                 };
+                if let (Caller::Plugin(_), None, Some(id)) = (&call.caller, &p.id, &p.kind) {
+                    require_kind(&call, &plugin, id)?;
+                }
                 let connections = call.store().connections();
                 let found = match (&p.id, &p.kind, &p.name) {
                     (Some(id), _, _) => connections
@@ -546,24 +585,9 @@ pub fn register(methods: &mut Methods) {
                     }
                 };
                 let found = found.ok_or_else(|| RpcError::not_found("no such connection"))?;
-                // Rookery's own types are for people, the shell and the server, never a plugin: a
-                // plugin declares its own type and reads only that one.
-                if kind(&found.kind).is_some() {
-                    if matches!(call.caller, Caller::Plugin(_)) {
-                        return Err(RpcError::forbidden(
-                            "a plugin resolves only the connection types it declares",
-                        ));
-                    }
-                } else if !call
-                    .kernel
-                    .get_facility::<PluginKinds>()
-                    .is_some_and(|kinds| {
-                        kinds
-                            .0
-                            .get(&found.kind)
-                            .is_some_and(|kind| kind.plugin == plugin)
-                    })
-                {
+                if matches!(call.caller, Caller::Plugin(_)) {
+                    require_kind(&call, &plugin, &found.kind)?;
+                } else if kind(&found.kind).is_none() {
                     return Err(RpcError::forbidden(
                         "only the declaring plugin can resolve this connection",
                     ));

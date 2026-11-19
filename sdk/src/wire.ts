@@ -156,6 +156,10 @@ export const WIRE = {
     { plugin: string; service: string; method: string; params?: Record<string, unknown> },
     unknown
   >,
+  "services.stream": {} as WireCall<
+    { plugin: string; service: string; method: string; params?: Record<string, unknown> },
+    StreamOpened
+  >,
   "services.list": {} as WireCall<{ plugin?: string }, AppServiceList>,
   "services.status": {} as WireCall<{ plugin: string; service: string }, AppServiceStatus>,
   "settings.get": {} as WireCall<SettingRef, SettingValue>,

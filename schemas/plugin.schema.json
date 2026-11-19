@@ -60,6 +60,16 @@
             "$ref": "#/$defs/name"
           },
           "uniqueItems": true
+        },
+        "serviceLevels": {
+          "description": "Access by provided service name. own (the default) allows signed-in users and plugins, plugin allows plugins and admins, and admin allows admins.",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/name"
+          },
+          "additionalProperties": {
+            "enum": ["own", "plugin", "admin"]
+          }
         }
       }
     },
@@ -1868,6 +1878,11 @@
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 86400
+              },
+              "idempotent": {
+                "description": "A host job may retry automatically only when set to true. Repeating it after an interruption must be safe.",
+                "type": "boolean",
+                "default": false
               },
               "maxAttempts": {
                 "description": "Attempts before the job fails for good. Default 3.",

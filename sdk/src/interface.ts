@@ -69,7 +69,7 @@ type EventsOf<D extends InterfaceDecl> = D["events"] extends infer E extends {
   : Record<never, never>
 
 /** A declared interface: the default export of a plugin's interface module. */
-export interface Interface<D extends InterfaceDecl = InterfaceDecl> {
+export interface Interface<D extends InterfaceDecl = Required<InterfaceDecl>> {
   readonly __rookery: "interface"
   readonly services: {
     readonly [K in keyof ServicesOf<D> & string]: ServicesOf<D>[K] extends infer M extends MethodDecls
@@ -81,13 +81,19 @@ export interface Interface<D extends InterfaceDecl = InterfaceDecl> {
 
 /** Declares the plugin's services and events. It only builds a description: nothing runs. */
 export function defineInterface<const D extends InterfaceDecl>(decl: D): Interface<D> {
-  const services: Record<string, ServiceDecl> = {}
+  const services: Record<string, ServiceDecl> = Object.create(null)
   for (const [name, methods] of Object.entries(decl.services ?? {})) {
-    if ("stream" in methods) {
+    if (Object.hasOwn(methods, "stream")) {
       throw new RookeryError(
         "INVALID",
         `${name} has a method called stream, which is how a dependent streams a method; rename it`,
       )
+    }
+    for (const [method, decl] of Object.entries(methods)) {
+      const limit = decl.timeoutSecs
+      if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 300)) {
+        throw new RookeryError("INVALID", `${name}.${method} timeoutSecs must be an integer from 1 to 300`)
+      }
     }
     services[name] = Object.freeze({ name, methods: Object.freeze({ ...methods }) })
   }

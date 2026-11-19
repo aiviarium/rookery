@@ -84,7 +84,12 @@ export default definePlugin((rookery) => {
     run: (ctx) =>
       new Promise((resolve) => {
         const timer = setTimeout(() => resolve("late"), 60_000)
-        ctx.signal.addEventListener("abort", () => clearTimeout(timer))
+        ctx.signal.addEventListener("abort", async () => {
+          clearTimeout(timer)
+          await Bun.sleep(75)
+          console.info("unary handler finished cleanup")
+          resolve("cancelled")
+        })
       }),
   })
   // Ignores its deadline, and keeps the worker busy past it.
@@ -98,19 +103,22 @@ export default definePlugin((rookery) => {
   })
   rookery.rpc.handle("crash", { level: "own", run: () => process.exit(3) })
   // Jobs its manifest may declare: echo.build, echo.wait and echo.wipe.
-  rookery.jobs.handle("echo.build", {
-    params: z.object({ n: z.number() }),
-    run: async (job, { n }) => {
-      await job.progress(1, 2, "halfway")
-      await job.log(`building ${n}`)
-      return { built: n * 2, attempt: job.attempt, kind: job.context.name }
-    },
-  })
-  rookery.jobs.handle("echo.wait", {
-    run: (job) =>
-      new Promise((_, reject) => job.signal.addEventListener("abort", () => reject(job.signal.reason))),
-  })
-  rookery.jobs.handle("echo.wipe", { run: () => ({ wiped: true }) })
+  if (rookery.manifest.contributes?.jobs?.some((job) => job.id === "echo.build"))
+    rookery.jobs.handle("echo.build", {
+      params: z.object({ n: z.number() }),
+      run: async (job, { n }) => {
+        await job.progress(1, 2, "halfway")
+        await job.log(`building ${n}`)
+        return { built: n * 2, attempt: job.attempt, kind: job.context.name }
+      },
+    })
+  if (rookery.manifest.contributes?.jobs?.some((job) => job.id === "echo.wait"))
+    rookery.jobs.handle("echo.wait", {
+      run: (job) =>
+        new Promise((_, reject) => job.signal.addEventListener("abort", () => reject(job.signal.reason))),
+    })
+  if (rookery.manifest.contributes?.jobs?.some((job) => job.id === "echo.wipe"))
+    rookery.jobs.handle("echo.wipe", { run: () => ({ wiped: true }) })
   // Events of its own, by a name without a `/`.
   const heard: string[] = []
   rookery.rpc.handle("listen", {
@@ -131,13 +139,14 @@ export default definePlugin((rookery) => {
   })
   rookery.rpc.handle("heard", { level: "own", run: () => ({ heard }) })
   // A service of provides.services, which other plugins and people call with services.call.
-  rookery.services.provide("greeter", {
-    hello: (ctx, params: { name?: string }) => ({
-      hello: params.name ?? "you",
-      from: rookery.id,
-      as: ctx.principal.id,
-    }),
-  })
+  if (rookery.manifest.provides?.services?.includes("greeter"))
+    rookery.services.provide("greeter", {
+      hello: (ctx, params: { name?: string }) => ({
+        hello: params.name ?? "you",
+        from: rookery.id,
+        as: ctx.principal.id,
+      }),
+    })
   rookery.rpc.handle("ask", {
     level: "own",
     params: z.object({ plugin: z.string(), service: z.string() }),
