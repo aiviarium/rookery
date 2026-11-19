@@ -1,5 +1,5 @@
 """What rookery does on the workstation alone: its key, the cloud seed, the
-inventory and the API documents."""
+inventory and the version."""
 import json
 import unittest
 
@@ -102,14 +102,6 @@ class Listings(unittest.TestCase):
         self.assertRegex(shown, r'(?m)^  retention_days +\(not set\)$')
         # The client's own settings are listed apart, the token never shown.
         self.assertRegex(shown, r'(?m)^This rookery, on this machine\n  server +\(not set\)$')
-        store = self.station.rookery('server', 'store', 'status').stdout
-        self.assertIn(f"Store      SQLite file {self.station.data / 'rookery/rookery.db'}", store)
 
-    def test_the_api_documents(self):
-        operations = json.loads(self.station.rookery('server', 'api', 'operations').stdout)
-        self.assertTrue(operations)
-        openapi = json.loads(self.station.rookery('server', 'api', 'openapi').stdout)
-        self.assertIn('/v1/hosts', openapi['paths'])
-        asyncapi = json.loads(self.station.rookery('server', 'api', 'asyncapi').stdout)
-        self.assertTrue(asyncapi.get('asyncapi'))
+    def test_the_version(self):
         self.assertRegex(self.station.rookery('--version').stdout, r'^rookery \d+\.\d+\.\d+')

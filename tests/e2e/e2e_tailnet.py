@@ -8,12 +8,11 @@ one joins: AutomaticKey is the extended state (harness.extended()),
 JoinedByHand the plain one (harness.plain()) and ThroughTheServer the one of
 rookery serve (harness.served_extended())."""
 import json
-import sqlite3
 import time
 import unittest
 
 from harness import (HOST, changed_tasks, extended, headscale, joining, last_key_id, needs_e2e, plain,
-                     served_extended, unb64)
+                     served_extended)
 
 
 def changed(output):
@@ -115,21 +114,16 @@ class ThroughTheServer(Joined, unittest.TestCase):
         cls.serve, cls.station, cls.client, cls.kept = applied.serve, applied.station, applied.client, applied.kept
         cls.first = applied.first
         # Applied again as a job of the server: its output is the job's.
-        cls.second = unb64(cls.serve.call('GET', f'/v1/jobs/{applied.job["id"]}/output')['data_b64'])
+        cls.second = cls.serve.log(applied.job)
         cls.before, cls.after_first, cls.after_second = applied.before, applied.after_first, applied.after_second
 
     def test_the_settings_and_the_key_are_the_servers(self):
-        settings = {setting['key']: setting['value'] for setting in self.serve.call('GET', '/v1/settings')}
+        settings = {setting['key']: setting['value'] for setting in self.serve.call('installation.settings.list')}
         self.assertEqual(settings['tailnet_login_server'], headscale().url)
         self.assertEqual(settings['tailnet_user'], headscale().user)
-        self.assertIn('tailnet_api_key', self.serve.call('GET', '/v1/secrets')['names'])
-        store = sqlite3.connect(self.serve.station.data / 'rookery/rookery.db')
-        try:
-            kept = store.execute("SELECT value FROM state WHERE kind = 'secret' AND scope = ''"
-                                 " AND label = 'tailnet_api_key'").fetchone()
-        finally:
-            store.close()
-        self.assertEqual(bytes(kept[0]).decode(), headscale().api_key)
+        self.assertIn('tailnet_api_key', self.serve.call('installation.secrets.list')['names'])
+        kept = self.serve.call('secrets.get', {'plugin': 'rookery', 'name': 'tailnet_api_key'})
+        self.assertEqual(kept['value'], headscale().api_key)
         # The client's store is among these files, so they are read as bytes.
         self.assertNotIn(headscale().api_key.encode(), b''.join(
             path.read_bytes() for path in self.client.home.rglob('*') if path.is_file()))
@@ -144,7 +138,7 @@ class ThroughTheServer(Joined, unittest.TestCase):
         draft = {**self.kept, 'hostname': 'cloud-5', 'builder': {}, 'access': {},
                  'operator_password_hash': '$6$e2e$' + 'x' * 86,
                  'release_url': 'https://192.0.2.30/rookery-release.tar.gz'}
-        self.serve.call('PUT', '/v1/hosts/cloud-5/profile', joining(draft))
+        self.serve.call('hosts.save', {'host': 'cloud-5', 'profile': joining(draft)})
         try:
             before = last_key_id()
             seeded = self.client.rookery('host', 'seed', 'cloud-5')
@@ -161,6 +155,6 @@ class ThroughTheServer(Joined, unittest.TestCase):
             self.assertNotIn(headscale().api_key, seed)
             # The profile keeps no key: the next seed gets a new one.
             self.assertNotIn(made[0]['key'].removesuffix('***'),
-                             json.dumps(self.serve.call('GET', '/v1/hosts/cloud-5/profile')))
+                             json.dumps(self.serve.call('hosts.profile', {'host': 'cloud-5'})))
         finally:
-            self.serve.call('DELETE', '/v1/hosts/cloud-5')
+            self.serve.call('hosts.remove', {'host': 'cloud-5'})

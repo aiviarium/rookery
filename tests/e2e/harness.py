@@ -1,6 +1,6 @@
 """What the end-to-end tests share: workstations in scratch directories, the
-test host, a link to its rookeryd, rookery serve, an OAuth issuer and a small
-WebSocket client.
+test host, a link to its rookeryd, the rookery serve of each workstation on a
+database of its own, an OAuth issuer and a small JSON-RPC client over /ws.
 
 The tests run in the runner container of ci/compose.yml, next to
 the test host `studio`, on a network that reaches nothing else. Everything a
@@ -29,6 +29,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -41,6 +42,22 @@ OPERATOR, AGENT = 'ops', 'agent'
 
 # Everything scratch lives below this, removed when the run ends.
 SCRATCH = Path(tempfile.mkdtemp(prefix='rookery-e2e-'))
+
+# The PostgreSQL the servers of the tests keep their state in, a database each.
+POSTGRES = os.environ.get('ROOKERY_E2E_POSTGRES', 'postgres://rookery:rookery-e2e@database:5432/rookery')
+
+# The servers that run, stopped when the run ends.
+_servers = []
+
+
+def make_database(name):
+    """A new, empty database on POSTGRES for one server: its URL."""
+    url = urllib.parse.urlsplit(POSTGRES)
+    database = f'e2e_{re.sub(r"[^a-z0-9]", "_", name.lower())}_{secrets.token_hex(4)}'
+    subprocess.run(['createdb', '-h', url.hostname, '-p', str(url.port or 5432), '-U', url.username, database],
+                   env={**os.environ, 'PGPASSWORD': url.password or ''}, check=True, capture_output=True,
+                   timeout=60)
+    return urllib.parse.urlunsplit(url._replace(path=f'/{database}'))
 
 # Each Ansible run of a workstation or a rookery serve, noted by the callback in
 # fixtures/callbacks, and what the run made: for the summary run.py prints.
@@ -186,7 +203,8 @@ def follows_a_job(args):
 
 
 class Workstation:
-    """A user's machine with rookery: its own HOME, XDG directories and SSH key."""
+    """A user's machine with rookery: its own HOME, XDG directories and SSH key, and
+    the `rookery serve` its commands use, on a database of its own, on its socket."""
 
     def __init__(self, name, ssh_key=True, source_dir=None, trust=True):
         self.root = SCRATCH / name
@@ -208,11 +226,47 @@ class Workstation:
             'ANSIBLE_CALLBACKS_ENABLED': 'e2e_applies', 'ROOKERY_E2E_APPLIES': str(APPLIES),
         }
         MADE['workstation'] += 1
+        self.database = make_database(name)
+        secret_key = self.root / 'secret.key'
+        secret_key.write_text(secrets.token_hex(32) + '\n')
+        secret_key.chmod(0o600)
+        self.port = free_port()
+        self.env.update({
+            'ROOKERY_DATABASE_URL': self.database, 'ROOKERY_SECRET_KEY_FILE': str(secret_key),
+            'ROOKERY_LISTEN': f'127.0.0.1:{self.port}', 'ROOKERY_PUBLIC_URL': f'http://127.0.0.1:{self.port}',
+        })
+        self.url = f'http://127.0.0.1:{self.port}'
+        self.server = None
+        self.start_server()
         self.key = self.home / '.ssh/id_ed25519'
         self.public = keygen(self.key, f'tester@{name}') if ssh_key else None
         # A host that is not up yet is trusted once it answers.
         if trust:
             self.trust_host()
+
+    def start_server(self, env=None):
+        """Start this machine's `rookery serve` and wait until its hosts are ready."""
+        log = open(self.root / 'serve.log', 'a')
+        self.server = subprocess.Popen([str(ROOKERY), 'serve'], env={**self.env, **(env or {})}, cwd=self.home,
+                                       stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+        _servers.append(self)
+        def ready():
+            if self.server.poll() is not None:
+                raise AssertionError(f'rookery serve ended:\n{(self.root / "serve.log").read_text()[-4000:]}')
+            done = subprocess.run([str(ROOKERY), 'host', 'list'], env=self.env, cwd=self.home,
+                                  capture_output=True, text=True, timeout=30)
+            return done.returncode == 0
+        wait_for('rookery serve ready', ready, timeout=60)
+
+    def stop_server(self):
+        if self.server and self.server.poll() is None:
+            self.server.send_signal(signal.SIGTERM)
+            try:
+                self.server.wait(20)
+            except subprocess.TimeoutExpired:
+                self.server.kill()
+                self.server.wait()
+        self.server = None
 
     @property
     def rookery_dir(self):
@@ -394,8 +448,8 @@ def adopt(station):
 
 
 def served():
-    """A rookery serve on a workstation of its own, set up through its API to
-    reach the test host, and trusting an OAuth issuer; started once per run."""
+    """The rookery serve of a workstation of its own, reached over TCP with an admin's
+    token, set up through its API to reach the test host; made once per run."""
     if 'serve' in _provisioned:
         return _provisioned['serve']
     station = provisioned()
@@ -409,9 +463,7 @@ def served():
     # The registry is a folder of the server's machine, which a caller there
     # adds, not one over TCP.
     server.rookery('plugin', 'registry', 'add', 'git', plugin_registry().url)
-    issuer = Issuer()
-    serve = Serve(server, env={'ROOKERY_OAUTH_ISSUER': issuer.url, 'ROOKERY_OAUTH_AUDIENCE': 'rookery'})
-    serve.issuer = issuer
+    serve = Serve(server)
     # The host's profile as the workstation has it, so applying it from the
     # server keeps the workstation's keys; the server adds its own. What the
     # workstation turned on for its own tests stays there.
@@ -422,7 +474,7 @@ def served():
     host['ansible_vars'] = light_vars()
     for key in ('secrets', 'registries'):
         host.pop(key, None)
-    serve.call('PUT', f'/v1/hosts/{HOST}/profile', host)
+    serve.call('hosts.save', {'host': HOST, 'profile': host})
     _provisioned['serve'] = serve
     return serve
 
@@ -430,8 +482,7 @@ def served():
 def stop_serving():
     serve = _provisioned.pop('serve', None)
     if serve:
-        serve.stop()
-        serve.issuer.stop()
+        serve.station.stop_server()
         hand_over_operator_key(_provisioned['workstation'].public)
 
 
@@ -654,8 +705,9 @@ def served_extended():
     """The host applied by rookery serve with a plugin from the registry and
     joined to the tailnet with a key the server made: first by a terminal
     client of the server, then again as a job of the server, followed over
-    the portal. `client` is that client; `first` its apply; `job`, `texts`
-    and `data` the job and what following it gave; `before`, `after_first`
+    /ws. `client` is that client; `first` its apply; `job` the job's id, `texts`
+    the lines following it gave (its log items, then how it ended) and `data`
+    the text of its log; `before`, `after_first`
     and `after_second` the newest Headscale key before and after each."""
     return state('served-extended', _enter_served_extended)
 
@@ -666,34 +718,35 @@ def _enter_served_extended():
     leave_the_tailnet(station)
     registry = plugin_registry()
     registry.publish(plugin_version('1.0.0', 'served'))
-    serve.call('POST', '/v1/plugins', {'spec': 'example/served'})
+    serve.call('plugins.install', {'spec': 'example/served'})
     client = Workstation('served-client', ssh_key=False)
     client.rookery('login', serve.url, '--token-stdin', input=serve.token)
     client.rookery('config', 'set', 'tailnet_login_server', headscale().url)
     client.rookery('config', 'set', 'tailnet_user', headscale().user)
     client.rookery('secret', 'set', 'tailnet_api_key', input=headscale().api_key + '\n')
-    kept = serve.call('GET', f'/v1/hosts/{HOST}/profile')
-    serve.call('PUT', f'/v1/hosts/{HOST}/profile',
-               joining({**kept, 'ansible_vars': light_vars(['served/main'])}))
+    kept = serve.call('hosts.profile', {'host': HOST})['profile']
+    serve.call('hosts.save', {'host': HOST, 'profile': joining({**kept, 'ansible_vars': light_vars(['served/main'])})})
     before = last_key_id()
     first = client.rookery('apply', HOST, timeout=900)
     after_first = last_key_id()
-    job = serve.call('POST', f'/v1/hosts/{HOST}/actions/apply', expect=202)['job']
-    portal = serve.portal()
+    job = serve.call('hosts.act', {'host': HOST, 'action': 'apply'})['job']
+    socket = serve.socket()
     try:
-        texts, data, _ = portal.stream('jobs.follow', {'id': job['id']}, timeout=900,
-                                       until=lambda texts, _: any('exited' in (text or {}) for text in texts))
+        # The stream ends by itself after the line with how the job ended.
+        raw, _ = socket.stream('jobs.follow', {'id': job, 'after': 0}, timeout=900)
     finally:
-        portal.close()
+        socket.close()
+    texts = [json.loads(line) for line in raw.decode().splitlines() if line.strip()]
+    data = '\n'.join(text['text'] for text in texts if 'seq' in text)
     after_second = last_key_id()
 
     def leave():
         leave_the_tailnet(station)
-        serve.call('PUT', f'/v1/hosts/{HOST}/profile', kept)
-        serve.request('DELETE', '/v1/plugins/served')
+        serve.call('hosts.save', {'host': HOST, 'profile': kept})
+        serve.rpc('plugins.remove', {'id': 'served'})
         for key in ('tailnet_login_server', 'tailnet_user'):
-            serve.call('PUT', f'/v1/settings/{key}', {'value': ''})
-        serve.request('DELETE', '/v1/secrets/tailnet_api_key')
+            serve.call('installation.settings.set', {'name': key, 'value': ''})
+        serve.rpc('installation.secrets.remove', {'name': 'tailnet_api_key'})
     return Applied(serve=serve, station=station, client=client, kept=kept, first=first, job=job, texts=texts,
                    data=data, before=before, after_first=after_first, after_second=after_second), leave
 
@@ -791,67 +844,76 @@ def unb64(text):
 
 
 class Serve:
-    """`rookery serve --listen` of a workstation, on a port of its own."""
+    """The `rookery serve` of a workstation as a client elsewhere reaches it: over
+    TCP, with an access token of a person, `ada`, who is an admin."""
 
-    def __init__(self, station, env=None):
+    def __init__(self, station):
         MADE['serve'] += 1
         self.station = station
-        self.port = free_port()
-        args = ['serve', '--listen', f'127.0.0.1:{self.port}']
-        self.process = station.spawn(*args, env=env)
-        self.lines = []
-        self._reader = threading.Thread(target=self._read, daemon=True)
-        self._reader.start()
-        wait_for('rookery serve listening', lambda: any('Listening on http://' in line for line in self.lines),
-                 timeout=60)
-        self.token = (station.data / 'rookery/serve.token').read_text().strip()
-        self.url = f'http://127.0.0.1:{self.port}'
+        self.port = station.port
+        self.url = station.url
+        self.token = self.make_token('ada', admin=True)
 
-    def _read(self):
-        for line in self.process.stdout:
-            self.lines.append(line.rstrip('\n'))
+    def make_token(self, user, admin=False):
+        """An access token of `user`, made on the server's own machine; the person is made too."""
+        args = ['server', 'token', '--user', user, '--name', f'e2e-{secrets.token_hex(3)}']
+        if admin:
+            args.append('--admin')
+        return self.station.rookery(*args).stdout.strip().splitlines()[0]
 
     def stop(self):
-        if self.process.poll() is None:
-            self.process.send_signal(signal.SIGINT)
-            try:
-                self.process.wait(10)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait()
+        """The server keeps running with its workstation; nothing of its own stops."""
 
-    def request(self, method, path, body=None, token=None, raw=False, headers=None):
-        """(status, answer) over HTTP with the server's token, or another bearer."""
-        connection = http.client.HTTPConnection('127.0.0.1', self.port, timeout=120)
-        sent = dict(headers or {})
+    def rpc(self, method, params=None, token=None):
+        """(HTTP status, the answer: its result, or its error) of one call over POST /rpc."""
+        connection = http.client.HTTPConnection('127.0.0.1', self.port, timeout=300)
         bearer = self.token if token is None else token
+        headers = {'Content-Type': 'application/json'}
         if bearer:
-            sent['Authorization'] = f'Bearer {bearer}'
-        data = None
-        if body is not None:
-            data = body if isinstance(body, bytes) else json.dumps(body).encode()
-            sent.setdefault('Content-Type', 'application/json')
+            headers['Authorization'] = f'Bearer {bearer}'
+        body = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params or {}})
         try:
-            connection.request(method, path, body=data, headers=sent)
+            connection.request('POST', '/rpc', body=body, headers=headers)
             answer = connection.getresponse()
             text = answer.read()
-            if raw:
-                return answer.status, text, {name.lower(): value for name, value in answer.getheaders()}
-            try:
-                return answer.status, json.loads(text or b'null')
-            except ValueError:
-                return answer.status, text.decode(errors='replace')
+            said = json.loads(text or b'null')
         finally:
             connection.close()
+        if isinstance(said, dict) and 'error' in said:
+            return answer.status, {'error': said['error']}
+        return answer.status, said.get('result') if isinstance(said, dict) else said
 
-    def call(self, method, path, body=None, token=None, expect=200):
-        status, answer = self.request(method, path, body, token)
-        if status != expect:
-            raise AssertionError(f'{method} {path}: {status} {answer}')
+    def call(self, method, params=None, token=None):
+        """The result of a method, or an AssertionError with its error."""
+        status, answer = self.rpc(method, params, token)
+        if isinstance(answer, dict) and 'error' in answer:
+            raise AssertionError(f'{method}: {status} {answer["error"]}')
         return answer
 
-    def portal(self, token=None):
-        return Portal(self.port, self.token if token is None else token)
+    def refused(self, method, params=None, token=None):
+        """The error code a method is refused with, such as FORBIDDEN, or None when it is not."""
+        _, answer = self.rpc(method, params, token)
+        if isinstance(answer, dict) and 'error' in answer:
+            return answer['error'].get('data', {}).get('code')
+        return None
+
+    def socket(self, token=None):
+        return RpcSocket(self.port, self.token if token is None else token)
+
+    def wait_job(self, job, timeout=900):
+        """The job once it has ended, and its log as text."""
+        wait_for(f'the job {job} ending', lambda: self.call('jobs.get', {'id': job})['state']
+                 in ('succeeded', 'failed', 'cancelled'), timeout=timeout, every=1)
+        return self.call('jobs.get', {'id': job}), self.log(job)
+
+    def log(self, job):
+        lines, after = [], 0
+        while True:
+            items = self.call('jobs.output', {'id': job, 'after': after})['items']
+            lines += [item['text'] for item in items]
+            if len(items) < 1000:
+                return '\n'.join(lines)
+            after = items[-1]['seq']
 
 
 def free_port():
@@ -861,7 +923,7 @@ def free_port():
 
 
 # ---------------------------------------------------------------------------
-# A WebSocket client, enough for the portal
+# A WebSocket client, enough for /ws
 
 
 class WebSocket:
@@ -949,17 +1011,14 @@ class WebSocket:
         self.sock.close()
 
 
-class Portal:
-    """Calls and streams over /v1/portal, numbered as the frames say."""
+class RpcSocket:
+    """JSON-RPC over /ws with its stream channels: calls, and the bytes of a stream."""
 
     def __init__(self, port, token):
-        # A browser cannot set a header on a WebSocket: the token is the protocol.
-        self.ws = WebSocket(port, '/v1/portal', protocols=[token] if token else ())
+        headers = {'Authorization': f'Bearer {token}'} if token else {}
+        self.ws = WebSocket(port, '/ws', headers=headers)
         self.next = 1
         self.pending = []
-
-    def send(self, frame):
-        self.ws.send(frame)
 
     def _take(self, matches, timeout):
         for frame in list(self.pending):
@@ -971,115 +1030,102 @@ class Portal:
             self.ws.sock.settimeout(max(0.1, end - time.monotonic()))
             frame = self.ws.recv()
             if frame is None:
-                raise ConnectionError('the portal closed')
+                raise ConnectionError('the connection closed')
             if matches(frame):
                 return frame
             self.pending.append(frame)
-        raise TimeoutError('no answer on the portal')
+        raise TimeoutError('no answer on /ws')
 
-    def call(self, op, args=None, data=None, host=None, timeout=120):
-        """The whole answer frame: result or error."""
+    def call(self, method, params=None, timeout=120):
+        """The whole answer: result or error."""
         number = self.next
         self.next += 1
-        frame = {'id': number, 'op': op}
-        if args is not None:
-            frame['args'] = args
-        if data is not None:
-            frame['data'] = data
-        if host:
-            frame['host'] = host
-        self.send(frame)
+        self.ws.send({'jsonrpc': '2.0', 'id': number, 'method': method, 'params': params or {}})
         return self._take(lambda got: isinstance(got, dict) and got.get('id') == number, timeout)
 
-    def result(self, op, args=None, data=None, host=None, timeout=120):
-        answer = self.call(op, args, data, host, timeout)
+    def result(self, method, params=None, timeout=120):
+        answer = self.call(method, params, timeout)
         if 'error' in answer:
-            raise AssertionError(f'{op}: {answer["error"]}')
+            raise AssertionError(f'{method}: {answer["error"]}')
         return answer['result']
 
-    def stream(self, op, args=None, host=None, until=None, timeout=120):
-        """Open a stream and collect its frames: text as JSON, bytes joined,
-        until it ends or `until(texts, data)` is true."""
-        opened = self.result(op, args, host=host, timeout=timeout)
-        assert opened == {'open': True}, opened
-        number = self.next - 1
-        texts, data = [], b''
-        tag = struct.pack('!I', number)
+    def send(self, stream, data):
+        self.ws.send(struct.pack('!I', stream) + data)
+
+    def stream(self, method, params=None, until=None, timeout=120, send=None):
+        """Open a stream and collect its bytes until it ends or `until(data)` is true. `send`
+        is written to it first."""
+        stream = self.result(method, params, timeout=timeout)['stream']
+        if send is not None:
+            self.send(stream, send)
+        tag = struct.pack('!I', stream)
+        data = b''
 
         def mine(frame):
             if isinstance(frame, bytes):
                 return frame[:4] == tag
-            return frame.get('sub') == number
+            return (frame.get('method', '').startswith('streams.')
+                    and frame.get('params', {}).get('stream') == stream)
 
         end = time.monotonic() + timeout
         while time.monotonic() < end:
             frame = self._take(mine, end - time.monotonic())
             if isinstance(frame, bytes):
                 data += frame[4:]
-            elif frame.get('end'):
-                return texts, data, frame
-            else:
-                texts.append(frame.get('data'))
-            if until and until(texts, data):
-                self.send({'sub': number, 'end': True})
-                return texts, data, None
-        raise TimeoutError(f'{op} did not end')
+                self.ws.send({'jsonrpc': '2.0', 'method': 'streams.credit',
+                              'params': {'stream': stream, 'bytes': len(frame) - 4}})
+            elif frame['method'] == 'streams.close':
+                return data, frame['params'].get('error')
+            elif frame['method'] == 'streams.eof':
+                return data, None
+            if until and until(data):
+                self.ws.send({'jsonrpc': '2.0', 'method': 'streams.close', 'params': {'stream': stream}})
+                return data, None
+        raise TimeoutError(f'{method} did not end')
+
+    def through(self, method, params, data, timeout=60):
+        """What comes back through a byte stream, such as a port's, for `data` and this side's
+        end; the answer's error when it does not open."""
+        answer = self.call(method, params, timeout=timeout)
+        if 'error' in answer:
+            return answer
+        stream = answer['result']['stream']
+        tag = struct.pack('!I', stream)
+        credit, sent, back = 256 * 1024, 0, b''
+        end = time.monotonic() + timeout
+
+        def take(frame):
+            nonlocal credit, back
+            if isinstance(frame, bytes) and frame[:4] == tag:
+                back += frame[4:]
+                self.ws.send({'jsonrpc': '2.0', 'method': 'streams.credit',
+                              'params': {'stream': stream, 'bytes': len(frame) - 4}})
+            elif isinstance(frame, dict) and frame.get('params', {}).get('stream') == stream:
+                if frame.get('method') == 'streams.credit':
+                    credit += frame['params']['bytes']
+                elif frame.get('method') in ('streams.eof', 'streams.close'):
+                    return True
+            return False
+
+        while sent < len(data):
+            chunk = data[sent:sent + min(32768, credit)]
+            if chunk:
+                self.send(stream, chunk)
+                credit -= len(chunk)
+                sent += len(chunk)
+                continue
+            self.ws.sock.settimeout(max(0.1, end - time.monotonic()))
+            if take(self.ws.recv()):
+                return back
+        self.ws.send({'jsonrpc': '2.0', 'method': 'streams.eof', 'params': {'stream': stream}})
+        while time.monotonic() < end:
+            self.ws.sock.settimeout(max(0.1, end - time.monotonic()))
+            if take(self.ws.recv()):
+                return back
+        raise TimeoutError(f'{method} did not end')
 
     def close(self):
         self.ws.close()
-
-
-# ---------------------------------------------------------------------------
-# An OAuth 2.0 issuer: metadata and keys, signing with an Ed25519 key
-
-
-def url64(data):
-    return base64.urlsafe_b64encode(data).rstrip(b'=').decode()
-
-
-class Issuer:
-    def __init__(self):
-        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: PLC0415
-        from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
-        self.key = Ed25519PrivateKey.generate()
-        public = self.key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
-        self.jwks = {'keys': [{'kty': 'OKP', 'crv': 'Ed25519', 'alg': 'EdDSA', 'kid': 'e2e', 'x': url64(public)}]}
-        issuer = self
-
-        class Handler(BaseHTTPRequestHandler):
-            def log_message(self, *_args):
-                pass
-
-            def answer(self, status, body):
-                data = json.dumps(body).encode()
-                self.send_response(status)
-                self.send_header('Content-Type', 'application/json')
-                self.send_header('Content-Length', str(len(data)))
-                self.end_headers()
-                self.wfile.write(data)
-
-            def do_GET(self):  # noqa: N802 (the name http.server calls)
-                if self.path == '/.well-known/openid-configuration':
-                    self.answer(200, {'issuer': issuer.url, 'jwks_uri': f'{issuer.url}/keys'})
-                elif self.path == '/keys':
-                    self.answer(200, issuer.jwks)
-                else:
-                    self.answer(404, {'error': 'not_found'})
-
-        self.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-        self.url = f'http://127.0.0.1:{self.server.server_address[1]}'
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
-
-    def token(self, scope, subject='ada', audience='rookery', expires=600, issuer=None, key=None):
-        header = {'alg': 'EdDSA', 'typ': 'JWT', 'kid': 'e2e'}
-        claims = {'iss': issuer or self.url, 'sub': subject, 'aud': audience, 'scope': scope,
-                  'iat': int(time.time()), 'exp': int(time.time()) + expires}
-        signing = f'{url64(json.dumps(header).encode())}.{url64(json.dumps(claims).encode())}'
-        signature = (key or self.key).sign(signing.encode())
-        return f'{signing}.{url64(signature)}'
-
-    def stop(self):
-        self.server.shutdown()
 
 
 # ---------------------------------------------------------------------------
@@ -1306,6 +1352,9 @@ def cleanup():
     """Stop what runs, remove the scratch directories and the keys handed to the test host."""
     with contextlib.suppress(Exception):
         stop_serving()
+    for station in _servers:
+        with contextlib.suppress(Exception):
+            station.stop_server()
     with contextlib.suppress(OSError):
         for key in SEED.glob('*.pub'):
             key.unlink()

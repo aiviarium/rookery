@@ -5,7 +5,7 @@ profile, and the others use the host it set up.
     ci/run.sh e2e                          all of them
     ci/run.sh e2e --shard plain            the tests of one shard, on a host of their own, as CI runs them
     ci/run.sh e2e e2e_serve                one module
-    ci/run.sh e2e e2e_serve.Roles          one test case
+    ci/run.sh e2e e2e_serve.Grants          one test case
 
 The tests of each test host run in a process of their own, at the same
 time: the output of the first host comes as it happens, that of the others
@@ -60,11 +60,10 @@ HOSTS = {
         'e2e_plugins.PluginRemoved',
         'e2e_tailnet.JoinedByHand',
         # served(): rookery serve, applying nothing.
-        'e2e_serve.Routes',
-        'e2e_serve.Portal',
-        'e2e_serve.Roles',
+        'e2e_serve.Methods',
+        'e2e_serve.Streams',
+        'e2e_serve.Grants',
         'e2e_serve.SetUp',
-        'e2e_serve.ClosedSetUp',
         'e2e_client.Client',
         'e2e_client.AccessToken',
         # served_extended(): applied by the server, with a plugin and the tailnet.
@@ -91,8 +90,8 @@ HOSTS = {
 # is given (its SEAM) on a pull request.
 SHARDS = {
     'studio': ['e2e_apply.Apply', 'e2e_host', 'e2e_secrets', 'e2e_local', 'e2e_controller.OnAWorkstation',
-               'e2e_serve.Routes', 'e2e_serve.Portal', 'e2e_serve.Roles', 'e2e_serve.SetUp',
-               'e2e_serve.ClosedSetUp', 'e2e_client.Client', 'e2e_client.AccessToken', 'e2e_restore'],
+               'e2e_serve.Methods', 'e2e_serve.Streams', 'e2e_serve.Grants', 'e2e_serve.SetUp',
+               'e2e_client.Client', 'e2e_client.AccessToken', 'e2e_restore'],
     'adopt': ['e2e_adopt.Adopt'],
     'extended': ['e2e_apply.Again', 'e2e_plugins.Plugin', 'e2e_tailnet.AutomaticKey', 'e2e_update.Update',
                  'e2e_update.ShippedChanged'],

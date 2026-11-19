@@ -6,7 +6,7 @@
 #                               vale, python-tests, rust-tests, plugin-check, clippy
 #   ci/run.sh e2e [TEST…]       build rookery, start a test host and run the
 #                               end-to-end tests against it (names as in
-#                               unittest: e2e_serve, e2e_serve.Roles)
+#                               unittest: e2e_serve, e2e_serve.Grants)
 #   ci/run.sh e2e --shard NAME  the same for the tests of one shard, on a
 #                               fresh host, as a CI job runs them (see SHARDS
 #                               in tests/e2e/run.py)
@@ -154,9 +154,11 @@ e2e() {
   if [[ ${1:-} == --shard ]]; then
     hosts=("$(python3 tests/e2e/run.py --host-of "${2:-}")") || return 1
   fi
-  local services=("${hosts[@]}")
+  # The servers of the tests keep their state in the database service.
+  local services=("${hosts[@]}" database)
   [[ " ${hosts[*]} " == *" studio "* ]] && services+=(headscale)
   compose --profile e2e up -d "${services[@]}"
+  compose --profile e2e up -d --wait database >/dev/null
   if want_docker "$@"; then
     docker_up || { echo "The Docker engine for the tests did not start" >&2; return 1; }
   fi
