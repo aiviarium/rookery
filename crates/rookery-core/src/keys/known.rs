@@ -287,7 +287,7 @@ mod tests {
             config_dir: dir.path().join("config"),
             data_dir: dir.path().join("data"),
         };
-        let store = Store::open(&dir.path().join("rookery.db")).unwrap();
+        let store = crate::store::shared(&paths).unwrap();
         let place = Place::own(&paths, "studio").unwrap();
         let known_hosts = dir.path().join("known_hosts");
         std::fs::write(
@@ -366,7 +366,7 @@ mod tests {
             config_dir: dir.path().join("config"),
             data_dir: dir.path().join("data"),
         };
-        let store = Store::open(&dir.path().join("rookery.db")).unwrap();
+        let store = crate::store::shared(&paths).unwrap();
         let place = Place::own(&paths, "studio").unwrap();
         let path = prepare(&paths, &store, &place).unwrap();
         assert!(!path.exists() && path.parent().unwrap().is_dir());
