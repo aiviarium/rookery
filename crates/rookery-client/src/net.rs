@@ -1,21 +1,17 @@
-//! The network under the command line: TCP or TLS to a `rookery serve`, its
-//! socket on this machine, a server in this program's own process, and plain
-//! HTTP requests to it.
+//! The network under the client: TCP or TLS to a `rookery serve`, or its
+//! socket on this machine, and plain HTTP requests to it.
 
 use rookery_api::client::{self, Error};
 use std::sync::{Arc, OnceLock};
+
 use tokio::net::TcpStream;
 
 pub use rookery_api::client::Stream;
 
-/// The address of the server in this program's own process, which the
-/// command line starts when no other is set.
-pub const HERE: &str = "here:";
-
-/// Whether the server is on this machine, reached without a token: the one
-/// in this program, or the socket of a `rookery serve` of this user.
+/// Whether the server is on this machine, reached without a token: the
+/// socket of a `rookery serve`.
 pub fn local(server: &str) -> bool {
-    server == HERE || server.starts_with("unix:")
+    server.starts_with("unix:")
 }
 
 /// A server's address as typed, made whole: without a scheme it is https,
@@ -35,19 +31,6 @@ pub fn address(typed: &str) -> String {
     format!("{}://{typed}", if local { "http" } else { "https" })
 }
 
-/// The runtime the connections run on; the command line stays on the main
-/// thread.
-pub fn runtime() -> &'static tokio::runtime::Runtime {
-    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| {
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .build()
-            .expect("the runtime starts")
-    })
-}
-
 /// How a server is reached.
 pub enum Way {
     /// Over TCP, with TLS when `secure`.
@@ -58,8 +41,6 @@ pub enum Way {
     },
     /// The socket of a `rookery serve` on this machine.
     Socket(std::path::PathBuf),
-    /// The server in this process.
-    Here,
 }
 
 /// Where a request goes: how the server is reached, the authority to name in
@@ -70,25 +51,8 @@ pub struct Target {
     pub path: String,
 }
 
-/// The server in this process, when the program runs one.
-static HERE_DIAL: std::sync::RwLock<Option<client::Dial>> = std::sync::RwLock::new(None);
-
-/// Reach `here:` through `dial`, until another is given.
-pub fn serve_here(dial: client::Dial) {
-    *HERE_DIAL
-        .write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(dial);
-}
-
-/// Where `path` of `server` is: `http(s)://HOST[:PORT]`, `unix:/path` or `here:`.
+/// Where `path` of `server` is: `http(s)://HOST[:PORT]` or `unix:/path`.
 pub fn target(server: &str, path: &str) -> Result<Target, String> {
-    if server == HERE {
-        return Ok(Target {
-            way: Way::Here,
-            authority: "rookery".into(),
-            path: path.to_owned(),
-        });
-    }
     if let Some(socket) = server.strip_prefix("unix:") {
         return Ok(Target {
             way: Way::Socket(socket.into()),
@@ -155,14 +119,6 @@ fn tls() -> Arc<rustls::ClientConfig> {
 /// Connect to where `target` points, with TLS when it says so.
 pub async fn connect(target: &Target) -> Result<Stream, String> {
     let (name, port, secure) = match &target.way {
-        Way::Here => {
-            let dial = HERE_DIAL
-                .read()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .clone()
-                .ok_or("There is no server in this program")?;
-            return dial().await.map_err(|error| describe(&error));
-        }
         #[cfg(unix)]
         Way::Socket(path) => {
             let stream = tokio::net::UnixStream::connect(path)
@@ -287,12 +243,9 @@ mod tests {
         assert_eq!(network(&at).1, 443);
         let at = target("unix:/run/user/1000/rookery/serve.sock", "/v1/portal").unwrap();
         assert!(matches!(&at.way, Way::Socket(path) if path.ends_with("serve.sock")));
-        assert!(matches!(
-            target("here:", "/v1/portal").unwrap().way,
-            Way::Here
-        ));
         for wrong in [
             "studio.example",
+            "here:",
             "ftp://studio.example",
             "https://",
             "http://studio:port",
@@ -309,12 +262,11 @@ mod tests {
         );
         assert_eq!(address("127.0.0.1:7878/"), "http://127.0.0.1:7878");
         assert_eq!(address(" https://192.0.2.10/ "), "https://192.0.2.10");
-        assert_eq!(address("here:"), "here:");
         assert_eq!(
             address("unix:/run/rookery/serve.sock"),
             "unix:/run/rookery/serve.sock"
         );
-        assert!(local(HERE) && local("unix:/run/rookery/serve.sock"));
+        assert!(local("unix:/run/rookery/serve.sock"));
         assert!(!local("https://studio.example"));
     }
 }
