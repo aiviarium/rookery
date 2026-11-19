@@ -90,6 +90,29 @@ async fn levels_come_from_grants_groups_and_owners() {
             .await
             .is_err()
     );
+    // A plugin is a principal of its own: its grant is its own and no person's.
+    access
+        .grant("env://studio", "plugin:fleet", 2, "user:x")
+        .await
+        .unwrap();
+    let as_plugin = Who {
+        principal: "plugin:fleet",
+        user: None,
+    };
+    assert_eq!(access.level("env://studio", &as_plugin).await.unwrap(), 2);
+    assert_eq!(level(anyone).await, 1);
+    assert!(
+        access
+            .grant("env://studio", "plugin:Fleet", 1, "x")
+            .await
+            .is_err()
+    );
+    assert!(
+        access
+            .grant("env://studio", "plugin:rookery", 1, "x")
+            .await
+            .is_err()
+    );
     db.close().await;
 }
 

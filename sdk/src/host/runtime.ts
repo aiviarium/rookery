@@ -4,16 +4,24 @@
 //
 // What this version of Rookery serves to host halves: rpc, commands, events, settings, storage,
 // secrets, connections, jobs (handle, enqueue, get, list, cancel, progress and log), leases,
-// topics.publish, notify, services (provide and call), extensions and app services. The rest of
-// the `Rookery` handle answers UNAVAILABLE.
+// topics.publish, notify, services (provide and call), extensions, app services and env (on the
+// invocation's behalf, see `envCall`). The rest of the `Rookery` handle answers UNAVAILABLE.
 import { z } from "zod"
 import { RookeryError } from "../errors"
 import type {
   AppServiceInfo,
+  Checkout,
   ConnectionInfo,
   ConnectionList,
   ConnectionResolved,
+  DirListing,
+  EnvInfo,
+  EnvPresence,
+  ExecResult,
   ExtensionContribution,
+  FileData,
+  FileStat,
+  FileWritten,
   Manifest,
   Principal,
   User,
@@ -147,6 +155,24 @@ function parseWith(schema: { parse(input: unknown): unknown }, what: string, inp
   }
 }
 
+/** Bytes, or text as UTF-8, in base64. */
+function toBase64(content: string | Uint8Array): string {
+  const bytes = typeof content === "string" ? new TextEncoder().encode(content) : content
+  let binary = ""
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  }
+  return btoa(binary)
+}
+
+/**
+ * An env method of the invocation `ctx` names. The server runs it as the person the invocation is
+ * for, or as the plugin when there is none, so a host half never chooses who it acts as.
+ */
+function envCall<T>(rt: HostRuntime, ctx: Ctx, method: string, params: Record<string, unknown>): Promise<T> {
+  return rt.call<T>("host.env", { callId: ctx.callId, method, params })
+}
+
 export class HostRuntime {
   readonly handlers = new Map<string, Handler>()
   readonly events = new Map<string, (payload: unknown, name: string) => unknown>()
@@ -201,6 +227,7 @@ export class HostRuntime {
 
   context(ctx: CallContext, signal: AbortSignal): Ctx {
     return {
+      callId: ctx.callId,
       user: ctx.user ?? null,
       principal: ctx.principal,
       space: null,
@@ -404,6 +431,7 @@ function createApi(rt: HostRuntime): Rookery {
               id: p.job.id,
               attempt: p.job.attempt,
               signal: ctx.signal,
+              ctx,
               context: {
                 id: p.job.id,
                 name: p.job.kind,
@@ -514,7 +542,44 @@ function createApi(rt: HostRuntime): Rookery {
     audit: unavailable("audit"),
     schedules: unavailable("schedules"),
     streams: unavailable("streams"),
-    env: unavailable("env"),
+    // Every env method goes through the invocation the handler serves: the server runs it for that
+    // person, or as the plugin when the invocation has no person, as in a job.
+    env: {
+      list: async (ctx) => (await envCall<{ environments: EnvInfo[] }>(rt, ctx, "env.list", {})).environments,
+      get: (ctx, env) => envCall<EnvInfo>(rt, ctx, "env.get", { env }),
+      presence: (ctx, env) => envCall<EnvPresence>(rt, ctx, "env.presence", { env }),
+      exec: (ctx, env, command, opts = {}) =>
+        envCall<ExecResult>(rt, ctx, "env.exec", {
+          env,
+          command,
+          ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+          ...(opts.env !== undefined ? { vars: opts.env } : {}),
+          ...(opts.stdin !== undefined ? { stdin: opts.stdin } : {}),
+          ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+        }),
+      checkouts: async (ctx, env) =>
+        (await envCall<{ checkouts: Checkout[] }>(rt, ctx, "env.checkouts", { env })).checkouts,
+      clone: (ctx, env, repository, opts = {}) =>
+        envCall<Checkout>(rt, ctx, "env.clone", { env, repository, ...opts }),
+      worktree: (ctx, env, checkout, branch, opts = {}) =>
+        envCall<Checkout>(rt, ctx, "env.worktree", { env, checkout, branch, ...opts }),
+      removeCheckout: async (ctx, env, path, opts = {}) => {
+        await envCall(rt, ctx, "env.removeCheckout", { env, path, ...opts })
+      },
+      readFile: (ctx, env, path) => envCall<FileData>(rt, ctx, "env.readFile", { env, path }),
+      writeFile: (ctx, env, path, content, opts = {}) =>
+        envCall<FileWritten>(rt, ctx, "env.writeFile", {
+          env,
+          path,
+          base64: toBase64(content),
+          ...opts,
+        }),
+      deleteFile: async (ctx, env, path, opts = {}) => {
+        await envCall(rt, ctx, "env.deleteFile", { env, path, ...opts })
+      },
+      listDir: (ctx, env, path) => envCall<DirListing>(rt, ctx, "env.listDir", { env, path }),
+      stat: (ctx, env, path) => envCall<FileStat>(rt, ctx, "env.stat", { env, path }),
+    },
     terminals: unavailable("terminals"),
     appServices: {
       list: async () => (await rt.call<{ services: AppServiceInfo[] }>("services.list", { plugin })).services,

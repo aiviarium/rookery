@@ -39,16 +39,31 @@ pub struct Access<'a> {
     pub(crate) pool: &'a PgPool,
 }
 
-/// A principal a grant may name: `user:<uuid>`, `group:<uuid>` or `everyone`.
+/// A principal a grant may name: `user:<uuid>`, `group:<uuid>`, `plugin:<id>` or `everyone`.
 pub fn check_principal(principal: &str) -> Result<()> {
     principal_name(principal).map(|_| ())
 }
 
-/// A principal as grants keep it, with its id in the one spelling the callers' principals have, so that
-/// `user:<UUID>` in capitals or without hyphens names the same person.
+/// A principal as grants keep it, with a user or group's id in the one spelling the callers'
+/// principals have, so that `user:<UUID>` in capitals or without hyphens names the same person. A
+/// plugin's id is kept as it is: lower-case letters, digits, `-` and `_`, as `rookery_api` checks it.
 pub fn principal_name(principal: &str) -> Result<String> {
     if principal == "everyone" {
         return Ok(principal.to_owned());
+    }
+    if let Some(id) = principal.strip_prefix("plugin:") {
+        let named = id.starts_with(|ch: char| ch.is_ascii_lowercase())
+            && id
+                .chars()
+                .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-' || ch == '_')
+            && id != "rookery";
+        return if named {
+            Ok(format!("plugin:{id}"))
+        } else {
+            Err(Error::Invalid(format!(
+                "{principal:?} does not name a plugin after plugin:"
+            )))
+        };
     }
     let named = ["user:", "group:"].iter().find_map(|kind| {
         let id = principal.strip_prefix(kind)?;
@@ -56,7 +71,7 @@ pub fn principal_name(principal: &str) -> Result<String> {
     });
     named.ok_or_else(|| {
         Error::Invalid(format!(
-            "{principal:?} is not user:<id>, group:<id> or everyone"
+            "{principal:?} is not user:<id>, group:<id>, plugin:<id> or everyone"
         ))
     })
 }

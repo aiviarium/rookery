@@ -2,6 +2,6 @@
 import type { Grant } from "./Grant";
 
 /**
- * `access.grant`. `principal` is `user:<id>`, `group:<id>` or `everyone`.
+ * `access.grant`. `principal` is `user:<id>`, `group:<id>`, `plugin:<id>` or `everyone`.
  */
 export type AccessGrant = { resource: string, principal: string, level: Grant, };

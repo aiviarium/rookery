@@ -7,7 +7,7 @@ use crate::facilities::wire;
 use crate::methods::Grant;
 
 wire! {
-    /// `access.grant`. `principal` is `user:<id>`, `group:<id>` or `everyone`.
+    /// `access.grant`. `principal` is `user:<id>`, `group:<id>`, `plugin:<id>` or `everyone`.
     pub struct AccessGrant {
         pub resource: String,
         pub principal: String,
