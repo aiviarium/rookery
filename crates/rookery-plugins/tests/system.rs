@@ -392,3 +392,135 @@ async fn host_halves_run_call_the_kernel_and_start_again_when_they_end() {
     assert_eq!(gone.error_code(), rookery_proto::ErrorCode::NotFound);
     k.close().await;
 }
+
+/// A datastore that records what it is given, and runs each transform step of the migrations.
+struct FakeData(std::sync::Mutex<Vec<(String, usize, Vec<i64>)>>);
+
+impl rookery_plugins::PluginData for FakeData {
+    fn apply<'a>(
+        &'a self,
+        _: &'a rookery_kernel::Kernel,
+        plugin: &'a rookery_plugins::Loaded,
+        declared: &'a rookery_plugins::Declared,
+        transforms: rookery_plugins::Transforms,
+    ) -> futures_util::future::BoxFuture<'a, Result<(), rookery_kernel::RpcError>> {
+        Box::pin(async move {
+            self.0.lock().unwrap().push((
+                plugin.id.clone(),
+                declared.collections.len(),
+                declared.migrations.iter().map(|m| m.version).collect(),
+            ));
+            for migration in &declared.migrations {
+                for step in migration.body["steps"].as_array().into_iter().flatten() {
+                    if step["op"] == "transform" {
+                        let name = step["name"].as_str().unwrap();
+                        transforms
+                            .run(name, &format!("m-{}", migration.version))
+                            .await?;
+                    }
+                }
+            }
+            Ok(())
+        })
+    }
+}
+
+static TX: std::sync::Mutex<Vec<(String, Value)>> = std::sync::Mutex::new(vec![]);
+
+fn methods_with_tx() -> Methods {
+    let mut methods = methods();
+    methods
+        .add(
+            "data.txRows",
+            |call: rookery_kernel::Call, p: Value| async move {
+                TX.lock()
+                    .unwrap()
+                    .push((format!("rows as {}", call.principal().id), p.clone()));
+                let rows = if p.get("after").is_some_and(|a| !a.is_null()) {
+                    json!([])
+                } else {
+                    json!([{"id": "n1", "text": "one"}])
+                };
+                Ok(json!({ "rows": rows }))
+            },
+        )
+        .level(rookery_kernel::Level::Plugin);
+    methods
+        .add(
+            "data.txInsert",
+            |call: rookery_kernel::Call, p: Value| async move {
+                TX.lock()
+                    .unwrap()
+                    .push((format!("insert as {}", call.principal().id), p.clone()));
+                Ok(json!({"row": p["values"]}))
+            },
+        )
+        .level(rookery_kernel::Level::Plugin);
+    methods
+}
+
+const NOTES: &str = r#"{"apiVersion": "1", "name": "Notes",
+  "contributes": {"collections": [
+    {"name": "notes", "fields": [{"name": "text", "type": "text"}]},
+    {"name": "copies", "fields": [{"name": "of", "type": "text"}, {"name": "text", "type": "text"}]}]}}"#;
+
+#[tokio::test]
+async fn declared_data_goes_to_the_datastore_and_transform_steps_run_in_the_host() {
+    let k = test_kernel!(methods_with_tx());
+    let scratch = tempfile::tempdir().unwrap();
+    // Without a datastore, a plugin with collections is not used.
+    let plugins = plugins(&k, scratch.path()).await;
+    let admin = k.person("Ada", true).await;
+    let notes = package(
+        scratch.path(),
+        "notes",
+        "1.0.0",
+        &[
+            ("plugin.json", NOTES),
+            (
+                "migrations/0001.json",
+                r#"{"onInstall": true, "steps": [{"op": "transform", "name": "copy"}]}"#,
+            ),
+            (
+                "migrations/copy.ts",
+                &fs::read_to_string(
+                    checkout().join("host/test/fixtures/migrating/migrations/copy.ts"),
+                )
+                .unwrap(),
+            ),
+        ],
+    );
+    install(&k, &plugins, &notes).await;
+    let list = k.call(&admin, "plugins.list", json!({})).await.unwrap();
+    let found = info(&list, "notes").unwrap();
+    assert_eq!(found["state"], "invalid");
+    assert!(
+        found["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("no datastore"),
+        "{found}"
+    );
+    if !bun_ready() {
+        eprintln!("skipped the transform step: the extension host needs bun and `bun install`");
+        k.close().await;
+        return;
+    }
+    // With one, it is applied, and its transform step reads and writes as the plugin.
+    let data = Arc::new(FakeData(Default::default()));
+    k.kernel
+        .set_facility(rookery_plugins::DataLayer(data.clone()));
+    plugins.reload(&k.kernel).await.unwrap();
+    let list = k.call(&admin, "plugins.list", json!({})).await.unwrap();
+    assert_eq!(info(&list, "notes").unwrap()["state"], "active", "{list}");
+    assert_eq!(*data.0.lock().unwrap(), [("notes".to_owned(), 2, vec![1])]);
+    let tx = TX.lock().unwrap().clone();
+    let kinds: Vec<&str> = tx.iter().map(|(what, _)| what.as_str()).collect();
+    assert_eq!(kinds, ["rows as notes", "insert as notes", "rows as notes"]);
+    assert_eq!(tx[1].1["migration"], "m-1");
+    assert_eq!(tx[1].1["values"], json!({"of": "n1", "text": "ONE"}));
+    // Read again without a change, it is not applied again.
+    plugins.reload(&k.kernel).await.unwrap();
+    assert_eq!(data.0.lock().unwrap().len(), 1);
+    k.close().await;
+}

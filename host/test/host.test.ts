@@ -138,4 +138,40 @@ describe("the extension host", () => {
     expect(RookeryError.from(refused).message).toContain("definePlugin")
     await host.handle("plugins.deactivate", { plugin: "broken" })
   })
+
+  test("a transform step runs with a tx of its migration, as the plugin", async () => {
+    const calls: Array<{ method: string; params: any; plugin?: string }> = []
+    const notes: string[] = []
+    const host = new Host({
+      async request(method, params, plugin) {
+        calls.push({ method, params, plugin })
+        if (method === "data.txRows")
+          return {
+            rows: params.after
+              ? []
+              : [
+                  { id: "n1", text: "one" },
+                  { id: "n2", text: "two" },
+                ],
+          }
+        if (method === "data.txInsert") return { row: { id: "c", ...(params.values as object) } }
+        return {}
+      },
+      notify(method, params) {
+        if (method === "plugins.log") notes.push(String(params.message))
+      },
+    })
+    const t = { plugin: "migrating", dir: fixture("migrating"), migration: "m-1" }
+    await host.handle("plugins.transform", { ...t, name: "copy" })
+    expect(calls.map((c) => [c.method, c.plugin, c.params.migration])).toEqual([
+      ["data.txRows", "migrating", "m-1"],
+      ["data.txInsert", "migrating", "m-1"],
+      ["data.txInsert", "migrating", "m-1"],
+      ["data.txRows", "migrating", "m-1"],
+    ])
+    expect(calls[1]!.params.values).toEqual({ of: "n1", text: "ONE" })
+    expect(notes).toEqual(["[copy] copied"])
+    const failed = await host.handle("plugins.transform", { ...t, name: "broken" }).catch((e) => e)
+    expect(RookeryError.from(failed).message).toContain("this step fails")
+  })
 })

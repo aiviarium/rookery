@@ -31,6 +31,8 @@ pub struct Loaded {
     /// Why it cannot be used, with each problem in `details.problems`.
     pub problem: Option<ErrorBody>,
     pub client: Option<ClientHalf>,
+    /// Its collections, raw schema and migrations, which the datastore applies.
+    pub declared: crate::data::Declared,
     /// SHA-256 over the target's files, as hosts record it.
     pub digest: String,
 }
@@ -177,6 +179,7 @@ pub fn load(plugin: &rookery_core::plugins::Plugin) -> Loaded {
         manifest: None,
         problem: None,
         client: None,
+        declared: Default::default(),
         digest: rookery_core::plugins::digest(&plugin.dir),
     };
     let read = match plugin_contract::read_dir(&plugin.dir) {
@@ -205,6 +208,10 @@ pub fn load(plugin: &rookery_core::plugins::Plugin) -> Loaded {
     );
     if let Some(problem) = &plugin.problem {
         problems.insert(0, problem.clone());
+    }
+    match crate::data::declared(&plugin.dir, &read.manifest) {
+        Ok(declared) => loaded.declared = declared,
+        Err(found) => problems.extend(found),
     }
     if !problems.is_empty() {
         loaded.problem = Some(invalid(

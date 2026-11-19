@@ -2,7 +2,8 @@
 //! with one worker in it for each plugin's host half. It runs `host/src/main.ts` of the source, and
 //! the two talk JSON-RPC 2.0 over its standard input and output, one message a line.
 //!
-//! The server asks the host `plugins.activate`, `plugins.invoke` and `plugins.deactivate`, and tells
+//! The server asks the host `plugins.activate`, `plugins.invoke`, `plugins.deactivate` and
+//! `plugins.transform` (a migration's transform step, see [`crate::data`]), and tells
 //! it `plugins.cancel` and `plugins.notify`, which carries what the kernel sent to the plugin's
 //! connection, such as `events.event` and `topics.message`. The host asks `host.hello` first, then
 //! the facility calls of plugins, each with the plugin in the envelope (`"plugin": "hello"`): they run
@@ -92,6 +93,8 @@ pub(crate) struct ExtHost {
     started: AtomicBool,
     slots: Mutex<HashMap<String, Slot>>,
     gates: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    /// The connection of a plugin's transform step that runs, with the host it runs in.
+    transforms: Mutex<HashMap<String, (u64, ConnHandle)>>,
 }
 
 impl ExtHost {
@@ -103,6 +106,7 @@ impl ExtHost {
             started: AtomicBool::new(false),
             slots: Mutex::default(),
             gates: Mutex::default(),
+            transforms: Mutex::default(),
         }
     }
 
@@ -148,11 +152,50 @@ impl ExtHost {
     }
 
     fn plugin_conn(&self, plugin: &str, generation: u64) -> Option<ConnHandle> {
-        let slots = self.slots.lock().unwrap();
-        let slot = slots.get(plugin)?;
-        (slot.generation == generation)
-            .then(|| slot.conn.clone())
-            .flatten()
+        let active = {
+            let slots = self.slots.lock().unwrap();
+            slots
+                .get(plugin)
+                .filter(|slot| slot.generation == generation)
+                .and_then(|slot| slot.conn.clone())
+        };
+        active.or_else(|| {
+            let transforms = self.transforms.lock().unwrap();
+            transforms
+                .get(plugin)
+                .filter(|(at, _)| *at == generation)
+                .map(|(_, conn)| conn.clone())
+        })
+    }
+
+    /// Runs a transform step of a plugin's migration in the host, in a worker of its own. Its calls of
+    /// the server go as the plugin, whether or not its host half runs.
+    pub async fn transform(
+        &self,
+        kernel: &Kernel,
+        plugins: Arc<crate::Plugins>,
+        plugin: &str,
+        params: Value,
+    ) -> Result<(), RpcError> {
+        self.ensure_started(kernel, plugins)?;
+        let link = self.wait_link(CONNECT_TIMEOUT).await?;
+        let (conn, rx) = ConnHandle::detached(kernel, Caller::Plugin(plugin.to_owned()));
+        tokio::spawn(forward(rx, link.clone(), plugin.to_owned()));
+        let earlier = self
+            .transforms
+            .lock()
+            .unwrap()
+            .insert(plugin.to_owned(), (link.generation(), conn.clone()));
+        if earlier.is_some() {
+            tracing::warn!(
+                plugin,
+                "a transform step started while another of the plugin ran"
+            );
+        }
+        let done = link.request("plugins.transform", params).await;
+        self.transforms.lock().unwrap().remove(plugin);
+        conn.close_detached(kernel);
+        done.map(|_| ())
     }
 
     fn set(&self, plugin: &str, change: impl FnOnce(&mut Slot)) {

@@ -4,7 +4,7 @@ import { Worker } from "node:worker_threads"
 import { RookeryError } from "@rookery/sdk/errors"
 import type { ErrorBody } from "@rookery/sdk/generated"
 import type { Invoke, Registration } from "@rookery/sdk/runtime/host"
-import type { FromWorker, ToWorker, WorkerData } from "./protocol"
+import type { FromWorker, ToWorker, TransformData, TransformMessage, WorkerData } from "./protocol"
 
 /** What the host says to the server. */
 export interface ServerLink {
@@ -42,6 +42,9 @@ export class Host {
         return this.invoke(params as Invoke)
       case "plugins.deactivate":
         await this.stop(params.plugin, true)
+        return {}
+      case "plugins.transform":
+        await this.transform(params as TransformData)
         return {}
       default:
         throw new RookeryError("NOT_FOUND", `the extension host has no method ${method}`)
@@ -81,6 +84,38 @@ export class Host {
     )
     worker.on("exit", (code) => this.exited(slot, code))
     return this.request(slot, (id) => ({ type: "activate", id }))
+  }
+
+  /** Runs a transform step of a plugin's migration in a worker of its own, until it returns. */
+  async transform(t: TransformData): Promise<void> {
+    const worker = new Worker(new URL("./transform.ts", import.meta.url), { workerData: t })
+    try {
+      await new Promise<void>((resolve, reject) => {
+        worker.on("message", (m: TransformMessage) => {
+          if (m.type === "done") resolve()
+          else if (m.type === "failed")
+            reject(new RookeryError(m.error.code, m.error.message, m.error.details))
+          else if (m.type === "call")
+            this.server.request(m.method, m.params, t.plugin).then(
+              (result) => worker.postMessage({ type: "result", id: m.id, result }),
+              (e) => worker.postMessage({ type: "result", id: m.id, error: RookeryError.from(e).toBody() }),
+            )
+          else if (m.type === "log")
+            this.server.notify("plugins.log", { plugin: t.plugin, level: m.level, message: m.message })
+        })
+        worker.on("error", (e) => reject(RookeryError.from(e)))
+        worker.on("exit", (code) =>
+          reject(
+            new RookeryError(
+              "UNAVAILABLE",
+              `the transform step ${t.name} of ${t.plugin} ended (code ${code})`,
+            ),
+          ),
+        )
+      })
+    } finally {
+      await worker.terminate()
+    }
   }
 
   async invoke(inv: Invoke): Promise<unknown> {

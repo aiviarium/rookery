@@ -27,3 +27,18 @@ export interface WorkerData {
   dir: string
   manifest: any
 }
+
+/** `plugins.transform`: a transform step of a plugin's migration. */
+export interface TransformData {
+  plugin: string
+  dir: string
+  name: string
+  migration: string
+}
+
+/** From a transform step's worker to the main thread. */
+export type TransformMessage =
+  | { type: "call"; id: number; method: string; params: Record<string, unknown> }
+  | { type: "log"; level: LogLevel; message: string }
+  | { type: "done" }
+  | { type: "failed"; error: ErrorBody }

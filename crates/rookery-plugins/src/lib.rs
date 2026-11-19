@@ -13,6 +13,7 @@
 //!   needed.
 
 pub mod client;
+pub mod data;
 pub mod exthost;
 pub mod loaded;
 pub mod methods;
@@ -28,6 +29,7 @@ use rookery_kernel::{Caller, Kernel};
 use rookery_proto::{ErrorBody, ErrorCode, RpcError};
 
 pub use client::routes;
+pub use data::{DataLayer, Declared, PluginData, Transforms};
 pub use exthost::HostOptions;
 pub use loaded::Loaded;
 pub use methods::register;
@@ -140,7 +142,8 @@ impl Plugins {
         })
         .await
         .map_err(|e| RpcError::internal(format!("reading the plugins: {e}")))?;
-        let found = with_dependencies(found);
+        let mut found = with_dependencies(found);
+        self.apply_data(kernel, &mut found).await;
         record::sync(&kernel.store, &found).await?;
         let rows = record::rows(&kernel.store).await?;
         let new: BTreeMap<String, Arc<Loaded>> = found
@@ -170,6 +173,46 @@ impl Plugins {
             }
         }
         Ok(())
+    }
+
+    /// Has the datastore apply what each valid plugin declares of its data, when it is new or changed.
+    /// One whose data could not be applied is not used.
+    async fn apply_data(self: &Arc<Self>, kernel: &Kernel, found: &mut [Loaded]) {
+        let layer = kernel.get_facility::<data::DataLayer>();
+        for plugin in found.iter_mut() {
+            if !plugin.valid() || plugin.declared.is_empty() {
+                continue;
+            }
+            if self.get(&plugin.id).is_some_and(|old| *old == *plugin) {
+                continue;
+            }
+            let done = match &layer {
+                None => Err(RpcError::unavailable(format!(
+                    "{} declares collections, a database or migrations, and this server has no datastore for them",
+                    plugin.id
+                ))),
+                Some(layer) => {
+                    let transforms = data::Transforms {
+                        kernel: kernel.clone(),
+                        plugins: self.clone(),
+                        plugin: plugin.id.clone(),
+                        dir: plugin.dir.clone(),
+                    };
+                    layer
+                        .0
+                        .apply(kernel, plugin, &plugin.declared, transforms)
+                        .await
+                }
+            };
+            if let Err(e) = done {
+                tracing::warn!(plugin = %plugin.id, error = %e, "a plugin's data was not applied");
+                plugin.problem = Some(ErrorBody {
+                    code: e.error_code(),
+                    message: format!("the data of {} was not applied: {}", plugin.id, e.message),
+                    details: e.details().cloned(),
+                });
+            }
+        }
     }
 
     /// Tells every person's connection that these plugins changed.
