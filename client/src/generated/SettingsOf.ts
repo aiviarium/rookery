@@ -3,4 +3,8 @@
 /**
  * `settings.list`.
  */
-export type SettingsOf = { plugin: string, };
+export type SettingsOf = { plugin: string, 
+/**
+ * The space of the `space` scope, or the space to resolve in.
+ */
+space?: string, };

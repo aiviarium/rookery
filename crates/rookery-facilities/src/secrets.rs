@@ -18,6 +18,9 @@ fn scope(call: &Call, plugin: &str, scope: WireScope) -> Result<Scope, RpcError>
             Ok(Scope::Global)
         }
         WireScope::User => Ok(Scope::User(own_user(call)?)),
+        WireScope::Space => Err(RpcError::invalid(
+            "a secret is the plugin's or a person's: spaces have connections",
+        )),
     }
 }
 

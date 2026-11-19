@@ -3,4 +3,8 @@
 /**
  * `settings.get`.
  */
-export type SettingRef = { plugin: string, key: string, };
+export type SettingRef = { plugin: string, key: string, 
+/**
+ * The space of the `space` scope, or the space to resolve in.
+ */
+space?: string, };

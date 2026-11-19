@@ -41,3 +41,24 @@ pub(crate) fn own_user(call: &Call) -> Result<Uuid, RpcError> {
     }
     call.user_id()
 }
+
+/// The space a call names, when the caller holds at least `need` on it.
+pub(crate) async fn space_held(
+    call: &Call,
+    space: Option<&str>,
+    need: rookery_kernel::Grant,
+) -> Result<Uuid, RpcError> {
+    let Some(space) = space else {
+        return Err(RpcError::invalid(
+            "the space scope names the space in space",
+        ));
+    };
+    let id = parse_id("space", space)?;
+    if !crate::access::holds(call, &format!("space://{id}"), need).await? {
+        return Err(RpcError::forbidden(format!(
+            "this needs {} on space://{id}",
+            rookery_kernel::methods::grant_name(need)
+        )));
+    }
+    Ok(id)
+}

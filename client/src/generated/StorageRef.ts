@@ -8,4 +8,8 @@ export type StorageRef = { plugin?: string, scope: Scope, key: string,
 /**
  * For `storage.delete`: only at this revision.
  */
-revision?: number, };
+revision?: number, 
+/**
+ * The space of the `space` scope, or the space to resolve in.
+ */
+space?: string, };

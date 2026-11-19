@@ -4,4 +4,8 @@ import type { SettingScope } from "./SettingScope";
 /**
  * `settings.reset`: removes the value at one scope.
  */
-export type SettingReset = { plugin: string, key: string, scope: SettingScope, };
+export type SettingReset = { plugin: string, key: string, scope: SettingScope, 
+/**
+ * The space of the `space` scope, or the space to resolve in.
+ */
+space?: string, };

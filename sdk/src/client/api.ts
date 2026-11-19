@@ -226,20 +226,38 @@ export interface Rpc {
 }
 
 export interface Settings {
-  /** A setting of this plugin as it resolves for the caller: their own, else the global one, else the default. */
-  get<K extends SettingKey>(key: K): Promise<TypedSettings[K]>
-  /** Sets a value at one scope: the default or the global value needs an admin. */
-  set<K extends SettingKey>(key: K, value: TypedSettings[K], scope: SettingScope): Promise<void>
+  /**
+   * A setting of this plugin as it resolves for the caller: their own, else the space's (the current
+   * space unless one is named), else the global one, else the default.
+   */
+  get<K extends SettingKey>(key: K, opts?: { space?: string }): Promise<TypedSettings[K]>
+  /** Sets a value at one scope: the default or the global value needs an admin, a space's its manager. */
+  set<K extends SettingKey>(
+    key: K,
+    value: TypedSettings[K],
+    scope: SettingScope,
+    opts?: { space?: string },
+  ): Promise<void>
   /** Every setting of this plugin, as it resolves for the caller. */
-  list(): Promise<Setting[]>
-  reset(key: SettingKey, scope: SettingScope): Promise<void>
+  list(opts?: { space?: string }): Promise<Setting[]>
+  reset(key: SettingKey, scope: SettingScope, opts?: { space?: string }): Promise<void>
 }
 
 export interface Storage {
-  get<T = unknown>(key: string, opts?: { scope?: Scope }): Promise<T | null>
-  set(key: string, value: unknown, opts?: { scope?: Scope; revision?: number }): Promise<Revision>
-  list(opts: { prefix: string; scope?: Scope; after?: string; limit?: number }): Promise<StorageEntry[]>
-  delete(key: string, opts?: { scope?: Scope; revision?: number }): Promise<boolean>
+  get<T = unknown>(key: string, opts?: { scope?: Scope; space?: string }): Promise<T | null>
+  set(
+    key: string,
+    value: unknown,
+    opts?: { scope?: Scope; space?: string; revision?: number },
+  ): Promise<Revision>
+  list(opts: {
+    prefix: string
+    scope?: Scope
+    space?: string
+    after?: string
+    limit?: number
+  }): Promise<StorageEntry[]>
+  delete(key: string, opts?: { scope?: Scope; space?: string; revision?: number }): Promise<boolean>
 }
 
 /** A job's log as it arrives: one line at a time, then how the job ended. */
@@ -673,26 +691,42 @@ export function createClientRookery(s: ClientScope): ClientRookery {
         s.rt.call(method, params) as Promise<T>,
     },
     settings: {
-      get: async <K extends SettingKey>(key: K) =>
-        (await call("settings.get", { plugin: s.plugin, key })).value as TypedSettings[K],
-      set: async (key, value, scope) => {
-        await call("settings.set", { plugin: s.plugin, key, value, scope })
+      get: async <K extends SettingKey>(key: K, opts: { space?: string } = {}) => {
+        const space = opts.space ?? s.rt.space?.()?.id
+        return (await call("settings.get", { plugin: s.plugin, key, ...(space ? { space } : {}) }))
+          .value as TypedSettings[K]
       },
-      list: async () => (await call("settings.list", { plugin: s.plugin })).entries,
-      reset: async (key, scope) => {
-        await call("settings.reset", { plugin: s.plugin, key, scope })
+      set: async (key, value, scope, opts = {}) => {
+        const space = scope === "space" ? (opts.space ?? s.rt.space?.()?.id) : undefined
+        await call("settings.set", { plugin: s.plugin, key, value, scope, ...(space ? { space } : {}) })
+      },
+      list: async (opts = {}) => {
+        const space = opts.space ?? s.rt.space?.()?.id
+        return (await call("settings.list", { plugin: s.plugin, ...(space ? { space } : {}) })).entries
+      },
+      reset: async (key, scope, opts = {}) => {
+        const space = scope === "space" ? (opts.space ?? s.rt.space?.()?.id) : undefined
+        await call("settings.reset", { plugin: s.plugin, key, scope, ...(space ? { space } : {}) })
       },
     },
     storage: {
-      get: async <T = unknown>(key: string, opts: { scope?: Scope } = {}) =>
-        (await call("storage.get", { plugin: s.plugin, key, scope: opts.scope ?? "global" }))
-          .value as T | null,
+      get: async <T = unknown>(key: string, opts: { scope?: Scope; space?: string } = {}) =>
+        (
+          await call("storage.get", {
+            plugin: s.plugin,
+            key,
+            scope: opts.scope ?? "global",
+            ...(opts.space ? { space: opts.space } : {}),
+            ...(opts.space ? { space: opts.space } : {}),
+          })
+        ).value as T | null,
       set: (key, value, opts = {}) =>
         call("storage.set", {
           plugin: s.plugin,
           key,
           value,
           scope: opts.scope ?? "global",
+          ...(opts.space ? { space: opts.space } : {}),
           ...(opts.revision !== undefined ? { revision: opts.revision } : {}),
         }),
       list: async (opts) =>
@@ -701,6 +735,7 @@ export function createClientRookery(s: ClientScope): ClientRookery {
             plugin: s.plugin,
             prefix: opts.prefix,
             scope: opts.scope ?? "global",
+            ...(opts.space ? { space: opts.space } : {}),
             ...(opts.after ? { after: opts.after } : {}),
             ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
           })

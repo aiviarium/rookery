@@ -271,6 +271,7 @@ export interface Secrets {
 export interface Connections {
   list(opts?: { type?: string; space?: string }): Promise<ConnectionInfo[]>
   get(id: string): Promise<ConnectionInfo>
+  /** A global connection with its credential. */
   resolve(id: string): Promise<ConnectionResolved>
 }
 

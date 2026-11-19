@@ -5,4 +5,8 @@ import type { SettingScope } from "./SettingScope";
  * `settings.set`: the default is the plugin's or an admin's to set, the global value an admin's,
  * the user's value the caller's.
  */
-export type SettingSet = { plugin: string, key: string, scope: SettingScope, value: unknown, };
+export type SettingSet = { plugin: string, key: string, scope: SettingScope, value: unknown, 
+/**
+ * The space of the `space` scope, or the space to resolve in.
+ */
+space?: string, };
