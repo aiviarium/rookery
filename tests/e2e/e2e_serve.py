@@ -12,7 +12,7 @@ import unittest
 import urllib.parse
 
 from harness import (AGENT, HOST, WebSocket, needs_e2e, provisioned, random_text, served, served_extended,
-                     unb64, wait_for)
+                     shell_quote, unb64, wait_for)
 
 
 def text_of(started):
@@ -279,9 +279,10 @@ class Connect(unittest.TestCase):
         vnc_session = None
         if not has_scrot:
             png_b64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8BQDwAEgAF/posBPQAAAABJRU5ErkJggg=='
+            script = f'#!/bin/sh\nprintf %s {png_b64} | base64 -d > "$1"\n'
             station.root_on_host(
                 f'install -d -o {AGENT} -g {AGENT} /home/{AGENT}/.local/bin && '
-                f'printf "#!/bin/sh\\nprintf \'%s\' {png_b64} | base64 -d > \\"\\$1\\"\\n" > {scrot_path} && '
+                f'printf %s {shell_quote(script)} > {scrot_path} && '
                 f'chown {AGENT}:{AGENT} {scrot_path} && chmod 0755 {scrot_path}'
             )
         if not has_vnc:
@@ -295,7 +296,7 @@ class Connect(unittest.TestCase):
                 '  c.sendall(b"RFB 003.008\\n"); c.recv(12)\n'
                 '  c.sendall(b"\\x01\\x01"); c.recv(1)\n'
                 '  c.sendall(b"\\x00\\x00\\x00\\x00"); c.recv(1)\n'
-                '  c.sendall(struct.pack("!HH", 800, 600) + b"\\x00" * 20)\n'
+                '  c.sendall(struct.pack("!HH", 800, 600) + b"\\x00" * 20); c.recv(1)\n'
                 ' finally: c.close()\n'
             )
             vnc_session = self.serve.call('hosts.sessions.open', {
