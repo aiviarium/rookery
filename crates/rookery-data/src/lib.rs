@@ -14,6 +14,7 @@ pub mod home;
 pub mod live;
 pub mod plugins;
 pub mod spaces;
+pub mod sql;
 
 use rookery_kernel::{Call, Caller, Methods, RpcError};
 use rookery_proto::data::DataTarget;
@@ -28,6 +29,7 @@ pub fn register(methods: &mut Methods) {
     live::register(methods);
     plugins::register(methods);
     spaces::register(methods);
+    sql::register(methods);
 }
 
 pub(crate) fn parse_id(what: &str, id: &str) -> Result<Uuid, RpcError> {

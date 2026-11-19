@@ -324,6 +324,18 @@ impl<'a> Feed<'a> {
         {
             return;
         }
+        let Some(channel) = self
+            .store
+            .data
+            .channel
+            .read()
+            .expect("channel lock")
+            .clone()
+        else {
+            // Rookery's collections are not made on this store: nothing tells the feed.
+            state.listening.store(false, Ordering::SeqCst);
+            return;
+        };
         let store = self.store.clone();
         tokio::spawn(async move {
             let Ok(mut listener) = sqlx::postgres::PgListener::connect_with(store.pool()).await
@@ -331,11 +343,7 @@ impl<'a> Feed<'a> {
                 store.data.feed.listening.store(false, Ordering::SeqCst);
                 return;
             };
-            if listener
-                .listen(crate::collections::system::CHANNEL)
-                .await
-                .is_err()
-            {
+            if listener.listen(&channel).await.is_err() {
                 store.data.feed.listening.store(false, Ordering::SeqCst);
                 return;
             }

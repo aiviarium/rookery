@@ -8,7 +8,7 @@ use serde_json::Value;
 use crate::caller::Level;
 use crate::error::{Error, Result};
 
-/// One collection, as declared in the manifest. See `docs/data.md`.
+/// One collection, as declared in the manifest.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CollectionDef {

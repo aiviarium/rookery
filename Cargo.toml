@@ -70,6 +70,15 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 debug = false
 
+# The SCRAM verifiers of raw SQL's roles hash a password 4096 times, which unoptimised takes most of a
+# second per role in tests.
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.sha1]
+opt-level = 3
+[profile.dev.package.hmac]
+opt-level = 3
+
 [profile.release]
 strip = true
 

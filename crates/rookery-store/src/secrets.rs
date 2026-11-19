@@ -50,6 +50,8 @@ pub struct Rekeyed {
     pub host_keys: u64,
     /// Jobs that keep the values their output masks.
     pub jobs: u64,
+    /// The passwords of plugins' raw SQL roles.
+    pub sql_credentials: u64,
 }
 
 pub struct Secrets<'a> {
@@ -282,6 +284,33 @@ impl Secrets<'_> {
             .execute(&mut *tx)
             .await?;
             done.jobs += 1;
+        }
+        let rows: Vec<(String, String, Vec<u8>, Vec<u8>)> = sqlx::query_as(
+            "SELECT plugin, key_id, password_nonce, password_sealed FROM rookery.plugin_sql FOR UPDATE",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        for (plugin, key_id, nonce, ciphertext) in rows {
+            let aad = crate::sql::provision::aad(&plugin);
+            let current = Sealed {
+                key_id,
+                nonce,
+                ciphertext,
+            };
+            if current.key_id == new.id() && new.open(&aad, &current).is_ok() {
+                continue;
+            }
+            let sealed = new.seal(&aad, &old.open(&aad, &current)?)?;
+            sqlx::query(
+                "UPDATE rookery.plugin_sql SET key_id = $2, password_nonce = $3, password_sealed = $4 WHERE plugin = $1",
+            )
+            .bind(&plugin)
+            .bind(&sealed.key_id)
+            .bind(&sealed.nonce)
+            .bind(&sealed.ciphertext)
+            .execute(&mut *tx)
+            .await?;
+            done.sql_credentials += 1;
         }
         tx.commit().await?;
         Ok(done)

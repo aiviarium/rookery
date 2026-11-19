@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use rookery_proto::{
     access, auth, context, data, documents, env, error, facilities, home, hosts, jobs, methods,
-    rpc, stream, terminals,
+    rpc, sql, stream, terminals,
 };
 use ts_rs::{Config, TS};
 
@@ -416,6 +416,21 @@ fn typescript_bindings() {
         terminals::TerminalSignal,
         terminals::TerminalState,
         terminals::TerminalWrite,
+        sql::SqlStatement,
+        sql::SqlQuery,
+        sql::SqlColumn,
+        sql::SqlRows,
+        sql::SqlExecuted,
+        sql::SqlStreamed,
+        sql::SqlTx,
+        sql::SqlBegin,
+        sql::SqlLease,
+        sql::SqlTxStatement,
+        sql::SqlTxPublish,
+        sql::SqlPublished,
+        sql::SqlTxRef,
+        sql::SqlCredentialRef,
+        sql::SqlCredential,
     );
     let made = files(&scratch);
     let target = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../client/src/generated");

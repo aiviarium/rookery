@@ -121,6 +121,24 @@ export interface Documents {
   convert(params: DocumentConvert): Promise<DocumentConverted>
 }
 
+/** Raw SQL, for a plugin whose manifest says `database.sql`: free in its own schema, read-only over its collections. */
+export interface Sql {
+  /** Runs on the primary. */
+  query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>
+  execute(sql: string, params?: unknown[]): Promise<number>
+  /** A transaction; with a lease, it commits only while the plugin still holds it. */
+  begin(opts?: { lease?: { key: string; token: number } }): Promise<SqlTransaction>
+}
+
+export interface SqlTransaction {
+  query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>
+  execute(sql: string, params?: unknown[]): Promise<number>
+  /** A message of the plugin's topic, published if and only if the transaction commits. */
+  publish(topic: string, payload: unknown): Promise<void>
+  commit(): Promise<void>
+  rollback(): Promise<void>
+}
+
 /** People, for whoever holds manage on what they share with them. */
 export interface Users {
   search(ctx: Ctx, resource: string, text: string, limit?: number): Promise<Person[]>
@@ -452,6 +470,7 @@ export interface Rookery {
   readonly entities: Entities
   readonly documents: Documents
   readonly users: Users
+  readonly sql: Sql
   readonly storage: Storage
   readonly secrets: Secrets
   readonly connections: Connections

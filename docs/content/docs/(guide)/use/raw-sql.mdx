@@ -1,0 +1,78 @@
+---
+title: Raw SQL for plugins
+description: What a database administrator does before plugins may run their own SQL on a Rookery server's PostgreSQL, what each plugin's role can and cannot do, and what is left to the server's settings.
+icon: DatabaseZap
+---
+
+A plugin that declares `database.sql` in its manifest gets its own PostgreSQL role and schema on the database of a [Rookery server](/docs/use/server). It runs SQL through the server (`sql.query`, `sql.execute`, `sql.tx*`) and, with `database.direct`, its services connect with the role's own credentials. A server whose plugins never ask for it is not touched: nothing on this page applies to it.
+
+Raw SQL runs on the primary. A read replica, if the deployment has one, is not used for it.
+
+## Before first use
+
+Every role in a PostgreSQL database may call the advisory lock functions, and Rookery serialises its own work with advisory locks. A plugin's role that held one could stall the server. Before a plugin gets raw SQL, Rookery checks that no plugin role can execute `pg_advisory_*` or `pg_try_advisory_*`.
+
+`EXECUTE` on those functions can only be revoked by a superuser. When Rookery's database user is one, as in a development setup, Rookery does it itself. Otherwise raw SQL stays unavailable, and enabling it for a plugin fails with `UNAVAILABLE`, until a superuser runs this once, connected to Rookery's database. Replace `rookery` in the `GRANT` with the name of Rookery's database user:
+
+```sql
+DO $seal$
+DECLARE f record;
+BEGIN
+  FOR f IN SELECT format('%I.%I(%s)', n.nspname, p.proname, pg_get_function_identity_arguments(p.oid)) AS sig
+           FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+           WHERE n.nspname = 'pg_catalog' AND p.proname LIKE '%advisory%'
+  LOOP
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC', f.sig);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO %I', f.sig, 'rookery');
+  END LOOP;
+END
+$seal$;
+```
+
+Run it again after a major upgrade of PostgreSQL, which may add functions.
+
+Rookery's database user also needs, when it is not a superuser:
+
+| What | Why |
+| --- | --- |
+| `CREATEROLE` | To make, change and remove the plugins' roles |
+| `CREATE` on the database | To make each plugin's schemas |
+| `GRANT SET ON PARAMETER temp_file_limit TO rookery` (PostgreSQL 15 and later) | To cap the temporary files of each plugin's role. Without it, the server's own `temp_file_limit` is the cap |
+| `GRANT pg_signal_backend TO rookery` | To cancel and end the sessions of plugin roles that run too long |
+
+## Connection slots
+
+Each plugin's role may hold 10 connections. Enough plugins, each holding its 10, could take every ordinary connection slot of the server, and then Rookery itself could not connect. Keep a reserve that only Rookery's user may use:
+
+```sql
+ALTER SYSTEM SET reserved_connections = 20;           -- at least the size of Rookery's pool; PostgreSQL 16 and later
+GRANT pg_use_reserved_connections TO rookery;
+```
+
+Then restart PostgreSQL. Rookery reads the numbers when it starts and logs what is short.
+
+## The role
+
+Each plugin gets a role, `rookery_x_<plugin>` (with `ROOKERY_DATABASE_ROLE_TAG` set, `rookery_<tag>_x_<plugin>`, for several deployments on one PostgreSQL server). It owns the schema `x_<plugin>` and reads the plugin's collections through views in `v_<plugin>`, which show it what the data API shows the plugin. Its password is sealed with the server's secret key, and `rookery server secrets rekey` gives every role a new password.
+
+A role cannot read or write another plugin's schema or Rookery's own, become another role, take advisory locks or read the secrets. It may hold 10 connections and four open transactions through the server.
+
+## Limits
+
+| Limit | Value |
+| --- | --- |
+| A statement | 30 s. A statement that keeps running after it is cancelled, such as a PL/pgSQL loop that catches the cancel, is ended with its session a few seconds later |
+| A transaction through the server | 30 s, and 10 s idle |
+| A SQL migration | 10 minutes, ended the same way |
+| Rows `sql.query` returns | 10,000 |
+| Temporary files of one session | 2 GB, where Rookery may set it (see above) |
+
+When Rookery disables a plugin's raw SQL, it first stops the role from logging in and ends its sessions, then removes its access. The plugin's schema and data are kept.
+
+## What is not prevented
+
+Some things every PostgreSQL role may do, and a role per plugin cannot take them away:
+
+- `temp_file_limit` covers the files of sorts and hashes, not temporary tables or large objects. A role may make `TEMP` tables, as every role may (`TEMPORARY` on the database is granted to `PUBLIC`), and may write large objects. Both count against the disk of the server and are limited only by it. Revoke `TEMPORARY` on the database from `PUBLIC` if no other application needs it.
+- What `PUBLIC` holds: `CONNECT` on the database, `USAGE` on `public` and the built-in languages and types, and `EXECUTE` on functions other than the advisory locks.
+- A role can change its session's `statement_timeout`. Rookery also watches direct connections and cancels statements that run past its limit. PostgreSQL's server settings govern CPU and memory.

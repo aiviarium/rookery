@@ -12,7 +12,7 @@
 //! columns as fields named in camel case, and `_resource` and `_owner`, which its rows' access is
 //! checked on, each with an index of its own. Its writes reach the change log and history through
 //! triggers that run once per statement over the rows it wrote, whichever code made them, and that tell
-//! the change feed with `NOTIFY rookery_changes`, once per transaction. The history names the actor that
+//! the change feed with a `NOTIFY` on the deployment's own channel, once per transaction. The history names the actor that
 //! [`crate::actor`] set for the transaction.
 
 use std::sync::Arc;
@@ -28,8 +28,26 @@ use crate::util::quote_ident;
 /// The plugin Rookery's own collections belong to. No plugin may take its name.
 pub const PLUGIN: &str = "rookery";
 
-/// The channel the trigger of typed tables tells the change feed on.
-pub const CHANNEL: &str = "rookery_changes";
+/// Where the name of the channel the trigger of typed tables tells the change feed on is kept: a random
+/// one per deployment, so that a plugin's role, which may `NOTIFY` any channel it can name, cannot wake
+/// the feed or `LISTEN` to how often Rookery's tables are written.
+const CHANNEL_KEY: &str = "changes_channel";
+
+/// The deployment's channel of the change feed, made the first time.
+async fn channel(conn: &mut PgConnection) -> Result<String> {
+    let made = format!("rookery_changes_{}", &crate::util::random_token("")[..24]);
+    sqlx::query("INSERT INTO rookery.server_state (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING")
+        .bind(CHANNEL_KEY)
+        .bind(&made)
+        .execute(&mut *conn)
+        .await?;
+    Ok(
+        sqlx::query_scalar("SELECT value FROM rookery.server_state WHERE key = $1")
+            .bind(CHANNEL_KEY)
+            .fetch_one(&mut *conn)
+            .await?,
+    )
+}
 
 /// A typed table of Rookery's, as a collection.
 #[derive(Debug, Clone, PartialEq)]
@@ -522,7 +540,15 @@ fn bare_columns(expr: &str) -> String {
 }
 
 /// The functions the triggers of typed tables run. Made at every start, so that they follow this build.
-pub(crate) async fn functions(conn: &mut PgConnection) -> Result<()> {
+pub(crate) async fn functions(conn: &mut PgConnection, channel: &str) -> Result<()> {
+    if !channel
+        .bytes()
+        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    {
+        return Err(Error::internal(
+            "the change feed's channel is no plain name",
+        ));
+    }
     sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
         r#"
 CREATE OR REPLACE FUNCTION rookery.camel(name text) RETURNS text LANGUAGE sql IMMUTABLE AS $f$
@@ -598,7 +624,7 @@ END
 $f$;
 "#,
         lock = crate::feed::SEQ_LOCK,
-        channel = CHANNEL,
+        channel = channel,
     )))
     .execute(&mut *conn)
     .await?;
@@ -615,7 +641,9 @@ pub(crate) async fn install(
     sqlx::query("SELECT pg_advisory_xact_lock(hashtext('rookery.system-collections'))")
         .execute(&mut *tx)
         .await?;
-    functions(&mut tx).await?;
+    let channel = channel(&mut tx).await?;
+    functions(&mut tx, &channel).await?;
+    *store.data.channel.write().expect("channel lock") = Some(channel);
     let mut out = Vec::new();
     for t in tables {
         let def = register(&mut tx, t).await?;

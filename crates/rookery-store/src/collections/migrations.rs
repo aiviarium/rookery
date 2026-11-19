@@ -362,6 +362,15 @@ pub(crate) async fn run(
         if m.version <= current {
             continue;
         }
+        // A plugin with raw SQL has views over its tables, which block changes to their columns: they go
+        // before the steps and come back from the new definitions in the same transaction.
+        let views_of = if crate::sql::views::is_enabled(&mut w.tx, plugin).await? {
+            let names = store.sql().names(plugin)?;
+            crate::sql::views::drop_all(&mut w.tx, &names).await?;
+            Some(names)
+        } else {
+            None
+        };
         let mut mtx = MigrationTx {
             store,
             plugin: plugin.to_string(),
@@ -380,6 +389,9 @@ pub(crate) async fn run(
             w: mut wtx, defs, ..
         } = mtx;
         save_stored(&mut wtx.tx, plugin, &defs).await?;
+        if let Some(names) = &views_of {
+            crate::sql::views::sync(&mut wtx.tx, names, &defs).await?;
+        }
         sqlx::query("UPDATE rookery.plugin_schemas SET version = $2 WHERE plugin = $1")
             .bind(plugin)
             .bind(m.version)

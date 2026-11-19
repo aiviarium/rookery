@@ -51,13 +51,43 @@ impl rookery_plugins::data::PluginData for DataLayer {
                     })
                 })
                 .collect::<Result<_, _>>()?;
+            let database = declared.database.as_ref().unwrap_or(&Value::Null);
             let data = PluginData {
                 plugin: plugin.id.clone(),
                 collections: Value::Array(declared.collections.clone()),
                 admin_only,
                 migrations,
+                database: rookery_data::sql::Database {
+                    sql: database["sql"] == true,
+                    direct: database["direct"] == true,
+                    service_migrations: database["migrations"] == "service",
+                },
+                sql_migrations: rookery_data::sql::read_sql_migrations(&plugin.dir)?,
             };
             plugins::apply(kernel, &data, &HostTransforms(transforms)).await?;
+            Ok(())
+        })
+    }
+
+    fn reconcile<'a>(
+        &'a self,
+        kernel: &'a Kernel,
+        plugins: &'a [Loaded],
+    ) -> BoxFuture<'a, Result<(), RpcError>> {
+        Box::pin(async move {
+            let keep = plugins
+                .iter()
+                .filter(|plugin| {
+                    plugin.valid()
+                        && plugin
+                            .declared
+                            .database
+                            .as_ref()
+                            .is_some_and(|db| db["sql"] == true)
+                })
+                .map(|plugin| plugin.id.clone())
+                .collect();
+            rookery_data::sql::sweep(kernel, keep).await?;
             Ok(())
         })
     }
