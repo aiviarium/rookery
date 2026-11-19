@@ -139,8 +139,10 @@ def unsharded():
 
 
 def host_of_name_in(shard, name):
-    """Whether a module or test case named on the command line is of the shard."""
-    return any(listed == name or listed.split('.')[0] == name.split('.')[0] for listed in SHARDS[shard])
+    """Whether a shard has a test named on the command line: the test case
+    itself, or, for a module's name alone, one of its test cases."""
+    return any(listed == name or ('.' not in name and listed.split('.')[0] == name)
+               for listed in SHARDS[shard])
 
 
 def host_of(name):
