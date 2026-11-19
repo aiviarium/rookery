@@ -105,10 +105,10 @@ class AccessToken(unittest.TestCase):
     def test_the_token_gives_what_its_person_holds(self):
         env = {'ROOKERY_TOKEN': self.token}
         self.assertEqual(self.station.rookery('exec', HOST, '--', 'id', '-un', env=env).stdout.strip(), AGENT)
-        # Use is not enough to set the host up.
+        # Use is not enough to apply the host: that needs manage on it.
         refused = self.station.rookery('apply', HOST, env=env, check=False)
         self.assertNotEqual(refused.returncode, 0)
-        self.assertIn('admin', refused.stderr)
+        self.assertIn(f'manage on env://{HOST}', refused.stderr)
 
     def test_a_token_the_server_did_not_make_is_refused(self):
         env = {'ROOKERY_TOKEN': 'rookery_pat_made-up-and-not-the-servers'}
