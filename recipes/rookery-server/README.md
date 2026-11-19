@@ -46,30 +46,35 @@ options, such as the port or a folder in `/srv/rookery`.
 
 ## Use it
 
-The first run makes a setup key and prints it at the end, with the server's
-address. The key lets the first user collect the server's token. It lasts 24
-hours and ends once `rookery login` has collected the token. Whoever runs the recipe can hand on
-the key and never sees the token.
+The first run makes a sign-in link and prints it at the end, with the
+server's address. The link signs in the first admin once, within a day.
+Whoever runs the recipe can hand on the link and never sees a token.
 
-On your own machine, give Rookery the key when it asks:
+Open the link in a browser, or give it to Rookery on your own machine:
 
 ```bash
-rookery login https://THIS-MACHINE.YOUR-TAILNET.ts.net
+rookery login https://THIS-MACHINE.YOUR-TAILNET.ts.net/auth/link/CODE
 ```
 
-`tailscale serve status` on the machine says the address. Make a new key on
+`tailscale serve status` on the machine says the address. Make a new link on
 the machine at any time:
 
 ```bash
 sudo docker exec rookery rookery server setup-key
 ```
 
-The token itself gives full control of every host. Without a key, pass it to
-`rookery login` on standard input, on the machine itself:
+An access token of a user also signs Rookery in. Make one on the machine and
+pass it to `rookery login` on standard input:
 
 ```bash
-sudo cat /srv/rookery/data/rookery/serve.token | rookery login https://THIS-MACHINE.YOUR-TAILNET.ts.net --token-stdin
+sudo docker exec rookery rookery server token --user ada --admin |
+  rookery login https://THIS-MACHINE.YOUR-TAILNET.ts.net --token-stdin
 ```
+
+The server keeps its state in a PostgreSQL database of its own, in
+`/srv/rookery/data/rookery/postgres`, sealed with the key in
+`/srv/rookery/config/rookery/secret.key`. To use another database, pass
+`ROOKERY_DATABASE_URL` to the container, with `ROOKERY_SECRET_KEY_FILE`.
 
 ## The server on a node
 
@@ -98,7 +103,7 @@ rookery apply big
 
 The apply installs Incus and Docker, and the server registers their
 provisioners, which reach them on this machine. Docker's socket and the root
-login give root on this machine, so whoever has the server's token controls
+login give root on this machine, so whoever is an admin of the server controls
 the whole machine. A container from an earlier run keeps its data and its
 own options and gets these: the run makes it again with both.
 
@@ -195,7 +200,7 @@ rookery server deploy root@192.0.2.10
 `deploy` takes `--container NAME` when the container is not `rookery`. With
 no container of that name it makes one, at `127.0.0.1:7777` or the
 `--port` given, with its data in two volumes. It then says how to get a
-setup key.
+sign-in link.
 
 Only a static Linux program for the machine's CPU goes into the image, as
 a release is. Rookery says which release to use when it is not one.
@@ -223,6 +228,7 @@ has only the recipe's options, and loses those passed by hand.
 - The server connects to its hosts over SSH with the keys in
   `/srv/rookery/ssh`. That folder belongs to the user 1000, as the server in
   the container is that user.
-- Back up `/srv/rookery`. It holds the profiles, the secrets and the token.
+- Back up `/srv/rookery`. It holds the database and its key. Stop the
+  container first, or back up the database with `pg_dump` while it runs.
 - With `ssh_from` set to one address, SSH from anywhere else is refused.
   Your provider's console is the way back in if the address was wrong.

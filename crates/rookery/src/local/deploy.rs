@@ -235,6 +235,11 @@ pub fn deploy(deploy: &args::Deploy) -> Done<()> {
                 "unless-stopped",
             ]);
             run.extend(["--publish".into(), publish(port)]);
+            // The address the sign-in link names, there.
+            run.extend([
+                "--env".into(),
+                format!("ROOKERY_PUBLIC_URL=http://127.0.0.1:{port}"),
+            ]);
             for (volume, path) in [("config", "/config"), ("data", "/data")] {
                 run.extend(["--volume".into(), format!("{name}-{volume}:{path}")]);
             }
@@ -248,7 +253,7 @@ pub fn deploy(deploy: &args::Deploy) -> Done<()> {
                 deploy.target
             ));
             out::hint(format!(
-                "A setup key for rookery login: ssh {} docker exec {name} rookery server setup-key",
+                "A sign-in link for the first admin: ssh {} docker exec {name} rookery server setup-key",
                 deploy.target
             ));
             return Ok(());
