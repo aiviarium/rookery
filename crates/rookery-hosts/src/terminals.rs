@@ -43,7 +43,8 @@ const RESUME_AT_MOST: u64 = 1 << 20;
 /// The default command: the agent's login shell.
 const SHELL: &str = "exec \"${SHELL:-/bin/bash}\" -l";
 
-/// The caller's level on a terminal: manage on its host, or use on it for its owner.
+/// The caller's level on a terminal: manage on its host, or use on it for its owner when it runs
+/// as the agent account.
 pub async fn level_of(call: &Call, terminal: &Terminal) -> Result<Option<Grant>, RpcError> {
     if call.is_admin() {
         return Ok(Some(Grant::Manage));
@@ -55,7 +56,7 @@ pub async fn level_of(call: &Call, terminal: &Terminal) -> Result<Option<Grant>,
     };
     Ok(match host {
         Some(Grant::Manage) => Some(Grant::Manage),
-        Some(Grant::Use) if own => Some(Grant::Use),
+        Some(Grant::Use) if own && terminal.run_as == "agent" => Some(Grant::Use),
         _ => None,
     })
 }
@@ -92,9 +93,9 @@ struct Live {
 }
 
 struct LiveState {
-    viewers: BTreeMap<String, Viewer>,
+    viewers: BTreeMap<u64, Viewer>,
     /// The viewer whose size the terminal takes.
-    active: Option<String>,
+    active: Option<u64>,
     size: TermSize,
     offset: u64,
 }
@@ -105,6 +106,7 @@ struct Viewer {
 }
 
 /// The terminals attached now, on the leader.
+/// Always lock `live` before locking any `Live.state`.
 #[derive(Default)]
 pub struct Hub {
     live: Mutex<HashMap<String, Arc<Live>>>,
@@ -116,14 +118,18 @@ impl Hub {
         kernel.facility::<Hub>()
     }
 
+    fn viewer_id(n: u64) -> String {
+        format!("v{n}")
+    }
+
     fn join(
         &self,
         terminal: &Terminal,
         size: Option<TermSize>,
         readonly: bool,
-    ) -> (Arc<Live>, String) {
+    ) -> (Arc<Live>, u64, String) {
         let n = self.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let viewer = format!("v{n}");
+        let viewer = Self::viewer_id(n);
         let mut all = self.live.lock().unwrap();
         let live = all
             .entry(terminal.id.clone())
@@ -146,33 +152,37 @@ impl Hub {
             .lock()
             .unwrap()
             .viewers
-            .insert(viewer.clone(), Viewer { size, readonly });
-        (live, viewer)
+            .insert(n, Viewer { size, readonly });
+        (live, n, viewer)
     }
 
-    fn leave(&self, id: &str, live: &Arc<Live>, viewer: &str) -> (u32, Option<TermSize>) {
+    fn leave(&self, id: &str, viewer: u64) -> (u32, Option<(TermSize, Option<String>)>) {
+        let mut all = self.live.lock().unwrap();
+        let Some(live) = all.get(id).cloned() else {
+            return (0, None);
+        };
         let mut state = live.state.lock().unwrap();
-        state.viewers.remove(viewer);
-        let mut size = None;
-        if state.active.as_deref() == Some(viewer) {
-            // The size goes to the viewer attached last that can type.
+        state.viewers.remove(&viewer);
+        let mut resize_to = None;
+        if state.active == Some(viewer) {
+            // The size goes to the viewer attached last (largest viewer id) that can type.
             state.active = state
                 .viewers
                 .iter()
                 .rev()
                 .find(|(_, v)| !v.readonly && v.size.is_some())
-                .map(|(id, _)| id.clone());
-            size = state
+                .map(|(&id, _)| id);
+            resize_to = state
                 .active
-                .as_ref()
-                .and_then(|a| state.viewers.get(a))
-                .and_then(|v| v.size.clone());
+                .and_then(|a| state.viewers.get(&a))
+                .and_then(|v| v.size.clone())
+                .map(|size| (size, state.active.map(Self::viewer_id)));
         }
         let count = state.viewers.len() as u32;
         if count == 0 {
-            self.live.lock().unwrap().remove(id);
+            all.remove(id);
         }
-        (count, size)
+        (count, resize_to)
     }
 
     fn viewers(&self, id: &str) -> u32 {
@@ -393,7 +403,7 @@ pub fn register(methods: &mut Methods) {
                 true => json!([]),
                 false => json!(p.command),
             };
-            let terminal = call
+            let terminal = match call
                 .store()
                 .terminals()
                 .insert(New {
@@ -408,7 +418,14 @@ pub fn register(methods: &mut Methods) {
                     cols: size.cols as i32,
                     rows: size.rows as i32,
                 })
-                .await?;
+                .await
+            {
+                Ok(terminal) => terminal,
+                Err(e) => {
+                    let _ = ask(&remote, "DELETE", &session_path(session, ""), None).await;
+                    return Err(e.into());
+                }
+            };
             call.audit("terminal.open", Some(&env), json!({"terminal": id, "user": p.user.as_str()}))
                 .await;
             changed(&call.kernel, &terminal).await;
@@ -705,13 +722,14 @@ pub fn register(methods: &mut Methods) {
 /// Keeps a terminal session that `hosts.sessions.open` opened as the caller's terminal.
 pub async fn keep_opened(
     call: &Call,
+    remote: &crate::serve::Remote,
     host: &str,
     start: &rookery_api::StartSession,
     started: &Value,
-) {
-    let Some(session) = started["id"].as_str() else {
-        return;
-    };
+) -> Result<(), RpcError> {
+    let session = started["id"]
+        .as_str()
+        .ok_or_else(|| RpcError::internal("the host named no session"))?;
     let command = match &start.command {
         rookery_api::CommandLine::Args(args) => json!(args),
         rookery_api::CommandLine::Shell(script) => json!([script]),
@@ -738,8 +756,15 @@ pub async fn keep_opened(
         })
         .await;
     match kept {
-        Ok(terminal) => changed(&call.kernel, &terminal).await,
-        Err(e) => tracing::warn!(error = %e, %host, "keeping a terminal's record failed"),
+        Ok(terminal) => {
+            changed(&call.kernel, &terminal).await;
+            Ok(())
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, %host, "keeping a terminal's record failed");
+            let _ = ask(remote, "DELETE", &session_path(session, ""), None).await;
+            Err(e.into())
+        }
     }
 }
 
@@ -847,6 +872,18 @@ async fn first(stream: &mut rookery_core::link::LinkStream) -> Result<Frame, Rpc
     }
 }
 
+/// Probes for an initial attach header without timing out older controllers that stay silent
+/// until the terminal writes output.
+async fn probe(stream: &mut rookery_core::link::LinkStream) -> Result<Option<Frame>, RpcError> {
+    match tokio::time::timeout(std::time::Duration::from_secs(1), stream.next()).await {
+        Ok(Some(Ok(frame))) => Ok(Some(frame)),
+        Ok(_) => Err(RpcError::unavailable(
+            "the host closed the terminal's stream",
+        )),
+        Err(_) => Ok(None),
+    }
+}
+
 fn framed(kind: u8, body: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(body.len() + 1);
     out.push(kind);
@@ -867,8 +904,9 @@ async fn attach(call: Call, p: TerminalAttach) -> Result<TerminalAttached, RpcEr
     // Resume when what is missed is still on the host and not much; else start with the screen.
     let mut after = p.after;
     let mut host = upstream(&remote, &t.session, after).await?;
-    let mut said = first(&mut host).await?;
-    if let (Some(wanted), Some(header)) = (after, header_of(&said))
+    let mut said = probe(&mut host).await?;
+    if let Some(first_frame) = &said
+        && let (Some(wanted), Some(header)) = (after, header_of(first_frame))
         && (header.snapshot
             || header.from > wanted
             || wanted > header.next
@@ -877,29 +915,35 @@ async fn attach(call: Call, p: TerminalAttach) -> Result<TerminalAttached, RpcEr
         drop(host);
         after = None;
         host = upstream(&remote, &t.session, None).await?;
-        said = first(&mut host).await?;
+        said = probe(&mut host).await?;
     }
-    let header = header_of(&said);
-    let (mode, offset, mut replay) = match (&header, after) {
-        (Some(h), _) if h.snapshot => (AttachMode::Snapshot, h.next, Vec::new()),
-        (Some(h), _) => (AttachMode::Resume, h.from, Vec::new()),
-        // A controller from before the header: its first frame is already the replay.
-        (None, Some(a)) => (AttachMode::Resume, a, vec![said.clone()]),
-        (None, None) => (AttachMode::Snapshot, t.offset as u64, vec![said.clone()]),
+    let header = said.as_ref().and_then(header_of);
+    let (mode, offset, mut replay) = match (&said, &header, after) {
+        (_, Some(h), _) if h.snapshot => (AttachMode::Snapshot, h.next, Vec::new()),
+        (_, Some(h), _) => (AttachMode::Resume, h.from, Vec::new()),
+        // A controller from before the header: its first frame is already part of the replay.
+        (Some(frame), None, Some(a)) => (AttachMode::Resume, a, vec![frame.clone()]),
+        (Some(frame), None, None) => (AttachMode::Snapshot, t.offset as u64, vec![frame.clone()]),
+        // An older controller that stayed silent on an idle terminal: best effort without timeout.
+        (None, _, Some(a)) => (AttachMode::Resume, a, Vec::new()),
+        (None, _, None) => (AttachMode::Snapshot, t.offset as u64, Vec::new()),
     };
+    let advertised = header.as_ref().map_or(0, |h| h.frames);
+    for _ in 0..advertised {
+        replay.push(first(&mut host).await?);
+    }
     let mut snapshot = Vec::new();
-    if mode == AttachMode::Snapshot {
-        let frames = header.as_ref().map_or(0, |h| h.frames);
-        for _ in 0..frames {
-            replay.push(first(&mut host).await?);
-        }
+    if mode == AttachMode::Snapshot && header.is_some() {
+        let mut leftover = Vec::new();
         for frame in replay.drain(..) {
-            if let Frame::Binary(bytes) = frame {
-                snapshot.extend_from_slice(&bytes);
+            match frame {
+                Frame::Binary(bytes) => snapshot.extend_from_slice(&bytes),
+                other => leftover.push(other),
             }
         }
+        replay = leftover;
     }
-    let (live, viewer) = Hub::of(&call.kernel).join(&t, p.size.clone(), p.readonly);
+    let (live, viewer_key, viewer) = Hub::of(&call.kernel).join(&t, p.size.clone(), p.readonly);
     let size = live.state.lock().unwrap().size.clone();
     let stream = match call
         .conn()
@@ -907,10 +951,20 @@ async fn attach(call: Call, p: TerminalAttach) -> Result<TerminalAttached, RpcEr
     {
         Ok(stream) => stream,
         Err(e) => {
-            Hub::of(&call.kernel).leave(&t.id, &live, &viewer);
+            Hub::of(&call.kernel).leave(&t.id, viewer_key);
             return Err(e);
         }
     };
+    let own = matches!(
+        (&call.caller, t.owner),
+        (rookery_kernel::Caller::User { user, .. }, Some(owner)) if user.id == owner.to_string()
+    );
+    let needed = if own && t.run_as == "agent" {
+        Grant::Use
+    } else {
+        Grant::Manage
+    };
+    let access = crate::access_watch(&call, crate::uri(&t.host), needed).subscribe();
     let level = level_of(&call, &t).await?;
     let attached = TerminalAttached {
         stream: stream.id(),
@@ -926,12 +980,13 @@ async fn attach(call: Call, p: TerminalAttach) -> Result<TerminalAttached, RpcEr
         call: call.clone(),
         terminal: t,
         live,
+        viewer_key,
         viewer,
         readonly: p.readonly,
         offset,
         size: p.size,
     };
-    tokio::spawn(pump.run(host, stream, snapshot, replay));
+    tokio::spawn(pump.run(host, stream, snapshot, replay, access));
     Ok(attached)
 }
 
@@ -940,6 +995,7 @@ struct Pump {
     call: Call,
     terminal: Terminal,
     live: Arc<Live>,
+    viewer_key: u64,
     viewer: String,
     readonly: bool,
     offset: u64,
@@ -953,35 +1009,62 @@ impl Pump {
         stream: rookery_kernel::streams::Stream,
         snapshot: Vec<u8>,
         replay: Vec<Frame>,
+        mut access: crate::AccessWatcher,
     ) {
         let kernel = self.call.kernel.clone();
         let hub = Hub::of(&kernel);
         let mut events = self.live.events.subscribe();
         let (mut reader, writer) = stream.split();
+        let close_writer = writer.clone();
         let (mut to_host, mut from_host) = host.split();
-        let mut open = true;
+
+        let mut initial = Vec::new();
         for chunk in snapshot.chunks(CARRIED) {
-            open = open && writer.write(&framed(FRAME_SNAPSHOT, chunk)).await.is_ok();
+            initial.push(framed(FRAME_SNAPSHOT, chunk));
         }
+        let mut open = true;
         for frame in replay {
-            open = open && self.output(&writer, frame).await;
+            open = self
+                .output(frame, &mut |data| {
+                    initial.push(data);
+                    true
+                })
+                .await;
+            if !open {
+                break;
+            }
+        }
+        if open {
+            initial.push(event_frame(&TerminalEvent::Ready));
         }
         let count = self.live.state.lock().unwrap().viewers.len() as u32;
         let _ = self.live.events.send(TerminalEvent::Viewers { count });
-        open = open
-            && writer
-                .write(&event_frame(&TerminalEvent::Ready))
-                .await
-                .is_ok();
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(256);
+        let writer_task = tokio::spawn(async move {
+            for frame in initial {
+                if writer.write(&frame).await.is_err() {
+                    return;
+                }
+            }
+            while let Some(frame) = rx.recv().await {
+                if writer.write(&frame).await.is_err() {
+                    return;
+                }
+            }
+        });
+        let mut out_tx = Some(tx);
+
         // A first viewer that can type gives its size.
-        if !self.readonly
+        if open
+            && !self.readonly
             && let Some(size) = self.size.clone()
         {
             let first = {
                 let mut state = self.live.state.lock().unwrap();
                 let first = state.active.is_none();
                 if first {
-                    state.active = Some(self.viewer.clone());
+                    state.active = Some(self.viewer_key);
                 }
                 first
             };
@@ -999,10 +1082,21 @@ impl Pump {
         changed(&kernel, &self.terminal).await;
         let mut typed_at = std::time::Instant::now() - std::time::Duration::from_secs(5);
         let mut typed_bytes = 0u64;
+        let mut close_error = None;
         while open {
             tokio::select! {
+                () = access.wait_revoked() => {
+                    close_error = Some(rookery_proto::ErrorBody {
+                        code: rookery_proto::ErrorCode::Forbidden,
+                        message: "access revoked".into(),
+                        details: None,
+                    });
+                    open = false;
+                }
                 frame = from_host.next() => match frame {
-                    Some(Ok(frame)) => open = self.output(&writer, frame).await,
+                    Some(Ok(frame)) => {
+                        open = self.output(frame, &mut |data| send_outbound(&mut out_tx, data)).await;
+                    }
                     _ => open = false,
                 },
                 inbound = reader.read() => match inbound {
@@ -1030,18 +1124,24 @@ impl Pump {
                 event = events.recv() => match event {
                     Ok(event) => {
                         let ends = matches!(event, TerminalEvent::State { state, .. } if state != TerminalState::Running);
-                        open = writer.write(&event_frame(&event)).await.is_ok() && !ends;
+                        let queued = send_outbound(&mut out_tx, event_frame(&event));
+                        open = queued && !ends;
                     }
                     Err(broadcast::error::RecvError::Lagged(_)) => {}
                     Err(broadcast::error::RecvError::Closed) => open = false,
                 },
             }
         }
-        writer.close(None);
-        let (count, size) = hub.leave(&self.terminal.id, &self.live, &self.viewer);
+        drop(out_tx);
+        if close_error.is_some() {
+            writer_task.abort();
+        } else {
+            let _ = tokio::time::timeout(std::time::Duration::from_millis(500), writer_task).await;
+        }
+        close_writer.close(close_error);
+        let (count, next_active) = hub.leave(&self.terminal.id, self.viewer_key);
         let _ = self.live.events.send(TerminalEvent::Viewers { count });
-        if let Some(size) = size {
-            let active = self.live.state.lock().unwrap().active.clone();
+        if let Some((size, active)) = next_active {
             let _ = resize(&kernel, &self.call, &self.terminal, size, active).await;
         }
         let _ = kernel
@@ -1053,15 +1153,11 @@ impl Pump {
     }
 
     /// A frame of the host's towards the viewer. False once the stream is to end.
-    async fn output(
-        &mut self,
-        writer: &rookery_kernel::streams::OwnedWriter,
-        frame: Frame,
-    ) -> bool {
+    async fn output(&mut self, frame: Frame, send: &mut impl FnMut(Vec<u8>) -> bool) -> bool {
         match frame {
             Frame::Binary(bytes) => {
                 for chunk in bytes.chunks(CARRIED) {
-                    if writer.write(&framed(FRAME_OUTPUT, chunk)).await.is_err() {
+                    if !send(framed(FRAME_OUTPUT, chunk)) {
                         return false;
                     }
                 }
@@ -1091,12 +1187,10 @@ impl Pump {
                         state: TerminalState::Exited,
                         exit_code: code,
                     });
-                    let _ = writer
-                        .write(&event_frame(&TerminalEvent::State {
-                            state: TerminalState::Exited,
-                            exit_code: code,
-                        }))
-                        .await;
+                    send(event_frame(&TerminalEvent::State {
+                        state: TerminalState::Exited,
+                        exit_code: code,
+                    }));
                     return false;
                 }
                 // Output was dropped on the way: the viewer attaches again from its offset.
@@ -1115,19 +1209,18 @@ impl Pump {
             match control {
                 AttachControl::Resize { cols, rows } => {
                     let size = TermSize { cols, rows };
-                    if let Some(v) = state.viewers.get_mut(&self.viewer) {
+                    if let Some(v) = state.viewers.get_mut(&self.viewer_key) {
                         v.size = Some(size.clone());
                     }
                     self.size = Some(size.clone());
-                    let ours = state.active.is_none()
-                        || state.active.as_deref() == Some(self.viewer.as_str());
+                    let ours = state.active.is_none() || state.active == Some(self.viewer_key);
                     if ours {
-                        state.active = Some(self.viewer.clone());
+                        state.active = Some(self.viewer_key);
                     }
                     ours.then_some(size)
                 }
                 AttachControl::Active => {
-                    state.active = Some(self.viewer.clone());
+                    state.active = Some(self.viewer_key);
                     self.size.clone()
                 }
             }
@@ -1142,5 +1235,64 @@ impl Pump {
             )
             .await;
         }
+    }
+}
+
+fn send_outbound(tx: &mut Option<tokio::sync::mpsc::Sender<Vec<u8>>>, data: Vec<u8>) -> bool {
+    let Some(sender) = tx else {
+        return true;
+    };
+    match sender.try_send(data) {
+        Ok(()) => true,
+        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+            // A slow viewer with zero output credit must not stall input or upstream tracking;
+            // stop forwarding output to it while keeping the pump responsive.
+            *tx = None;
+            true
+        }
+        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn viewer_ids_sort_numerically_and_reassign_active_to_latest() {
+        let hub = Hub::default();
+        let terminal = Terminal {
+            id: "term_1".into(),
+            host: "studio".into(),
+            session: "sess_1".into(),
+            owner: None,
+            run_as: "agent".into(),
+            title: "sh".into(),
+            command: json!([]),
+            cwd: None,
+            cols: 80,
+            rows: 24,
+            offset: 0,
+            state: "running".into(),
+            exit_code: None,
+            last_input: None,
+            created_at: chrono::Utc::now(),
+            ended_at: None,
+        };
+        let sz = |cols| Some(TermSize { cols, rows: 24 });
+        let mut joined = Vec::new();
+        for i in 0..11 {
+            joined.push(hub.join(&terminal, sz(80 + i), false));
+        }
+        assert_eq!(joined[9].2, "v9");
+        assert_eq!(joined[10].2, "v10");
+        {
+            let mut state = joined[10].0.state.lock().unwrap();
+            state.active = Some(joined[10].1);
+        }
+        let (count, next) = hub.leave("term_1", joined[10].1);
+        assert_eq!(count, 10);
+        // After v10 leaves, active goes to v9 (10th joined, id 9), not v9 < v8 lexicographically.
+        assert_eq!(next.unwrap().1.as_deref(), Some("v9"));
     }
 }

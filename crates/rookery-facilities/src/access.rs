@@ -9,8 +9,6 @@ use rookery_proto::access::{
     LevelOf, ResourceRef, Resources,
 };
 use rookery_store::access::Who;
-use std::sync::Arc;
-use tokio::sync::broadcast;
 use uuid::Uuid;
 
 /// The level the caller holds on a resource.
@@ -43,43 +41,6 @@ pub async fn holds(call: &Call, resource: &str, wanted: Grant) -> Result<bool, R
         .is_some_and(|held| held >= wanted))
 }
 
-/// What changed about who may reach what. A stream that stays open for a
-/// caller whose access may go away listens here, so that a grant or a
-/// membership change ends it without waiting for its next check.
-///
-/// This is the minimal re-check an open stream does for itself. It is to be
-/// replaced with the event-driven re-check of open streams that rookery#42
-/// brings to terminals, ports and desktop.
-#[derive(Clone)]
-pub struct Changes(Arc<broadcast::Sender<Change>>);
-
-impl Default for Changes {
-    fn default() -> Self {
-        // Room for a burst of changes. A listener that falls behind is told,
-        // and checks the resource anyway.
-        Changes(Arc::new(broadcast::channel(64).0))
-    }
-}
-
-impl Changes {
-    pub fn send(&self, change: Change) {
-        let _ = self.0.send(change);
-    }
-
-    pub fn subscribe(&self) -> broadcast::Receiver<Change> {
-        self.0.subscribe()
-    }
-}
-
-/// One change of access, as [`Changes`] carries it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Change {
-    /// A grant on this resource changed.
-    Resource(String),
-    /// Groups or their members changed, so any resource's level may have.
-    Membership,
-}
-
 pub fn register(methods: &mut Methods) {
     methods
         .set_access(|call, resource, wanted| async move { holds(&call, &resource, wanted).await });
@@ -102,9 +63,9 @@ pub fn register(methods: &mut Methods) {
                 .await?;
             let details = serde_json::json!({ "principal": p.principal, "level": p.level });
             call.audit("access.grant", Some(&p.resource), details).await;
-            call.kernel
-                .facility::<Changes>()
-                .send(Change::Resource(p.resource.clone()));
+            rookery_kernel::auth::AccessEvents::of(&call.kernel).publish(
+                rookery_kernel::auth::AccessChange::Resource(p.resource.clone()),
+            );
             Ok(GrantInfo {
                 principal: grant.principal,
                 level: p.level,
@@ -135,9 +96,8 @@ pub fn register(methods: &mut Methods) {
                 serde_json::json!({ "principal": p.principal }),
             )
             .await;
-            call.kernel
-                .facility::<Changes>()
-                .send(Change::Resource(p.resource.clone()));
+            rookery_kernel::auth::AccessEvents::of(&call.kernel)
+                .publish(rookery_kernel::auth::AccessChange::Resource(p.resource));
             Ok(Empty {})
         })
         .summary("Takes a principal's grant on a resource away.")

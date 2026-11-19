@@ -46,7 +46,8 @@ impl Env {
             std::env::var("PATH").unwrap()
         );
         cmd.env("PATH", path)
-            .env("XDG_RUNTIME_DIR", self.run.path());
+            .env("XDG_RUNTIME_DIR", self.run.path())
+            .env("BOX_DESKTOP_ENV", "1");
         cmd
     }
 

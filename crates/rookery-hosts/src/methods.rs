@@ -9,7 +9,6 @@
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
 
 use rookery_api::Act;
 use rookery_core::host_type::Capability;
@@ -121,19 +120,7 @@ async fn pass_stream(
     capability: Capability,
     target: String,
     carry: crate::serve::Carry,
-) -> Result<StreamOpened, RpcError> {
-    pass_stream_held(call, name, capability, target, carry, None).await
-}
-
-/// [`pass_stream`] with a [`crate::serve::Hold`], which ends the stream when the caller's access
-/// goes away.
-async fn pass_stream_held(
-    call: &Call,
-    name: &str,
-    capability: Capability,
-    target: String,
-    carry: crate::serve::Carry,
-    held: Option<crate::serve::Hold>,
+    needed: Grant,
 ) -> Result<StreamOpened, RpcError> {
     let state = serve(call)?;
     let remote = api::controller(&state, name, capability).await?;
@@ -144,14 +131,8 @@ async fn pass_stream_held(
     let upstream = link.stream(&target).await.map_err(api::Fail::from)?;
     let stream = call.conn()?.streams().open(Initiator::Peer)?;
     let id = stream.id();
-    match held {
-        Some(held) => {
-            tokio::spawn(crate::serve::pipe_held(upstream, stream, carry, held));
-        }
-        None => {
-            tokio::spawn(crate::serve::pipe(upstream, stream, carry));
-        }
-    }
+    let access = crate::access_watch(call, crate::uri(name), needed).subscribe();
+    tokio::spawn(crate::serve::pipe(upstream, stream, carry, Some(access)));
     Ok(StreamOpened {
         stream: id,
         offset: None,
@@ -602,6 +583,7 @@ fn register_controller(methods: &mut Methods) {
                 Capability::Sessions,
                 target,
                 Carry::Lines,
+                Grant::Manage,
             )
             .await
         })
@@ -698,8 +680,15 @@ fn register_controller(methods: &mut Methods) {
                     rookery_api::client::encode(&p.plugin),
                     rookery_api::client::encode(&p.name)
                 );
-                pass_stream(&call, crate::name_of(&p.host), Capability::Sessions, target, Carry::Tagged)
-                    .await
+                pass_stream(
+                    &call,
+                    crate::name_of(&p.host),
+                    Capability::Sessions,
+                    target,
+                    Carry::Tagged,
+                    Grant::Use,
+                )
+                .await
             },
         )
         .summary("A stream to a plugin's service on a host; each frame has a byte before it, t for text and b for binary.")
@@ -736,15 +725,13 @@ fn host_refused(status: u16, body: &[u8]) -> RpcError {
 }
 
 /// Refused unless the caller may work with this session: `use` on the host reaches the agent's own
-/// sessions, and one of another account, or one an action runs, needs `manage`. The host says
-/// whose the session is, so an id from anywhere passes only for what its caller may do.
-async fn session_guard(call: &Call, name: &str, terminal: &str) -> Result<(), RpcError> {
-    if call.is_admin() || matches!(call.caller, rookery_kernel::Caller::Local) {
-        return Ok(());
-    }
+/// processes and their own agent terminals, while unrecorded terminals, another account's terminal,
+/// another run-as user, or an action's session needs `manage`.
+async fn session_guard(call: &Call, name: &str, terminal: &str) -> Result<Grant, RpcError> {
     let (_, target) = self::terminal(name, terminal, "", &BTreeMap::new());
     let Passed(session) = pass(call, name, Capability::Sessions, "GET", target, None).await?;
     let user = session["user"].as_str().unwrap_or_default();
+    let kind = session["kind"].as_str().unwrap_or_default();
     let action = session["action"]
         .as_str()
         .filter(|action| !action.is_empty());
@@ -759,12 +746,20 @@ async fn session_guard(call: &Call, name: &str, terminal: &str) -> Result<(), Rp
         (Some(Some(owner)), Ok(me)) => *owner == me,
         _ => false,
     };
-    if user == "agent" && action.is_none() && (owner.is_none() || own) {
-        return Ok(());
+    let needed = if user == "agent"
+        && action.is_none()
+        && (own || (kind != "terminal" && owner.is_none()))
+    {
+        Grant::Use
+    } else {
+        Grant::Manage
+    };
+    if call.is_admin() || matches!(call.caller, rookery_kernel::Caller::Local) {
+        return Ok(needed);
     }
     let uri = crate::uri(name);
-    if rookery_facilities::access::holds(call, &uri, Grant::Manage).await? {
-        return Ok(());
+    if rookery_facilities::access::holds(call, &uri, needed).await? {
+        return Ok(needed);
     }
     Err(RpcError::forbidden(match action {
         Some(action) => {
@@ -772,6 +767,9 @@ async fn session_guard(call: &Call, name: &str, terminal: &str) -> Result<(), Rp
         }
         None if owner.is_some() => {
             format!("another account's terminal on {name} needs manage on {uri}")
+        }
+        None if kind == "terminal" => {
+            format!("an unrecorded terminal on {name} needs manage on {uri}")
         }
         None => format!("a session as {user} on {name} needs manage on {uri}"),
     }))
@@ -782,19 +780,15 @@ fn register_agents(methods: &mut Methods) {
         .add("agents.connect", |call: Call, p: AgentConnect| async move {
             call.conn()?;
             let name = crate::name_of(&p.env);
-            let uri = crate::uri(name);
-            let held = crate::serve::Hold::default();
-            let opened = pass_stream_held(
+            let opened = pass_stream(
                 &call,
                 name,
                 Capability::Sessions,
                 "/v1/agents/connect".into(),
                 Carry::Bytes,
-                Some(held.clone()),
+                Grant::Use,
             )
             .await?;
-            // Revoking `use` cuts the streams it opened, as it cuts a terminal's.
-            watch_use(call.clone(), uri, held);
             call.audit("agents.connect", Some(&crate::uri(name)), json!({}))
                 .await;
             Ok(opened)
@@ -806,44 +800,6 @@ fn register_agents(methods: &mut Methods) {
             scheme: Some("env".into()),
             grant: Grant::Use,
         });
-}
-
-/// Ends an open `agents.connect` stream when its caller no longer holds `use` on `uri`, checked
-/// when a grant or a group's membership changes and every 30 s after that.
-///
-/// This is the stream's own re-check, to be unified with the event-driven re-check of open streams
-/// rookery#42 brings to terminals, ports and desktop. A check that cannot reach the store keeps
-/// the stream, and the next one asks again.
-fn watch_use(call: Call, uri: String, held: crate::serve::Hold) {
-    use rookery_facilities::access::{Change, Changes};
-    let changes = call.kernel.facility::<Changes>();
-    let mut changes = changes.subscribe();
-    let done = held.done.clone();
-    tokio::spawn(async move {
-        let mut every = tokio::time::interval(Duration::from_secs(30));
-        every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        // The check at the start is the one that let the stream open.
-        every.tick().await;
-        loop {
-            tokio::select! {
-                () = done.cancelled() => return,
-                _ = every.tick() => {}
-                change = changes.recv() => match change {
-                    Ok(Change::Resource(resource)) if resource != uri => continue,
-                    Ok(_) => {}
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
-                },
-            }
-            if matches!(
-                rookery_facilities::access::holds(&call, &uri, Grant::Use).await,
-                Ok(false)
-            ) {
-                held.hold.cancel();
-                return;
-            }
-        }
-    });
 }
 
 /// Sessions, files and ports of a host, as the agent account: `hosts.sessions.*` and `hosts.files.*`, `hosts.ports.connect`.
@@ -876,25 +832,28 @@ fn register_env(methods: &mut Methods) {
                 };
                 let body = serde_json::to_value(&p.start)
                     .map_err(|e| RpcError::internal(e.to_string()))?;
-                let opened = pass(
-                    &call,
-                    &name,
-                    Capability::Sessions,
-                    "POST",
-                    format!("/v1/sessions{query}"),
-                    Some(body),
-                )
-                .await?;
+                let state = serve(&call)?;
+                let remote = api::controller(&state, &name, Capability::Sessions).await?;
+                let opened = Passed(
+                    api::pass(
+                        &remote,
+                        "POST",
+                        &format!("/v1/sessions{query}"),
+                        Some(&body),
+                    )
+                    .await?,
+                );
+                // A terminal is the caller's, as one terminals.open opens is; never leave one unrecorded.
+                if p.start.kind == rookery_api::SessionKind::Terminal {
+                    crate::terminals::keep_opened(&call, &remote, &name, &p.start, &opened.0)
+                        .await?;
+                }
                 call.audit(
                     "terminal.open",
                     Some(&crate::uri(&name)),
                     json!({"user": p.start.user}),
                 )
                 .await;
-                // A terminal is the caller's, as one terminals.open opens is.
-                if p.start.kind == rookery_api::SessionKind::Terminal {
-                    crate::terminals::keep_opened(&call, &name, &p.start, &opened.0).await;
-                }
                 Ok(opened)
             },
         )
@@ -993,8 +952,8 @@ fn register_env(methods: &mut Methods) {
     methods
         .add("hosts.sessions.attach", |call: Call, p: HostSessionRef| async move {
             let (name, target) = terminal(&p.host, &p.terminal, "", &p.query);
-            session_guard(&call, &name, &p.terminal).await?;
-            pass_stream(&call, &name, Capability::Sessions, target, Carry::Tagged).await
+            let needed = session_guard(&call, &name, &p.terminal).await?;
+            pass_stream(&call, &name, Capability::Sessions, target, Carry::Tagged, needed).await
         })
         .summary("A session's output as it comes and its input, as a stream: each frame has a byte before it, b for the terminal's bytes and t for the host's JSON, such as a size to take or how it exited. Another account's session, or an action's, needs manage.")
         .stream()
@@ -1045,12 +1004,13 @@ fn register_env(methods: &mut Methods) {
                 let name = name(&p.host);
                 let state = serve(&call)?;
                 let remote = api::controller(&state, &name, Capability::Sessions).await?;
+                let bytes = rookery_api::unb64(&p.base64)
+                    .ok_or_else(|| RpcError::invalid("base64: not base64"))?;
+                let _held = crate::env::lock_path(&call, &remote, &p.path).await?;
                 let link = remote
                     .link
                     .as_ref()
                     .ok_or_else(|| RpcError::unavailable("no link"))?;
-                let bytes = rookery_api::unb64(&p.base64)
-                    .ok_or_else(|| RpcError::invalid("base64: not base64"))?;
                 // With no etag a file that is there is replaced.
                 let target = format!(
                     "/v1/files?path={}{}",
@@ -1089,16 +1049,12 @@ fn register_env(methods: &mut Methods) {
         .add(
             "hosts.files.delete",
             |call: Call, p: HostFileRef| async move {
+                let name = name(&p.host);
+                let state = serve(&call)?;
+                let remote = api::controller(&state, &name, Capability::Sessions).await?;
+                let _held = crate::env::lock_path(&call, &remote, &p.path).await?;
                 let target = format!("/v1/files?path={}", rookery_api::client::encode(&p.path));
-                pass(
-                    &call,
-                    &name(&p.host),
-                    Capability::Sessions,
-                    "DELETE",
-                    target,
-                    None,
-                )
-                .await
+                Ok(Passed(api::pass(&remote, "DELETE", &target, None).await?))
             },
         )
         .summary("Removes a file on a host, inside its roots.")
@@ -1113,6 +1069,7 @@ fn register_env(methods: &mut Methods) {
                     Capability::Sessions,
                     format!("/v1/ports/{}", p.port),
                     Carry::Bytes,
+                    Grant::Use,
                 )
                 .await
             },
@@ -1234,6 +1191,7 @@ fn register_messages(methods: &mut Methods) {
                     Capability::Sessions,
                     target,
                     Carry::Lines,
+                    Grant::View,
                 )
                 .await
             },

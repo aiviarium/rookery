@@ -218,13 +218,18 @@ pub fn port_url(
     })
 }
 
-/// A path on the port's own origin: absolute, and never another origin's.
+/// A path on the port's own origin: normalized as a browser would, absolute, and never another origin's.
 fn safe_path(path: &str) -> String {
-    if path.starts_with('/') && !path.starts_with("//") && !path.contains('\\') {
-        path.to_owned()
-    } else {
-        format!("/{}", path.trim_start_matches(['/', '\\']))
-    }
+    let cleaned: String = path
+        .trim_matches(|c: char| c <= ' ' || c == '\x7f')
+        .chars()
+        .filter(|c| !c.is_ascii_control())
+        .collect();
+    let split = cleaned.find(['?', '#']).unwrap_or(cleaned.len());
+    let (head, tail) = cleaned.split_at(split);
+    let normalized_head = head.replace('\\', "/");
+    let trimmed_head = normalized_head.trim_start_matches('/');
+    format!("/{trimmed_head}{tail}")
 }
 
 // ── Routes ──────────────────────────────────────────────────────────────────
@@ -262,21 +267,56 @@ fn refusal(error: RpcError) -> Response {
         .into_response()
 }
 
+fn origin_of(url: &str) -> Option<(&str, &str)> {
+    let (scheme, rest) = url.split_once("://")?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    if (!scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https"))
+        || authority.is_empty()
+        || authority.contains('@')
+        || authority.chars().any(char::is_whitespace)
+    {
+        return None;
+    }
+    Some((scheme, authority))
+}
+
 /// Whether a request comes from a page of Rookery's own, or from no page at all.
+/// A present but malformed or cross-scheme `Origin` is always refused.
 fn same_origin(kernel: &Kernel, headers: &HeaderMap) -> bool {
-    let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) else {
+    same_origin_for(&kernel.config.public_url, headers)
+}
+
+fn same_origin_for(public_url: &str, headers: &HeaderMap) -> bool {
+    let Some(raw) = headers.get(header::ORIGIN) else {
         return true;
     };
-    if origin == kernel.config.public_url {
+    let Ok(origin) = raw.to_str() else {
+        return false;
+    };
+    let Some((scheme, rest)) = origin.split_once("://") else {
+        return false;
+    };
+    if (!scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https"))
+        || rest.is_empty()
+        || rest.contains(['/', '?', '#', '@'])
+        || rest.chars().any(char::is_whitespace)
+    {
+        return false;
+    }
+    if let Some((pub_scheme, pub_auth)) = origin_of(public_url)
+        && scheme.eq_ignore_ascii_case(pub_scheme)
+        && rest.eq_ignore_ascii_case(pub_auth)
+    {
         return true;
     }
-    let host = headers
+    let expected_scheme = origin_of(public_url).map(|(s, _)| s).unwrap_or("http");
+    if !scheme.eq_ignore_ascii_case(expected_scheme) {
+        return false;
+    }
+    headers
         .get(header::HOST)
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    origin
-        .split_once("://")
-        .is_some_and(|(_, rest)| rest == host)
+        .is_some_and(|host| !host.is_empty() && rest.eq_ignore_ascii_case(host))
 }
 
 /// The signed-in caller of a request on Rookery's origin.
@@ -493,10 +533,10 @@ async fn on_port(State(kernel): State<Kernel>, request: Request) -> Response {
         Some(remote) => remote,
         None => return refusal(RpcError::not_found("no such host")),
     };
-    if let Err(refused) = with_use(&kernel, Some(caller), &remote.name).await {
+    if let Err(refused) = with_use(&kernel, Some(caller.clone()), &remote.name).await {
         return *refused;
     }
-    proxy(&kernel, remote, port, request).await
+    proxy(&kernel, caller, remote, port, request).await
 }
 
 // ── Proxying HTTP over a host's link ────────────────────────────────────────
@@ -544,7 +584,9 @@ fn request_headers(source: &HeaderMap, upgrade: bool) -> HeaderMap {
         if name == "authorization"
             && value
                 .to_str()
-                .is_ok_and(|v| v.starts_with("Bearer rookery_"))
+                .ok()
+                .and_then(rookery_kernel::auth::bearer_token)
+                .is_some_and(|t| t.starts_with("rookery_"))
         {
             continue;
         }
@@ -591,18 +633,7 @@ fn rewrite_cookie(value: &str) -> Option<String> {
     Some(kept.join("; "))
 }
 
-fn response_headers(headers: &mut HeaderMap, port: u16) {
-    for name in HOP_BY_HOP {
-        headers.remove(*name);
-    }
-    if let Some(found) = headers
-        .get(header::LOCATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|l| rewrite_location(l, port))
-        && let Ok(value) = HeaderValue::from_str(&found)
-    {
-        headers.insert(header::LOCATION, value);
-    }
+fn filter_set_cookies(headers: &mut HeaderMap) {
     let cookies: Vec<String> = headers
         .get_all(header::SET_COOKIE)
         .iter()
@@ -615,6 +646,21 @@ fn response_headers(headers: &mut HeaderMap, port: u16) {
             headers.append(header::SET_COOKIE, value);
         }
     }
+}
+
+fn response_headers(headers: &mut HeaderMap, port: u16) {
+    for name in HOP_BY_HOP {
+        headers.remove(*name);
+    }
+    if let Some(found) = headers
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|l| rewrite_location(l, port))
+        && let Ok(value) = HeaderValue::from_str(&found)
+    {
+        headers.insert(header::LOCATION, value);
+    }
+    filter_set_cookies(headers);
 }
 
 /// A host's stream to a port as bytes both ways.
@@ -750,7 +796,19 @@ fn client(kernel: &Kernel, remote: &Arc<Remote>) -> PortClient {
         .clone()
 }
 
-async fn proxy(kernel: &Kernel, remote: Arc<Remote>, port: u16, mut request: Request) -> Response {
+fn switch_headers(headers: &HeaderMap) -> HeaderMap {
+    let mut out = headers.clone();
+    filter_set_cookies(&mut out);
+    out
+}
+
+async fn proxy(
+    kernel: &Kernel,
+    caller: Caller,
+    remote: Arc<Remote>,
+    port: u16,
+    mut request: Request,
+) -> Response {
     let host_type_ok = match crate::hosts(kernel).serve() {
         Ok(state) => api::controller(&state, &remote.name, Capability::Sessions)
             .await
@@ -794,6 +852,9 @@ async fn proxy(kernel: &Kernel, remote: Arc<Remote>, port: u16, mut request: Req
         Ok(out) => out,
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     };
+    let mut access =
+        crate::AccessWatch::new(kernel.clone(), caller, crate::uri(&remote.name), Grant::Use)
+            .subscribe();
     let mut answer = match client(kernel, &remote).request(out).await {
         Ok(answer) => answer,
         Err(e) => {
@@ -807,17 +868,27 @@ async fn proxy(kernel: &Kernel, remote: Arc<Remote>, port: u16, mut request: Req
     if answer.status() == StatusCode::SWITCHING_PROTOCOLS
         && let Some(incoming) = on_upgrade
     {
+        let headers = switch_headers(answer.headers());
         let outgoing = hyper::upgrade::on(&mut answer);
         tokio::spawn(async move {
-            let (Ok(a), Ok(b)) = (incoming.await, outgoing.await) else {
+            let pair = tokio::select! {
+                () = access.wait_revoked() => return,
+                pair = async { tokio::join!(incoming, outgoing) } => pair,
+            };
+            let (Ok(a), Ok(b)) = pair else {
                 return;
             };
             let mut a = TokioIo::new(a);
             let mut b = TokioIo::new(b);
-            let _ = tokio::io::copy_bidirectional(&mut a, &mut b).await;
+            tokio::select! {
+                _ = tokio::io::copy_bidirectional(&mut a, &mut b) => {}
+                () = access.wait_revoked() => {
+                    let _ = tokio::join!(a.shutdown(), b.shutdown());
+                }
+            }
         });
         let mut switched = Response::builder().status(StatusCode::SWITCHING_PROTOCOLS);
-        for (key, value) in answer.headers() {
+        for (key, value) in &headers {
             switched = switched.header(key, value);
         }
         return switched
@@ -856,6 +927,7 @@ async fn desktop(
         },
         Err(e) => return refusal(e),
     };
+    let access = crate::access_watch(&call, crate::uri(&name), Grant::Use).subscribe();
     call.audit(
         "env.desktop",
         Some(&crate::uri(&name)),
@@ -865,7 +937,7 @@ async fn desktop(
     upgrade
         .protocols(["binary"])
         .on_upgrade(move |socket| async move {
-            if let Err(e) = serve_desktop(&kernel, remote, socket).await {
+            if let Err(e) = serve_desktop(&kernel, remote, socket, access).await {
                 tracing::debug!(error = %e.message, "a desktop connection ended");
             }
         })
@@ -916,33 +988,51 @@ async fn serve_desktop(
     kernel: &Kernel,
     remote: Arc<Remote>,
     socket: WebSocket,
+    mut access: crate::AccessWatcher,
 ) -> Result<(), RpcError> {
-    let password = vnc_password(kernel, &remote).await;
-    let link = remote
-        .link
-        .as_ref()
-        .ok_or_else(|| RpcError::unavailable("no link"))?;
-    let stream = link
-        .stream(&format!("/v1/ports/{VNC_PORT}"))
-        .await
-        .map_err(|e| RpcError::from(api::Fail::from(e)))?;
-    let mut server = crate::vnc::Peer::new(stream);
-    server.handshake(password.as_deref()).await?;
+    let handshake = async {
+        let password = vnc_password(kernel, &remote).await;
+        let link = remote
+            .link
+            .as_ref()
+            .ok_or_else(|| RpcError::unavailable("no link"))?;
+        let stream = link
+            .stream(&format!("/v1/ports/{VNC_PORT}"))
+            .await
+            .map_err(|e| RpcError::from(api::Fail::from(e)))?;
+        let mut server = crate::vnc::Peer::new(stream);
+        server.handshake(password.as_deref()).await?;
+        Ok::<_, RpcError>(server)
+    };
+    let server = tokio::select! {
+        () = access.wait_revoked() => return Err(RpcError::forbidden("access revoked")),
+        res = handshake => res?,
+    };
     let (mut sink, mut source) = socket.split();
     let lost = |e: axum::Error| RpcError::unavailable(e.to_string());
     // Towards noVNC: a server that needs no password.
-    sink.send(WsMessage::Binary(b"RFB 003.008\n".to_vec().into()))
-        .await
-        .map_err(lost)?;
     let mut viewer = crate::vnc::Viewer::default();
-    viewer.read_exact(&mut source, 12).await?;
-    sink.send(WsMessage::Binary(vec![1u8, 1].into()))
-        .await
-        .map_err(lost)?;
-    viewer.read_exact(&mut source, 1).await?;
-    sink.send(WsMessage::Binary(vec![0u8, 0, 0, 0].into()))
-        .await
-        .map_err(lost)?;
+    let viewer_handshake = async {
+        sink.send(WsMessage::Binary(b"RFB 003.008\n".to_vec().into()))
+            .await
+            .map_err(lost)?;
+        viewer.read_exact(&mut source, 12).await?;
+        sink.send(WsMessage::Binary(vec![1u8, 1].into()))
+            .await
+            .map_err(lost)?;
+        viewer.read_exact(&mut source, 1).await?;
+        sink.send(WsMessage::Binary(vec![0u8, 0, 0, 0].into()))
+            .await
+            .map_err(lost)?;
+        Ok::<_, RpcError>(())
+    };
+    tokio::select! {
+        () = access.wait_revoked() => {
+            let _ = sink.close().await;
+            return Err(RpcError::forbidden("access revoked"));
+        }
+        res = viewer_handshake => res?,
+    };
     // From here the bytes pass unchanged.
     let (pending, mut to_host, mut from_host) = server.into_parts();
     let leftover = viewer.take();
@@ -998,6 +1088,11 @@ async fn serve_desktop(
     tokio::select! {
         () = up => {}
         () = down => {}
+        () = access.wait_revoked() => {
+            let _ = to_host
+                .send(Frame::Text(rookery_api::streams::EOF.into()))
+                .await;
+        }
     }
     let _ = sink.close().await;
     Ok(())
@@ -1047,7 +1142,7 @@ mod tests {
         );
         h.insert(
             "authorization",
-            HeaderValue::from_static("Bearer rookery_pat_x"),
+            HeaderValue::from_static("  bearer   rookery_pat_x "),
         );
         h.insert("connection", HeaderValue::from_static("upgrade"));
         h.insert("upgrade", HeaderValue::from_static("websocket"));
@@ -1083,6 +1178,23 @@ mod tests {
             Some("/")
         );
         assert_eq!(rewrite_location("https://example.com/x", 3000), None);
+
+        let mut ws_headers = HeaderMap::new();
+        ws_headers.append(
+            header::SET_COOKIE,
+            HeaderValue::from_static("rookery_session=forged; Path=/"),
+        );
+        ws_headers.append(
+            header::SET_COOKIE,
+            HeaderValue::from_static("app=1; Domain=localhost; Path=/"),
+        );
+        let filtered = switch_headers(&ws_headers);
+        let cookies: Vec<_> = filtered
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .map(|v| v.to_str().unwrap())
+            .collect();
+        assert_eq!(cookies, vec!["app=1; Path=/"]);
     }
 
     #[test]
@@ -1091,5 +1203,45 @@ mod tests {
         assert_eq!(safe_path("//evil.example/x"), "/evil.example/x");
         assert_eq!(safe_path("https://evil.example"), "/https://evil.example");
         assert_eq!(safe_path("/\\evil.example"), "/evil.example");
+        assert_eq!(safe_path("/\t/evil.example?a=\\b"), "/evil.example?a=\\b");
+        assert_eq!(safe_path(" /\x01\\\\evil.example"), "/evil.example");
+    }
+
+    #[test]
+    fn desktop_origin_checks_scheme_and_rejects_malformed() {
+        let mut h = HeaderMap::new();
+        h.insert(header::HOST, HeaderValue::from_static("rookery.example"));
+        // No Origin header (e.g. non-browser CLI client) is allowed.
+        assert!(same_origin_for("https://rookery.example", &h));
+
+        // Same scheme + host matches.
+        h.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("https://rookery.example"),
+        );
+        assert!(same_origin_for("https://rookery.example", &h));
+
+        // Wrong scheme is refused even when authority matches Host / public_url.
+        h.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("http://rookery.example"),
+        );
+        assert!(!same_origin_for("https://rookery.example", &h));
+
+        // Present but malformed Origin is refused, never treated as absent.
+        for bad in [
+            "not-a-url",
+            "ftp://rookery.example",
+            "https://user@rookery.example",
+            "https://rookery.example/path",
+        ] {
+            h.insert(header::ORIGIN, HeaderValue::from_static(bad));
+            assert!(!same_origin_for("https://rookery.example", &h), "{bad}");
+        }
+        h.insert(
+            header::ORIGIN,
+            HeaderValue::from_bytes(b"https://\xff").unwrap(),
+        );
+        assert!(!same_origin_for("https://rookery.example", &h));
     }
 }

@@ -22,7 +22,7 @@ use std::sync::{Arc, OnceLock};
 
 use rookery_core::paths::Paths;
 use rookery_jobs::JobHandler;
-use rookery_kernel::{Kernel, Methods, RpcError};
+use rookery_kernel::{Call, Caller, Grant, Kernel, Methods, RpcError};
 
 /// The resource a host is: `env://NAME`.
 pub fn uri(name: &str) -> String {
@@ -32,6 +32,93 @@ pub fn uri(name: &str) -> String {
 /// A host's name from `env://NAME` or the name itself.
 pub fn name_of(given: &str) -> &str {
     given.strip_prefix("env://").unwrap_or(given)
+}
+
+#[derive(Clone)]
+pub(crate) struct AccessWatch {
+    kernel: Kernel,
+    caller: Caller,
+    resource: String,
+    needed: Grant,
+}
+
+pub(crate) struct AccessWatcher {
+    watch: AccessWatch,
+    rx: tokio::sync::broadcast::Receiver<rookery_kernel::auth::AccessChange>,
+}
+
+impl AccessWatch {
+    pub fn new(kernel: Kernel, caller: Caller, resource: String, needed: Grant) -> Self {
+        Self {
+            kernel,
+            caller,
+            resource,
+            needed,
+        }
+    }
+
+    pub fn subscribe(self) -> AccessWatcher {
+        let rx = rookery_kernel::auth::AccessEvents::of(&self.kernel).subscribe();
+        AccessWatcher { watch: self, rx }
+    }
+
+    async fn check(&self) -> bool {
+        let fresh = match &self.caller {
+            Caller::User {
+                user,
+                session,
+                token,
+            } => {
+                let Ok(uid) = uuid::Uuid::parse_str(&user.id) else {
+                    return false;
+                };
+                match self.kernel.store.users().get(uid).await {
+                    Ok(Some(db_user)) if !db_user.is_disabled() => Caller::User {
+                        user: rookery_kernel::auth::wire_user(&db_user),
+                        session: *session,
+                        token: *token,
+                    },
+                    _ => return false,
+                }
+            }
+            other => other.clone(),
+        };
+        let call = Call::new(self.kernel.clone(), fresh, None);
+        rookery_facilities::access::holds(&call, &self.resource, self.needed)
+            .await
+            .unwrap_or(false)
+    }
+}
+
+impl AccessWatcher {
+    pub async fn wait_revoked(&mut self) {
+        if !self.watch.check().await {
+            return;
+        }
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        interval.tick().await;
+        let user_id = self.watch.caller.user().map(|u| u.id.as_str());
+        loop {
+            let recheck = tokio::select! {
+                msg = self.rx.recv() => match msg {
+                    Ok(rookery_kernel::auth::AccessChange::Resource(r)) => r == self.watch.resource,
+                    Ok(rookery_kernel::auth::AccessChange::User(u)) => user_id == Some(u.as_str()),
+                    Ok(rookery_kernel::auth::AccessChange::Group(_)) => true,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => true,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => false,
+                },
+                _ = interval.tick() => true,
+            };
+            if recheck && !self.watch.check().await {
+                return;
+            }
+        }
+    }
+}
+
+pub(crate) fn access_watch(call: &Call, resource: String, needed: Grant) -> AccessWatch {
+    AccessWatch::new(call.kernel.clone(), call.caller.clone(), resource, needed)
 }
 
 /// The plugin folder changed: the hosts read the plugins again, and say which saved hosts are behind

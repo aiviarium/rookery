@@ -219,6 +219,62 @@ impl WriteLocks {
     }
 }
 
+fn lexical_clean(path: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            other => parts.push(other),
+        }
+    }
+    if parts.is_empty() {
+        "/".into()
+    } else {
+        format!("/{}", parts.join("/"))
+    }
+}
+
+/// Resolves the canonical path via `rookeryd`'s helper and acquires the per-host write lock on it.
+pub(crate) async fn lock_path(
+    call: &Call,
+    remote: &crate::serve::Remote,
+    path: &str,
+) -> Result<tokio::sync::OwnedMutexGuard<()>, RpcError> {
+    let link = link_of(remote)?;
+    let answer = link
+        .send(
+            "GET",
+            &format!("{}&resolve=true", files_target(path)),
+            &[],
+            &[],
+        )
+        .await
+        .map_err(api::Fail::from)?;
+    let canonical = if answer.status == 200 {
+        let parsed = serde_json::from_slice::<serde_json::Value>(&answer.body).ok();
+        match parsed
+            .as_ref()
+            .filter(|v| v.get("entries").is_none())
+            .and_then(|v| v["path"].as_str())
+        {
+            Some(canon) => canon.to_owned(),
+            None => lexical_clean(path),
+        }
+    } else if answer.status == 404 {
+        lexical_clean(path)
+    } else {
+        return Err(refused(path, answer.status, &answer.body));
+    };
+    let lock = call
+        .kernel
+        .facility::<WriteLocks>()
+        .of(&remote.name, &canonical);
+    Ok(lock.lock_owned().await)
+}
+
 pub fn register(methods: &mut Methods) {
     methods
         .add("env.list", |call: Call, _: Empty| async move {
@@ -287,12 +343,8 @@ pub fn register(methods: &mut Methods) {
                 return Err(RpcError::invalid(format!("a write is at most {} MiB", MAX_FILE >> 20)));
             }
             let remote = linked(&call, &p.env).await?;
+            let _held = lock_path(&call, &remote, &p.path).await?;
             let link = link_of(&remote)?;
-            let lock = call
-                .kernel
-                .facility::<WriteLocks>()
-                .of(&remote.name, &p.path);
-            let _held = lock.lock().await;
             if let Some(wanted) = &p.if_match {
                 let current = read_bytes(link, &p.path).await?.map(|b| sha256(&b));
                 if current.as_deref() != Some(wanted.as_str()) {
@@ -324,6 +376,7 @@ pub fn register(methods: &mut Methods) {
     methods
         .add("env.deleteFile", |call: Call, p: FileDelete| async move {
             let remote = linked(&call, &p.env).await?;
+            let _held = lock_path(&call, &remote, &p.path).await?;
             let target = format!(
                 "{}{}",
                 files_target(&p.path),
@@ -400,10 +453,13 @@ pub fn register(methods: &mut Methods) {
                 .map_err(api::Fail::from)?;
             let stream = call.conn()?.streams().open(Initiator::Peer)?;
             let id = stream.id();
+            let access =
+                crate::access_watch(&call, crate::uri(&remote.name), Grant::Use).subscribe();
             tokio::spawn(crate::serve::pipe(
                 upstream,
                 stream,
                 crate::serve::Carry::Bytes,
+                Some(access),
             ));
             call.audit(
                 "env.connect",

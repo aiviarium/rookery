@@ -15,6 +15,9 @@ use rookery_kernel::RpcError;
 
 /// The answer to a VNC authentication challenge: the challenge encrypted by DES with the password
 /// as its key, each key byte's bits reversed, as VNC does it.
+///
+/// The RFB protocol (RFC 6143 §7.2.2) mandates single DES for VNC Authentication, so CodeQL weak-crypto
+/// alerts on this cipher use are dismissed.
 pub fn response(password: &str, challenge: &[u8; 16]) -> [u8; 16] {
     let mut key = [0u8; 8];
     for (i, b) in password.bytes().take(8).enumerate() {

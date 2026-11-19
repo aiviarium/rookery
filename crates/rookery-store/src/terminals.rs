@@ -10,6 +10,8 @@ use crate::error::{Error, Result};
 
 pub struct Terminals<'a> {
     pub(crate) pool: &'a PgPool,
+    /// The leader's epoch every write names: see [`crate::leader`].
+    pub(crate) fence: Option<i64>,
 }
 
 /// One terminal, with its host's name.
@@ -65,9 +67,12 @@ impl Terminals<'_> {
     /// Records a terminal on a host by its name. `CONFLICT` when the session is one already.
     pub async fn insert(&self, new: New<'_>) -> Result<Terminal> {
         let sql = format!(
-            "WITH t AS (
+            "WITH _f AS MATERIALIZED (SELECT rookery.fence($11) AS ok),
+             t AS (
                  INSERT INTO rookery.terminals (id, host, session, owner, run_as, title, command, cwd, cols, rows)
-                 SELECT $1, h.id, $3, $4, $5, $6, $7, $8, $9, $10 FROM rookery.hosts h WHERE h.name = $2
+                 SELECT $1, h.id, $3, $4, $5, $6, $7, $8, $9, $10
+                 FROM rookery.hosts h CROSS JOIN _f
+                 WHERE _f.ok AND h.name = $2
                  ON CONFLICT (host, session) DO NOTHING
                  RETURNING *
              )
@@ -84,6 +89,7 @@ impl Terminals<'_> {
             .bind(new.cwd)
             .bind(new.cols)
             .bind(new.rows)
+            .bind(self.fence)
             .fetch_optional(self.pool)
             .await?;
         match found {
@@ -137,54 +143,70 @@ impl Terminals<'_> {
     }
 
     pub async fn set_title(&self, id: &str, title: &str) -> Result<bool> {
-        let done = sqlx::query("UPDATE rookery.terminals SET title = $2 WHERE id = $1")
-            .bind(id)
-            .bind(title)
-            .execute(self.pool)
-            .await?;
+        let done = sqlx::query(
+            "WITH _f AS MATERIALIZED (SELECT rookery.fence($3) AS ok)
+             UPDATE rookery.terminals SET title = $2 FROM _f WHERE id = $1 AND _f.ok",
+        )
+        .bind(id)
+        .bind(title)
+        .bind(self.fence)
+        .execute(self.pool)
+        .await?;
         Ok(done.rows_affected() > 0)
     }
 
     pub async fn set_size(&self, id: &str, cols: i32, rows: i32) -> Result<()> {
-        sqlx::query("UPDATE rookery.terminals SET cols = $2, rows = $3 WHERE id = $1")
-            .bind(id)
-            .bind(cols)
-            .bind(rows)
-            .execute(self.pool)
-            .await?;
+        sqlx::query(
+            "WITH _f AS MATERIALIZED (SELECT rookery.fence($4) AS ok)
+             UPDATE rookery.terminals SET cols = $2, rows = $3 FROM _f WHERE id = $1 AND _f.ok",
+        )
+        .bind(id)
+        .bind(cols)
+        .bind(rows)
+        .bind(self.fence)
+        .execute(self.pool)
+        .await?;
         Ok(())
     }
 
     /// The output offset seen, which only grows.
     pub async fn set_offset(&self, id: &str, offset: i64) -> Result<()> {
         sqlx::query(
-            "UPDATE rookery.terminals SET \"offset\" = greatest(\"offset\", $2) WHERE id = $1",
+            "WITH _f AS MATERIALIZED (SELECT rookery.fence($3) AS ok)
+             UPDATE rookery.terminals SET \"offset\" = greatest(\"offset\", $2) FROM _f WHERE id = $1 AND _f.ok",
         )
         .bind(id)
         .bind(offset)
+        .bind(self.fence)
         .execute(self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn set_last_input(&self, id: &str, input: &Value) -> Result<()> {
-        sqlx::query("UPDATE rookery.terminals SET last_input = $2 WHERE id = $1")
-            .bind(id)
-            .bind(input)
-            .execute(self.pool)
-            .await?;
+        sqlx::query(
+            "WITH _f AS MATERIALIZED (SELECT rookery.fence($3) AS ok)
+             UPDATE rookery.terminals SET last_input = $2 FROM _f WHERE id = $1 AND _f.ok",
+        )
+        .bind(id)
+        .bind(input)
+        .bind(self.fence)
+        .execute(self.pool)
+        .await?;
         Ok(())
     }
 
     /// Marks a running terminal ended. Returns whether it was running.
     pub async fn end(&self, id: &str, state: &str, exit_code: Option<i32>) -> Result<bool> {
         let done = sqlx::query(
-            "UPDATE rookery.terminals SET state = $2, exit_code = $3, ended_at = now()
-             WHERE id = $1 AND state = 'running'",
+            "WITH _f AS MATERIALIZED (SELECT rookery.fence($4) AS ok)
+             UPDATE rookery.terminals SET state = $2, exit_code = $3, ended_at = now()
+             FROM _f WHERE id = $1 AND state = 'running' AND _f.ok",
         )
         .bind(id)
         .bind(state)
         .bind(exit_code)
+        .bind(self.fence)
         .execute(self.pool)
         .await?;
         Ok(done.rows_affected() > 0)
@@ -192,10 +214,14 @@ impl Terminals<'_> {
 
     /// Forgets a terminal.
     pub async fn delete(&self, id: &str) -> Result<bool> {
-        let done = sqlx::query("DELETE FROM rookery.terminals WHERE id = $1")
-            .bind(id)
-            .execute(self.pool)
-            .await?;
+        let done = sqlx::query(
+            "WITH _f AS MATERIALIZED (SELECT rookery.fence($2) AS ok)
+             DELETE FROM rookery.terminals USING _f WHERE id = $1 AND _f.ok",
+        )
+        .bind(id)
+        .bind(self.fence)
+        .execute(self.pool)
+        .await?;
         Ok(done.rows_affected() > 0)
     }
 

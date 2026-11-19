@@ -201,7 +201,10 @@ impl Store {
         blobs::Blobs { store: self }
     }
     pub fn terminals(&self) -> terminals::Terminals<'_> {
-        terminals::Terminals { pool: &self.pool }
+        terminals::Terminals {
+            pool: &self.pool,
+            fence: self.fence,
+        }
     }
     pub fn layout(&self) -> layout::Layout<'_> {
         layout::Layout { pool: &self.pool }
