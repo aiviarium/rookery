@@ -1,5 +1,5 @@
 //! What happens to hosts, told to clients: `rookery/hosts.changed` and `rookery/resources.changed` events, each
-//! host's channel taken in on a durable topic `rookery/hosts/ID/channel`, and the messages a host keeps
+//! host's channel taken in on a durable topic `rookery/hosts.ID.channel`, and the messages a host keeps
 //! as notifications to those who manage it.
 
 use std::sync::Arc;
@@ -13,9 +13,10 @@ use uuid::Uuid;
 
 use crate::serve::{Event, Serve};
 
-/// The durable topic a host's channel is taken in on, by the host's id.
+/// The durable topic a host's channel is taken in on, by the host's id: one name of the plugin
+/// `rookery`, as `topics.*` names a plugin's topics, with no slash in it.
 pub fn channel_topic(id: &str) -> String {
-    format!("rookery/hosts/{id}/channel")
+    format!("rookery/hosts.{id}.channel")
 }
 
 /// Tells clients what happens, for as long as the server leads.
@@ -153,5 +154,16 @@ async fn notify_managers(kernel: &Kernel, host: &str, message: &rookery_api::Mes
                 rookery_jobs::notify::info(sent),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_hosts_channel_is_a_topic_of_the_plugin_rookery() {
+        // topics.* names a topic as PLUGIN/NAME, with no slash in NAME.
+        let topic = super::channel_topic("0190f0a0b1c27d3e8f9a0b1c2d3e4f50");
+        let name = topic.strip_prefix("rookery/").unwrap();
+        assert!(!name.contains('/'), "{topic}");
     }
 }
