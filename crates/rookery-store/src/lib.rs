@@ -21,6 +21,7 @@ pub mod seal;
 pub mod secrets;
 pub mod settings;
 pub mod state;
+pub mod terminals;
 #[cfg(feature = "testing")]
 pub mod testing;
 pub mod topics;
@@ -198,6 +199,9 @@ impl Store {
     }
     pub fn blobs(&self) -> blobs::Blobs<'_> {
         blobs::Blobs { store: self }
+    }
+    pub fn terminals(&self) -> terminals::Terminals<'_> {
+        terminals::Terminals { pool: &self.pool }
     }
     pub fn layout(&self) -> layout::Layout<'_> {
         layout::Layout { pool: &self.pool }

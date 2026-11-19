@@ -7,6 +7,7 @@
 pub mod access;
 pub mod auth;
 pub mod context;
+pub mod env;
 pub mod error;
 pub mod facilities;
 pub mod hosts;
@@ -14,6 +15,7 @@ pub mod jobs;
 pub mod methods;
 pub mod rpc;
 pub mod stream;
+pub mod terminals;
 
 pub use context::{Principal, PrincipalKind, User};
 pub use error::{ErrorBody, ErrorCode, ErrorData, RpcError};

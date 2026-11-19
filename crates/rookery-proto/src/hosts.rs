@@ -406,7 +406,7 @@ impl Acted {
 /// needs manage on the host; as the agent account, use.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-pub struct TerminalOpen {
+pub struct HostSessionOpen {
     pub host: String,
     #[serde(flatten)]
     pub start: rookery_api::StartSession,
@@ -418,7 +418,7 @@ pub struct TerminalOpen {
 /// A session on a host, by the host and the session's id.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-pub struct TerminalRef {
+pub struct HostSessionRef {
     pub host: String,
     pub terminal: String,
     /// The query, as the host takes it: `since`, `tail`, `lines` and the rest.
@@ -429,7 +429,7 @@ pub struct TerminalRef {
 /// `hosts.sessions.input`, `hosts.sessions.resize` and `hosts.sessions.signal`: what the host takes, as it takes it.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-pub struct TerminalSend {
+pub struct HostSessionSend {
     pub host: String,
     pub terminal: String,
     #[serde(default)]
@@ -439,7 +439,7 @@ pub struct TerminalSend {
 /// A file on a host, by its path.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-pub struct FileRef {
+pub struct HostFileRef {
     pub host: String,
     pub path: String,
 }
@@ -447,7 +447,7 @@ pub struct FileRef {
 /// `hosts.files.write`: the bytes in base64. With `etag`, only if the file is still at it.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-pub struct FileWrite {
+pub struct HostFileWrite {
     pub host: String,
     pub path: String,
     pub base64: String,
@@ -458,7 +458,7 @@ pub struct FileWrite {
 /// `hosts.ports.connect`: a TCP port on the host's loopback.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-pub struct PortConnect {
+pub struct HostPortConnect {
     pub host: String,
     pub port: u16,
 }

@@ -2,8 +2,7 @@
 import type { PresenceUser } from "./PresenceUser";
 
 /**
- * `env.presence`: who is on an environment. Terminals are private to their owner, so this is the one place
- * a person with `view` learns that someone else is working there, without seeing what they do. Agent
- * sessions run for a person and will count under that person once they exist.
+ * `env.presence`: who is on a host. Terminals are their owner's, so this is how someone with
+ * `view` learns that another person works there, without seeing what they do.
  */
 export type EnvPresence = { users: Array<PresenceUser>, };

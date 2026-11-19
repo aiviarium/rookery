@@ -5,18 +5,14 @@
  */
 export type InputInfo = { 
 /**
- * The principal: `user:<id>`, `agent:<id>`, `service:plugin:<id>`.
+ * `user:<id>` or another principal.
  */
-principal: string, 
-/**
- * The user's name, when the principal is a user or acts for one.
- */
-name?: string, 
+principal: string, name?: string, 
 /**
  * Unix ms.
  */
 at: number, 
 /**
- * `viewer` (bytes from a viewer) or `automation` (semantic input).
+ * `viewer`, from an attached viewer, or `automation`, from `terminals.write`.
  */
 via: string, bytes: number, };
