@@ -233,3 +233,18 @@ fn write_files(paths: &Paths, store: &rookery_core::store::Store) {
         }
     }
 }
+
+/// rookery-core's store and locks on the server's tables, for a program on the server's machine that
+/// works with them outside the server, such as `rookery tailnet-key`, which an apply runs.
+pub fn attach(
+    database_url: &str,
+    secret_key: Option<rookery_store::seal::Key>,
+) -> Result<(), String> {
+    let db = db::Db::start(database_url)?;
+    let store = Arc::new(rookery_core::store::Store::from_backend(Box::new(
+        backend::ServerBackend::new(db.clone(), secret_key, None),
+    )));
+    rookery_core::store::set_shared(Some(store));
+    rookery_core::runner::set_locks(Some(locks::LeaseLocks::new(db, None)));
+    Ok(())
+}

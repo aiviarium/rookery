@@ -11,8 +11,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use rookery_api::{From as MessageFrom, Keep, Level as MessageLevel, Message};
 use rookery_core::store::{
-    self, Backend, Change, Entry, Error, Filter, Job, JobFilter, Result, Rows, StateRow, Stored,
-    Table, When, kind,
+    self, Backend, Change, Entry, Error, Filter, Result, StateRow, Stored, When, kind,
 };
 use rookery_store::seal::{self, Key, Sealed};
 use serde_json::Value;
@@ -996,8 +995,8 @@ impl Backend for ServerBackend {
         "postgres"
     }
 
-    fn schema_version(&mut self) -> Result<i64> {
-        Ok(rookery_store::migrations().len() as i64)
+    fn seals(&self) -> bool {
+        self.key.is_some()
     }
 
     fn cursor(&mut self, host: &str) -> Result<u64> {
@@ -1188,29 +1187,6 @@ impl Backend for ServerBackend {
         })
     }
 
-    // Jobs are rookery.jobs, which the server's runner writes through rookery-jobs.
-    fn add_job(&mut self, _: &Job) -> Result<Job> {
-        Err(not_kept("job records of its own: jobs are rookery.jobs"))
-    }
-    fn job_by_token(&mut self, _: &str, _: &str, _: &str) -> Result<Option<Job>> {
-        Ok(None)
-    }
-    fn end_job(&mut self, _: &str, _: Option<i32>, _: &str) -> Result<()> {
-        Ok(())
-    }
-    fn stop_job(&mut self, _: &str, _: &str) -> Result<()> {
-        Ok(())
-    }
-    fn end_lost_jobs(&mut self, _: &str) -> Result<usize> {
-        Ok(0)
-    }
-    fn job(&mut self, _: &str) -> Result<Option<Job>> {
-        Ok(None)
-    }
-    fn jobs(&mut self, _: &JobFilter<'_>) -> Result<Vec<Job>> {
-        Ok(vec![])
-    }
-
     fn prune(&mut self, cutoff: &str) -> Result<Vec<String>> {
         let cutoff = cutoff.to_owned();
         self.tx(move |c, _| {
@@ -1363,24 +1339,6 @@ impl Backend for ServerBackend {
             })
         })
     }
-
-    fn swap_states(&mut self, _: &[(StateRow, StateRow)]) -> Result<bool> {
-        Err(not_kept(
-            "store sealed as a whole: rookery server secrets rekey seals its secrets again",
-        ))
-    }
-
-    fn export(&mut self, _: Table) -> Result<Rows> {
-        Err(not_kept("generic tables"))
-    }
-
-    fn import(&mut self, _: &Rows) -> Result<usize> {
-        Err(not_kept("generic tables"))
-    }
-
-    fn count(&mut self, _: Table) -> Result<u64> {
-        Ok(0)
-    }
 }
 
 fn entry((key, value, revision, at): (String, Value, i64, DateTime<Utc>)) -> Entry {
@@ -1480,4 +1438,22 @@ async fn take_in(c: &mut PgConnection, host: &str, message: &Message) -> Result<
 #[allow(dead_code)]
 fn bare_id(id: Uuid) -> String {
     bare(id)
+}
+
+/// Writes a row of rookery-core's state to its table, in a transaction of the caller's, as
+/// `rookery server import` writes the rows of a store of before.
+pub async fn import_state(c: &mut PgConnection, key: Option<Key>, row: &StateRow) -> Result<()> {
+    state_put(c, &key.map(Arc::new), row).await
+}
+
+/// Where a kind of state is kept, for what an import says it did: the table, or none for a kind the
+/// server does not keep.
+pub fn table_of(kind: &str) -> Option<&'static str> {
+    Some(match spot(kind) {
+        Spot::Plain(place) => place.table,
+        Spot::Tailnet => "hosts",
+        Spot::Resource(_) => "resources",
+        Spot::Named(_) | Spot::Secret => "secrets",
+        Spot::None => return None,
+    })
 }
