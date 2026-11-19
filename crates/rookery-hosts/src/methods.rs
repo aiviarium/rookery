@@ -516,8 +516,8 @@ fn register_controller(methods: &mut Methods) {
                 .await
             },
         )
-        .summary("A picture of a workstation's desktop, as a PNG in base64.")
-        .level(host(Grant::Use));
+        .summary("A picture of a workstation's desktop, as a PNG in base64: what view sees of it, which only use reaches live.")
+        .level(host(Grant::View));
     methods
         .add("hosts.units.list", |call: Call, p: HostRef| async move {
             pass(
