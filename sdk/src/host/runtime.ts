@@ -1,0 +1,447 @@
+// The host half's runtime. The extension host makes one in each plugin's worker, with a transport to
+// the server, and hands `rookery` to the plugin's activate function. Each facility is a thin typed
+// proxy over the server's methods, called as the plugin.
+//
+// What this version of Rookery serves to host halves: rpc, commands, events, settings, storage,
+// secrets, jobs (get, list, cancel, progress and log), leases, topics.publish and notify. The rest of
+// the `Rookery` handle answers UNAVAILABLE.
+import { z } from "zod"
+import { RookeryError } from "../errors"
+import type { Manifest, Principal, User } from "../generated"
+import { type Disposable, disposable } from "../types"
+import type {
+  Ctx,
+  HostCommandDef,
+  HostPlugin,
+  Lease,
+  Logger,
+  NoticeKind,
+  Rookery,
+  RpcHandlerDef,
+} from "./types"
+import { isHostPlugin } from "./types"
+
+export type LogLevel = "debug" | "info" | "warn" | "error"
+
+/** Something a host half registered, as the server knows it. */
+export interface Registration {
+  kind: "rpc" | "command"
+  key: string
+  params?: Record<string, unknown>
+  description?: string
+}
+
+/** The context the server sends with each invocation. */
+export interface CallContext {
+  callId: string
+  user?: User | null
+  principal: Principal
+  /** Milliseconds since the epoch. */
+  deadline: number
+}
+
+/** `plugins.invoke`. */
+export interface Invoke {
+  plugin: string
+  kind: Registration["kind"]
+  key: string
+  params: unknown
+  ctx: CallContext
+}
+
+export interface HostTransport {
+  /** A call of a server method, as the plugin. */
+  call(method: string, params: Record<string, unknown>): Promise<unknown>
+  /** Something was registered after activation. */
+  registered(registration: Registration): void
+  unregistered(kind: Registration["kind"], key: string): void
+  log(level: LogLevel, message: string): void
+}
+
+interface Handler {
+  kind: Registration["kind"]
+  key: string
+  params?: { parse(input: unknown): unknown }
+  description?: string
+  run(ctx: Ctx, params: any): unknown
+}
+
+export function format(args: unknown[]): string {
+  return args
+    .map((a) => {
+      if (typeof a === "string") return a
+      if (a instanceof Error) return a.stack ?? a.message
+      try {
+        return JSON.stringify(a)
+      } catch {
+        return String(a)
+      }
+    })
+    .join(" ")
+}
+
+function jsonSchema(params: unknown): Record<string, unknown> | undefined {
+  if (!params) return undefined
+  try {
+    return z.toJSONSchema(params as z.ZodType) as Record<string, unknown>
+  } catch {
+    return undefined
+  }
+}
+
+/** An object whose every member answers UNAVAILABLE, for what this version does not serve. */
+function unavailable<T extends object>(name: string): T {
+  const refuse = () => {
+    throw new RookeryError(
+      "UNAVAILABLE",
+      `rookery.${name} is not available to host halves in this version of Rookery`,
+    )
+  }
+  return new Proxy({} as T, {
+    get(_, member) {
+      if (member === "then" || typeof member === "symbol") return undefined
+      return refuse
+    },
+  })
+}
+
+/** A handler's params, read with its schema: what does not fit is INVALID. */
+function parse(h: Handler, input: unknown): unknown {
+  if (!h.params) return input
+  try {
+    return h.params.parse(input ?? {})
+  } catch (e) {
+    const issues = (e as { issues?: unknown })?.issues
+    throw new RookeryError(
+      "INVALID",
+      `params of ${h.kind} ${h.key}: ${(e as Error)?.message ?? e}`,
+      issues ? { issues } : undefined,
+    )
+  }
+}
+
+export class HostRuntime {
+  readonly handlers = new Map<string, Handler>()
+  readonly events = new Map<string, (payload: unknown, name: string) => unknown>()
+  readonly disposers: Array<() => unknown> = []
+  readonly running = new Map<string, AbortController>()
+  active = false
+
+  constructor(
+    readonly plugin: string,
+    readonly manifest: Manifest,
+    readonly transport: HostTransport,
+  ) {}
+
+  logger(): Logger {
+    const at = (level: LogLevel) => (message: string, fields?: Record<string, unknown>) =>
+      this.transport.log(level, fields ? `${message} ${format([fields])}` : message)
+    return { debug: at("debug"), info: at("info"), warn: at("warn"), error: at("error") }
+  }
+
+  call<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+    return this.transport.call(method, params) as Promise<T>
+  }
+
+  registration(h: Handler): Registration {
+    const r: Registration = { kind: h.kind, key: h.key }
+    const params = jsonSchema(h.params)
+    if (params) r.params = params
+    if (h.description) r.description = h.description
+    return r
+  }
+
+  register(h: Handler): Disposable {
+    const id = `${h.kind}:${h.key}`
+    if (this.handlers.has(id)) {
+      throw new RookeryError("CONFLICT", `${h.kind} ${h.key} is registered already by ${this.plugin}`)
+    }
+    this.handlers.set(id, h)
+    if (this.active) this.transport.registered(this.registration(h))
+    return disposable(() => {
+      if (this.handlers.get(id) !== h) return
+      this.handlers.delete(id)
+      if (this.active) this.transport.unregistered(h.kind, h.key)
+    })
+  }
+
+  registrations(): Registration[] {
+    return [...this.handlers.values()].map((h) => this.registration(h))
+  }
+
+  context(ctx: CallContext, signal: AbortSignal): Ctx {
+    return {
+      user: ctx.user ?? null,
+      principal: ctx.principal,
+      space: null,
+      signal,
+      data: unavailable("data"),
+      access: unavailable("access"),
+    } as Ctx
+  }
+
+  /** Runs a handler for `plugins.invoke`, until its deadline or `plugins.cancel`. */
+  async invoke(inv: Invoke): Promise<unknown> {
+    const h = this.handlers.get(`${inv.kind}:${inv.key}`)
+    if (!h) throw new RookeryError("NOT_FOUND", `${this.plugin} has no ${inv.kind} ${inv.key}`)
+    const abort = new AbortController()
+    const timer = setTimeout(
+      () => abort.abort(new RookeryError("TIMEOUT", "the call's deadline passed")),
+      Math.max(0, inv.ctx.deadline - Date.now()),
+    )
+    this.running.set(inv.ctx.callId, abort)
+    const aborted = new Promise<never>((_, reject) => {
+      const fail = () => reject(RookeryError.from(abort.signal.reason))
+      if (abort.signal.aborted) fail()
+      else abort.signal.addEventListener("abort", fail, { once: true })
+    })
+    try {
+      const run = (async () => {
+        const params = parse(h, inv.params)
+        return h.run(this.context(inv.ctx, abort.signal), params)
+      })()
+      run.catch(() => {})
+      const result = await Promise.race([run, aborted])
+      return result === undefined ? null : result
+    } finally {
+      clearTimeout(timer)
+      this.running.delete(inv.ctx.callId)
+    }
+  }
+
+  cancel(callId: string) {
+    this.running.get(callId)?.abort(new RookeryError("TIMEOUT", "the call was cancelled"))
+  }
+
+  /** `plugins.notify`: what the server sent the plugin's connection. */
+  notified(method: string, params: any) {
+    if (method === "events.event") {
+      const h = this.events.get(params?.subscription)
+      if (!h) return
+      Promise.resolve()
+        .then(() => h(params.payload, params.name))
+        .catch((e) =>
+          this.transport.log("error", `the handler of the event ${params.name} failed: ${format([e])}`),
+        )
+    }
+  }
+
+  async dispose() {
+    for (const d of this.disposers.splice(0).reverse()) {
+      try {
+        await d()
+      } catch (e) {
+        this.transport.log("error", `a cleanup failed: ${format([e])}`)
+      }
+    }
+    for (const a of this.running.values()) a.abort(new RookeryError("UNAVAILABLE", "the plugin is stopping"))
+  }
+}
+
+function createApi(rt: HostRuntime): Rookery {
+  const plugin = rt.plugin
+  const lease = (key: string, info: { fence: number; expiresAt?: string | null }): Lease => ({
+    key,
+    token: info.fence,
+    expiresAt: info.expiresAt ?? "",
+    renew: (ttlMs = 30_000) =>
+      rt.call("leases.renew", { name: key, ttlMs, fence: info.fence }) as Promise<any>,
+    release: async () => {
+      await rt.call("leases.release", { name: key, fence: info.fence })
+    },
+  })
+  const api: Rookery = {
+    id: plugin,
+    manifest: rt.manifest,
+    log: rt.logger(),
+    commands: {
+      register: (id, def: HostCommandDef) =>
+        rt.register({ kind: "command", key: id, params: def.params, run: def.run }),
+      run: async (ctx, id, params = {}) => {
+        const h = rt.handlers.get(`command:${id}`)
+        if (!h) throw new RookeryError("NOT_FOUND", `${plugin} has no command ${id}`)
+        return (await h.run(ctx, parse(h, params))) as any
+      },
+    },
+    rpc: {
+      handle: (method, def: RpcHandlerDef) =>
+        rt.register({ kind: "rpc", key: method, params: def.params, run: def.run }),
+    },
+    events: {
+      publish: async (topic, payload) => {
+        await rt.call("events.publish", { name: topic, payload: payload ?? null })
+      },
+      subscribe: async (topic, handler) => {
+        const { subscription } = await rt.call<{ subscription: string }>("events.subscribe", {
+          names: [topic],
+        })
+        rt.events.set(subscription, handler)
+        return disposable(() => {
+          rt.events.delete(subscription)
+          rt.call("events.unsubscribe", { subscription }).catch(() => {})
+        })
+      },
+    },
+    settings: {
+      get: async (key) => (await rt.call<{ value: any }>("settings.get", { plugin, key })).value,
+      set: async (key, value, opts = {}) => {
+        await rt.call("settings.set", { plugin, key, value, scope: opts.scope ?? "default" })
+      },
+      reset: async (key, opts = {}) => {
+        await rt.call("settings.reset", { plugin, key, scope: opts.scope ?? "default" })
+      },
+    },
+    storage: {
+      get: async (key, opts = {}) =>
+        (
+          await rt.call<{ value: any; revision: number }>("storage.get", {
+            key,
+            scope: opts.scope ?? "global",
+          })
+        ).value ?? null,
+      set: async (key, value, opts = {}) => {
+        await rt.call("storage.set", {
+          key,
+          value,
+          scope: opts.scope ?? "global",
+          ...(opts.expectedRevision !== undefined ? { revision: opts.expectedRevision } : {}),
+        })
+      },
+      list: async (opts = {}) =>
+        (
+          await rt.call<{ entries: Array<{ key: string; value: unknown; revision: number }> }>(
+            "storage.list",
+            {
+              scope: opts.scope ?? "global",
+              prefix: opts.prefix ?? "",
+            },
+          )
+        ).entries.map((e) => ({ key: e.key, value: e.value, revision: e.revision })),
+      delete: async (key, opts = {}) => {
+        await rt.call("storage.delete", { key, scope: opts.scope ?? "global" })
+      },
+    },
+    secrets: {
+      get: async (name, opts = {}) =>
+        (
+          await rt.call<{ value: string | null }>("secrets.get", {
+            plugin,
+            name,
+            scope: opts.scope ?? "global",
+          })
+        ).value ?? null,
+      set: async (name, value, opts = {}) => {
+        await rt.call("secrets.set", { plugin, name, value, scope: opts.scope ?? "global" })
+      },
+      list: async () =>
+        (await rt.call<{ secrets: Array<{ name: string }> }>("secrets.list", { plugin })).secrets.map(
+          (s) => s.name,
+        ),
+      delete: async (name, opts = {}) => {
+        await rt.call("secrets.delete", { plugin, name, scope: opts.scope ?? "global" })
+      },
+      rename: async (from, to, opts = {}) => {
+        await rt.call("secrets.rename", { plugin, name: from, newName: to, scope: opts.scope ?? "global" })
+      },
+    },
+    jobs: {
+      handle: () => {
+        throw new RookeryError(
+          "UNAVAILABLE",
+          "rookery.jobs.handle is not available to host halves in this version of Rookery",
+        )
+      },
+      enqueue: (kind, params = {}) => rt.call("jobs.enqueue", { kind, params }) as Promise<any>,
+      get: (id) => rt.call("jobs.get", { id }) as Promise<any>,
+      cancel: async (id) => {
+        await rt.call("jobs.cancel", { id })
+      },
+    },
+    leases: {
+      acquire: async (key, opts = {}) => {
+        try {
+          const got = await rt.call<{ fence: number; expiresAt?: string }>("leases.acquire", {
+            name: key,
+            ttlMs: opts.ttlMs ?? 30_000,
+          })
+          return lease(key, got)
+        } catch (e) {
+          if (RookeryError.from(e).code === "CONFLICT") return null
+          throw e
+        }
+      },
+      with: async (key, fn, opts = {}) => {
+        const held = await api.leases.acquire(key, opts)
+        if (!held) throw new RookeryError("CONFLICT", `the lease ${key} is held by another worker`)
+        try {
+          return await fn(held)
+        } finally {
+          await held.release().catch(() => {})
+        }
+      },
+    },
+    topics: {
+      publish: (topic, payload) => rt.call("topics.publish", { topic, payload }) as Promise<{ seq: number }>,
+      subscribe: () => {
+        throw new RookeryError(
+          "UNAVAILABLE",
+          "rookery.topics.subscribe is not available to host halves in this version of Rookery",
+        )
+      },
+    },
+    notify: {
+      send: async (notice) => {
+        const kind: NoticeKind = notice.kind ?? "info"
+        const sent = await rt.call<{ notification: { id: string } }>("notify.send", {
+          user: notice.user,
+          kind,
+          title: notice.title,
+          ...(notice.body !== undefined ? { body: notice.body } : {}),
+          ...(notice.resource !== undefined ? { data: { resource: notice.resource } } : {}),
+        })
+        return { id: sent.notification.id }
+      },
+    },
+    services: unavailable("services"),
+    extensions: unavailable("extensions"),
+    data: unavailable("data"),
+    spaces: unavailable("spaces"),
+    connections: unavailable("connections"),
+    blobs: unavailable("blobs"),
+    audit: unavailable("audit"),
+    schedules: unavailable("schedules"),
+    streams: unavailable("streams"),
+    env: unavailable("env"),
+    terminals: unavailable("terminals"),
+    appServices: unavailable("appServices"),
+    onDispose: (fn) => {
+      rt.disposers.push(fn)
+    },
+  }
+  return api
+}
+
+/** Makes the runtime and the `rookery` handle of one plugin. */
+export function createHost(plugin: string, manifest: Manifest, transport: HostTransport) {
+  const runtime = new HostRuntime(plugin, manifest, transport)
+  return { runtime, rookery: createApi(runtime) }
+}
+
+/** Activates a plugin module's default export, and gives what it registered. */
+export async function activate(
+  runtime: HostRuntime,
+  rookery: Rookery,
+  mod: unknown,
+): Promise<Registration[]> {
+  const plugin = (mod as { default?: unknown })?.default ?? mod
+  if (!isHostPlugin(plugin)) {
+    throw new RookeryError(
+      "INVALID",
+      `the host half of ${runtime.plugin} must \`export default definePlugin((rookery) => { ... })\``,
+    )
+  }
+  const out = await (plugin as HostPlugin).activate(rookery)
+  if (typeof out === "function") runtime.disposers.push(out as () => unknown)
+  runtime.active = true
+  return runtime.registrations()
+}

@@ -1,5 +1,5 @@
-// Host-half API types for Rookery plugins. The extension host runtime arrives in M2;
-// these types define the contract plugins build their host halves against.
+// Host-half API types for Rookery plugins: the contract plugins build their host halves against.
+// `runtime.ts` is what the extension host runs them with.
 import type { CollectionsOf, Refs, Row } from "../data"
 import type {
   AccessLevel,

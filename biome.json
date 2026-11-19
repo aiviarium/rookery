@@ -8,6 +8,7 @@
     "includes": [
       "client/**",
       "sdk/**",
+      "host/**",
       "!client/src/generated/**",
       "!**/dist/**",
       "!**/node_modules/**",
