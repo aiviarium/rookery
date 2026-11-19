@@ -2775,6 +2775,9 @@
                 "items": {
                   "$ref": "#/$defs/provisionerAction"
                 }
+              },
+              "catalogue": {
+                "$ref": "#/$defs/catalogue"
               }
             }
           }
@@ -2789,6 +2792,58 @@
           "type": "array",
           "items": {
             "type": "object"
+          }
+        }
+      }
+    },
+    "catalogue": {
+      "description": "What a plugin offers to choose from when a machine is made, as sets of the kind's arguments: its sizes, images and regions.",
+      "type": "object",
+      "properties": {
+        "sizes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/catalogueChoice"
+          }
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/catalogueChoice"
+          }
+        },
+        "regions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/catalogueChoice"
+          }
+        }
+      }
+    },
+    "catalogueChoice": {
+      "type": "object",
+      "required": [
+        "id",
+        "values"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/featureName"
+        },
+        "label": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        },
+        "default": {
+          "type": "boolean"
+        },
+        "values": {
+          "description": "The arguments it sets, by their names.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
           }
         }
       }

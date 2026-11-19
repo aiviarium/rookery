@@ -65,7 +65,7 @@ fn found(state: &Serve, id: &str) -> Answer<resource::Kept> {
     resource::find(&state.paths, id).map_err(refusal)
 }
 
-fn described(state: &Serve, kept: &resource::Kept) -> Resource {
+pub(crate) fn described(state: &Serve, kept: &resource::Kept) -> Resource {
     let plugins = rookery_core::provision::list_plugins(&state.paths);
     let busy = kept.record.external_id.is_empty() && kept.busy(&state.paths);
     resource::info(&state.paths, kept, &plugins, busy)
@@ -119,41 +119,75 @@ pub struct Created {
 }
 
 pub async fn create(state: Arc<Serve>, body: Bytes) -> Answer<Json<Created>> {
-    let asked: NewResource = serde_json::from_slice(&body).map_err(bad)?;
-    if let Some(host) = asked.host.as_deref().filter(|host| !host.is_empty()) {
-        super::setup::saved_profile(&state, host)?;
+    let mut asked: NewResource = serde_json::from_slice(&body).map_err(bad)?;
+    let host = asked.host.clone().filter(|host| !host.is_empty());
+    // One call may save the profile the machine is made for, so there is no
+    // moment between the host and its machine. A host that has a profile
+    // keeps the one it has unless one is given, and one given replaces it.
+    let mut saved = None;
+    match (&host, asked.profile.take()) {
+        (Some(host), Some(profile)) => {
+            let (place, profile) = super::setup::checked_profile(&state, host, None, profile)?;
+            let kept = place.load(&state.paths).map_err(internal)?.is_some();
+            place.save(&state.paths, &profile).map_err(internal)?;
+            if !kept {
+                saved = Some(place);
+            }
+            state.forget(host);
+            state.refresh(false);
+        }
+        (Some(host), None) => {
+            super::setup::saved_profile(&state, host)?;
+        }
+        (None, Some(_)) => {
+            return Err(bad(
+                "A profile is saved with a host's machine: name its host",
+            ));
+        }
+        (None, None) => {}
     }
     let (paths, registries) = (state.paths.clone(), store(&state));
     let token = asked.token.clone();
-    let host = asked.host.clone().unwrap_or_default();
+    let host = host.unwrap_or_default();
     let prepared = blocking({
         let (paths, registries) = (paths.clone(), registries.clone());
         move || resource::prepare(&paths, &registries, &asked)
     })
-    .await?
-    .map_err(refusal)?;
+    .await?;
     let mut creating = match prepared {
-        Asked::Again(kept) => {
-            let job = state
-                .runner
-                .by_token(kept.subject(), "create", token.as_deref().unwrap_or(""))
-                .await
-                .map_err(internal)?
-                .ok_or_else(|| {
-                    Fail::new(
-                        code::CONFLICT,
-                        format!(
-                            "{} was asked for with this token, and its job is gone",
-                            kept.record.id
-                        ),
-                    )
-                })?;
-            return Ok(Json(Created {
-                resource: described(&state, &kept),
-                job,
-            }));
+        Ok(prepared) => match prepared {
+            Asked::Again(kept) => {
+                let job = state
+                    .runner
+                    .by_token(kept.subject(), "create", token.as_deref().unwrap_or(""))
+                    .await
+                    .map_err(internal)?
+                    .ok_or_else(|| {
+                        Fail::new(
+                            code::CONFLICT,
+                            format!(
+                                "{} was asked for with this token, and its job is gone",
+                                kept.record.id
+                            ),
+                        )
+                    })?;
+                return Ok(Json(Created {
+                    resource: described(&state, &kept),
+                    job,
+                }));
+            }
+            Asked::New(creating) => creating,
+        },
+        Err(said) => {
+            // A profile this call saved is not left behind for a machine
+            // that was refused: the same call can be made again.
+            if let Some(place) = &saved {
+                let _ = rookery_core::profiles::remove(&state.paths, place);
+                state.forget(&host);
+                state.refresh(false);
+            }
+            return Err(refusal(said));
         }
-        Asked::New(creating) => creating,
     };
     let kept = creating.kept().clone();
     let mut request = Request::new(kept.subject(), "create");

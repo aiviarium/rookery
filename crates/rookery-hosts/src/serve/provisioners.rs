@@ -10,7 +10,7 @@ use super::{
     api::{Answer, Bytes, Fail, Json, caller, internal},
     auth::Access,
 };
-use rookery_api::{Action, ProvisionerInfo, ProvisionerState, SavedProvisioner, code};
+use rookery_api::{Action, ProvisionerInfo, ProvisionerState, Resource, SavedProvisioner, code};
 use rookery_core::{
     provision, provisioner,
     registry::Store,
@@ -54,7 +54,34 @@ fn known(state: &Serve, store: &Store, name: &str) -> Answer<ProvisionerInfo> {
 }
 
 pub async fn list(state: Arc<Serve>) -> Answer<Json<Vec<ProvisionerInfo>>> {
-    Ok(Json(provision::list(&state.paths, &store(&state))))
+    let registries = store(&state);
+    let mut infos = provision::list(&state.paths, &registries);
+    // What each says of itself, asked together, so a page needs no call per
+    // name. One that cannot be used here does not run at all.
+    for info in infos.iter_mut().filter(|info| !info.problem.is_empty()) {
+        info.state = "unusable".into();
+        info.message = info.problem.clone();
+    }
+    let mut asked = tokio::task::JoinSet::new();
+    for info in infos.iter().filter(|info| info.problem.is_empty()) {
+        let (paths, registries, name) =
+            (state.paths.clone(), registries.clone(), info.name.clone());
+        let options = (state.provision)();
+        asked.spawn_blocking(move || {
+            let (state, message) = provisioner::status(&paths, &registries, &name, &options);
+            (name, state, message)
+        });
+    }
+    while let Some(joined) = asked.join_next().await {
+        let Ok((name, state, message)) = joined else {
+            continue;
+        };
+        if let Some(info) = infos.iter_mut().find(|info| info.name == name) {
+            info.state = state;
+            info.message = message;
+        }
+    }
+    Ok(Json(infos))
 }
 
 pub async fn types(state: Arc<Serve>) -> Answer<Json<Vec<ProvisionerInfo>>> {
@@ -70,10 +97,24 @@ pub async fn save(state: Arc<Serve>, name: String, body: Bytes) -> Answer<Json<P
 
 pub async fn remove(state: Arc<Serve>, name: String) -> Answer<Json<rookery_api::Done>> {
     let registries = store(&state);
-    known(&state, &registries, &name)?;
-    provisioner::remove_entry(&state.paths, &registries, &name)
-        .map_err(|error| Fail::new(code::CONFLICT, error.to_string()))?;
-    Ok(Json(rookery_api::Done { ok: true }))
+    let info = known(&state, &registries, &name)?;
+    match provisioner::remove_entry(&state.paths, &registries, &name) {
+        Ok(()) => Ok(Json(rookery_api::Done { ok: true })),
+        Err(error) => {
+            // What holds it back is what has to be removed first, so the
+            // caller is given the resources themselves, not only their ids.
+            let held: Vec<Resource> = provisioner::held_by(&state.paths, &info.name)
+                .unwrap_or_default()
+                .iter()
+                .map(|kept| super::resources::described(&state, kept))
+                .collect();
+            let refused = Fail::new(code::CONFLICT, error.to_string());
+            Err(match held.is_empty() {
+                true => refused,
+                false => refused.with(serde_json::json!({ "resources": held })),
+            })
+        }
+    }
 }
 
 pub async fn provisioner(

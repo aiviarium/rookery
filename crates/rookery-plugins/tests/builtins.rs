@@ -38,6 +38,19 @@ fn copy(from: &Path, to: &Path) {
     }
 }
 
+/// Kinds' catalogues of sizes, images and regions are newer than the legacy manifests, which never
+/// declare one: the two are compared without them.
+fn without_catalogue(value: &mut Value) {
+    match value {
+        Value::Object(fields) => {
+            fields.remove("catalogue");
+            fields.values_mut().for_each(without_catalogue);
+        }
+        Value::Array(items) => items.iter_mut().for_each(without_catalogue),
+        _ => {}
+    }
+}
+
 /// What rookery-core makes of a plugin: its features with their actions, services and channels, and
 /// its provisioners with their kinds, actions and collections.
 fn contributions(package: &Path) -> Value {
@@ -72,10 +85,18 @@ fn each_shipped_plugin_contributes_what_its_rookery_json_did() {
         if legacy.get("provisioners").is_none() {
             parts.as_object_mut().unwrap().remove("provisioners");
         }
-        assert_eq!(parts, legacy, "{id}");
+        let (mut parts, mut wanted) = (parts, legacy.clone());
+        without_catalogue(&mut parts);
+        without_catalogue(&mut wanted);
+        assert_eq!(parts, wanted, "{id}");
         // rookery-core reads the same features, actions and provisioners from both.
         let old = legacy_copy(id, scratch.path());
-        assert_eq!(contributions(&shipped), contributions(&old), "{id}");
+        let read = |package: &Path| {
+            let mut found = contributions(package);
+            without_catalogue(&mut found);
+            found
+        };
+        assert_eq!(read(&shipped), read(&old), "{id}");
         // And the server's loader takes both, the old one as legacy.
         let new = rookery_plugins::loaded::load(&rookery_core::plugins::read(&shipped).unwrap());
         assert!(new.valid(), "{id}: {:?}", new.problem);

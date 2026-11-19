@@ -131,6 +131,12 @@ its settings, which every machine and action uses unless the call gives a value:
 
 ## Machines
 
+A machine is made from one of three sizes, Small, Standard or Large, and one of
+the Ubuntu or Debian cloud images. Each size sets CPUs, memory and disk; each
+image sets `image`. A shell may offer them as choices, and Rookery passes what is
+chosen as the arguments. The Incus server makes machines in no region, so there
+is none to choose.
+
 Besides creating, starting, stopping and deleting, the plugin changes a
 machine's CPU and memory limits and grows its root disk. Its log is the
 console log Incus keeps, or cloud-init's output when the console has none.

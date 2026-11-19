@@ -79,4 +79,14 @@ collections?: Array<Collection>,
  * Why it cannot be used here, as a sentence that says what to change.
  * Empty when it can.
  */
-problem?: string, };
+problem?: string, 
+/**
+ * What it says of itself now: `ready`, `unreachable` or `unusable`, or
+ * what its plugin said. In the list it is asked for each one whose
+ * `problem` is empty; `provisioners.get` has the rest of its page.
+ */
+state?: string, 
+/**
+ * What it said with that state, such as why it cannot be reached.
+ */
+message?: string, };
