@@ -277,10 +277,24 @@ pub fn load(dirs: &[PathBuf]) -> Vec<Plugin> {
 pub fn scan(dirs: &[PathBuf]) -> Vec<Plugin> {
     let mut plugins: Vec<Plugin> = vec![];
     for dir in dirs {
+        // The package that holds each id in this folder: another package of the same id here is
+        // not used, as a plugin's settings, secrets and data are kept by its id.
+        let mut held: std::collections::HashMap<String, String> = Default::default();
         for (package, origin, source) in packages(dir) {
             if let Some(mut plugin) = read(&package) {
                 plugin.origin = origin;
                 plugin.source = source;
+                match held.get(&plugin.id) {
+                    Some(holder) if *holder != plugin.package => {
+                        plugin.problem = Some(format!(
+                            "the plugin id {} is held by the package {holder}",
+                            plugin.id
+                        ));
+                    }
+                    _ => {
+                        held.insert(plugin.id.clone(), plugin.package.clone());
+                    }
+                }
                 // One that cannot be used leaves a usable one of the same id.
                 if plugin.problem.is_some()
                     && plugins
@@ -303,12 +317,9 @@ fn packages(dir: &Path) -> Vec<(PathBuf, PluginOrigin, String)> {
     if !dir.join(hatchery::lock::FILE).is_file() {
         return vec![];
     }
-    let Ok(mut lock) = hatchery::Lock::load(dir) else {
+    let Ok(lock) = hatchery::Lock::load(dir) else {
         return vec![];
     };
-    // Another plugin of the same id replaces one that comes with rookery.
-    lock.packages
-        .sort_by_key(|locked| locked.registry.as_deref() != Some(crate::builtin::NAME));
     lock.packages
         .iter()
         .map(|locked| {
