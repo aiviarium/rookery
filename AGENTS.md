@@ -19,7 +19,8 @@ Rookery provisions and manages development machines. It sets up Ubuntu hosts and
 | `crates/rookery-plugins/` | The plugin system of `rookery serve`. `loaded.rs` reads each installed plugin's manifest, `record.rs` keeps the table `rookery.plugins`, `client.rs` serves client halves at `/plugins/ID/HASH/PATH`, `exthost.rs` runs host halves in the extension host and starts it again when it ends, and `methods.rs` has `plugins.*`. Installs go through rookery-core's `eggs.rs` |
 | `crates/rookery-jobs/` | Jobs and the `JobHandler` trait of the handlers that run them inside the server (`jobs.rs`), with `leases.*`, durable `topics.*`, at-most-once `events.*` and `notify.*` |
 | `crates/rookery-hosts/` | Hosts inside `rookery serve`. `backend.rs` keeps rookery-core's state in the server's tables (`rookery.hosts`, `host_access`, `host_keys`, `provisioners`, `resources`, `host_messages`, `host_cursors`, and secrets, settings, registries and key-value entries in the facilities' tables), from a thread of its own (`db.rs`). `locks.rs` makes the locks of subjects leases. `runner.rs` runs Rookery's actions as jobs of rookery-jobs: apply, host actions, provisioning and roll-outs, with their output as log items. `serve/` is the leader's state of the hosts, their links and the handlers of each action, and `methods.rs` registers `hosts.*`, `keys.*`, `provisioners.*`, `resources.*`, `installation.*`, `setup.*` and `plugins.*`. `events.rs` tells `hosts.changed` and takes each host's channel in on a durable topic |
-| `crates/rookery-store/` | The server's tables in the schema `rookery` on Postgres, made by the numbered migrations in `migrations/`. `seal.rs` seals secrets and credentials in their rows under the key of `ROOKERY_SECRET_KEY`, which `rookery server secrets rekey` changes. `testing.rs` makes a fresh database for each test |
+| `crates/rookery-filter/` | The structured filter (`where`) of collections: parsing, validation and matching rows in memory, specified in its `FILTER.md` |
+| `crates/rookery-store/` | The server's tables in the schema `rookery` on Postgres, made by the numbered migrations in `migrations/`. `collections/` is the data layer: plugins' collections in `p_<plugin>`, and Rookery's own as collections of the plugin `rookery` (`collections/system.rs`), with entities, references, the change feed (`feed.rs`) and history. Storage and layouts are rows of Rookery's collections. `seal.rs` seals secrets and credentials in their rows under the key of `ROOKERY_SECRET_KEY`, which `rookery server secrets rekey` changes. `testing.rs` makes a fresh database for each test |
 | `crates/rookery-proto/` | The wire types of `rookery serve`, from the JSON-RPC envelope and its errors to the params and results of each method |
 | `api/` | `methods.json`, the report of every method of `rookery serve` with its level and params. A test fails while it is stale |
 | `client/src/generated/` | The TypeScript types of the wire, written from `rookery-proto`. A test fails while they are stale |
@@ -63,7 +64,7 @@ Use cargo for everything Rust and bun for `client/` and `sdk/`. These are what C
 cargo test --locked --no-fail-fast
 cargo fmt --check -p rookery-api -p rookery-pty -p rookery-core -p rookery-setup -p rookery -p rookeryd -p box \
   -p rookery-proto -p rookery-store -p rookery-kernel -p rookery-auth -p rookery-server \
-  -p rookery-facilities -p rookery-jobs -p rookery-hosts -p rookery-plugins
+  -p rookery-facilities -p rookery-jobs -p rookery-hosts -p rookery-plugins -p rookery-filter
 cargo test --locked -q -p rookery-proto --features ts --test bindings
 cargo clippy --locked --all-targets -- -D warnings
 cargo run --locked -q -p rookery -- plugin check plugins
@@ -82,10 +83,10 @@ The tests of `rookery serve` (`rookery-store`, `rookery-server`, `rookery-hosts`
 
 ```bash
 docker run -d --name rookery-test-pg -e POSTGRES_USER=rookery -e POSTGRES_PASSWORD=rookery-test \
-  -p 127.0.0.1:55432:5432 postgres:17-alpine -c fsync=off
+  -p 127.0.0.1:55432:5432 pgvector/pgvector:0.8.0-pg17 -c fsync=off
 export ROOKERY_TEST_POSTGRES=postgres://rookery:rookery-test@127.0.0.1:55432/rookery
 cargo nextest run -p rookery-proto -p rookery-store -p rookery-kernel -p rookery-auth -p rookery-server \
-  -p rookery-facilities -p rookery-jobs -p rookery-hosts -p rookery-plugins
+  -p rookery-facilities -p rookery-jobs -p rookery-hosts -p rookery-plugins -p rookery-filter
 ```
 
 The tests of `rookery-hosts` also start `target/debug/rookeryd --single`, which a build of the workspace makes, and are skipped without it.
@@ -106,7 +107,7 @@ TMPDIR=~/.tmp BOX_DESKTOP_ENV=1 cargo nextest run --locked --no-fail-fast
 
 Set `TMPDIR` to a short directory on disk, such as `~/.tmp` (`mkdir -p ~/.tmp`), when your checkout sits under a deep path, so Unix domain sockets stay below Linux's 108-byte `SUN_LEN` limit. Don't use `/tmp`: on some machines it is in memory, and test runs fill it. Set `BOX_DESKTOP_ENV=1` inside an `agent-env` container so `crates/box/tests/desktop.rs` uses the test `PATH` instead of re-executing `/usr/local/bin/agent-env`.
 
-Local builds keep Cargo's incremental compilation enabled and emit line tables for Rookery's crates (`debug = "line-tables-only"` in `Cargo.toml`). CI turns incremental builds off (`CARGO_INCREMENTAL=0`) and sets `CARGO_PROFILE_DEV_DEBUG=0` to skip debug information. Store tests in `on_postgres` skip locally unless `ROOKERY_TEST_POSTGRES` points at a PostgreSQL database (CI runs them against a `postgres:17-alpine` service container).
+Local builds keep Cargo's incremental compilation enabled and emit line tables for Rookery's crates (`debug = "line-tables-only"` in `Cargo.toml`). CI turns incremental builds off (`CARGO_INCREMENTAL=0`) and sets `CARGO_PROFILE_DEV_DEBUG=0` to skip debug information. Store tests in `on_postgres` skip locally unless `ROOKERY_TEST_POSTGRES` points at a PostgreSQL database (CI runs them against a `pgvector/pgvector:0.8.0-pg17` service container: Postgres 17 with pgvector, which vector fields need).
 
 Measured on an 8-core Linux laptop with a warm `target/` directory:
 

@@ -401,10 +401,7 @@ impl Serve {
         let kernel = self.runner.kernel().clone();
         let moving = async move {
             if let Err(e) = kernel.store.access().move_resource(&from, &to).await {
-                tracing::warn!(error = %e, %from, %to, "moving a host's grants failed");
-            }
-            if let Err(e) = kernel.store.jobs().move_subject(&from, &to).await {
-                tracing::warn!(error = %e, %from, %to, "moving a host's jobs failed");
+                tracing::warn!(error = %e, %from, %to, "moving a host's grants and jobs failed");
             }
         };
         match tokio::runtime::Handle::try_current() {

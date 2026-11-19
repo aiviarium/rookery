@@ -51,6 +51,7 @@ impl Settings<'_> {
         by: &str,
     ) -> Result<()> {
         let (scope, user) = scope.parts();
+        let mut tx = crate::actor::begin_as(self.pool, by).await?;
         sqlx::query(
             "INSERT INTO rookery.settings (plugin, key, scope, user_id, value, updated_by) VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (plugin, key, scope, user_id) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now()",
@@ -61,14 +62,16 @@ impl Settings<'_> {
         .bind(user)
         .bind(value)
         .bind(by)
-        .execute(self.pool)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(())
     }
 
     /// Removes the value at one scope, so that the next one shows through.
     pub async fn reset(&self, plugin: &str, key: &str, scope: Scope) -> Result<bool> {
         let (scope, user) = scope.parts();
+        let mut tx = crate::actor::begin(self.pool).await?;
         let done = sqlx::query(
             "DELETE FROM rookery.settings WHERE plugin = $1 AND key = $2 AND scope = $3 AND user_id IS NOT DISTINCT FROM $4",
         )
@@ -76,8 +79,9 @@ impl Settings<'_> {
         .bind(key)
         .bind(scope)
         .bind(user)
-        .execute(self.pool)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(done.rows_affected() > 0)
     }
 

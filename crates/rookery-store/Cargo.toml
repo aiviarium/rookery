@@ -17,6 +17,11 @@ testing = []
 # A plugin's id, which a grant on a host may name.
 rookery-api.workspace = true
 rookery-proto.workspace = true
+rookery-filter.workspace = true
+tracing.workspace = true
+regex = "1"
+futures-util.workspace = true
+async-trait = "0.1"
 sqlx.workspace = true
 tokio.workspace = true
 serde.workspace = true
@@ -31,3 +36,4 @@ base64 = "0.22"
 
 [dev-dependencies]
 rookery-store = { path = ".", features = ["testing"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }

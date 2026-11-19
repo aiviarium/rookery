@@ -1,0 +1,12 @@
+{
+  "collection": { "fields": [{ "name": "raw", "type": "bytes" }, { "name": "embedding", "type": "vector" }, { "name": "source", "type": "blob" }] },
+  "rows": [{"id":"empty","raw":null,"embedding":null,"source":null},{"id":"full","raw":"AAE=","embedding":[1,2],"source":"01900000-0000-7000-8000-000000000000"}],
+  "cases": [
+    {"where":{"raw":null},"matches":["empty"]},
+    {"where":{"raw":{"ne":null}},"matches":["full"]},
+    {"where":{"embedding":{"eq":null}},"matches":["empty"]},
+    {"where":{"embedding":{"ne":null}},"matches":["full"]},
+    {"where":{"source":"01900000-0000-7000-8000-000000000000"},"matches":["full"]}
+  ],
+  "invalid": [{"raw":"AAE="},{"raw":{"in":[null]}},{"raw":{"gt":null}},{"embedding":[1,2]},{"embedding":{"contains":1}},{"embedding":{"nin":[]}}]
+}

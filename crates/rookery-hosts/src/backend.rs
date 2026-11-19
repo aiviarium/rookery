@@ -1,8 +1,8 @@
 //! rookery-core's store on the server's tables. Each kind of state has its place: profiles in
 //! `rookery.hosts`, SSH access in `host_access`, the key ring in `host_keys`, provisioners, resources,
 //! secrets and host credentials in `rookery.secrets`, registries as connections of the type `registry`,
-//! settings as the global settings of the plugin `rookery`, key-value entries in `rookery.kv`, and the
-//! messages of the hosts' channels in `host_messages` and `host_cursors`. Only the installation's own
+//! settings as the global settings of the plugin `rookery`, key-value entries in Rookery's collection
+//! `rookery/storage`, and the messages of the hosts' channels in `host_messages` and `host_cursors`. Only the installation's own
 //! scope exists. Secrets, credentials and keys are sealed with the server's key, as the facilities seal
 //! theirs; the rest is plain.
 
@@ -32,15 +32,53 @@ pub struct ServerBackend {
     key: Option<Arc<Key>>,
     /// The leader's epoch that taking in a host's channel names, which only the leader does.
     fence: Option<i64>,
+    /// The server's data layer, which keeps the key-value entries. A program that works outside the
+    /// server has none, and gets one on the database of its own when first it writes.
+    data: Option<rookery_store::Store>,
 }
 
 impl ServerBackend {
-    pub fn new(db: Db, key: Option<Key>, fence: Option<i64>) -> ServerBackend {
+    pub fn new(
+        db: Db,
+        key: Option<Key>,
+        fence: Option<i64>,
+        data: Option<rookery_store::Store>,
+    ) -> ServerBackend {
         ServerBackend {
             db,
             key: key.map(Arc::new),
             fence,
+            data,
         }
+    }
+
+    /// Uses the data layer for key-value operations. Each write checks the backend's fence
+    /// inside its collection transaction.
+    fn with_data<T, F>(&self, work: F) -> Result<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(rookery_store::Store) -> futures_util::future::BoxFuture<'static, Result<T>>
+            + Send
+            + 'static,
+    {
+        let (data, fence) = (self.data.clone(), self.fence);
+        self.db.run(move |pool: PgPool| {
+            Box::pin(async move {
+                let data = match data {
+                    Some(data) => data,
+                    None => {
+                        let data = rookery_store::Store::from_pool(pool);
+                        data.reload().await.map_err(data_err)?;
+                        data
+                    }
+                };
+                let data = match fence {
+                    Some(epoch) => data.fenced(epoch),
+                    None => data,
+                };
+                work(data).await
+            })
+        })
     }
 
     /// Runs `work` in one transaction.
@@ -85,6 +123,15 @@ pub(crate) fn db(e: sqlx::Error) -> Error {
         };
     }
     Error::Database(e.to_string())
+}
+
+/// A failure of the data layer as rookery-core's store reports it.
+pub(crate) fn data_err(e: rookery_store::Error) -> Error {
+    match &e {
+        rookery_store::Error::Conflict(_) => Error::Conflict(None),
+        rookery_store::Error::Invalid(_) => Error::Given(e.to_string()),
+        _ => Error::Database(e.to_string()),
+    }
 }
 
 fn rfc3339(t: DateTime<Utc>) -> String {
@@ -990,6 +1037,135 @@ fn taken(kind: &str, label: Option<&str>, error: Error) -> Error {
     }
 }
 
+/// The tables of hosts as collections of Rookery's: what `data.*`, live queries and the change log see
+/// of them. Their writes stay with this backend, whose triggers record them.
+pub fn system_tables() -> Vec<rookery_store::collections::system::SystemTable> {
+    use rookery_store::collections::schema::Scope;
+    use rookery_store::collections::system::SystemTable;
+    vec![
+        SystemTable {
+            name: "hosts",
+            table: "hosts",
+            id: "id",
+            hashed_id: false,
+            scope: Scope::Global,
+            user: None,
+            created_at: "t.created_at",
+            updated_at: "t.updated_at",
+            resource: Some("'env://' || t.name"),
+            owner: Some("t.owner"),
+            omit: &[],
+            admin: false,
+            history: true,
+        },
+        SystemTable {
+            name: "hostAccess",
+            table: "host_access",
+            id: "host",
+            hashed_id: true,
+            scope: Scope::Global,
+            user: None,
+            created_at: "t.updated_at",
+            updated_at: "t.updated_at",
+            resource: None,
+            owner: None,
+            omit: &[],
+            admin: true,
+            history: false,
+        },
+        SystemTable {
+            name: "hostKeys",
+            table: "host_keys",
+            id: "id",
+            hashed_id: true,
+            scope: Scope::Global,
+            user: None,
+            created_at: "t.updated_at",
+            updated_at: "t.updated_at",
+            resource: None,
+            owner: None,
+            omit: &["key_id", "nonce", "ciphertext"],
+            admin: true,
+            history: false,
+        },
+        SystemTable {
+            name: "provisioners",
+            table: "provisioners",
+            id: "id",
+            hashed_id: true,
+            scope: Scope::Global,
+            user: None,
+            created_at: "t.updated_at",
+            updated_at: "t.updated_at",
+            resource: None,
+            owner: None,
+            omit: &[],
+            admin: true,
+            history: true,
+        },
+        SystemTable {
+            name: "resources",
+            table: "resources",
+            id: "id",
+            hashed_id: true,
+            scope: Scope::Global,
+            user: None,
+            created_at: "t.updated_at",
+            updated_at: "t.updated_at",
+            resource: None,
+            owner: None,
+            omit: &[],
+            admin: true,
+            history: true,
+        },
+        SystemTable {
+            name: "hostMessages",
+            table: "host_messages",
+            id: "seq",
+            hashed_id: true,
+            scope: Scope::Global,
+            user: None,
+            created_at: "t.time",
+            updated_at: "t.time",
+            resource: None,
+            owner: None,
+            omit: &[],
+            admin: true,
+            history: false,
+        },
+        SystemTable {
+            name: "hostCursors",
+            table: "host_cursors",
+            id: "host",
+            hashed_id: true,
+            scope: Scope::Global,
+            user: None,
+            created_at: "now()",
+            updated_at: "now()",
+            resource: None,
+            owner: None,
+            omit: &[],
+            admin: true,
+            history: false,
+        },
+        SystemTable {
+            name: "packageState",
+            table: "package_state",
+            id: "name",
+            hashed_id: true,
+            scope: Scope::Global,
+            user: None,
+            created_at: "t.updated_at",
+            updated_at: "t.updated_at",
+            resource: None,
+            owner: None,
+            omit: &["value"],
+            admin: true,
+            history: false,
+        },
+    ]
+}
+
 impl Backend for ServerBackend {
     fn name(&self) -> &'static str {
         "postgres"
@@ -1081,17 +1257,19 @@ impl Backend for ServerBackend {
 
     fn get(&mut self, namespace: &str, key: &str) -> Result<Option<Entry>> {
         let (namespace, key) = (namespace.to_owned(), key.to_owned());
-        self.tx(move |c, _| {
+        self.with_data(move |data| {
             Box::pin(async move {
-                let row: Option<(String, Value, i64, DateTime<Utc>)> = sqlx::query_as(
-                    "SELECT key, value, revision, updated_at FROM rookery.kv WHERE plugin = $1 AND scope = 'global' AND user_id IS NULL AND key = $2",
-                )
-                .bind(&namespace)
-                .bind(&key)
-                .fetch_optional(&mut *c)
-                .await
-                .map_err(db)?;
-                Ok(row.map(entry))
+                let found = data
+                    .kv()
+                    .get(&namespace, None::<Uuid>, &key)
+                    .await
+                    .map_err(data_err)?;
+                Ok(found.map(|e| Entry {
+                    key: e.key,
+                    value: e.value,
+                    revision: e.revision,
+                    updated: rfc3339(e.updated_at),
+                }))
             })
         })
     }
@@ -1106,83 +1284,91 @@ impl Backend for ServerBackend {
     ) -> Result<i64> {
         let (namespace, key) = (namespace.to_owned(), key.to_owned());
         let value: Value = serde_json::from_str(text).map_err(|e| Error::Given(e.to_string()))?;
-        self.tx(move |c, _| {
+        self.with_data(move |data| {
             Box::pin(async move {
-                let current: Option<i64> = sqlx::query_scalar(
-                    "SELECT revision FROM rookery.kv WHERE plugin = $1 AND scope = 'global' AND user_id IS NULL AND key = $2 FOR UPDATE",
-                )
-                .bind(&namespace)
-                .bind(&key)
-                .fetch_optional(&mut *c)
-                .await
-                .map_err(db)?;
-                let allowed = match when {
-                    When::Always => true,
-                    When::At(revision) => current == Some(revision),
-                    When::New => current.is_none(),
+                // A revision the write must be at, 0 for a key that is not there yet.
+                let expected = match when {
+                    When::Always => None,
+                    When::At(revision) => Some(revision),
+                    When::New => Some(0),
                 };
-                if !allowed {
-                    return Err(Error::Conflict(current));
+                match data
+                    .kv()
+                    .set(&namespace, None::<Uuid>, &key, &value, expected)
+                    .await
+                {
+                    Ok(revision) => Ok(revision),
+                    Err(rookery_store::Error::Conflict(_)) => {
+                        let current = data
+                            .kv()
+                            .get(&namespace, None::<Uuid>, &key)
+                            .await
+                            .map_err(data_err)?
+                            .map(|e| e.revision);
+                        Err(Error::Conflict(current))
+                    }
+                    Err(e) => Err(data_err(e)),
                 }
-                let revision = current.unwrap_or(0) + 1;
-                sqlx::query(
-                    "INSERT INTO rookery.kv (plugin, scope, user_id, key, value, revision) VALUES ($1, 'global', NULL, $2, $3, $4)
-                     ON CONFLICT (plugin, scope, user_id, key) DO UPDATE SET value = EXCLUDED.value, revision = EXCLUDED.revision, updated_at = now()",
-                )
-                .bind(&namespace)
-                .bind(&key)
-                .bind(&value)
-                .bind(revision)
-                .execute(&mut *c)
-                .await
-                .map_err(db)?;
-                Ok(revision)
             })
         })
     }
 
     fn remove(&mut self, namespace: &str, key: &str, when: When) -> Result<bool> {
         let (namespace, key) = (namespace.to_owned(), key.to_owned());
-        self.tx(move |c, _| {
+        self.with_data(move |data| {
             Box::pin(async move {
-                let current: Option<i64> = sqlx::query_scalar(
-                    "SELECT revision FROM rookery.kv WHERE plugin = $1 AND scope = 'global' AND user_id IS NULL AND key = $2 FOR UPDATE",
-                )
-                .bind(&namespace)
-                .bind(&key)
-                .fetch_optional(&mut *c)
-                .await
-                .map_err(db)?;
-                if let When::At(revision) = when
-                    && current != Some(revision)
+                let expected = match when {
+                    When::At(revision) => Some(revision),
+                    When::Always | When::New => None,
+                };
+                match data
+                    .kv()
+                    .delete(&namespace, None::<Uuid>, &key, expected)
+                    .await
                 {
-                    return Err(Error::Conflict(current));
+                    Ok(done) => Ok(done),
+                    Err(rookery_store::Error::Conflict(_)) => {
+                        let current = data
+                            .kv()
+                            .get(&namespace, None::<Uuid>, &key)
+                            .await
+                            .map_err(data_err)?
+                            .map(|e| e.revision);
+                        Err(Error::Conflict(current))
+                    }
+                    Err(e) => Err(data_err(e)),
                 }
-                let done = sqlx::query(
-                    "DELETE FROM rookery.kv WHERE plugin = $1 AND scope = 'global' AND user_id IS NULL AND key = $2",
-                )
-                .bind(&namespace)
-                .bind(&key)
-                .execute(&mut *c)
-                .await
-                .map_err(db)?;
-                Ok(done.rows_affected() == 1)
             })
         })
     }
 
     fn list(&mut self, namespace: &str) -> Result<Vec<Entry>> {
         let namespace = namespace.to_owned();
-        self.tx(move |c, _| {
+        self.with_data(move |data| {
             Box::pin(async move {
-                let rows: Vec<(String, Value, i64, DateTime<Utc>)> = sqlx::query_as(
-                    "SELECT key, value, revision, updated_at FROM rookery.kv WHERE plugin = $1 AND scope = 'global' AND user_id IS NULL ORDER BY key",
-                )
-                .bind(&namespace)
-                .fetch_all(&mut *c)
-                .await
-                .map_err(db)?;
-                Ok(rows.into_iter().map(entry).collect())
+                let mut out = Vec::new();
+                let mut after: Option<String> = None;
+                loop {
+                    let page = data
+                        .kv()
+                        .list(&namespace, None::<Uuid>, "", after.as_deref(), 1000)
+                        .await
+                        .map_err(data_err)?;
+                    let done = page.len() < 1000;
+                    if let Some(last) = page.last() {
+                        after = Some(last.key.clone());
+                    }
+                    out.extend(page.into_iter().map(|e| Entry {
+                        key: e.key,
+                        value: e.value,
+                        revision: e.revision,
+                        updated: rfc3339(e.updated_at),
+                    }));
+                    if done {
+                        break;
+                    }
+                }
+                Ok(out)
             })
         })
     }
@@ -1338,15 +1524,6 @@ impl Backend for ServerBackend {
                 Ok(())
             })
         })
-    }
-}
-
-fn entry((key, value, revision, at): (String, Value, i64, DateTime<Utc>)) -> Entry {
-    Entry {
-        key,
-        value,
-        revision,
-        updated: rfc3339(at),
     }
 }
 

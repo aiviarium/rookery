@@ -77,7 +77,8 @@ impl Connections<'_> {
         let id = new_id();
         let sealed = self.seal(id, credential)?;
         let (scope, user) = scope.parts();
-        sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        let mut tx = crate::actor::begin_as(self.store.pool(), by).await?;
+        let made = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "INSERT INTO rookery.connections (id, type, name, scope, user_id, config, key_id, nonce, ciphertext, created_by)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING {COLS}"
         )))
@@ -91,9 +92,11 @@ impl Connections<'_> {
         .bind(sealed.as_ref().map(|s| s.nonce.clone()))
         .bind(sealed.as_ref().map(|s| s.ciphertext.clone()))
         .bind(by)
-        .fetch_one(self.store.pool())
+        .fetch_one(&mut *tx)
         .await
-        .map_err(unique)
+        .map_err(unique)?;
+        tx.commit().await?;
+        Ok(made)
     }
 
     pub async fn get(&self, id: Uuid) -> Result<Option<Connection>> {
@@ -141,7 +144,8 @@ impl Connections<'_> {
             None => None,
         };
         let sealed = credential.as_ref().and_then(|c| c.as_ref());
-        sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        let mut tx = crate::actor::begin(self.store.pool()).await?;
+        let changed = sqlx::query_as(sqlx::AssertSqlSafe(format!(
             "UPDATE rookery.connections SET
                  name = coalesce($2, name),
                  config = coalesce($3, config),
@@ -158,17 +162,21 @@ impl Connections<'_> {
         .bind(sealed.map(|s| s.key_id.clone()))
         .bind(sealed.map(|s| s.nonce.clone()))
         .bind(sealed.map(|s| s.ciphertext.clone()))
-        .fetch_optional(self.store.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(unique)?
-        .ok_or_else(|| Error::NotFound("no such connection".into()))
+        .ok_or_else(|| Error::NotFound("no such connection".into()))?;
+        tx.commit().await?;
+        Ok(changed)
     }
 
     pub async fn delete(&self, id: Uuid) -> Result<bool> {
+        let mut tx = crate::actor::begin(self.store.pool()).await?;
         let done = sqlx::query("DELETE FROM rookery.connections WHERE id = $1")
             .bind(id)
-            .execute(self.store.pool())
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         Ok(done.rows_affected() > 0)
     }
 

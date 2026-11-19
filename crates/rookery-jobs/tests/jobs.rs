@@ -708,13 +708,20 @@ async fn a_notification_answer_is_retryable_if_topic_publication_fails() {
         .unwrap();
     let answer = json!({"id": sent["notification"]["id"], "answer": "approve"});
     let pool = k.db.store.pool();
-    sqlx::query("ALTER TABLE rookery.topic_messages ADD CONSTRAINT reject_answers CHECK (topic <> 'fleet/notify.answers')")
-        .execute(pool).await.unwrap();
+    // Publishing the answer fails as a fault of the server would.
+    sqlx::raw_sql(
+        "CREATE FUNCTION rookery.reject_answers() RETURNS trigger LANGUAGE plpgsql AS $$
+         BEGIN IF NEW.topic = 'fleet/notify.answers' THEN RAISE EXCEPTION 'publishing failed'; END IF; RETURN NEW; END $$;
+         CREATE TRIGGER reject_answers BEFORE INSERT ON rookery.topic_messages FOR EACH ROW EXECUTE FUNCTION rookery.reject_answers();",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
     assert_eq!(
         code(k.call(&ops, "notify.answer", answer.clone()).await),
         "INTERNAL"
     );
-    sqlx::query("ALTER TABLE rookery.topic_messages DROP CONSTRAINT reject_answers")
+    sqlx::query("DROP TRIGGER reject_answers ON rookery.topic_messages")
         .execute(pool)
         .await
         .unwrap();

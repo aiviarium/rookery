@@ -296,7 +296,12 @@ fn prepare(
     let db = db::Db::start(&setup.database_url)?;
     let fence = kernel.store.fence();
     let store = Arc::new(rookery_core::store::Store::from_backend(Box::new(
-        backend::ServerBackend::new(db.clone(), setup.secret_key.clone(), fence),
+        backend::ServerBackend::new(
+            db.clone(),
+            setup.secret_key.clone(),
+            fence,
+            Some(kernel.store.clone()),
+        ),
     )));
     rookery_core::store::set_shared(Some(store.clone()));
     let renewals = db::Db::start(&setup.database_url)?;
@@ -349,7 +354,7 @@ pub fn attach(
 ) -> Result<(), String> {
     let db = db::Db::start(database_url)?;
     let store = Arc::new(rookery_core::store::Store::from_backend(Box::new(
-        backend::ServerBackend::new(db.clone(), secret_key, None),
+        backend::ServerBackend::new(db.clone(), secret_key, None, None),
     )));
     rookery_core::store::set_shared(Some(store));
     rookery_core::runner::set_locks(Some(locks::LeaseLocks::new(db.clone(), db, None)));
