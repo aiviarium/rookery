@@ -101,9 +101,9 @@ SHARDS = {
     'served-extended': ['e2e_tailnet.ThroughTheServer', 'e2e_serve.ApplyJob', 'e2e_client.ClientApply',
                         'e2e_update.UpdateServed'],
     'forge': ['e2e_access', 'e2e_provisioners'],
-    'controller': ['e2e_controller.Controller'],
+    # The controller alone leaves the host as it found it; the node, which stays one, comes last.
+    'controller': ['e2e_controller.Controller', 'e2e_node'],
     'own-key': ['e2e_own_key'],
-    'node': ['e2e_node'],
 }
 
 
