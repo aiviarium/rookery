@@ -79,6 +79,12 @@ impl Loaded {
         self.manifest.as_ref()?.get("host")?.as_str()
     }
 
+    /// The interface module's path, relative to the target's folder. The extension host writes
+    /// `interface.json` from it, which dependents read.
+    pub fn interface(&self) -> Option<&str> {
+        self.manifest.as_ref()?.get("interface")?.as_str()
+    }
+
     /// Whether its host half starts with the server rather than when first used.
     pub fn starts_at_once(&self) -> bool {
         self.manifest
@@ -149,6 +155,7 @@ const LISTS: &[&str] = &[
     "webhooks",
     "connectionTypes",
     "widgets",
+    "composer",
     "blocks",
     "hostFeatures",
     "provisioners",

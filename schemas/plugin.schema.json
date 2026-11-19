@@ -2311,6 +2311,56 @@
             }
           }
         },
+        "composer": {
+          "description": "Composer triggers: `/` commands, `@` context providers and `$` skills.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "type",
+              "id",
+              "title"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "enum": [
+                  "command",
+                  "mention",
+                  "skill"
+                ]
+              },
+              "id": {
+                "$ref": "#/$defs/qualifiedId"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string"
+              },
+              "icon": {
+                "$ref": "#/$defs/icon"
+              },
+              "command": {
+                "type": "string",
+                "description": "For `/`: the command it runs with { session, text }."
+              },
+              "prompt": {
+                "type": "string",
+                "description": "For `/` and `$`: text sent to the agent; {input} is what follows the chip."
+              },
+              "schemes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "For `@`: the entity schemes it offers."
+              }
+            }
+          }
+        },
         "blocks": {
           "description": "Block types for the shared document editor: they appear in its / menu, and the client half renders them with rookery.blocks.register.",
           "type": "array",

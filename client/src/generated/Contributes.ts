@@ -3,6 +3,7 @@ import type { AdminPageContribution } from "./AdminPageContribution";
 import type { BlockContribution } from "./BlockContribution";
 import type { CollectionContribution } from "./CollectionContribution";
 import type { CommandContribution } from "./CommandContribution";
+import type { ComposerContribution } from "./ComposerContribution";
 import type { ConnectionTypeContribution } from "./ConnectionTypeContribution";
 import type { ContextContribution } from "./ContextContribution";
 import type { EntityTypeContribution } from "./EntityTypeContribution";
@@ -39,4 +40,4 @@ extensions: Record<string, unknown[]>, collections: Array<CollectionContribution
 /**
  * Methods for the client half; declared when an app service handles them.
  */
-rpc: Array<RpcContribution>, topics: Array<TopicContribution>, schedules: Array<ScheduleContribution>, webhooks: Array<WebhookContribution>, connectionTypes: Array<ConnectionTypeContribution>, widgets: Array<WidgetContribution>, blocks: Array<BlockContribution>, hostFeatures?: unknown[], provisioners?: unknown[], shell?: { entry: string }, };
+rpc: Array<RpcContribution>, topics: Array<TopicContribution>, schedules: Array<ScheduleContribution>, webhooks: Array<WebhookContribution>, connectionTypes: Array<ConnectionTypeContribution>, widgets: Array<WidgetContribution>, composer: Array<ComposerContribution>, blocks: Array<BlockContribution>, hostFeatures?: unknown[], provisioners?: unknown[], shell?: { entry: string }, };
