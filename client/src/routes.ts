@@ -128,14 +128,29 @@ export function matchUrl(table: RouteEntry[], pathname: string, search = ""): Ro
   return null
 }
 
-/** Builds a URL for a view from the route table, filling positional `path` or named `params`. */
+/**
+ * Builds a URL for a view from the route table, filling positional `path` or named `params`.
+ *
+ * A view may have more than one route: a list at `/fleet/admin` and its sections at
+ * `/fleet/admin/:section`, say. The table is ordered for matching, where the route with more
+ * segments comes first, so it is not the order to build from: the URL is the first route that can be
+ * filled with what the caller gave.
+ */
 export function viewUrl(
   table: RouteEntry[],
   view: string,
   opts: { path?: string; params?: Record<string, string> } = {},
 ): string | null {
-  const entry = table.find((e) => e.view === view)
-  if (!entry) return null
+  for (const entry of table) {
+    if (entry.view !== view) continue
+    const url = urlFor(entry, opts)
+    if (url) return url
+  }
+  return null
+}
+
+/** A URL for one route, or null when it needs a value the caller did not give. */
+function urlFor(entry: RouteEntry, opts: { path?: string; params?: Record<string, string> }): string | null {
   const positional = opts.path ? splitPath(opts.path) : []
   let posIdx = 0
   const used = new Set<string>()
