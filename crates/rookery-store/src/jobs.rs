@@ -157,13 +157,54 @@ impl Jobs<'_> {
         Ok(())
     }
 
+    /// The session a job follows, and how far its log has it: the offset of the last log item that
+    /// names one, which was written with the lines it covers, or where the session started.
     pub async fn session(&self, id: Uuid) -> Result<Option<(String, i64)>> {
-        let row: Option<(Option<String>, Option<i64>)> =
-            sqlx::query_as("SELECT session, session_offset FROM rookery.jobs WHERE id = $1")
-                .bind(id)
-                .fetch_optional(self.pool)
-                .await?;
+        let row: Option<(Option<String>, Option<i64>)> = sqlx::query_as(
+            "SELECT j.session, COALESCE(
+                 (SELECT (l.data->>'session_offset')::bigint FROM rookery.log_items l
+                   WHERE l.job_id = j.id AND l.data ? 'session_offset'
+                   ORDER BY l.seq DESC LIMIT 1),
+                 j.session_offset)
+               FROM rookery.jobs j WHERE j.id = $1",
+        )
+        .bind(id)
+        .fetch_optional(self.pool)
+        .await?;
         Ok(row.and_then(|(session, offset)| Some((session?, offset.unwrap_or(0)))))
+    }
+
+    /// Keeps the values a job's output masks, sealed, for a leader that follows the job on.
+    pub async fn set_hidden(&self, id: Uuid, sealed: &crate::seal::Sealed) -> Result<()> {
+        sqlx::query(
+            "UPDATE rookery.jobs SET hidden_key_id = $2, hidden_nonce = $3, hidden = $4
+              WHERE id = $1 AND rookery.fence($5)",
+        )
+        .bind(id)
+        .bind(&sealed.key_id)
+        .bind(&sealed.nonce)
+        .bind(&sealed.ciphertext)
+        .bind(self.fence)
+        .execute(self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn hidden(&self, id: Uuid) -> Result<Option<crate::seal::Sealed>> {
+        type Kept = (Option<String>, Option<Vec<u8>>, Option<Vec<u8>>);
+        let row: Option<Kept> = sqlx::query_as(
+            "SELECT hidden_key_id, hidden_nonce, hidden FROM rookery.jobs WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(self.pool)
+        .await?;
+        Ok(row.and_then(|(key_id, nonce, ciphertext)| {
+            Some(crate::seal::Sealed {
+                key_id: key_id?,
+                nonce: nonce?,
+                ciphertext: ciphertext?,
+            })
+        }))
     }
 
     /// Moves the jobs of one subject to another, as when a host is renamed.

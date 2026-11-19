@@ -207,3 +207,39 @@ async fn state_lands_in_its_tables() {
     pool.close().await;
     db.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_server_that_does_not_lead_writes_nothing() {
+    let Some(db) = TestDb::new().await else {
+        eprintln!("skipped: ROOKERY_TEST_POSTGRES is not set");
+        return;
+    };
+    // No server leads with this epoch: every write of its backend is refused.
+    let threads = Db::start(&db.url).unwrap();
+    let stale = Store::from_backend(Box::new(ServerBackend::new(
+        threads,
+        Some(db.store.key().unwrap().clone()),
+        Some(41),
+    )));
+    let unfenced = on(&db);
+    tokio::task::spawn_blocking(move || {
+        let mut batch = Batch::default();
+        batch.write(
+            kind::ACCESS,
+            store::OWN,
+            HOST,
+            json!({"keys": []}).to_string().into_bytes(),
+        );
+        let refused = stale.apply(&batch).unwrap_err();
+        assert!(refused.to_string().contains("does not lead"), "{refused}");
+        assert!(stale.put("ui", "layout", &json!(1), When::Always).is_err());
+        assert!(
+            unfenced
+                .read(kind::ACCESS, store::OWN, HOST)
+                .unwrap()
+                .is_none()
+        );
+    })
+    .await
+    .unwrap();
+}

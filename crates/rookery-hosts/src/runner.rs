@@ -283,6 +283,10 @@ impl Ticket {
             hidden,
         } = self;
         let kind = kind_of(&subject, &work);
+        let hidden_kept = match &work {
+            Work::Session { .. } => hidden.clone(),
+            _ => vec![],
+        };
         let session = match &work {
             Work::Session { id, .. } => Some(id.clone()),
             _ => None,
@@ -298,12 +302,14 @@ impl Ticket {
         if let Some(session) = &session {
             params["session"] = json!(session);
         }
-        runner
-            .0
-            .pending
-            .lock()
-            .unwrap()
-            .insert(ticket, Pending { work, lock, hidden });
+        runner.0.pending.lock().unwrap().insert(
+            ticket,
+            Pending {
+                work,
+                lock,
+                hidden: hidden.clone(),
+            },
+        );
         let kernel = runner.kernel();
         let made = rookery_jobs::jobs::enqueue_with_token(
             &kernel,
@@ -325,8 +331,19 @@ impl Ticket {
         if job.params["ticket"].as_str() != Some(ticket.to_string().as_str()) {
             let pending = runner.0.pending.lock().unwrap().remove(&ticket);
             drop_off_runtime(pending);
-        } else if let Some(session) = &session {
-            let _ = kernel.store.jobs().set_session(job.id, session, 0).await;
+        } else {
+            if let Some(session) = &session {
+                let _ = kernel.store.jobs().set_session(job.id, session, 0).await;
+            }
+            // A new leader that follows the job on masks the same values.
+            if !hidden_kept.is_empty()
+                && let Ok(key) = kernel.store.key()
+            {
+                let plain = serde_json::to_vec(&hidden_kept).unwrap_or_default();
+                if let Ok(sealed) = key.seal(&rookery_store::seal::row("jobs", job.id), &plain) {
+                    let _ = kernel.store.jobs().set_hidden(job.id, &sealed).await;
+                }
+            }
         }
         Ok(rookery_jobs::jobs::info(job))
     }
@@ -420,7 +437,13 @@ async fn run(runner: Runner, job: JobRun) -> Result<Value, RpcError> {
                 _ => None,
             };
             match resumed {
-                Some((work, since)) => (work, None, vec![], since),
+                // What the first run masked is masked here too.
+                Some((work, since)) => (
+                    work,
+                    None,
+                    kept_hidden(&runner.kernel(), job.id).await?,
+                    since,
+                ),
                 None => {
                     return Err(RpcError::unavailable(
                         "the server that prepared this job stopped before it ran: start the action again",
@@ -430,24 +453,28 @@ async fn run(runner: Runner, job: JobRun) -> Result<Value, RpcError> {
         }
     };
     let stop = Arc::new(Stop::default());
-    let (lines, mut taken) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
-    let handle = tokio::runtime::Handle::current();
-    let (kernel, id) = (runner.kernel(), job.id);
+    // A lock taken for the work that lapses stops it, as another may change the subject.
+    if let Some(lock) = &lock {
+        lock.stops(stop.clone());
+    }
+    // Set when this server stops leading while it follows a host's session: the session goes on
+    // there, and the next leader follows it on from the offset in the log.
+    let abandon = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let following = matches!(work, Work::Session { .. });
+    let (lines, mut taken) = tokio::sync::mpsc::unbounded_channel::<Chunk>();
+    let kernel = runner.kernel();
     let worker = {
-        let stop = stop.clone();
+        let (stop, abandon) = (stop.clone(), abandon.clone());
         tokio::task::spawn_blocking(move || {
             let code = core::with_stop(stop.clone(), || {
+                let marks = lines.clone();
                 let mut sink = Sink(lines);
                 let mut out = Output::new(&mut sink, hidden);
-                let record = |offset: u64, session: &str| {
-                    let session = session.to_owned();
-                    let _ = handle.block_on(kernel.store.jobs().set_session(
-                        id,
-                        &session,
-                        offset as i64,
-                    ));
+                // How far the host's output went into the log, behind the lines it covers.
+                let record = |offset: u64| {
+                    let _ = marks.send(Chunk::At(offset));
                 };
-                let code = execute(work, &mut out, since, &record);
+                let code = execute(work, &mut out, since, &record, &abandon);
                 if let Some(by) = stop.asked() {
                     let _ = writeln!(out, "✗ Stopped by {by}");
                 }
@@ -460,34 +487,50 @@ async fn run(runner: Runner, job: JobRun) -> Result<Value, RpcError> {
             )
         })
     };
-    let mut pending = Vec::new();
-    let mut asked = false;
+    let mut log = Log {
+        job: &job,
+        pending: Vec::new(),
+        held: None,
+        failed: false,
+    };
+    let (mut asked, mut deposed) = (false, false);
     loop {
         tokio::select! {
             chunk = tokio::time::timeout(Duration::from_millis(500), taken.recv()) => match chunk {
-                Ok(Some(chunk)) => {
-                    pending.extend_from_slice(&chunk);
-                    while let Some(end) = pending.iter().position(|b| *b == b'\n') {
-                        let line: Vec<u8> = pending.drain(..=end).collect();
-                        write_line(&job, &line).await;
-                    }
-                }
+                Ok(Some(Chunk::Data(data))) => log.take(&data).await,
+                Ok(Some(Chunk::At(offset))) => log.mark(offset).await,
                 Ok(None) => break,
                 // A line that waits for its end is written as it is, such as a prompt.
-                Err(_) => if !pending.is_empty() {
-                    let line = std::mem::take(&mut pending);
-                    write_line(&job, &line).await;
-                },
+                Err(_) => log.flush().await,
             },
             _ = job.cancelled(), if !asked => {
                 asked = true;
                 stop.ask("a request to cancel the job");
             }
+            // The work dies with the leader: a program here is stopped, and a session on a host is
+            // left to the next leader.
+            _ = kernel.shutdown.cancelled(), if !deposed => {
+                deposed = true;
+                match following {
+                    true => abandon.store(true, std::sync::atomic::Ordering::SeqCst),
+                    false => {
+                        stop.ask("this server, which does not lead any more");
+                    }
+                }
+            }
+        }
+        // The log takes nothing more, as after a takeover: the work stops rather than run unseen.
+        if log.failed && !asked {
+            asked = true;
+            match following {
+                true => abandon.store(true, std::sync::atomic::Ordering::SeqCst),
+                false => {
+                    stop.ask("this server, which cannot write the job's log");
+                }
+            }
         }
     }
-    if !pending.is_empty() {
-        write_line(&job, &pending).await;
-    }
+    log.flush().await;
     let (code, mut result) = worker
         .await
         .map_err(|e| RpcError::internal(format!("the job's work ended: {e}")))?;
@@ -506,24 +549,99 @@ async fn run(runner: Runner, job: JobRun) -> Result<Value, RpcError> {
     }
 }
 
-async fn write_line(job: &JobRun, line: &[u8]) {
-    let text = String::from_utf8_lossy(line);
-    let text = text.trim_end_matches(['\n', '\r']);
-    let level = match text.starts_with('✗') {
-        true => "error",
-        false => "info",
-    };
-    if let Err(e) = job.log(level, text, None).await {
-        tracing::warn!(job = %job.id, error = %e, "writing a job's log failed");
+/// What the work sends the log: its output, and how far a host's session went.
+enum Chunk {
+    Data(Vec<u8>),
+    At(u64),
+}
+
+/// The job's log as it is written: a line at a time, the last complete line held back until the
+/// offset that covers it comes, so the two are written in one row.
+struct Log<'a> {
+    job: &'a JobRun,
+    pending: Vec<u8>,
+    held: Option<Vec<u8>>,
+    /// A write failed: the log takes no more of this run.
+    failed: bool,
+}
+
+impl Log<'_> {
+    async fn take(&mut self, data: &[u8]) {
+        self.pending.extend_from_slice(data);
+        while let Some(end) = self.pending.iter().position(|b| *b == b'\n') {
+            let line: Vec<u8> = self.pending.drain(..=end).collect();
+            if let Some(before) = self.held.replace(line) {
+                self.write(&before, None).await;
+            }
+        }
+    }
+
+    /// Everything before `offset` of the session is in: the last of it carries the offset.
+    async fn mark(&mut self, offset: u64) {
+        let data = json!({"session_offset": offset});
+        match (self.held.take(), self.pending.is_empty()) {
+            (Some(line), true) => self.write(&line, Some(data)).await,
+            (held, _) => {
+                if let Some(line) = held {
+                    self.write(&line, None).await;
+                }
+                if !self.pending.is_empty() {
+                    let line = std::mem::take(&mut self.pending);
+                    self.write(&line, Some(data)).await;
+                }
+            }
+        }
+    }
+
+    async fn flush(&mut self) {
+        if let Some(line) = self.held.take() {
+            self.write(&line, None).await;
+        }
+        if !self.pending.is_empty() {
+            let line = std::mem::take(&mut self.pending);
+            self.write(&line, None).await;
+        }
+    }
+
+    async fn write(&mut self, line: &[u8], data: Option<Value>) {
+        if self.failed {
+            return;
+        }
+        let text = String::from_utf8_lossy(line);
+        let text = text.trim_end_matches(['\n', '\r']);
+        let level = match text.starts_with('✗') {
+            true => "error",
+            false => "info",
+        };
+        if let Err(e) = self.job.log(level, text, data).await {
+            tracing::warn!(job = %self.job.id, error = %e, "writing a job's log failed: the job stops");
+            self.failed = true;
+        }
     }
 }
 
+/// The values the first run of a job masked, which the job keeps sealed.
+async fn kept_hidden(kernel: &Kernel, id: Uuid) -> Result<Vec<String>, RpcError> {
+    let Some(sealed) = kernel.store.jobs().hidden(id).await? else {
+        return Ok(vec![]);
+    };
+    let key = kernel.store.key().map_err(|_| {
+        RpcError::unavailable(
+            "the job masks secrets, and this server has no secret key to read them",
+        )
+    })?;
+    let plain = key
+        .open(&rookery_store::seal::row("jobs", id), &sealed)
+        .map_err(|e| RpcError::unavailable(e.to_string()))?;
+    serde_json::from_slice(&plain).map_err(|e| RpcError::internal(e.to_string()))
+}
+
 /// The job's output, on its way to the log.
-struct Sink(tokio::sync::mpsc::UnboundedSender<Vec<u8>>);
+struct Sink(tokio::sync::mpsc::UnboundedSender<Chunk>);
 
 impl Write for Sink {
     fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
-        let _ = self.0.send(data.to_vec());
+        let _ = self.0.send(Chunk::Data(data.to_vec()));
         Ok(data.len())
     }
 
@@ -533,12 +651,18 @@ impl Write for Sink {
 }
 
 /// Run the work to its end, its output to `out`: the exit code.
-fn execute(work: Work, out: &mut Output, since: u64, record: &dyn Fn(u64, &str)) -> Option<i32> {
+fn execute(
+    work: Work,
+    out: &mut Output,
+    since: u64,
+    record: &dyn Fn(u64),
+    abandon: &std::sync::atomic::AtomicBool,
+) -> Option<i32> {
     match work {
         Work::Function(function) => Some(if function(out) { 0 } else { 1 }),
         Work::Coded(function) => Some(function(out)),
         Work::Program(program) => core::run_program(*program, out),
-        Work::Session { controller, id } => follow(controller, &id, out, since, record),
+        Work::Session { controller, id } => follow(controller, &id, out, since, record, abandon),
     }
 }
 
@@ -547,19 +671,31 @@ fn execute(work: Work, out: &mut Output, since: u64, record: &dyn Fn(u64, &str))
 const POLL: Duration = Duration::from_millis(500);
 const PATIENCE: Duration = Duration::from_secs(300);
 
-/// Copy a session's output from `since` as it comes, until it has ended: its exit code. How far it
-/// copied goes to `record`.
+/// Copy a session's output from `since` as it comes, until it has ended: its exit code. The output
+/// goes on in whole lines, each batch followed by how far it reached, to `record`. A line without
+/// its end waits until the session is quiet or over, so an offset never falls inside a line.
 fn follow(
     mut controller: Box<dyn Controller>,
     id: &str,
     out: &mut Output,
     mut since: u64,
-    record: &dyn Fn(u64, &str),
+    record: &dyn Fn(u64),
+    abandon: &std::sync::atomic::AtomicBool,
 ) -> Option<i32> {
     let mut answered = Instant::now();
     let mut ending = false;
-    let mut recorded = Instant::now();
+    // Bytes read but not yet passed on, the start of a line, and the offset where they start.
+    let mut partial: Vec<u8> = Vec::new();
+    let mut quiet = 0;
+    let pass = |out: &mut Output, data: &[u8], to: u64| {
+        let _ = out.write_all(data);
+        let _ = out.flush();
+        record(to);
+    };
     loop {
+        if abandon.load(std::sync::atomic::Ordering::SeqCst) {
+            return None;
+        }
         // A stopped job ends its session on the host, and follows it to its end.
         if !ending && let Some(by) = core::stopped() {
             ending = true;
@@ -590,16 +726,19 @@ fn follow(
         };
         answered = Instant::now();
         let data = rookery_api::unb64(&output.data_b64).unwrap_or_default();
-        let _ = out.write_all(&data);
-        let _ = out.flush();
         let moved = output.next_offset > since;
         since = output.next_offset;
-        if moved && recorded.elapsed() > Duration::from_secs(2) {
-            record(since, id);
-            recorded = Instant::now();
+        partial.extend_from_slice(&data);
+        quiet = if moved { 0 } else { quiet + 1 };
+        if output.ended || (quiet >= 1 && !partial.is_empty()) {
+            // Quiet or over: what waits goes on as it is, such as a prompt.
+            let rest = std::mem::take(&mut partial);
+            pass(out, &rest, since);
+        } else if let Some(end) = partial.iter().rposition(|b| *b == b'\n') {
+            let lines: Vec<u8> = partial.drain(..=end).collect();
+            pass(out, &lines, since - partial.len() as u64);
         }
         if output.ended {
-            record(since, id);
             let session = controller.get(&format!("/v1/sessions/{id}"));
             return session
                 .ok()
@@ -640,5 +779,90 @@ impl Runner {
             }
         }
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicBool;
+
+    /// A session that gives its output in the pieces it is given, a few bytes at a time.
+    struct Pieces {
+        pieces: Vec<&'static str>,
+        at: usize,
+        offset: u64,
+    }
+
+    impl Controller for Pieces {
+        fn get(&mut self, path: &str) -> Result<Value, String> {
+            if !path.contains("/output") {
+                return Ok(json!({"exit_code": 0}));
+            }
+            let piece = self.pieces.get(self.at).copied().unwrap_or("");
+            self.at += 1;
+            let offset = self.offset;
+            self.offset += piece.len() as u64;
+            Ok(json!({
+                "data_b64": rookery_api::b64(piece.as_bytes()),
+                "offset": offset,
+                "next_offset": self.offset,
+                "next_line": 0,
+                "ended": self.at > self.pieces.len(),
+            }))
+        }
+    }
+
+    #[test]
+    fn a_session_goes_on_in_whole_lines_with_how_far_they_reach() {
+        let controller = Pieces {
+            pieces: vec!["one\ntw", "o\nthree\n", "a prompt: "],
+            at: 0,
+            offset: 0,
+        };
+        let marks = Mutex::new(Vec::new());
+        let mut written = Vec::new();
+        let code = {
+            let mut out = Output::new(&mut written, vec![]);
+            follow(
+                Box::new(controller),
+                "s1",
+                &mut out,
+                0,
+                &|offset| marks.lock().unwrap().push(offset),
+                &AtomicBool::new(false),
+            )
+        };
+        assert_eq!(code, Some(0));
+        assert_eq!(
+            String::from_utf8(written).unwrap(),
+            "one\ntwo\nthree\na prompt: "
+        );
+        // Each offset ends a line, or the prompt that waited for the session to be quiet.
+        let marks = marks.into_inner().unwrap();
+        assert_eq!(marks.first(), Some(&4));
+        assert!(marks.contains(&14), "{marks:?}");
+        assert_eq!(marks.last(), Some(&24));
+    }
+
+    #[test]
+    fn a_session_is_left_to_the_next_leader() {
+        let controller = Pieces {
+            pieces: vec!["one\n"; 1000],
+            at: 0,
+            offset: 0,
+        };
+        let mut written = Vec::new();
+        let mut out = Output::new(&mut written, vec![]);
+        // Abandoned, it stops following and ends nothing on the host.
+        let code = follow(
+            Box::new(controller),
+            "s1",
+            &mut out,
+            0,
+            &|_| {},
+            &AtomicBool::new(true),
+        );
+        assert_eq!(code, None);
     }
 }

@@ -192,7 +192,8 @@ fn prepare(
         backend::ServerBackend::new(db.clone(), setup.secret_key.clone(), fence),
     )));
     rookery_core::store::set_shared(Some(store.clone()));
-    rookery_core::runner::set_locks(Some(locks::LeaseLocks::new(db, fence)));
+    let renewals = db::Db::start(&setup.database_url)?;
+    rookery_core::runner::set_locks(Some(locks::LeaseLocks::new(db, renewals, fence)));
     let paths = setup.paths.clone();
     write_files(&paths, &store);
     runner.attach(paths.clone(), kernel);

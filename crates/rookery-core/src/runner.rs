@@ -321,7 +321,44 @@ fn each_host(hosts: &str, map: impl Fn(&str) -> String) -> String {
 
 /// Held while something changes a subject. A second caller is refused rather
 /// than kept waiting.
-pub struct Lock(Held);
+pub struct Lock(Held, Option<Arc<Lapse>>);
+
+/// How a lock that lapses while it is held says so: the work that holds it stops, as another may
+/// take the lock and change the subject meanwhile.
+#[derive(Default)]
+pub struct Lapse {
+    stop: Mutex<Option<Arc<Stop>>>,
+    lost: Mutex<Option<String>>,
+}
+
+impl Lapse {
+    /// A lapse that stops the job this thread runs, when it runs one.
+    fn here() -> Arc<Lapse> {
+        let lapse = Lapse::default();
+        *lapse.stop.lock().unwrap() = CURRENT.with(|current| current.borrow().clone());
+        Arc::new(lapse)
+    }
+
+    /// The lock is gone, for `why`: the work that holds it is asked to stop.
+    pub fn lost(&self, why: &str) {
+        *self.lost.lock().unwrap() = Some(why.to_owned());
+        if let Some(stop) = self.stop.lock().unwrap().as_ref() {
+            stop.ask(why);
+        }
+    }
+}
+
+impl Lock {
+    /// Stop `stop`'s job when this lock lapses, as for one taken before the job's work began.
+    pub fn stops(&self, stop: Arc<Stop>) {
+        if let Some(lapse) = &self.1 {
+            if let Some(why) = lapse.lost.lock().unwrap().clone() {
+                stop.ask(&why);
+            }
+            *lapse.stop.lock().unwrap() = Some(stop);
+        }
+    }
+}
 
 enum Held {
     File(fs::File),
@@ -344,8 +381,14 @@ impl Drop for Lock {
 /// What takes the locks of subjects in place of files, such as the leases of `rookery serve` on
 /// Postgres, which hold across the servers of one database.
 pub trait Locks: Send + Sync {
-    /// Take the lock named `name` for what `doing` names, or say who holds it.
-    fn take(&self, name: &str, doing: &str) -> std::result::Result<Box<dyn Send>, Holder>;
+    /// Take the lock named `name` for what `doing` names, or say who holds it. When the lock is
+    /// lost while it is held, the one that took it tells `lapse`.
+    fn take(
+        &self,
+        name: &str,
+        doing: &str,
+        lapse: Arc<Lapse>,
+    ) -> std::result::Result<Box<dyn Send>, Holder>;
 }
 
 /// Why a lock was refused.
@@ -378,8 +421,9 @@ fn lock_name(path: &Path) -> String {
 pub fn lock_at(path: &Path, doing: &str, refused: impl FnOnce(&str) -> String) -> Result<Lock> {
     let locks = LOCKS.read().unwrap_or_else(|e| e.into_inner()).clone();
     if let Some(locks) = locks {
-        return match locks.take(&lock_name(path), doing) {
-            Ok(held) => Ok(Lock(Held::Other(held))),
+        let lapse = Lapse::here();
+        return match locks.take(&lock_name(path), doing, lapse.clone()) {
+            Ok(held) => Ok(Lock(Held::Other(held), Some(lapse))),
             Err(Holder::Held(holder)) => {
                 let said = match holder.trim().is_empty() {
                     true => String::new(),
@@ -419,7 +463,7 @@ pub fn lock_at(path: &Path, doing: &str, refused: impl FnOnce(&str) -> String) -
     // Only the holder writes, so what is there is the one holding it.
     file.set_len(0)?;
     let _ = writeln!(file, "{doing}, process {}", std::process::id());
-    Ok(Lock(Held::File(file)))
+    Ok(Lock(Held::File(file), None))
 }
 
 /// Take the subject's lock for what `doing` names, or say what else changes

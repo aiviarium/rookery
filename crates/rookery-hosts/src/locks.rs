@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use rookery_core::runner::{Holder, Locks};
+use rookery_core::runner::{Holder, Lapse, Locks};
 use sqlx::PgPool;
 
 use crate::db::Db;
@@ -17,15 +17,25 @@ const TTL: Duration = Duration::from_secs(60);
 /// The plugin whose leases these are, in the names of `rookery.leases`.
 const PREFIX: &str = "rookery/";
 
+/// How often a held lease is renewed, and how often again after a renewal failed.
+const RENEW: Duration = Duration::from_secs(20);
+const RETRY: Duration = Duration::from_secs(2);
+
 pub struct LeaseLocks {
     db: Db,
+    /// A connection of their own for renewals, so that they never wait behind slow queries.
+    renewals: Db,
     /// The leader's epoch the leases are taken in; none outside a leading server.
     fence: Option<i64>,
 }
 
 impl LeaseLocks {
-    pub fn new(db: Db, fence: Option<i64>) -> Arc<LeaseLocks> {
-        Arc::new(LeaseLocks { db, fence })
+    pub fn new(db: Db, renewals: Db, fence: Option<i64>) -> Arc<LeaseLocks> {
+        Arc::new(LeaseLocks {
+            db,
+            renewals,
+            fence,
+        })
     }
 }
 
@@ -72,7 +82,7 @@ impl Drop for Held {
 const SEPARATOR: &str = " · ";
 
 impl Locks for LeaseLocks {
-    fn take(&self, name: &str, doing: &str) -> Result<Box<dyn Send>, Holder> {
+    fn take(&self, name: &str, doing: &str, lapse: Arc<Lapse>) -> Result<Box<dyn Send>, Holder> {
         let name = format!("{PREFIX}{name}");
         let holder = format!("{doing}{SEPARATOR}{}", uuid::Uuid::now_v7());
         let epoch = self.fence;
@@ -113,24 +123,47 @@ impl Locks for LeaseLocks {
             holder: holder.clone(),
             lease: fence,
         };
-        let db = self.db.clone();
+        let db = self.renewals.clone();
         std::thread::spawn(move || {
+            // Renewed in time, the lease lasts TTL from then. A renewal that fails is tried again
+            // until the lease would end; then the work that holds it stops.
+            let mut until = std::time::Instant::now() + TTL;
+            let mut wait = RENEW;
             loop {
-                match stopped.recv_timeout(TTL / 3) {
+                match stopped.recv_timeout(wait) {
                     Err(mpsc::RecvTimeoutError::Timeout) => {
                         let (lease, holder) = (name.clone(), holder.clone());
+                        let asked = std::time::Instant::now();
                         let renewed = db.run(move |pool: PgPool| {
                             Box::pin(async move {
                                 store(pool, epoch)
                                     .leases()
                                     .renew(&lease, &holder, fence, TTL)
                                     .await
-                                    .is_ok()
                             })
                         });
-                        if !renewed {
-                            tracing::warn!(lease = %name, "a lease lapsed while it was held");
-                            return;
+                        match renewed {
+                            Ok(_) => {
+                                until = asked + TTL;
+                                wait = RENEW;
+                            }
+                            // Another holds it now: it is gone at once.
+                            Err(rookery_store::Error::Conflict(_)) => {
+                                tracing::warn!(lease = %name, "a lease was lost while it was held");
+                                lapse.lost(&format!("losing the lease {name}"));
+                                return;
+                            }
+                            Err(e) if std::time::Instant::now() + RETRY >= until => {
+                                tracing::warn!(lease = %name, error = %e, "a lease lapsed while it was held");
+                                lapse.lost(&format!(
+                                    "the lease {name}, which could not be renewed: {e}"
+                                ));
+                                return;
+                            }
+                            Err(e) => {
+                                tracing::warn!(lease = %name, error = %e, "renewing a lease failed: trying again");
+                                wait = RETRY;
+                            }
                         }
                     }
                     // The lock is let go.

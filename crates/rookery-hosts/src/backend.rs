@@ -55,10 +55,19 @@ impl ServerBackend {
             + Send
             + 'static,
     {
-        let key = self.key.clone();
+        let (key, fence) = (self.key.clone(), self.fence);
         self.db.run(move |pool: PgPool| {
             Box::pin(async move {
                 let mut tx = pool.begin().await.map_err(db)?;
+                // The leader's backend writes only while it leads: the fence holds the leader's
+                // row for the transaction, so a server that took over waits for it or refuses it.
+                if fence.is_some() {
+                    sqlx::query("SELECT rookery.fence($1)")
+                        .bind(fence)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| Error::Database(format!("{e}")))?;
+                }
                 let done = work(&mut tx, key).await?;
                 tx.commit().await.map_err(db)?;
                 Ok(done)
@@ -990,18 +999,9 @@ impl Backend for ServerBackend {
     }
 
     fn take_in(&mut self, host: &str, message: &Message) -> Result<Option<Stored>> {
-        let (host, message, fence) = (host.to_owned(), message.clone(), self.fence);
-        self.tx(move |c, _| {
-            Box::pin(async move {
-                // A server that does not lead any more takes in nothing.
-                sqlx::query("SELECT rookery.fence($1)")
-                    .bind(fence)
-                    .execute(&mut *c)
-                    .await
-                    .map_err(|e| Error::Database(format!("taking in a message: {e}")))?;
-                take_in(c, &host, &message).await
-            })
-        })
+        let (host, message) = (host.to_owned(), message.clone());
+        // A server that does not lead any more takes in nothing: tx names the fence.
+        self.tx(move |c, _| Box::pin(async move { take_in(c, &host, &message).await }))
     }
 
     fn reset_cursor(&mut self, host: &str) -> Result<()> {
@@ -1025,7 +1025,8 @@ impl Backend for ServerBackend {
         self.tx(move |c, _| {
             Box::pin(async move {
                 let rows = sqlx::query(
-                    "SELECT seq, host, id, topic, body::text AS body, keep, from_level, from_uid, session, time, done
+                    "SELECT seq, host, id, topic, body::text AS body, keep, from_level, from_uid, session,
+                            to_char(time AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS time, done
                      FROM rookery.host_messages
                      WHERE ($1::text IS NULL OR host = $1) AND starts_with(topic, $2)
                        AND ($3::bigint IS NULL OR seq < $3) AND ($4::boolean IS NULL OR done = $4)
@@ -1197,7 +1198,7 @@ impl Backend for ServerBackend {
         let cutoff = cutoff.to_owned();
         self.tx(move |c, _| {
             Box::pin(async move {
-                sqlx::query("DELETE FROM rookery.host_messages WHERE time < $1")
+                sqlx::query("DELETE FROM rookery.host_messages WHERE time < $1::timestamptz")
                     .bind(&cutoff)
                     .execute(&mut *c)
                     .await
@@ -1426,7 +1427,7 @@ async fn take_in(c: &mut PgConnection, host: &str, message: &Message) -> Result<
         };
         let seq: Option<i64> = sqlx::query_scalar(
             "INSERT INTO rookery.host_messages (host, id, topic, body, keep, from_level, from_uid, session, time)
-             VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9) ON CONFLICT (host, id) DO NOTHING RETURNING seq",
+             VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::timestamptz) ON CONFLICT (host, id) DO NOTHING RETURNING seq",
         )
         .bind(host)
         .bind(message.id as i64)

@@ -19,9 +19,10 @@ CREATE TABLE rookery.hosts (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
--- The host keys a host was seen with, and the keys it trusts.
+-- The host keys a host was seen with, and the keys it trusts. What is kept of a host goes with it;
+-- checked at commit, so a batch writes a host and its rows in any order.
 CREATE TABLE rookery.host_access (
-    host       text PRIMARY KEY,
+    host       text PRIMARY KEY REFERENCES rookery.hosts (id) ON DELETE CASCADE ON UPDATE CASCADE DEFERRABLE INITIALLY DEFERRED,
     value      jsonb NOT NULL,
     updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -60,7 +61,7 @@ CREATE TABLE rookery.resources (
 -- channel was read.
 CREATE TABLE rookery.host_messages (
     seq        bigserial PRIMARY KEY,
-    host       text NOT NULL,
+    host       text NOT NULL REFERENCES rookery.hosts (id) ON DELETE CASCADE ON UPDATE CASCADE DEFERRABLE INITIALLY DEFERRED,
     id         bigint NOT NULL,
     topic      text NOT NULL,
     body       jsonb NOT NULL,
@@ -68,7 +69,7 @@ CREATE TABLE rookery.host_messages (
     from_level text NOT NULL,
     from_uid   bigint NOT NULL,
     session    text,
-    time       text NOT NULL,
+    time       timestamptz NOT NULL,
     done       boolean NOT NULL DEFAULT false,
     UNIQUE (host, id)
 );
@@ -77,7 +78,7 @@ CREATE INDEX host_messages_topic ON rookery.host_messages (host, topic);
 CREATE INDEX host_messages_time ON rookery.host_messages (time);
 
 CREATE TABLE rookery.host_cursors (
-    host    text PRIMARY KEY,
+    host    text PRIMARY KEY REFERENCES rookery.hosts (id) ON DELETE CASCADE ON UPDATE CASCADE DEFERRABLE INITIALLY DEFERRED,
     last_id bigint NOT NULL
 );
 
@@ -90,10 +91,15 @@ CREATE TABLE rookery.package_state (
 );
 
 -- A job of a host action: a token that finds the job a repeated request started, and the session on
--- the host an action runs as, with how far its output was copied, so that a new leader follows it on.
+-- the host an action runs as, so that a new leader follows it on. How far its output was copied is
+-- in the log item that ends there (data.session_offset); session_offset is where it started. The
+-- values its output masks are sealed in hidden, as a JSON list, for the leader that follows it on.
 ALTER TABLE rookery.jobs
     ADD COLUMN token text,
     ADD COLUMN session text,
-    ADD COLUMN session_offset bigint;
+    ADD COLUMN session_offset bigint,
+    ADD COLUMN hidden_key_id text,
+    ADD COLUMN hidden_nonce bytea,
+    ADD COLUMN hidden bytea;
 
 CREATE UNIQUE INDEX jobs_token ON rookery.jobs (subject, kind, (params->>'action'), token) WHERE token IS NOT NULL;
