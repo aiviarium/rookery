@@ -160,3 +160,7 @@
         - rookery_services_restarted | length > 0
       vars:
         rookery_services_restarted: "{{ (rookery_service_scripts.results + rookery_service_unit_files.results) | selectattr('changed') | map(attribute='item.name') | unique | list }}"
+
+- name: Configure the Parrot broker
+  ansible.builtin.include_tasks: parrot.yml
+  when: ansible_facts.service_mgr == 'systemd' or rookery_parrot is defined

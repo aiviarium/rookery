@@ -741,6 +741,77 @@ async fn connections_keep_credentials_sealed() {
 }
 
 #[tokio::test]
+async fn a_plugin_connection_seals_its_secret_for_the_declaring_plugin() {
+    use rookery_facilities::connections::PluginKinds;
+
+    let k: TestKernel = test_kernel!(methods());
+    let manifest = json!({"contributes": {"connectionTypes": [{
+        "id": "models.example",
+        "title": "Example Models",
+        "fields": {
+            "type": "object",
+            "required": ["key"],
+            "properties": {"key": {"type": "string"}}
+        },
+        "secret": ["key"],
+        "scopes": ["global"]
+    }]}});
+    k.kernel
+        .set_facility(PluginKinds::from_manifests([("models", &manifest)]));
+    let admin = k.person("Mira", true).await;
+    let types = k
+        .call(&admin, "connections.types", json!({}))
+        .await
+        .unwrap();
+    let listed = types["types"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|kind| kind["id"] == "models.example")
+        .unwrap();
+    assert_eq!(listed["credential"], "key");
+    assert!(listed["config"]["properties"].get("key").is_none());
+
+    let mut params = json!({
+        "type": "models.example",
+        "name": "Example",
+        "scope": "global",
+        "config": {"key": "plain-key"},
+        "credential": "made-up-key"
+    });
+    assert_eq!(
+        code(k.call(&admin, "connections.create", params.clone()).await),
+        "INVALID"
+    );
+    params["config"] = json!({});
+    let made = k.call(&admin, "connections.create", params).await.unwrap();
+    assert_eq!(made["hasCredential"], true);
+    assert_eq!(made["config"], json!({}));
+    let reference = json!({"id": made["id"]});
+    assert_eq!(
+        code(
+            k.call(
+                &Caller::Plugin("other".into()),
+                "connections.resolve",
+                reference.clone()
+            )
+            .await
+        ),
+        "FORBIDDEN"
+    );
+    let resolved = k
+        .call(
+            &Caller::Plugin("models".into()),
+            "connections.resolve",
+            reference,
+        )
+        .await
+        .unwrap();
+    assert_eq!(resolved["credential"], "made-up-key");
+    k.close().await;
+}
+
+#[tokio::test]
 async fn blobs_are_read_by_their_owner_on_a_stream() {
     let k: TestKernel = test_kernel!(methods());
     let ops = k.person("Ops", false).await;

@@ -66,6 +66,13 @@ pub async fn tunnel<C>(socket: WebSocket, connection: C)
 where
     C: AsyncRead + AsyncWrite + Send + 'static,
 {
+    bridge(socket, connection, true).await;
+}
+
+pub(crate) async fn bridge<C>(socket: WebSocket, connection: C, keep_half_open: bool)
+where
+    C: AsyncRead + AsyncWrite + Send + 'static,
+{
     let (mut sink, mut source) = socket.split();
     let (reader, writer) = tokio::io::split(connection);
     let (said, heard) = tokio::sync::oneshot::channel::<()>();
@@ -113,7 +120,9 @@ where
                 return;
             }
             // Until the caller has said its end too.
-            let _ = heard.await;
+            if keep_half_open {
+                let _ = heard.await;
+            }
         }
         let _ = sink.send(Message::Close(None)).await;
     };

@@ -1513,6 +1513,10 @@
       },
       "Version": {
         "properties": {
+          "agents": {
+            "description": "Whether the host's Parrot broker socket is configured.",
+            "type": "boolean"
+          },
           "api": {
             "format": "int32",
             "minimum": 0,
@@ -1708,6 +1712,32 @@
         "summary": "The values to offer for an argument.",
         "tags": [
           "actions"
+        ]
+      }
+    },
+    "/v1/agents/connect": {
+      "get": {
+        "description": "Host level only.",
+        "operationId": "get_v1_agents_connect",
+        "parameters": [],
+        "responses": {
+          "101": {
+            "description": "With a WebSocket handshake: the stream `agents` of the AsyncAPI document."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "An error."
+          }
+        },
+        "summary": "Only as a WebSocket: a byte stream to the host's Parrot broker socket.",
+        "tags": [
+          "agents"
         ]
       }
     },

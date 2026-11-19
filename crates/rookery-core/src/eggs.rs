@@ -15,6 +15,7 @@ use rookery_api::{
     PluginUpdates,
 };
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// The registries of the user's plugins, in the configuration directory.
@@ -159,14 +160,82 @@ pub fn client(paths: &Paths) -> Result<Client> {
 /// A Hatchery client that installs Rookery's target from the registries,
 /// the one of the given provisioning source among them.
 fn client_with(paths: &Paths, source: Option<&Path>) -> Result<Client> {
+    client_for(paths, registries_of(paths, source)?)
+}
+
+fn client_for(paths: &Paths, config: Config) -> Result<Client> {
     Ok(Client::builder()
-        .config(registries_of(paths, source)?)
+        .config(config)
         .kind(builtin::KIND, builtin::factory())
         .target(RookeryTarget)
         .fetch(hatchery::fetch::HttpFetch::new())
         .cache_dir(cache_dir(paths))
         .git(git())
         .build()?)
+}
+
+/// Reads the parrot variant from the same source as the installed rookery target.
+pub(crate) fn parrot_egg(
+    paths: &Paths,
+    pin: &LockedPackage,
+    variant: Option<String>,
+) -> Result<hatchery::Egg> {
+    // Hold the first verified variant along with the base pin. Later applies can use
+    // it when a registry no longer serves that version.
+    let key = crate::server_image::sha256(&serde_json::to_vec(&(pin, &variant))?);
+    let cache = paths.data_dir.join("parrot-eggs");
+    fs::create_dir_all(&cache)?;
+    let saved = cache.join(format!("{key}.egg"));
+    if saved.is_file() {
+        return Ok(hatchery::Egg::read(&saved)?);
+    }
+    let mut config = registries_of(paths, paths.source().ok().as_deref())?;
+    let spec = if let Some(registry) = &pin.registry {
+        config.registries.retain(|line| &label(line) == registry);
+        if config.registries.is_empty() {
+            return Err(format!("{}: the pinned registry is unavailable", pin.name).into());
+        }
+        Spec::parse(&format!("{}@{}", pin.name, pin.version))?
+    } else if let Some(file) = &pin.file {
+        config.registries.clear();
+        Spec::File(file.clone())
+    } else {
+        return Err(format!(
+            "{}: install the agent egg from a registry or upload it as a fat egg",
+            pin.name
+        )
+        .into());
+    };
+    let variants: Vec<String> = variant.into_iter().map(|v| format!("parrot.{v}")).collect();
+    let client = client_for(paths, config)?;
+    let fetched =
+        block_on(client.fetch(&spec, Some(&variants), &Options::new().allow_young(true)))?;
+    let manifest = fetched.base.manifest();
+    if manifest.name() != pin.name
+        || manifest.version() != &pin.version
+        || fetched.base.sha256() != pin.sha256
+    {
+        return Err(format!(
+            "{}: the fetched egg does not match its installed pin",
+            pin.name
+        )
+        .into());
+    }
+    for (key, egg) in variants.iter().zip(&fetched.variants) {
+        if pin.variants.get(key).is_some_and(|sha| sha != egg.sha256()) {
+            return Err(format!("{}: {key} does not match its installed pin", pin.name).into());
+        }
+    }
+    let fat = fetched.base.fatten(&fetched.variants)?;
+    let mut file = tempfile::NamedTempFile::new_in(&cache)?;
+    file.write_all(fat.bytes())?;
+    match file.persist_noclobber(&saved) {
+        Ok(_) => Ok(fat),
+        Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+            Ok(hatchery::Egg::read(&saved)?)
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Install the packages of the registry of the provisioning source that the
@@ -1112,6 +1181,49 @@ mod tests {
         assert_eq!(restored.len(), 1);
         assert_eq!(restored[0].version, "1.0.0");
         assert!(config_file(&other).is_file());
+    }
+
+    #[test]
+    fn apply_caches_the_parrot_variant_of_the_installed_egg() {
+        use hatchery::pack::{PackOptions, VariantPick};
+
+        let fx = fixture();
+        let dir = fx.repo.join("hello");
+        let manifest = dir.join("package.kdl");
+        let source = fs::read_to_string(&manifest).unwrap();
+        let with_parrot = format!(
+            "{}  parrot {{\n    variants {{\n      variant os=linux arch=x86_64\n    }}\n  }}\n}}\n",
+            source.strip_suffix("}\n").unwrap()
+        );
+        fs::write(manifest, with_parrot).unwrap();
+        let variant = dir.join("parrot/variants/linux-x86_64");
+        fs::create_dir_all(&variant).unwrap();
+        fs::write(variant.join("driver"), "made-up driver").unwrap();
+        let eggs = hatchery::pack::pack(
+            &dir,
+            &PackOptions::new()
+                .no_build(true)
+                .fat(true)
+                .variant(VariantPick::new("parrot").os("linux").arch("x86_64"))
+                .check(&RookeryTarget),
+        )
+        .unwrap();
+        let fat = eggs.into_iter().find(hatchery::Egg::is_fat).unwrap();
+
+        fx.manager.upload(fat.bytes()).unwrap();
+        let lock = hatchery::Lock::load(fx.manager.own()).unwrap();
+        let pin = lock.get(&Name::parse("example/hello").unwrap()).unwrap();
+        let staged = parrot_egg(&fx.manager.paths, pin, Some("linux-x86_64".into())).unwrap();
+        assert_eq!(staged.base().unwrap().sha256(), pin.sha256);
+        assert!(
+            staged
+                .embedded_variant("parrot", "linux-x86_64")
+                .unwrap()
+                .is_some()
+        );
+        fs::remove_file(pin.file.as_ref().unwrap()).unwrap();
+        let cached = parrot_egg(&fx.manager.paths, pin, Some("linux-x86_64".into())).unwrap();
+        assert_eq!(cached.sha256(), staged.sha256());
     }
 
     /// The checkout, a provisioning source with the registry of the

@@ -14,6 +14,7 @@ pub mod kept_profile;
 pub mod keys;
 pub mod link;
 pub mod node;
+mod parrot;
 pub mod paths;
 pub mod plugin_check;
 pub mod plugin_state;

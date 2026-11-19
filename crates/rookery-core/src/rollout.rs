@@ -525,6 +525,7 @@ mod tests {
         }
         fn version(&mut self) -> std::result::Result<Option<Version>, String> {
             Ok(Some(Version {
+                agents: false,
                 version: api::VERSION.into(),
                 api: api::API,
                 mode: "system".into(),

@@ -1,0 +1,14 @@
+[Unit]
+Description=Rookery Parrot runtime
+Requires=rookery-parrot.socket
+After=rookery-parrot.socket
+
+[Service]
+User={{ rookery_user }}
+WorkingDirectory={{ rookery_home }}
+Environment="PATH={{ rookery_tool_path }}"
+StateDirectory=rookery-parrot
+StateDirectoryMode=0700
+ExecStart=/opt/rookery/parrot/current/parrot serve --broker-socket --state-dir /var/lib/rookery-parrot --driver-state-dir /opt/rookery/parrot/current
+Restart=on-failure
+UMask=0077

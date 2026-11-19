@@ -144,6 +144,7 @@ pub fn register(methods: &mut Methods) {
     register_controller(methods);
     register_keys(methods);
     register_env(methods);
+    register_agents(methods);
     register_messages(methods);
     register_provisioning(methods);
     register_setup(methods);
@@ -739,6 +740,32 @@ async fn session_guard(call: &Call, name: &str, terminal: &str) -> Result<(), Rp
         }
         None => format!("a session as {user} on {name} needs manage on {uri}"),
     }))
+}
+
+fn register_agents(methods: &mut Methods) {
+    methods
+        .add("agents.connect", |call: Call, p: AgentConnect| async move {
+            call.conn()?;
+            let name = crate::name_of(&p.env);
+            let opened = pass_stream(
+                &call,
+                name,
+                Capability::Sessions,
+                "/v1/agents/connect".into(),
+                Carry::Bytes,
+            )
+            .await?;
+            call.audit("agents.connect", Some(&crate::uri(name)), json!({}))
+                .await;
+            Ok(opened)
+        })
+        .summary("A byte stream to Parrot on a host.")
+        .stream()
+        .level(Level::Resource {
+            param: "env".into(),
+            scheme: Some("env".into()),
+            grant: Grant::Use,
+        });
 }
 
 /// Sessions, files and ports of a host, as the agent account: `hosts.sessions.*` and `hosts.files.*`, `hosts.ports.connect`.

@@ -38,6 +38,7 @@ pub const API: u32 = 2;
 
 /// Where rookeryd listens in system mode.
 pub const RUN_DIR: &str = "/run/rookery";
+pub const PARROT_SOCKET: &str = "parrot.sock";
 pub const CONTROL_SOCKET: &str = "control.sock";
 pub const AGENT_SOCKET: &str = "agent.sock";
 

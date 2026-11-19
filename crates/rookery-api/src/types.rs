@@ -63,6 +63,9 @@ pub struct Version {
     /// `system` or `single`.
     #[serde(default)]
     pub mode: String,
+    /// Whether the host's Parrot broker socket is configured.
+    #[serde(default)]
+    pub agents: bool,
     /// What the host's configuration was last applied from, when rookery
     /// recorded it.
     #[serde(default, skip_serializing_if = "Option::is_none")]

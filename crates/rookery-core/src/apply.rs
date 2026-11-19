@@ -185,7 +185,9 @@ pub fn prepare(paths: &Paths, host: &Host, become_password: Option<&str>) -> Res
     let store = crate::registry::Store::own(crate::store::shared(paths)?);
     vars["rookery_client_certificates"] =
         crate::node::client_certificates(&plugins, &store, &host.config)?;
+    let parrot_files = crate::parrot::stage(paths, &host.config, &plugins, &mut vars)?;
     let mut prepared = run(paths, host, layout::PLAYBOOK, vars, become_password)?;
+    prepared.files.extend(parrot_files);
     let left = rookery_api::profile::left_out(&host.config);
     if !left.is_empty() {
         prepared.notes.push(format!(
