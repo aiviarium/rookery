@@ -28,7 +28,10 @@ The server takes its settings from the environment:
 | `ROOKERY_SOCKET` | The unix socket of the command line on this machine, `server.sock` in Rookery's runtime folder unless set |
 | `ROOKERY_ADMINS` | Accounts that are admins, apart by commas |
 | `ROOKERY_OIDC_ISSUER`, `ROOKERY_OIDC_CLIENT_ID`, `ROOKERY_OIDC_CLIENT_SECRET_FILE` | Sign-in with an OpenID Connect provider instead of local accounts |
-| `ROOKERY_SHELL_DIR` | A built shell, such as Crow's, served at `/` |
+| `ROOKERY_SHELL_DIR` | A built shell, such as Crow's, served at `/`. Unless it's set, the installed plugin that contributes a shell is served there |
+| `ROOKERY_BUN` | The Bun program that runs plugins' host halves, `bun` unless set. Rookery's image has it |
+| `ROOKERY_EXTHOST` | The extension host's entry. Unless it's set, the bundle in Rookery's own provisioning source, `host/dist/main.js` |
+| `ROOKERY_EXTHOST_MEMORY_MB` | The memory a plugin's host process may hold before it's ended, 512 MiB unless set |
 
 The server writes the files the hosts need, such as its key ring and the hosts' known keys, into Rookery's configuration and data folders on the machine it leads on.
 

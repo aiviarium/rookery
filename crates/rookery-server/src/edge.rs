@@ -94,7 +94,10 @@ fn kernel_routes(shell: Option<PathBuf>) -> Router<Kernel> {
             post(crate::rpc::handle).layer(DefaultBodyLimit::max(MAX_RPC_MESSAGE)),
         )
         .merge(rookery_auth::routes())
-        .fallback(move |request: Request| crate::shell::serve(shell.clone(), request))
+        .merge(rookery_plugins::routes())
+        .fallback(move |State(kernel): State<Kernel>, request: Request| {
+            crate::shell::serve(shell.clone(), kernel, request)
+        })
 }
 
 async fn healthz(State(edge): State<Arc<Edge>>, method: Method) -> Response {

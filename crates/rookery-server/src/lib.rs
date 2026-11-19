@@ -45,6 +45,7 @@ pub fn methods_with(
     handlers.extend(hosts.handlers());
     rookery_jobs::register(&mut methods, handlers, jobs);
     hosts.register(&mut methods);
+    rookery_plugins::register(&mut methods);
     methods
 }
 
@@ -141,6 +142,10 @@ fn lead(config: &ServerConfig, store: rookery_store::Store, methods: Methods) ->
             paths: paths.clone(),
             provision: config.provision,
         });
+        kernel.set_facility(rookery_plugins::Setup {
+            paths: paths.clone(),
+            host: config.exthost.clone(),
+        });
     }
     kernel.methods.started(&kernel);
     kernel
@@ -186,6 +191,16 @@ pub async fn start_with(mut config: ServerConfig, methods: Methods) -> Result<Ru
         stop,
         done,
     })
+}
+
+/// How long the host halves of plugins have to run their cleanups when the server stops leading.
+const PLUGINS_STOP: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Stops the host halves of plugins, which run their cleanups while the store is still open.
+async fn stop_plugins(kernel: &Kernel) {
+    if let Some(plugins) = kernel.get_facility::<rookery_plugins::Plugins>() {
+        plugins.stop(kernel, PLUGINS_STOP).await;
+    }
 }
 
 /// How long a deposed leader waits for its store to close before it stands by again.
@@ -255,6 +270,7 @@ async fn run(
         // kernel still writes is refused by the epoch.
         tracing::error!(epoch, reason = %lost, "this server stops leading and stands by");
         if let Some(kernel) = edge.clear_kernel() {
+            stop_plugins(&kernel).await;
             kernel.shutdown.cancel();
             let _ = tokio::time::timeout(CLOSE_TIMEOUT, kernel.store.close()).await;
         }
@@ -264,6 +280,7 @@ async fn run(
     // A graceful stop drains requests before another server can take over.
     let kernel = edge.kernel();
     if let Some(kernel) = &kernel {
+        stop_plugins(kernel).await;
         kernel.shutdown.cancel();
     }
     quit.cancel();

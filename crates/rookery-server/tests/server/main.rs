@@ -4,4 +4,5 @@
 mod common;
 mod edge;
 mod oidc;
+mod plugins;
 mod secrets;

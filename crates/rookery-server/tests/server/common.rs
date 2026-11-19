@@ -31,6 +31,7 @@ pub fn config(db: &TestDb, dir: &std::path::Path) -> ServerConfig {
         socket: Some(dir.join("server.sock")),
         paths: None,
         provision: Default::default,
+        exthost: Default::default(),
     }
 }
 
