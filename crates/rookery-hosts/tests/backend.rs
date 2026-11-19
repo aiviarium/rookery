@@ -16,6 +16,7 @@ fn on(db: &TestDb) -> Store {
         threads,
         Some(db.store.key().unwrap().clone()),
         None,
+        Some(db.store.clone()),
     )))
 }
 
@@ -213,6 +214,19 @@ async fn state_lands_in_its_tables() {
         1
     );
     assert_eq!(count("SELECT count(*) FROM rookery.host_messages").await, 1);
+    // Key-value goes through Rookery's collection of storage, so each set is a change another reader
+    // sees: a live query on `rookery/storage` follows what a host action keeps.
+    assert_eq!(
+        count("SELECT count(*) FROM rookery.\"storage\" WHERE plugin = 'box' AND key = 'k'").await,
+        1
+    );
+    assert_eq!(
+        count(
+            "SELECT count(*) FROM rookery.changes WHERE plugin = 'rookery' AND collection = 'storage'"
+        )
+        .await,
+        2
+    );
     pool.close().await;
     db.close().await;
 }
@@ -229,6 +243,7 @@ async fn a_server_that_does_not_lead_writes_nothing() {
         threads,
         Some(db.store.key().unwrap().clone()),
         Some(41),
+        Some(db.store.clone()),
     )));
     let unfenced = on(&db);
     tokio::task::spawn_blocking(move || {
@@ -279,4 +294,85 @@ async fn a_host_is_known_before_it_is_saved_and_forgotten_with_it() {
     })
     .await
     .unwrap();
+}
+
+/// The tables of hosts are Rookery's own collections: `data.*` reads them as each caller may, and the
+/// sealed columns of the key ring are no fields.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_tables_of_hosts_are_read_as_collections() {
+    let Some(db) = TestDb::new().await else {
+        eprintln!("skipped: ROOKERY_TEST_POSTGRES is not set");
+        return;
+    };
+    let ops = db.user("ops").await;
+    let dev = db.user("dev").await;
+    // The store of a server registers the tables of hosts, as `rookery serve` does.
+    let mut options = db.options();
+    options.system_tables = rookery_hosts::backend::system_tables();
+    let store = rookery_store::Store::open(options).await.unwrap();
+    sqlx::query(
+        "INSERT INTO rookery.hosts (id, name, profile, owner) VALUES ($1, 'studio', '{}', $2)",
+    )
+    .bind(HOST)
+    .bind(ops)
+    .execute(store.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO rookery.terminals (id, host, session, owner, title) VALUES ('t1', $1, 's1', $2, 'build')",
+    )
+    .bind(HOST)
+    .bind(dev)
+    .execute(store.pool())
+    .await
+    .unwrap();
+    store
+        .access()
+        .grant("env://studio", &format!("user:{dev}"), 1, "system:rookery")
+        .await
+        .unwrap();
+    let names = |caller: rookery_store::Caller, collection: &'static str| {
+        let data = store.data("rookery");
+        async move {
+            data.find(
+                &caller,
+                collection,
+                &rookery_store::collections::Query::default(),
+            )
+            .await
+            .unwrap()
+            .rows
+        }
+    };
+    // The host's owner and those with view on it see it; anyone else sees nothing.
+    let seen = names(rookery_store::Caller::user(dev), "hosts").await;
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0]["name"], "studio");
+    assert_eq!(seen[0]["owner"], ops.to_string());
+    assert!(names(rookery_store::Caller::system(), "hosts").await.len() == 1);
+    assert!(names(rookery_store::Caller::user(ops), "hosts").await.len() == 1);
+    // A terminal is on its host, and on the resource of the host it is seen.
+    let terminals = names(rookery_store::Caller::user(dev), "terminals").await;
+    assert_eq!(terminals.len(), 1);
+    assert_eq!(terminals[0]["session"], "s1");
+    assert_eq!(terminals[0]["runAs"], "agent");
+    assert!(terminals[0].get("lastInput").is_none());
+    let stranger = db.user("eve").await;
+    assert!(
+        names(rookery_store::Caller::user(stranger), "hosts")
+            .await
+            .is_empty()
+    );
+    assert!(
+        names(rookery_store::Caller::user(stranger), "terminals")
+            .await
+            .is_empty()
+    );
+    // The key ring keeps its key out of what anyone reads, admin or not.
+    let keys = store.collections().get("rookery", "hostKeys").unwrap();
+    for name in ["keyId", "nonce", "ciphertext"] {
+        assert!(keys.def.field(name).is_none(), "{name}");
+    }
+    store.close().await;
+    db.close().await;
 }
