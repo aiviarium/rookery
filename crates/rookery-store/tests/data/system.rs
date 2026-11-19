@@ -159,6 +159,9 @@ async fn typed_tables_are_read_with_the_access_rules_of_collections() {
         .unwrap();
     assert!(connections.def.field("ciphertext").is_none());
     assert!(connections.def.field("config").is_some());
+    // Whose and which space's a row of a global table is are fields of it.
+    assert!(connections.def.field("user").is_some());
+    assert!(connections.def.field("space").is_some());
     db.close().await;
 }
 
