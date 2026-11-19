@@ -59,14 +59,23 @@ SEAM = [
     'crates/rookery-tui/src/fields.rs', 'crates/rookery-tui/src/setup.rs', 'crates/rookery-tui/src/flow.rs',
 ]
 
+# TypeScript packages (`@rookery/client` and `@rookery/sdk`) and their root
+# workspace files. They have a CI unit of their own (`ts`) and are not read by
+# the Rust, Python or end-to-end units.
+TS_PATHS = [
+    'client/', 'sdk/', 'package.json', 'bun.lock', 'bunfig.toml',
+    'biome.json', 'tsconfig.base.json',
+]
+
 # What each kind of unit leaves out, beyond NOWHERE, and what it keeps of that.
 UNITS = {
-    'rust': dict(out=['recipes/'], keep=RUST_READS),
-    'python': dict(out=['crates/', 'Cargo.toml', 'Cargo.lock', 'tests/e2e/']),
+    'rust': dict(out=['recipes/', *TS_PATHS], keep=RUST_READS),
+    'python': dict(out=['crates/', 'Cargo.toml', 'Cargo.lock', 'tests/e2e/', *TS_PATHS]),
     # rookery carries the provisioning source, so the end-to-end tests read
     # most of the tree; the Python tests and the recipes are not theirs.
-    'e2e': dict(out=['recipes/', 'tests/test_', 'tests/fixtures/']),
-    'role': dict(out=['recipes/', 'tests/test_', 'tests/fixtures/', 'crates/'], keep=SEAM),
+    'e2e': dict(out=['recipes/', 'tests/test_', 'tests/fixtures/', *TS_PATHS]),
+    'role': dict(out=['recipes/', 'tests/test_', 'tests/fixtures/', 'crates/', *TS_PATHS], keep=SEAM),
+    'ts': dict(only=TS_PATHS),
 }
 
 # The shards that apply nothing but the first apply: they test rookery's own
@@ -91,10 +100,14 @@ def keys():
     tree = list(files())
     found = {}
     for unit, rule in UNITS.items():
+        only = rule.get('only')
         out, keep = NOWHERE + rule.get('out', []), EVERYWHERE + rule.get('keep', [])
         digest = hashlib.sha256(f'{unit} {week()}\n'.encode())
         for path, blob in tree:
-            if any(path.startswith(prefix) for prefix in out) and not any(path.startswith(k) for k in keep):
+            if only is not None:
+                if not any(path.startswith(prefix) for prefix in only + EVERYWHERE):
+                    continue
+            elif any(path.startswith(prefix) for prefix in out) and not any(path.startswith(k) for k in keep):
                 continue
             digest.update(f'{blob} {path}\n'.encode())
         found[unit] = digest.hexdigest()[:20]
@@ -128,7 +141,12 @@ def plan(found, event, seen):
     # On main the role's shards run for any change rookery is built from, and
     # leave the marker a pull request looks for too.
     role, role_also = (found['e2e'], [found['role']]) if event == 'push' else (found['role'], [])
-    jobs = [unit('rust-tests', found['rust']), unit('clippy', found['rust']), unit('python-tests', found['python'])]
+    jobs = [
+        unit('rust-tests', found['rust']),
+        unit('clippy', found['rust']),
+        unit('python-tests', found['python']),
+        unit('ts', found['ts']),
+    ]
     shards = []
     for name in e2e.SHARDS:
         shard = unit(f'e2e-{name}', found['e2e']) if name in SMOKE else unit(f'e2e-{name}', role, role_also)

@@ -21,6 +21,8 @@ Rookery provisions and manages development machines. It sets up Ubuntu hosts and
 | `.agents/skills/` | Skills for coding agents that work with Rookery, such as installing it. `.claude/skills` links here |
 | `container/` | The desktop image and Rookery's own image |
 | `ci/` | The images and scripts that run the checks and the end-to-end tests in containers |
+| `client/` | The `@rookery/client` TypeScript package. It carries the browser `/ws` transport with JSON-RPC 2.0, binary streams with credit and reconnect. It also provides device-session auth helpers, the content-hashed plugin client-half loader, routing and SolidJS bindings. `client/src/generated/` holds the wire types for `rookery-proto`. Rookery ships no UI and has no Nocturne dependency |
+| `sdk/` | The `@rookery/sdk` TypeScript package. It defines `defineClient` for client halves, `definePlugin` for host halves and shared data, filter and error helpers |
 | `docs/` | The documentation site (Fumadocs). It follows aiviarium/docs-base at commit `dcffeac`, the docs base of the Aiviarium projects. `docs/AGENTS.md` says what Rookery adds to the base and how to take a later version of it |
 | `tests/` | Python tests of the provisioning source |
 
@@ -43,7 +45,7 @@ A new skill gets its own folder and a row here and in `.agents/skills/README.md`
 
 ## Build and check
 
-Use cargo for everything Rust. These are what CI runs:
+Use cargo for everything Rust and bun for `client/` and `sdk/`. These are what CI runs:
 
 ```bash
 cargo test --locked --no-fail-fast
@@ -51,8 +53,11 @@ cargo fmt --check -p rookery-api -p rookery-pty -p rookery-core -p rookery-tui -
 cargo clippy --locked --all-targets -- -D warnings
 cargo run --locked -q -p rookery -- plugin check plugins
 python3 -m unittest discover -s tests -v
+bun install --frozen-lockfile && bun run check
 vale --minAlertLevel=warning --glob='!docs/content/docs/api/{host,serve}/**' README.md AGENTS.md docs/AGENTS.md docs/content/docs plugins/rookery/*/rookery/guide.md
 ```
+
+`bun run check` runs Biome lint, TypeScript typechecks and Bun tests across `client/` and `sdk/`.
 
 The Docs workflow checks the docs site with `npm run typecheck`, `npm run lint` and `npm run links` in `docs/`, and builds it. It runs for every pull request, as `ci/plan.py` leaves the site out of CI's units.
 
@@ -93,8 +98,9 @@ CI runs the checks on the runner itself, each in a job of its own, and the end-t
 
 | Unit | Runs for a change to |
 | --- | --- |
-| `rust-tests`, `clippy` | anything but the docs site, the recipes and the other workflows |
-| `python-tests` | anything but the Rust code and the docs site |
+| `rust-tests`, `clippy` | anything but the docs site, the recipes, `client/`, `sdk/` and the other workflows |
+| `python-tests` | anything but the Rust code, `client/`, `sdk/` and the docs site |
+| `ts` | `client/`, `sdk/` and the root TypeScript configuration files |
 | The shards `studio` and `forge` | anything Rookery is built from: they apply only once |
 | The other shards | the role, the plugins, the end-to-end tests, or the Rust code in `SEAM` of `ci/plan.py` (on main: anything Rookery is built from) |
 

@@ -22,3 +22,6 @@ secrets/
 .claude/*
 # The skills are a link to .agents/skills, which every agent reads.
 !.claude/skills
+node_modules/
+dist/
+

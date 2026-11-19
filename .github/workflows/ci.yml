@@ -31,6 +31,7 @@ jobs:
       rust-tests: ${{ steps.plan.outputs.rust-tests }}
       clippy: ${{ steps.plan.outputs.clippy }}
       python-tests: ${{ steps.plan.outputs.python-tests }}
+      ts: ${{ steps.plan.outputs.ts }}
       shards: ${{ steps.plan.outputs.shards }}
     steps:
       - uses: actions/checkout@v7
@@ -140,6 +141,22 @@ jobs:
       - uses: ./.github/actions/green
         with:
           unit: ${{ needs.plan.outputs.python-tests }}
+
+  ts:
+    needs: plan
+    if: needs.plan.outputs.ts != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - uses: ./.github/actions/green
+        with:
+          unit: ${{ needs.plan.outputs.ts }}
 
   # rookery is built once, here, for the shards of the end-to-end tests.
   build:
@@ -262,7 +279,7 @@ jobs:
   # passed with the same files before; one that failed or was cancelled fails
   # this.
   ci:
-    needs: [plan, lint, rust-tests, clippy, python-tests, build, images, e2e]
+    needs: [plan, lint, rust-tests, clippy, python-tests, ts, build, images, e2e]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
