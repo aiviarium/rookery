@@ -286,6 +286,7 @@ async fn a_new_leader_ends_what_the_old_one_left_running() {
         run_after: None,
         subject: None,
         enqueued_by: "user:x",
+        token: None,
     };
     let apply = jobs.enqueue(new("test.apply")).await.unwrap();
     let kinds = vec!["test.apply".to_owned()];

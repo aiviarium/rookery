@@ -51,6 +51,38 @@ pub fn publish(kernel: &Kernel, name: &str, payload: &Value, user: Option<&str>)
     delivered
 }
 
+/// Sends an event of the server's own to the connections subscribed to it whose caller `keep` lets
+/// through, such as those who may see the host it is about. Returns how many it reached.
+pub async fn publish_where<F, Fut>(kernel: &Kernel, name: &str, payload: &Value, keep: F) -> usize
+where
+    F: Fn(rookery_kernel::Caller) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let matching: Vec<(String, ConnHandle)> = {
+        let subscriptions = kernel.facility::<Subscriptions>();
+        let all = subscriptions.0.lock().unwrap();
+        all.iter()
+            .filter(|(_, s)| s.names.iter().any(|p| matches(p, name)))
+            .map(|(id, s)| (id.clone(), s.conn.clone()))
+            .collect()
+    };
+    let mut delivered = 0;
+    for (id, conn) in matching {
+        if keep(conn.caller().clone()).await {
+            conn.notify(
+                "events.event",
+                EventNotice {
+                    subscription: id,
+                    name: name.to_owned(),
+                    payload: payload.clone(),
+                },
+            );
+            delivered += 1;
+        }
+    }
+    delivered
+}
+
 pub fn register(methods: &mut Methods) {
     methods.on_connection_closed(|kernel, conn| {
         kernel
