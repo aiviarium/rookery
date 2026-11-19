@@ -251,7 +251,14 @@ impl Remote {
         let asked = tokio::time::timeout(Duration::from_secs(15), link.version()).await;
         let answer = match asked {
             Ok(Ok(version)) => Ok(version),
-            Ok(Err(error)) if Link::missing(&error) => Err(format!("{NO_ROOKERYD}: {error}")),
+            Ok(Err(error)) if Link::missing(&error) => {
+                // The shared connection may have outlived a host key that changed since.
+                let spec = link.spec().clone();
+                match tokio::task::spawn_blocking(move || spec.changed_host_key()).await {
+                    Ok(Some(changed)) => Err(changed),
+                    _ => Err(format!("{NO_ROOKERYD}: {error}")),
+                }
+            }
             Ok(Err(error)) => Err(error.to_string()),
             Err(_) => Err("no answer in time".into()),
         };

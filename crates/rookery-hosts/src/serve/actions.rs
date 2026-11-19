@@ -775,6 +775,11 @@ fn apply(state: Arc<Serve>, name: String, act: Act) -> Run {
                 ..Acted::default()
             });
         }
+        let mut notes = Vec::new();
+        shipped(&state.paths, &mut notes);
+        for note in String::from_utf8_lossy(&notes).lines() {
+            tracing::info!("{note}");
+        }
         let prepared = apply::prepare(&state.paths, &host, password.as_deref()).map_err(bad)?;
         let notes = prepared.notes;
         let mut request = Request::new(Subject::Host(name.clone()), "apply");
@@ -1740,6 +1745,22 @@ fn rollout_declared() -> Action {
     }
 }
 
+/// The plugins that come with rookery at the versions its source offers now, as each command of
+/// the old rookery made them: a source that changed under a running server brings its new ones.
+fn shipped(paths: &rookery_core::paths::Paths, out: &mut dyn Write) {
+    match rookery_core::eggs::builtins(paths) {
+        Ok(notices) => notices.iter().for_each(|notice| {
+            let _ = writeln!(out, "{notice}");
+        }),
+        Err(error) => {
+            let _ = writeln!(
+                out,
+                "rookery: the plugins that come with rookery were not installed: {error}"
+            );
+        }
+    }
+}
+
 fn rollout(state: Arc<Serve>, _: String, act: Act) -> Run {
     Box::pin(async move {
         state.refresh(false);
@@ -1766,6 +1787,7 @@ fn rollout(state: Arc<Serve>, _: String, act: Act) -> Run {
         request.secrets = passwords.iter().flatten().cloned().collect();
         let paths = state.paths.clone();
         let work = Work::Function(Box::new(move |out| {
+            shipped(&paths, out);
             let mut targets: Vec<Box<dyn rollout::Target + '_>> = vec![];
             let mut problem = None;
             let mut skipped = vec![];

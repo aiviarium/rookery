@@ -80,12 +80,16 @@ impl From<store::Error> for Fail {
 }
 
 impl From<client::Error> for Fail {
+    /// A host's own answer. One that failed inside the host is the host's failure, not the
+    /// server's: it goes on as 502, which callers see as UNAVAILABLE, with the host's status.
     fn from(error: client::Error) -> Fail {
+        let status = error.status();
+        let data = (status >= 500).then(|| json!({"host_status": status}));
         Fail(
-            error.status(),
+            if status == 500 { 502 } else { status },
             error.code().to_owned(),
             error.to_string(),
-            None,
+            data,
         )
     }
 }
