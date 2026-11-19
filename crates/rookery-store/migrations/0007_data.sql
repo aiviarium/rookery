@@ -165,6 +165,8 @@ CREATE TABLE rookery.idempotency (
 
 CREATE INDEX idempotency_expires ON rookery.idempotency (expires_at);
 
+CREATE INDEX owners_user ON rookery.owners (user_id);
+
 -- The principals a caller acts as: itself, its user, the user's groups and everyone.
 CREATE FUNCTION rookery.principals_of(p_user uuid, p_principal text) RETURNS text[]
 LANGUAGE sql STABLE AS $$
@@ -215,7 +217,9 @@ $$;
 
 -- Every entity whose level may be above zero for the principals: those granted to them or owned by
 -- their user, and everything that inherits from those. It narrows a scan before the check of each row.
-CREATE FUNCTION rookery.reachable(p_user uuid, p_principals text[]) RETURNS SETOF text
+CREATE FUNCTION rookery.reachable(
+    p_user uuid, p_principals text[], p_include_users boolean DEFAULT true
+) RETURNS SETOF text
 LANGUAGE sql STABLE AS $$
     WITH RECURSIVE f (uri) AS (
         SELECT g.resource FROM rookery.grants g WHERE g.principal = ANY (p_principals)
@@ -229,7 +233,7 @@ LANGUAGE sql STABLE AS $$
         SELECT c.uri, d.depth + 1 FROM d JOIN rookery.entities c ON c.parent = d.uri
         WHERE NOT c.private AND d.depth < 16
     )
-    SELECT DISTINCT uri FROM d
+    SELECT DISTINCT uri FROM d WHERE p_include_users OR NOT starts_with(uri, 'user://')
 $$;
 
 -- Documents that people edit together. A document is a Yjs document: a compacted snapshot and the
@@ -332,14 +336,22 @@ LANGUAGE sql STABLE AS $$
     ), 1)::smallint
 $$;
 
--- The level reading an entity needs: its collection's, or for an entity attached to a row (a document) the
--- row's collection's. Other entities need view.
+-- An entity uses its own collection's read rule, or the nearest ancestor collection's.
 CREATE FUNCTION rookery.entity_need(p_plugin text, p_collection text, p_parent text) RETURNS smallint
 LANGUAGE sql STABLE AS $$
-    SELECT CASE
-        WHEN p_collection IS NOT NULL THEN rookery.collection_need(p_plugin, p_collection)
+    SELECT CASE WHEN p_collection IS NOT NULL THEN rookery.collection_need(p_plugin, p_collection)
         WHEN p_parent IS NULL THEN 1::smallint
-        ELSE coalesce((SELECT rookery.collection_need(pe.plugin, pe.collection) FROM rookery.entities pe
-                       WHERE pe.uri = p_parent AND pe.collection IS NOT NULL), 1::smallint)
+        ELSE coalesce((
+            WITH RECURSIVE chain (plugin, collection, parent, depth) AS (
+                SELECT e.plugin, e.collection, e.parent, 1
+                FROM rookery.entities e WHERE e.uri = p_parent
+                UNION ALL
+                SELECT e.plugin, e.collection, e.parent, c.depth + 1
+                FROM chain c JOIN rookery.entities e ON e.uri = c.parent
+                WHERE c.collection IS NULL AND c.depth < 16
+            )
+            SELECT rookery.collection_need(plugin, collection)
+            FROM chain WHERE collection IS NOT NULL
+        ), 1::smallint)
     END
 $$;

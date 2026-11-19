@@ -102,8 +102,7 @@ impl SystemTable {
 /// The typed tables of Rookery's that are collections. Those of hosts join them from `rookery-hosts`
 /// through [`crate::StoreOptions::system_tables`].
 pub fn tables() -> Vec<SystemTable> {
-    let principal_user =
-        "CASE WHEN t.enqueued_by ~ '^user:[0-9a-f-]{36}$' THEN substr(t.enqueued_by, 6)::uuid END";
+    let principal_user = "CASE WHEN t.enqueued_by ~ '^user:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN substr(t.enqueued_by, 6)::uuid END";
     vec![
         SystemTable {
             name: "users",
@@ -206,7 +205,7 @@ pub fn tables() -> Vec<SystemTable> {
             updated_at: "t.created_at",
             resource: Some("'blob://' || t.id::text"),
             owner: Some(
-                "CASE WHEN t.owner ~ '^user:[0-9a-f-]{36}$' THEN substr(t.owner, 6)::uuid END",
+                "CASE WHEN t.owner ~ '^user:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN substr(t.owner, 6)::uuid END",
             ),
             omit: &[],
             admin: false,

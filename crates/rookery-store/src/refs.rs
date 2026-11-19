@@ -2,11 +2,12 @@
 //! plugins. Backlinks are filtered by what the caller may see.
 
 use serde::Serialize;
-use sqlx::PgConnection;
+use sqlx::{AssertSqlSafe, PgConnection};
 use uuid::Uuid;
 
 use crate::Store;
 use crate::caller::Caller;
+use crate::entities::visible_as;
 use crate::error::Result;
 use crate::uri::Uri;
 
@@ -61,59 +62,85 @@ pub struct Refs<'a> {
     pub(crate) store: &'a Store,
 }
 
+// The source entity and the resource that controls the reference both have to be readable.
+const SOURCE_JOINS: &str =
+    "LEFT JOIN rookery.entities src ON src.scheme = r.src_scheme AND src.id = r.src_id
+     LEFT JOIN rookery.entities access ON access.uri = r.access_uri";
+
+fn source_visible() -> String {
+    format!(
+        "($5 OR (
+            (src.uri IS NULL OR src.uri = access.uri OR {source}) AND
+            CASE WHEN access.uri IS NOT NULL AND r.src_scheme <> 'row' THEN {access}
+                 WHEN rookery.collection_need(r.plugin, r.collection) > 3 THEN false
+                 WHEN r.owner_id IS NOT NULL THEN r.owner_id = $3
+                 ELSE rookery.effective_level(r.access_uri, $3, rookery.principals_of($3, $4))
+                      >= rookery.collection_need(r.plugin, r.collection) END
+        ))",
+        source = visible_as("src", "$3", "$4", "$5", "TRUE"),
+        access = visible_as("access", "$3", "$4", "$5", "TRUE"),
+    )
+}
+
 impl<'a> Refs<'a> {
-    /// Backlinks: every visible reference to `uri`, from any plugin. A source is visible when
-    /// the caller may view it (or, for rows that are not entities, the row's space). Sources
-    /// in the trash are left out.
+    /// Backlinks from readable sources, including ones pointing to an alias of the target.
     pub async fn to(&self, caller: &Caller, uri: &str) -> Result<Vec<Backlink>> {
         let u = Uri::parse(uri)?;
-        Ok(sqlx::query_as(
-            "SELECT r.src_scheme || '://' || r.src_id AS source, r.field, r.plugin, r.collection, \
-                    CASE WHEN r.src_scheme = 'row' THEN split_part(r.src_id, '/', 3)::uuid \
-                         WHEN e.collection IS NOT NULL THEN r.src_id::uuid END AS row_id, \
-                    e.title, e.icon, e.subtitle, r.created_at AS at \
-             FROM rookery.refs r \
-             LEFT JOIN rookery.entities e ON e.scheme = r.src_scheme AND e.id = r.src_id \
-             WHERE ((r.dst_scheme = $1 AND r.dst_id = $2) \
-                    OR r.dst_scheme || '://' || r.dst_id IN \
-                       (SELECT a.uri FROM rookery.entity_aliases a WHERE a.target = $1 || '://' || $2)) \
-               AND NOT r.src_deleted \
-               AND ($5 OR CASE WHEN r.owner_id IS NOT NULL THEN r.owner_id = $3 \
-                          WHEN r.access_uri IN (SELECT rookery.visible_roots($3, rookery.principals_of($3, $4))) THEN true \
-                          WHEN e.uri IS NOT NULL AND NOT e.private \
-                               AND e.parent IN (SELECT rookery.visible_roots($3, rookery.principals_of($3, $4))) THEN true \
-                          ELSE rookery.effective_level(r.access_uri, $3, rookery.principals_of($3, $4)) >= 1 END) \
+        let sql = format!(
+            "SELECT r.src_scheme || '://' || r.src_id AS source, r.field, r.plugin, r.collection,
+                    CASE WHEN r.src_scheme = 'row' THEN split_part(r.src_id, '/', 3)::uuid
+                         WHEN src.collection IS NOT NULL THEN r.src_id::uuid END AS row_id,
+                    src.title, src.icon, src.subtitle, r.created_at AS at
+             FROM rookery.refs r
+             {SOURCE_JOINS}
+             WHERE ((r.dst_scheme = $1 AND r.dst_id = $2)
+                    OR r.dst_scheme || '://' || r.dst_id IN
+                       (SELECT a.uri FROM rookery.entity_aliases a WHERE a.target = $1 || '://' || $2))
+               AND NOT EXISTS (
+                   SELECT 1 FROM rookery.entities target
+                   WHERE target.uri = coalesce(
+                       (SELECT a.target FROM rookery.entity_aliases a WHERE a.uri = $1 || '://' || $2),
+                       $1 || '://' || $2)
+                     AND NOT {target_visible})
+               AND NOT r.src_deleted AND {source_visible}
              ORDER BY r.created_at DESC, source, r.field LIMIT 1000",
-        )
-        .bind(&u.scheme)
-        .bind(&u.id)
-        .bind(caller.user)
-        .bind(caller.actor())
-        .bind(caller.admin)
-        .fetch_all(self.store.pool())
-        .await?)
+            target_visible = visible_as("target", "$3", "$4", "$5", "TRUE"),
+            source_visible = source_visible(),
+        );
+        Ok(sqlx::query_as(AssertSqlSafe(sql))
+            .bind(&u.scheme)
+            .bind(&u.id)
+            .bind(caller.user)
+            .bind(caller.actor())
+            .bind(caller.admin)
+            .fetch_all(self.store.pool())
+            .await?)
     }
 
-    /// The references going out of `uri`, if the caller may view it.
+    /// The references from a readable source. An unreadable target looks unresolved.
     pub async fn from(&self, caller: &Caller, uri: &str) -> Result<Vec<Reference>> {
         let u = Uri::parse(uri)?;
-        if !self
-            .store
-            .entities()
-            .can(caller, uri, crate::Level::View)
-            .await?
-        {
-            return Ok(Vec::new());
-        }
-        Ok(sqlx::query_as(
-            "SELECT r.field, r.dst_scheme || '://' || r.dst_id AS target, r.dangling, e.title, e.icon \
-             FROM rookery.refs r LEFT JOIN rookery.entities e ON e.scheme = r.dst_scheme AND e.id = r.dst_id \
-             WHERE r.src_scheme = $1 AND r.src_id = $2 ORDER BY r.field, target",
-        )
-        .bind(&u.scheme)
-        .bind(&u.id)
-        .fetch_all(self.store.pool())
-        .await?)
+        let sql = format!(
+            "SELECT r.field, r.dst_scheme || '://' || r.dst_id AS target,
+                    dst.uri IS NULL OR dst.deleted_at IS NOT NULL AS dangling, dst.title, dst.icon
+             FROM rookery.refs r
+             {SOURCE_JOINS}
+             LEFT JOIN rookery.entity_aliases a ON a.uri = r.dst_scheme || '://' || r.dst_id
+             LEFT JOIN rookery.entities dst ON dst.uri = coalesce(a.target, r.dst_scheme || '://' || r.dst_id)
+                 AND {target_visible}
+             WHERE r.src_scheme = $1 AND r.src_id = $2 AND NOT r.src_deleted AND {source_visible}
+             ORDER BY r.field, target",
+            target_visible = visible_as("dst", "$3", "$4", "$5", "TRUE"),
+            source_visible = source_visible(),
+        );
+        Ok(sqlx::query_as(AssertSqlSafe(sql))
+            .bind(&u.scheme)
+            .bind(&u.id)
+            .bind(caller.user)
+            .bind(caller.actor())
+            .bind(caller.admin)
+            .fetch_all(self.store.pool())
+            .await?)
     }
 }
 

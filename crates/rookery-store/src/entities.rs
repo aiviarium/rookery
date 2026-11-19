@@ -69,7 +69,7 @@ pub struct Entity {
 /// plugin the entity is of; or it holds the level the entity needs ([`need_sql`]): through a parent that is
 /// a root the caller can see, when view is enough and the entity is not private, or by the full walk.
 pub(crate) fn visible_sql(u: &str, p: &str, admin: &str) -> String {
-    visible(u, p, admin, "TRUE")
+    visible_as("e", u, p, admin, "TRUE")
 }
 
 /// Like [`visible_sql`] for a scan over many entities, most of which the caller may not see: a row that
@@ -77,18 +77,18 @@ pub(crate) fn visible_sql(u: &str, p: &str, admin: &str) -> String {
 /// and ownership (`reach`, which the query must define with [`reach_cte`]; it is built once, and only when
 /// a row needs it). Without that, every invisible match costs a walk up its parents.
 pub(crate) fn visible_scan_sql(u: &str, p: &str, admin: &str) -> String {
-    visible(u, p, admin, "e.uri IN (SELECT uri FROM reach)")
+    visible_as("e", u, p, admin, "e.uri IN (SELECT uri FROM reach)")
 }
 
-fn visible(u: &str, p: &str, admin: &str, reachable: &str) -> String {
+pub(crate) fn visible_as(alias: &str, u: &str, p: &str, admin: &str, reachable: &str) -> String {
     format!(
-        "({admin} OR ('plugin:' || e.plugin) = {p} OR (SELECT CASE \
+        "({admin} OR ('plugin:' || {alias}.plugin) = {p} OR (SELECT CASE \
             WHEN n.v > 3 THEN false \
-            WHEN n.v = 1 AND NOT e.private \
-                 AND e.parent IN (SELECT rookery.visible_roots({u}, rookery.principals_of({u}, {p}))) THEN true \
-            ELSE {reachable} AND rookery.effective_level(e.uri, {u}, rookery.principals_of({u}, {p})) >= n.v END \
+            WHEN n.v = 1 AND NOT {alias}.private \
+                 AND {alias}.parent IN (SELECT rookery.visible_roots({u}, rookery.principals_of({u}, {p}))) THEN true \
+            ELSE {reachable} AND rookery.effective_level({alias}.uri, {u}, rookery.principals_of({u}, {p})) >= n.v END \
           FROM (SELECT {need} AS v) n))",
-        need = need_sql("e"),
+        need = need_sql(alias),
     )
 }
 

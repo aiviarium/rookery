@@ -257,7 +257,10 @@ pub(crate) fn push_read_where(
         qb.push_bind(caller.user);
         qb.push("::uuid, ");
         qb.push_bind(caller.actor());
-        qb.push(")) AS r");
+        // Spaces and blobs have fixed resource schemes. Job subjects can name any resource.
+        qb.push("), ");
+        qb.push_bind(!matches!(coll.def.name.as_str(), "spaces" | "blobs"));
+        qb.push(") AS r");
         if level > Level::View {
             qb.push(" WHERE rookery.effective_level(r, ");
             qb.push_bind(caller.user);
@@ -276,15 +279,17 @@ pub(crate) fn push_read_where(
             // ownership can be visible; narrow to those before checking each.
             // ARRAY(...) is computed once up front and drives an index scan on the ids.
             let prefix = format!("{}://", e.scheme);
-            qb.push(" AND t.id = ANY(ARRAY(SELECT substr(r, ");
-            qb.push_bind(prefix.len() as i32 + 1);
-            qb.push(")::uuid FROM rookery.reachable(");
+            qb.push(" AND t.id = ANY(ARRAY(SELECT CASE WHEN id ~ ");
+            qb.push_bind("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$");
+            qb.push(" THEN id::uuid END FROM rookery.reachable(");
             qb.push_bind(caller.user);
             qb.push("::uuid, rookery.principals_of(");
             qb.push_bind(caller.user);
             qb.push("::uuid, ");
             qb.push_bind(caller.actor());
-            qb.push(")) AS r WHERE starts_with(r, ");
+            qb.push(")) AS r CROSS JOIN LATERAL (SELECT substr(r, ");
+            qb.push_bind(prefix.len() as i32 + 1);
+            qb.push(") AS id) AS suffix WHERE starts_with(r, ");
             qb.push_bind(prefix);
             qb.push(")))");
         }

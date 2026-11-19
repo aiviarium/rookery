@@ -463,3 +463,155 @@ async fn references_keep_the_time_they_were_made_across_rewrites() {
     assert!(w.db.store.refs().to(&owner, &ua).await.unwrap().is_empty());
     assert_eq!(w.db.store.refs().to(&owner, &ub).await.unwrap().len(), 2);
 }
+
+#[tokio::test]
+async fn references_apply_collection_read_rules_at_both_ends() {
+    let Some(w) = World::new().await else { return };
+    let mut definitions = issues_defs();
+    definitions[0].access.admin = true;
+    definitions[1].access.read = rookery_store::Level::Manage;
+    definitions[2].access.read = rookery_store::Level::Manage;
+    w.db.store
+        .collections()
+        .apply("issues", &definitions)
+        .await
+        .unwrap();
+
+    let owner = w.as_user(w.owner).as_admin();
+    let member = w.as_user(w.member);
+    let user_uri = format!("user://{}", w.owner);
+    let project = w
+        .data()
+        .insert(&owner, "projects", json!({ "name": "Internal" }))
+        .await
+        .unwrap()
+        .row
+        .unwrap();
+    let project_uri = format!("project://{}", id(&project));
+    let issue = w
+        .data()
+        .insert(
+            &owner,
+            "issues",
+            json!({ "title": "Repair", "project": project_uri, "assignee": user_uri }),
+        )
+        .await
+        .unwrap()
+        .row
+        .unwrap();
+    let issue_uri = format!("issue://{}", id(&issue));
+    w.data()
+        .insert(&owner, "comments", json!({ "issue": issue_uri }))
+        .await
+        .unwrap();
+    w.db.store
+        .collections()
+        .apply("docs", &docs_defs())
+        .await
+        .unwrap();
+    let page =
+        w.db.store
+            .data("docs")
+            .insert(
+                &owner,
+                "pages",
+                json!({ "title": "Notes", "related": [project_uri, issue_uri] }),
+            )
+            .await
+            .unwrap()
+            .row
+            .unwrap();
+    let page_uri = format!("doc://{}", id(&page));
+
+    let refs = w.db.store.refs();
+    assert!(refs.to(&member, &user_uri).await.unwrap().is_empty());
+    assert!(refs.to(&member, &issue_uri).await.unwrap().is_empty());
+    assert!(refs.from(&member, &issue_uri).await.unwrap().is_empty());
+    let targets = refs.from(&member, &page_uri).await.unwrap();
+    assert_eq!(targets.len(), 2);
+    assert!(
+        targets
+            .iter()
+            .all(|target| target.dangling && target.title.is_none() && target.icon.is_none())
+    );
+    assert_eq!(refs.to(&owner, &issue_uri).await.unwrap().len(), 2);
+    assert!(
+        refs.from(&owner, &page_uri)
+            .await
+            .unwrap()
+            .iter()
+            .all(|target| !target.dangling && target.title.is_some())
+    );
+}
+
+#[tokio::test]
+async fn attached_entities_inherit_collection_read_rules_through_intermediate_parents() {
+    let Some(w) = World::new().await else { return };
+    let mut definitions = issues_defs();
+    definitions[0].access.admin = true;
+    w.db.store
+        .collections()
+        .apply("issues", &definitions)
+        .await
+        .unwrap();
+    let admin = w.as_user(w.owner).as_admin();
+    let project = w
+        .data()
+        .insert(&admin, "projects", json!({ "name": "Internal" }))
+        .await
+        .unwrap()
+        .row
+        .unwrap();
+
+    let entities = w.db.store.entities();
+    let mut parent = format!("project://{}", id(&project));
+    for uri in ["note://section", "note://page"] {
+        entities
+            .register(&EntityRecord {
+                uri: uri.into(),
+                parent: Some(parent),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        parent = uri.into();
+    }
+    assert!(entities.get(&admin, &parent).await.unwrap().is_some());
+    assert!(
+        entities
+            .get(&w.as_user(w.member), &parent)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn collection_query_skips_non_uuid_resources_in_its_scheme() {
+    let Some(w) = World::new().await else { return };
+    let project = w
+        .data()
+        .insert(&w.as_user(w.owner), "projects", json!({ "name": "Build" }))
+        .await
+        .unwrap()
+        .row
+        .unwrap();
+    let project_uri = format!("project://{}", id(&project));
+    let outsider = w.as_user(w.outsider);
+    for uri in [&project_uri, "project://build"] {
+        w.db.store
+            .access()
+            .grant(uri, &outsider.principal, 1, "system:test")
+            .await
+            .unwrap();
+    }
+    let found = w
+        .data()
+        .find(&outsider, "projects", &Default::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        found.rows.iter().map(id).collect::<Vec<_>>(),
+        vec![id(&project)]
+    );
+}
