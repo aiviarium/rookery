@@ -6,13 +6,18 @@ import type {
   AppServiceInfo,
   AuditEntry,
   BlobInfo,
+  Checkout,
+  CheckoutCreate,
+  CheckoutRemove,
   ConnectionInfo,
   ConnectionResolved,
   DirListing,
   EnvInfo,
+  EnvPresence,
   ExecResult,
   ExtensionContribution,
   FileData,
+  FileStat,
   FileWritten,
   JobContext,
   JobDetail,
@@ -28,6 +33,7 @@ import type {
   TerminalInfo,
   TopicMessage,
   User,
+  WorktreeCreate,
 } from "../generated"
 import type { MethodDecls, NoExtraMethods, ServiceDecl, ServiceImpl } from "../interface"
 import type {
@@ -48,6 +54,8 @@ export interface Logger {
 }
 
 export interface Ctx {
+  /** The invocation the handler is serving, which the server knows the person by. */
+  readonly callId: string
   readonly user: User | null
   readonly principal: Principal
   readonly space: string | null
@@ -213,6 +221,8 @@ export interface JobHandle {
   readonly id: string
   readonly attempt: number
   readonly signal: AbortSignal
+  /** The invocation the job runs, which its env calls name. Its person is none: a job runs for the server. */
+  readonly ctx: Ctx
   readonly context: JobContext
   progress(done: number, total?: number, message?: string): Promise<void>
   log(message: string, level?: "info" | "warn" | "error"): Promise<void>
@@ -305,22 +315,49 @@ export interface Streams {
 export interface HostEnv {
   list(ctx: Ctx): Promise<EnvInfo[]>
   get(ctx: Ctx, env: string): Promise<EnvInfo>
+  presence(ctx: Ctx, env: string): Promise<EnvPresence>
   exec(
     ctx: Ctx,
     env: string,
     command: string[],
-    opts?: { cwd?: string; env?: Record<string, string>; timeoutMs?: number },
+    opts?: { cwd?: string; env?: Record<string, string>; stdin?: string; timeoutMs?: number },
   ): Promise<ExecResult>
+  /** The git checkouts and worktrees under the host's checkouts folder. */
+  checkouts(ctx: Ctx, env: string): Promise<Checkout[]>
+  /** Clones a repository into the host's checkouts folder, and answers the checkout it made. */
+  clone(
+    ctx: Ctx,
+    env: string,
+    repository: string,
+    opts?: Omit<CheckoutCreate, "env" | "repository">,
+  ): Promise<Checkout>
+  /** Makes a worktree of a checkout, on a new branch, in the host's checkouts folder. */
+  worktree(
+    ctx: Ctx,
+    env: string,
+    checkout: string,
+    branch: string,
+    opts?: Omit<WorktreeCreate, "env" | "checkout" | "branch">,
+  ): Promise<Checkout>
+  /** Removes a checkout, or a worktree through `git worktree remove`. */
+  removeCheckout(
+    ctx: Ctx,
+    env: string,
+    path: string,
+    opts?: Omit<CheckoutRemove, "env" | "path">,
+  ): Promise<void>
   readFile(ctx: Ctx, env: string, path: string): Promise<FileData>
+  /** Writes bytes, or text as UTF-8. With `ifMatch`, only while the file is at that SHA-256. */
   writeFile(
     ctx: Ctx,
     env: string,
     path: string,
-    content: string,
-    opts?: { rev?: string },
+    content: string | Uint8Array,
+    opts?: { ifMatch?: string; overwrite?: boolean },
   ): Promise<FileWritten>
-  deleteFile(ctx: Ctx, env: string, path: string): Promise<void>
+  deleteFile(ctx: Ctx, env: string, path: string, opts?: { recursive?: boolean }): Promise<void>
   listDir(ctx: Ctx, env: string, path: string): Promise<DirListing>
+  stat(ctx: Ctx, env: string, path: string): Promise<FileStat>
 }
 
 export interface Terminals {

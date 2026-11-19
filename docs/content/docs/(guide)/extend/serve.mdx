@@ -169,12 +169,14 @@ A workstation's desktop is a WebSocket at `/env/NAME/desktop` for a viewer such 
 
 People sign in with an account of the server, or with an OpenID Connect provider when `ROOKERY_AUTH=oidc` or `ROOKERY_OIDC_ISSUER` is set. The first admin signs in with the link `rookery server setup-key` prints. An admin then invites others with `auth.createLink`.
 
-A host belongs to the account that added it. Its owner and the admins hold `manage` on it, and `access.grant` gives another account or a group `view`, `use` or `manage` on `env://NAME`:
+A host belongs to the account that added it. Its owner and the admins hold `manage` on it, and `access.grant` gives another account, a group or a plugin `view`, `use` or `manage` on `env://NAME`:
 
 ```json
 { "jsonrpc": "2.0", "id": 1, "method": "access.grant",
   "params": { "resource": "env://studio", "principal": "user:ada", "level": "use" } }
 ```
+
+A plugin's grant is its own. `everyone` does not reach a plugin, and a level on a host comes only through `plugin:<id>`. Removing the plugin takes its grants away, so a package that later takes its id starts with none.
 
 | Level | May |
 | --- | --- |

@@ -58,7 +58,7 @@
   },
   {
     "name": "access.grant",
-    "summary": "Grants a principal (user:ID, group:ID or everyone) view, use or manage on a resource.",
+    "summary": "Grants a principal (user:ID, group:ID, plugin:ID or everyone) view, use or manage on a resource.",
     "level": {
       "kind": "resource",
       "param": "resource",
@@ -78,7 +78,7 @@
       },
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "`access.grant`. `principal` is `user:<id>`, `group:<id>` or `everyone`.",
+      "description": "`access.grant`. `principal` is `user:<id>`, `group:<id>`, `plugin:<id>` or `everyone`.",
       "properties": {
         "level": {
           "$ref": "#/$defs/Grant"
@@ -17432,7 +17432,7 @@
   },
   {
     "name": "plugins.remove",
-    "summary": "Removes a plugin, by its id or package. Its host half stops first.",
+    "summary": "Removes a plugin, by its id or package, and its grants. Its host half stops first.",
     "level": {
       "kind": "admin"
     },
