@@ -75,13 +75,59 @@ pub(crate) async fn authenticate_with_expiry(
     None
 }
 
+/// Extracts a bearer token from an `Authorization` header value.
+pub fn bearer_token(value: &str) -> Option<&str> {
+    let (scheme, rest) = value.trim().split_once(char::is_whitespace)?;
+    if !scheme.eq_ignore_ascii_case("bearer") {
+        return None;
+    }
+    let token = rest.trim();
+    (!token.is_empty()).then_some(token)
+}
+
 /// The token of an `Authorization: Bearer` header.
 pub fn bearer(headers: &axum::http::HeaderMap) -> Option<String> {
-    let value = headers
-        .get(axum::http::header::AUTHORIZATION)?
-        .to_str()
-        .ok()?;
-    value.strip_prefix("Bearer ").map(|t| t.trim().to_owned())
+    headers
+        .get_all(axum::http::header::AUTHORIZATION)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find_map(bearer_token)
+        .map(str::to_owned)
+}
+
+/// A change to grants, users, or group memberships that can invalidate open streams.
+#[derive(Debug, Clone)]
+pub enum AccessChange {
+    Resource(String),
+    User(String),
+    Group(String),
+}
+
+/// Broadcasts [`AccessChange`] events so open streams re-check access immediately.
+pub struct AccessEvents {
+    tx: tokio::sync::broadcast::Sender<AccessChange>,
+}
+
+impl Default for AccessEvents {
+    fn default() -> Self {
+        Self {
+            tx: tokio::sync::broadcast::channel(256).0,
+        }
+    }
+}
+
+impl AccessEvents {
+    pub fn of(kernel: &Kernel) -> std::sync::Arc<Self> {
+        kernel.facility::<Self>()
+    }
+
+    pub fn publish(&self, change: AccessChange) {
+        let _ = self.tx.send(change);
+    }
+
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<AccessChange> {
+        self.tx.subscribe()
+    }
 }
 
 /// The device session in the cookie.
@@ -115,5 +161,11 @@ mod tests {
             HeaderValue::from_static("Bearer rookery_pat_xyz"),
         );
         assert_eq!(bearer(&headers).as_deref(), Some("rookery_pat_xyz"));
+        assert_eq!(
+            bearer_token("bearer   rookery_pat_xyz "),
+            Some("rookery_pat_xyz")
+        );
+        assert_eq!(bearer_token("Basic dXNlcjpwdw=="), None);
+        assert_eq!(bearer_token("Bearer   "), None);
     }
 }

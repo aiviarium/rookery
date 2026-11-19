@@ -44,6 +44,7 @@ The server takes its settings from the environment:
 | `ROOKERY_BUN` | The Bun program that runs plugins' host halves, `bun` unless set. Rookery's image has it |
 | `ROOKERY_EXTHOST` | The extension host's entry. Unless it's set, `host/dist/main.js` of Rookery's provisioning source. Without one no plugin's host half starts |
 | `ROOKERY_EXTHOST_MEMORY_MB` | The memory a plugin's host process may hold before it's ended, 512 MiB unless set |
+| `ROOKERY_PORTS_URL` | Where the hosts' ports open in a browser, such as `https://ports.rookery.example`, with a wildcard name and certificate for it. Unless set, a server at a `localhost` or `127.0.0.1` address opens them under `localhost`, and any other refuses them |
 
 A setting of the installation, such as `retention_days`, is changed with `rookery config set` and kept in the database. The variables above are the machine's, and its service manager gives them.
 
@@ -58,6 +59,9 @@ The server writes the files the hosts need, such as its key ring and the hosts' 
 | `/auth/*` | Signing in: the one-time links, the session, and the OpenID Connect flow |
 | `/healthz` | `200` on the leader and `503` on a standby |
 | `/plugins/{id}/{hash}/{path}` | Plugin client halves, at an address of their own for each version of their files |
+| `/env/{name}/port/{port}/` | Forwarded port on a host, sent to its own origin under `ROOKERY_PORTS_URL` |
+| `/env/{name}/desktop` | WebSocket VNC proxy to a host's desktop |
+| `/env/{name}/desktop/view` | JPEG thumbnail of a host's desktop |
 | `/` | The shell, from `ROOKERY_SHELL_DIR` or from the plugin that contributes one |
 | `unix:` socket | `/ws` and `/rpc` on the server's own machine, where the caller is an admin with no token |
 
@@ -74,6 +78,7 @@ Without a browser, `rookery login URL --no-browser` asks for a sign-in link. An 
 | Methods | For |
 | --- | --- |
 | [`hosts.*`](/docs/api/server/hosts) | The hosts with their profiles, whether each answers and is behind, and the [actions](#actions) of each. A host's services, units, logs, processes, messages, sessions and files are methods of the host too |
+| [`env.*`](/docs/api/server/env), [`terminals.*`](/docs/api/server/terminals) | Saved hosts as environments, their presence, files and TCP ports, and interactive terminals with viewers and screen |
 | [`jobs.*`](/docs/api/server/jobs) | The jobs, one for each run of an action, with their log. `jobs.follow` streams it |
 | [`keys.*`](/docs/api/server/keys) | The key ring Rookery logs in to hosts with |
 | [`installation.*`](/docs/api/server/installation), [`registries.*`](/docs/api/server/registries), [`secrets.*`](/docs/api/server/secrets), [`settings.*`](/docs/api/server/settings) | The installation's actions, secrets, settings and registries |
@@ -142,9 +147,15 @@ A job is `queued`, `running`, `succeeded`, `failed` or `cancelled`. An attempt t
 
 The command line has these as `rookery job list`, `show`, `logs -f`, `wait` and `stop`. A job's log is kept with the job for `retention_days` ([Its settings](#its-settings)).
 
-A changed job is an event of the server's own plugin id, `rookery/jobs.changed`, with the job in `job`. A host that changes tells `rookery/hosts.changed`, and a resource tells `rookery/resources.changed`. A shell subscribes to them with `events.subscribe`, and a client half with `rookery.events.subscribe("rookery/hosts.changed", …)` ([Server events](/docs/extend/plugins#server-events)).
+A changed job is an event of the server's own plugin id, `rookery/jobs.changed`, with the job in `job`. A host that changes tells `rookery/hosts.changed` and `rookery/env.changed`. Terminals tell `rookery/terminals.changed`, and a resource tells `rookery/resources.changed`. A shell subscribes to them with `events.subscribe`, and a client half with `rookery.events.subscribe("rookery/hosts.changed", …)` ([Server events](/docs/extend/plugins#server-events)).
 
 A message a host keeps on its channel reaches its owner and managers as a notification of the kind `rookery/host.message`, and their connections hear `notify.new`. A plugin sends notifications of its own with `notify.send`. A job sends no notification when it ends: follow `rookery/jobs.changed`, or the job's stream.
+
+## Ports and desktops in a browser
+
+A port on a host's loopback opens at `/env/NAME/port/PORT/` for someone with `use` on the host. `env.portUrl` returns the address, or the server redirects there with a one-time claim under `ROOKERY_PORTS_URL`, such as `https://3000-HOSTID.ports.rookery.example/`. That address sets a `SameSite=Lax` cookie for that port alone, so open it in a new tab rather than an iframe. The page cannot reach the server with your session, and the server checks `use` on each request. Give `ROOKERY_PORTS_URL` a wildcard record and certificate on a domain apart from the server's own, so port pages don't share cookies with it.
+
+A workstation's desktop is a WebSocket at `/env/NAME/desktop` for a viewer such as noVNC, from the server's own pages and with `use` on the host. The server checks the request's origin, reads the VNC password on the host and completes the handshake itself. `/env/NAME/desktop/view` answers with a scaled JPEG thumbnail for anyone with `view`.
 
 ## Who gets in
 
@@ -159,11 +170,11 @@ A host belongs to the account that added it. Its owner and the admins hold `mana
 
 | Level | May |
 | --- | --- |
-| `view` | See the host, its state, jobs and output |
-| `use` | Open terminals, sessions, files and ports on it |
-| `manage` | Change its profile, apply it, rename it, and run its actions and its controller's |
+| `view` | See the host, its state, jobs, output and a thumbnail of its desktop |
+| `use` | Open terminals, sessions, files, ports and the desktop on it, and reach one's own `agent` terminals |
+| `manage` | Change its profile, apply it, rename it, run its actions and its controller's, and reach any terminal |
 
-Each action says the role it needs, which `hosts.act` checks: `operate` is `manage` on the host, and `admin` an admin of the server, as removing a host's machine, a roll-out or a new key for Rookery need. Keys, secrets, registries, settings, provisioners and plugins need an admin.
+Each action says the role it needs, which `hosts.act` checks: `operate` is `manage` on the host, and `admin` an admin of the server, as removing a host's machine, a roll-out or a new key for Rookery need. Revoking a grant or disabling an account closes its open streams on that host. Keys, secrets, registries, settings, provisioners and plugins need an admin.
 
 `access.level` says what the caller holds on a resource, and `access.grants` who holds what.
 

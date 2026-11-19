@@ -2,6 +2,6 @@
 import type { TermSize } from "./TermSize";
 
 /**
- * `terminals.resize`: sets the size as an active viewer would.
+ * `terminals.resize`: the size, as an active viewer would set it.
  */
 export type TerminalResize = { id: string, size: TermSize, };

@@ -137,6 +137,8 @@ sudo tailscale serve --bg --https=443 http://127.0.0.1:7777
 
 Then set `ROOKERY_PUBLIC_URL=https://SERVER.TAILNET.ts.net` and restart the server, so the sign-in links and the session cookie name that address.
 
+To open a host's ports in a browser outside `localhost`, set `ROOKERY_PORTS_URL` to a separate wildcard domain with TLS, such as `https://ports.rookery.example`. That keeps port cookies apart from the server ([`rookery serve`](/docs/extend/serve#ports-and-desktops-in-a-browser)).
+
 ## The first admin
 
 `rookery server setup-key` asks the server, over its socket, for a one-time sign-in link. It prints the link, which signs in the first admin once, within a day. Whoever installs the server hands the link on and never sees a token.
@@ -221,11 +223,11 @@ The levels are:
 
 | Level | May |
 | --- | --- |
-| `view` | See the host, its state, jobs and output |
-| `use` | Open terminals, sessions, files and ports on it, and its agent sessions. Taking the level away ends what it opened |
-| `manage` | Change its profile, apply it, rename it, and run its actions and its controller's |
+| `view` | See the host, its state, jobs, output and a thumbnail of its desktop |
+| `use` | Open terminals, sessions, files, ports, the desktop and agent sessions on it, and reach one's own `agent` terminals |
+| `manage` | Change its profile, apply it, rename it, run its actions and its controller's, and reach any terminal |
 
-Admins hold `manage` on every host, and what belongs to the installation, such as keys, secrets and plugins, needs an admin. [`rookery serve`](/docs/extend/serve#who-gets-in) has the methods, and an example of `access.grant`.
+`env.*`, `terminals.*`, `agents.connect`, forwarded ports and the desktop check these grants. Revoking a grant closes open streams on that host. Admins hold `manage` on every host, and what belongs to the installation, such as keys, secrets and plugins, needs an admin. [`rookery serve`](/docs/extend/serve#who-gets-in) has the methods, and an example of `access.grant`.
 
 ## Host agent sessions
 

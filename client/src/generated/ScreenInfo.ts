@@ -3,18 +3,14 @@ import type { CursorInfo } from "./CursorInfo";
 import type { TermSize } from "./TermSize";
 
 /**
- * `terminals.screen`: the kernel's screen.
+ * The result of `terminals.screen`: the screen as the host keeps it.
  */
 export type ScreenInfo = { size: TermSize, 
 /**
- * One string per row, trailing blanks trimmed.
+ * One string per row; with `history`, the scrollback lines come first.
  */
-lines: Array<string>, cursor: CursorInfo, title: string, altScreen: boolean, offset: number, 
+lines: Array<string>, cursor: CursorInfo, 
 /**
- * Scrollback lines above the screen, oldest first, when asked for.
+ * The output offset the server had seen when it asked.
  */
-history?: Array<string>, 
-/**
- * The screen as escape sequences (`ansi: true`), for rendering it elsewhere.
- */
-ansi?: string, };
+offset: number, ansi?: string, };

@@ -216,6 +216,27 @@ async fn writes_of_a_deposed_leader_are_refused() {
         .acquire("fleet/sync", "plugin:fleet/w1", Duration::from_secs(30))
         .await
         .unwrap();
+    sqlx::query("INSERT INTO rookery.hosts (id, name, profile) VALUES ('host1', 'studio', '{}')")
+        .execute(db.store.pool())
+        .await
+        .unwrap();
+    let cmd = serde_json::json!([]);
+    let term = old
+        .terminals()
+        .insert(rookery_store::terminals::New {
+            id: "term_1",
+            host: "studio",
+            session: "s1",
+            owner: None,
+            run_as: "agent",
+            title: "sh",
+            command: &cmd,
+            cwd: None,
+            cols: 80,
+            rows: 24,
+        })
+        .await
+        .unwrap();
 
     // Another server takes the lock: the old leader's writes fail, whatever they are.
     let second = rookery_store::leader::take(&mut conn).await.unwrap();
@@ -271,6 +292,55 @@ async fn writes_of_a_deposed_leader_are_refused() {
             .await
             .unwrap_err(),
     );
+    deposed(
+        old.terminals()
+            .insert(rookery_store::terminals::New {
+                id: "term_2",
+                host: "studio",
+                session: "s2",
+                owner: None,
+                run_as: "agent",
+                title: "sh",
+                command: &cmd,
+                cwd: None,
+                cols: 80,
+                rows: 24,
+            })
+            .await
+            .unwrap_err(),
+    );
+    deposed(old.terminals().set_title(&term.id, "x").await.unwrap_err());
+    deposed(
+        old.terminals()
+            .set_size(&term.id, 100, 40)
+            .await
+            .unwrap_err(),
+    );
+    deposed(
+        old.terminals()
+            .set_last_input(&term.id, &serde_json::json!({"via": "test"}))
+            .await
+            .unwrap_err(),
+    );
+    deposed(old.terminals().set_offset(&term.id, 42).await.unwrap_err());
+    deposed(
+        old.terminals()
+            .end(&term.id, "exited", Some(0))
+            .await
+            .unwrap_err(),
+    );
+    deposed(old.terminals().delete(&term.id).await.unwrap_err());
+    assert_eq!(
+        db.store
+            .terminals()
+            .get(&term.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .state,
+        "running",
+        "the refused terminal writes changed nothing"
+    );
     assert_eq!(
         db.store.jobs().get(job.id).await.unwrap().unwrap().state,
         "running",
@@ -295,6 +365,12 @@ async fn writes_of_a_deposed_leader_are_refused() {
         )
         .await
         .unwrap();
+    new_leader
+        .terminals()
+        .set_title(&term.id, "new")
+        .await
+        .unwrap();
+    assert!(new_leader.terminals().delete(&term.id).await.unwrap());
     drop(conn);
     db.close().await;
 }

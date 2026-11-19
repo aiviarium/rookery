@@ -121,36 +121,58 @@ fn textarg<'a>(args: &'a Value, key: &str, limit: usize) -> Result<&'a str, Stri
     }
 }
 
+fn fallback_folder() -> PathBuf {
+    PathBuf::from(format!("/tmp/rookery-{}", unsafe { libc::getuid() }))
+}
+
 pub fn folder() -> PathBuf {
     match std::env::var_os("XDG_RUNTIME_DIR") {
-        Some(dir) => PathBuf::from(dir),
-        None => PathBuf::from(format!("/tmp/rookery-{}", unsafe { libc::getuid() })),
+        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => fallback_folder(),
     }
 }
 
 /// Hold the desktop lock until the returned file is dropped.
-fn lock(folder: &Path) -> Result<std::fs::File, String> {
+fn lock_at(folder: &Path) -> std::io::Result<std::fs::File> {
     use std::os::unix::fs::DirBuilderExt;
     std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
-        .create(folder)
-        .map_err(|e| e.to_string())?;
+        .create(folder)?;
     let file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(folder.join("desktop.lock"))
-        .map_err(|e| e.to_string())?;
+        .open(folder.join("desktop.lock"))?;
     if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
-        return Err(std::io::Error::last_os_error().to_string());
+        return Err(std::io::Error::last_os_error());
     }
     Ok(file)
 }
 
+fn lock_with(primary: &Path, fallback: &Path) -> Result<(PathBuf, std::fs::File), String> {
+    match lock_at(primary) {
+        Ok(file) => Ok((primary.to_path_buf(), file)),
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            if fallback == primary {
+                return Err(e.to_string());
+            }
+            lock_at(fallback)
+                .map(|file| (fallback.to_path_buf(), file))
+                .map_err(|err| err.to_string())
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+fn lock() -> Result<(PathBuf, std::fs::File), String> {
+    let primary = folder();
+    let fallback = fallback_folder();
+    lock_with(&primary, &fallback)
+}
+
 /// `pause` or `resume`: set or clear the marker that makes input tools refuse.
 pub fn set_paused(paused: bool) -> Result<(), String> {
-    let folder = folder();
-    let _lock = lock(&folder)?;
+    let (folder, _lock) = lock()?;
     let marker = folder.join("desktop.paused");
     if paused {
         use std::os::unix::fs::OpenOptionsExt;
@@ -178,8 +200,7 @@ pub fn perform(name: &str, args: &Value) -> Result<ToolResult, String> {
     if map.keys().any(|k| !props.iter().any(|p| p.0 == k)) {
         return Err("Unexpected tool argument".into());
     }
-    let folder = folder();
-    let _lock = lock(&folder)?;
+    let (folder, _lock) = lock()?;
     if name != "screenshot" && name != "clipboard" && folder.join("desktop.paused").exists() {
         return Err("Desktop input paused for human takeover".into());
     }
@@ -337,6 +358,31 @@ pub fn serve_mcp() {
         if let Some(reply) = reply {
             let _ = writeln!(out, "{reply}");
             let _ = out.flush();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn lock_falls_back_when_primary_dir_is_unwritable() {
+        let dir = tempfile::tempdir().unwrap();
+        let ro = dir.path().join("readonly");
+        std::fs::create_dir(&ro).unwrap();
+        std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let primary = ro.join("1001");
+        let fallback = dir.path().join("fallback");
+        let result = lock_with(&primary, &fallback);
+        let _ = std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o755));
+        if unsafe { libc::geteuid() } != 0 {
+            let (chosen, _file) = result.expect("fallback lock should succeed");
+            assert_eq!(chosen, fallback);
+            assert!(fallback.join("desktop.lock").exists());
+        } else {
+            assert!(result.is_ok());
         }
     }
 }

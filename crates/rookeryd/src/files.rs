@@ -23,6 +23,8 @@ pub struct FileQuery {
     overwrite: bool,
     #[serde(default)]
     recursive: bool,
+    #[serde(default)]
+    resolve: bool,
 }
 
 /// The root a path is under, and the path beneath it.
@@ -92,6 +94,18 @@ pub async fn get(
     headers: HeaderMap,
 ) -> R<Response> {
     let (root, rest) = locate(&state, &query.path)?;
+    if query.resolve {
+        let output = helper(&state, &["resolve", &root, &rest])?
+            .stdin(Stdio::null())
+            .output()
+            .await?;
+        if !output.status.success() {
+            return Err(failure(&output.stderr));
+        }
+        let head: serde_json::Value = serde_json::from_slice(&output.stdout)
+            .map_err(|e| E::internal(format!("bad helper resolve output: {e}")))?;
+        return Ok(Json(head).into_response());
+    }
     // `bytes=FROM-TO`, either end optional.
     let range = headers
         .get(header::RANGE)
@@ -435,7 +449,47 @@ mod helper {
         }
     }
 
-    /// `rookeryd files-helper get|put|delete ROOT PATH …`. Exit code 0, or 1 with
+    fn resolve(root: &OwnedFd, path: &str) -> io::Result<()> {
+        let root_canon = std::fs::read_link(format!("/proc/self/fd/{}", root.as_raw_fd()))?;
+        let parts: Vec<&str> = path
+            .split('/')
+            .filter(|p| !p.is_empty() && *p != ".")
+            .collect();
+        let mut resolved = None;
+        for i in (1..=parts.len()).rev() {
+            let prefix = parts[..i].join("/");
+            match beneath(root, &prefix, libc::O_PATH, 0) {
+                Ok(fd) => {
+                    let base = std::fs::read_link(format!("/proc/self/fd/{}", fd.as_raw_fd()))?;
+                    resolved = Some((base, i));
+                    break;
+                }
+                Err(e) => match e.raw_os_error() {
+                    Some(libc::ENOENT) | Some(libc::ENOTDIR) => continue,
+                    _ => return Err(e),
+                },
+            }
+        }
+        let (mut current, start) = resolved.unwrap_or((root_canon.clone(), 0));
+        for part in &parts[start..] {
+            if *part == ".." {
+                if current == root_canon {
+                    return Err(io::Error::from_raw_os_error(libc::EXDEV));
+                }
+                current.pop();
+            } else {
+                current.push(part);
+            }
+        }
+        let mut out = io::stdout().lock();
+        writeln!(
+            out,
+            "{}",
+            serde_json::json!({"path": current.to_string_lossy()})
+        )
+    }
+
+    /// `rookeryd files-helper get|put|delete|resolve ROOT PATH …`. Exit code 0, or 1 with
     /// `CODE message` on standard error.
     pub fn main(args: &[String]) -> i32 {
         let run = || -> io::Result<()> {
@@ -455,6 +509,7 @@ mod helper {
                 ),
                 "put" => put(&root, path, flag == "overwrite"),
                 "delete" => delete(&root, path, flag == "recursive"),
+                "resolve" => resolve(&root, path),
                 _ => Err(io::Error::from(io::ErrorKind::InvalidInput)),
             }
         };

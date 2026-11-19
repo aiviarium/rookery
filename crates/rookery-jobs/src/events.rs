@@ -161,6 +161,39 @@ where
     delivered
 }
 
+/// Sends an event of the server's own to the connections subscribed to it, each with the payload
+/// `payload` makes for its caller, such as one that carries the caller's level; `None` leaves a
+/// connection out. Returns how many it reached.
+pub async fn publish_each<F, Fut>(kernel: &Kernel, name: &str, payload: F) -> usize
+where
+    F: Fn(rookery_kernel::Caller) -> Fut,
+    Fut: std::future::Future<Output = Option<Value>>,
+{
+    let matching: Vec<(String, ConnHandle)> = {
+        let subscriptions = kernel.facility::<Subscriptions>();
+        let all = subscriptions.0.lock().unwrap();
+        all.iter()
+            .filter(|(_, s)| s.names.iter().any(|p| matches(p, name)))
+            .map(|(id, s)| (id.clone(), s.conn.clone()))
+            .collect()
+    };
+    let mut delivered = 0;
+    for (id, conn) in matching {
+        if let Some(payload) = payload(conn.caller().clone()).await {
+            conn.notify(
+                "events.event",
+                EventNotice {
+                    subscription: id,
+                    name: name.to_owned(),
+                    payload,
+                },
+            );
+            delivered += 1;
+        }
+    }
+    delivered
+}
+
 pub fn register(methods: &mut Methods) {
     methods.on_connection_closed(|kernel, conn| {
         kernel
