@@ -1,0 +1,25 @@
+[package]
+name = "rookery-kernel"
+description = "The core of rookery serve: the method registry with a level and a params schema for each method, callers, connections on /ws and stream channels with credit."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+rookery-proto.workspace = true
+rookery-store.workspace = true
+# For the one version every program of rookery says.
+rookery-api.workspace = true
+tokio.workspace = true
+tokio-util = { version = "0.7", default-features = false }
+axum.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+uuid.workspace = true
+tracing.workspace = true
