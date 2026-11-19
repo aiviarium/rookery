@@ -253,6 +253,21 @@ fn register_machine(methods: &mut Methods) {
         .summary("The plain ssh command that logs in to a host with the server's key, for the server's socket alone.")
         .level(Level::Admin);
     methods
+        .add("hosts.askpass", |call: Call, p: AskpassAsked| async move {
+            on_this_machine(&call, "hosts.askpass")?;
+            if !p.source.starts_with("secret:") {
+                return Err(RpcError::invalid("the server answers for a password kept as secret:NAME"));
+            }
+            let answer = with_paths(&call, move |paths| {
+                rookery_core::keys::askpass::answer(&p.prompt, &p.source, Some(paths))
+                    .map_err(|e| e.to_string())
+            })
+            .await?;
+            Ok(AskpassAnswer { answer })
+        })
+        .summary("The password ssh asks rookery's askpass helper for, from the secret the helper names. For the server's socket alone.")
+        .level(Level::Admin);
+    methods
         .add("hosts.tailnetKey", |call: Call, p: HostRef| async move {
             on_this_machine(&call, "hosts.tailnetKey")?;
             let key = with_paths(&call, move |paths| {
@@ -694,6 +709,20 @@ fn terminal(
     (name(host), target)
 }
 
+/// What a host's controller said no with: its own failure, 5xx, is the host's (UNAVAILABLE), and
+/// the rest the request's.
+fn host_refused(status: u16, body: &[u8]) -> RpcError {
+    let said = String::from_utf8_lossy(body).into_owned();
+    match status {
+        403 => RpcError::forbidden(said),
+        409 | 412 => RpcError::conflict(said),
+        status if status >= 500 => {
+            RpcError::unavailable(said).with_details(json!({"host_status": status}))
+        }
+        _ => RpcError::invalid(said),
+    }
+}
+
 /// Refused unless the caller may work with this session: `use` on the host reaches the agent's own
 /// sessions, and one of another account, or one an action runs, needs `manage`. The host says
 /// whose the session is, so an id from anywhere passes only for what its caller may do.
@@ -887,11 +916,7 @@ fn register_env(methods: &mut Methods) {
                 .map_err(api::Fail::from)?;
             match answer.status {
                 404 => return Err(RpcError::not_found(format!("no file {}", p.path))),
-                status if status >= 400 => {
-                    return Err(RpcError::invalid(
-                        String::from_utf8_lossy(&answer.body).into_owned(),
-                    ));
-                }
+                status if status >= 400 => return Err(host_refused(status, &answer.body)),
                 _ => {}
             }
             let header = |key: &str| {
@@ -947,9 +972,7 @@ fn register_env(methods: &mut Methods) {
                 )));
             }
             if answer.status >= 400 {
-                return Err(RpcError::invalid(
-                    String::from_utf8_lossy(&answer.body).into_owned(),
-                ));
+                return Err(host_refused(answer.status, &answer.body));
             }
             Ok(Passed(
                 serde_json::from_slice(&answer.body).unwrap_or(json!({})),

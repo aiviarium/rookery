@@ -3342,6 +3342,46 @@
     }
   },
   {
+    "name": "hosts.askpass",
+    "summary": "The password ssh asks rookery's askpass helper for, from the secret the helper names. For the server's socket alone.",
+    "level": {
+      "kind": "admin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`hosts.askpass`: what ssh asks rookery's askpass helper, and where the password is kept.",
+      "properties": {
+        "prompt": {
+          "type": "string"
+        },
+        "source": {
+          "description": "`secret:NAME`, as the helper's environment says it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "prompt",
+        "source"
+      ],
+      "title": "AskpassAsked",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The password to answer with.",
+      "properties": {
+        "answer": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "answer"
+      ],
+      "title": "AskpassAnswer",
+      "type": "object"
+    }
+  },
+  {
     "name": "hosts.channel.listen",
     "summary": "A host's channel as its messages come, a JSON line each, from `since` in `query`.",
     "level": {

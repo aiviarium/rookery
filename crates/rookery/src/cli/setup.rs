@@ -431,12 +431,9 @@ pub fn key(client: &Client, command: Key) -> Result<()> {
             Ok(())
         }
         Key::Import { name, file } => {
-            let private = host::read_file(&file)?;
-            let data = json!({"base64": rookery_api::b64(&private)});
-            let made = client.call(
-                "keys.add",
-                super::client::merged(json!({"name": name}), data),
-            )?;
+            let private = String::from_utf8(host::read_file(&file)?)
+                .map_err(|_| Fail::usage(format!("{file} is no OpenSSH private key")))?;
+            let made = client.call("keys.add", json!({"name": name, "private": private}))?;
             out::data(&made, || {
                 out::done(format!(
                     "Added the key {name}: {}",

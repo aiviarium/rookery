@@ -28,7 +28,15 @@ pub fn askpass(args: &[String]) -> Result<bool> {
         [_, prompt] => prompt.clone(),
         _ => return Ok(false),
     };
-    let answer = rookery_core::keys::askpass::answer(&prompt, &source, None)?;
+    // A password kept by the server is the server's to give, over its socket.
+    let answer = match source.starts_with("secret:") {
+        true => socket_call("hosts.askpass", json!({"prompt": prompt, "source": source}))
+            .map_err(|fail| fail.message)?["answer"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned(),
+        false => rookery_core::keys::askpass::answer(&prompt, &source, None)?,
+    };
     println!("{answer}");
     Ok(true)
 }

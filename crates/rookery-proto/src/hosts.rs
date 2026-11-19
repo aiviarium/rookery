@@ -561,6 +561,22 @@ pub struct SshCommand {
     pub env: BTreeMap<String, String>,
 }
 
+/// `hosts.askpass`: what ssh asks rookery's askpass helper, and where the password is kept.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct AskpassAsked {
+    pub prompt: String,
+    /// `secret:NAME`, as the helper's environment says it.
+    pub source: String,
+}
+
+/// The password to answer with.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct AskpassAnswer {
+    pub answer: String,
+}
+
 /// A one-use enrollment key for a host's tailnet, which an apply asks for.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]

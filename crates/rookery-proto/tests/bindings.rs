@@ -190,6 +190,8 @@ fn typescript_bindings() {
         hosts::HostSsh,
         hosts::SshCommand,
         hosts::TailnetKey,
+        hosts::AskpassAsked,
+        hosts::AskpassAnswer,
         hosts::HostList,
         hosts::HostSave,
         hosts::HostSaved,

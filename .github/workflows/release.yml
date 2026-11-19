@@ -7,6 +7,11 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+# A newer push to a pull request ends the builds of the one before, which would hold runners the
+# pull request's other checks wait for. Builds of main and of tags always run to their end.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   # rookery for each system, built on that system so that its version can be
   # run there. On Linux it carries rookeryd and box for the hosts, which are
