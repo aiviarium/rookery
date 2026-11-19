@@ -9,7 +9,10 @@ pub mod topics;
 use chrono::{DateTime, Utc};
 use rookery_kernel::Methods;
 
-pub use jobs::{JobHandler, JobRun, Options};
+pub use jobs::{
+    EnqueuePolicy, JobHandler, JobRun, MayEnqueue, Options, add_handler, remove_handler,
+    set_enqueue_policy,
+};
 
 /// Registers the methods, with the job handlers that run inside the server.
 pub fn register(
