@@ -172,6 +172,7 @@ impl Store {
             key: None,
             blobs: None,
             fence: None,
+            data: DataState::new(1024),
         }
     }
 

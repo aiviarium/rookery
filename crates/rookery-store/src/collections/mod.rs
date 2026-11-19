@@ -1130,6 +1130,7 @@ impl<'a> Data<'a> {
                             run_after: None,
                             subject: job.subject.as_deref(),
                             enqueued_by: &caller.actor(),
+                            token: None,
                         };
                         jobs.push(
                             crate::jobs::enqueue_on(&mut w.tx, &new, self.store.fence()).await?,

@@ -34,6 +34,7 @@ async fn enqueue(db: &TestDb, kind: &str, subject: Option<&str>, by: &str) -> uu
             run_after: None,
             subject,
             enqueued_by: by,
+            token: None,
         })
         .await
         .unwrap()
@@ -557,5 +558,75 @@ async fn a_typed_change_committed_before_listen_is_delivered() {
     let change = next_change(&mut sub).await;
     assert_eq!(change.id, job);
     assert_eq!(change.collection, "jobs");
+    db.close().await;
+}
+
+#[tokio::test]
+async fn a_job_shows_who_enqueued_it_but_not_its_token_or_session() {
+    let Some(db) = TestDb::new().await else {
+        return;
+    };
+    let jobs = db.store.collections().get("rookery", "jobs").unwrap();
+    // A caller's token and the terminal an action runs as are no fields of the job.
+    assert!(jobs.def.field("token").is_none());
+    assert!(jobs.def.field("session").is_none());
+    assert!(jobs.def.field("enqueuedBy").is_some());
+    // The kind a plugin declares is the plugin's own, and its enqueuer is the plugin.
+    let params = json!({"action": "import"});
+    let new = |token: Option<&'static str>| rookery_store::jobs::NewJob {
+        kind: "echo/import",
+        params: &params,
+        max_attempts: 1,
+        run_after: None,
+        subject: Some("env://studio"),
+        enqueued_by: "plugin:echo",
+        token,
+    };
+    let first = db.store.jobs().enqueue(new(Some("t-1"))).await.unwrap();
+    let again = db.store.jobs().enqueue(new(Some("t-1"))).await.unwrap();
+    assert_eq!(again.id, first.id);
+    assert_eq!(again.enqueued_by, "plugin:echo");
+    let found = db
+        .store
+        .data("rookery")
+        .find(&Caller::system(), "jobs", &Query::default())
+        .await
+        .unwrap();
+    assert_eq!(found.rows.len(), 1, "{:?}", found.rows);
+    assert_eq!(found.rows[0]["enqueuedBy"], "plugin:echo");
+    assert_eq!(found.rows[0]["kind"], "echo/import");
+    db.close().await;
+}
+
+#[tokio::test]
+async fn a_connection_read_as_a_collection_keeps_its_credential_sealed() {
+    let Some(db) = TestDb::new().await else {
+        return;
+    };
+    db.store
+        .connections()
+        .create(
+            "echo.token",
+            "the studio",
+            rookery_store::secrets::Scope::Global,
+            &json!({"url": "https://192.0.2.10"}),
+            Some(b"made-up-secret"),
+            "system:rookery",
+        )
+        .await
+        .unwrap();
+    let found = db
+        .store
+        .data("rookery")
+        .find(&Caller::system(), "connections", &Query::default())
+        .await
+        .unwrap();
+    assert_eq!(found.rows.len(), 1);
+    let row = serde_json::to_string(&found.rows[0]).unwrap();
+    assert_eq!(found.rows[0]["config"]["url"], "https://192.0.2.10");
+    for hidden in ["made-up-secret", "ciphertext", "nonce", "keyId"] {
+        assert!(!row.contains(hidden), "{hidden} in {row}");
+    }
+    assert!(found.rows[0].get("ciphertext").is_none());
     db.close().await;
 }

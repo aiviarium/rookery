@@ -113,13 +113,15 @@ pub(crate) async fn enqueue_on(
     .await?;
     match (made, job.token) {
         (Some(made), _) => Ok(made),
-        (None, Some(token)) => {
-            by_token_on(conn, job.kind, job.subject, job.params["action"].as_str(), token)
-                .await?
-                .ok_or_else(|| {
-                    Error::Conflict("a job with the token was removed meanwhile".into())
-                })
-        }
+        (None, Some(token)) => by_token_on(
+            conn,
+            job.kind,
+            job.subject,
+            job.params["action"].as_str(),
+            token,
+        )
+        .await?
+        .ok_or_else(|| Error::Conflict("a job with the token was removed meanwhile".into())),
         (None, None) => Err(Error::Conflict("the job was not made".into())),
     }
 }

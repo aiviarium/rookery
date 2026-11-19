@@ -160,7 +160,31 @@ pub fn tables() -> Vec<SystemTable> {
             updated_at: "coalesce(t.finished_at, t.started_at, t.created_at)",
             resource: Some("t.subject"),
             owner: Some(principal_user),
-            omit: &[],
+            // A caller's token finds the job a repeated request started, and a session is a terminal of
+            // a host: neither is a field of the job anyone reads.
+            omit: &[
+                "token",
+                "session",
+                "hidden_key_id",
+                "hidden_nonce",
+                "hidden",
+            ],
+            admin: false,
+            history: false,
+        },
+        SystemTable {
+            name: "terminals",
+            table: "terminals",
+            id: "id",
+            hashed_id: true,
+            scope: Scope::Global,
+            user: None,
+            created_at: "t.created_at",
+            updated_at: "coalesce(t.ended_at, t.created_at)",
+            // A terminal is on its host, and its owner holds manage on it.
+            resource: Some("'env://' || (SELECT h.name FROM rookery.hosts h WHERE h.id = t.host)"),
+            owner: Some("t.owner"),
+            omit: &["last_input"],
             admin: false,
             history: false,
         },
@@ -402,6 +426,10 @@ pub(crate) async fn register(conn: &mut PgConnection, t: &SystemTable) -> Result
         ("owner", t.owner.map(|_| t.owner_sql())),
     ] {
         let Some(expr) = expr else { continue };
+        // A subquery reads another table, which no index expression may.
+        if expr.to_uppercase().contains("SELECT") {
+            continue;
+        }
         let bare = bare_columns(&expr);
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "CREATE INDEX IF NOT EXISTS {} ON {table} (({bare}))",
