@@ -1,0 +1,96 @@
+---
+# Incus, from Zabbly's repository, for a host the incus/vm and incus/container
+# provisioners drive. It is initialised with a bridge and a storage pool, and its
+# socket is reached from the server through the host's link, so nothing here
+# opens a port.
+
+- name: Install the packages Zabbly's repository needs
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+    state: present
+    update_cache: true
+
+- name: Make the keyring's directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Install Zabbly's key
+  ansible.builtin.get_url:
+    url: https://pkgs.zabbly.com/key.asc
+    dest: /etc/apt/keyrings/zabbly.asc
+    mode: "0644"
+
+- name: Add Zabbly's Incus repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch={{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}
+      signed-by=/etc/apt/keyrings/zabbly.asc]
+      https://pkgs.zabbly.com/incus/stable
+      {{ ansible_distribution_release }} main
+    filename: zabbly-incus
+    state: present
+    update_cache: true
+
+- name: Install Incus
+  ansible.builtin.apt:
+    name:
+      - incus
+      - incus-ui-canonical
+    state: present
+
+# The preseed is only run once: Incus refuses to initialise twice, and a second
+# run would fail an apply that has nothing to change.
+- name: Look for an initialised Incus
+  ansible.builtin.stat:
+    path: /var/lib/incus/database/local.db
+  register: incus_database
+
+- name: Initialise Incus with a bridge and a storage pool
+  ansible.builtin.command:
+    argv:
+      - incus
+      - admin
+      - init
+      - --preseed
+    stdin: |
+      config: {}
+      networks:
+        - name: {{ bridge | default('incusbr0') }}
+          type: bridge
+          config:
+            ipv4.address: auto
+            ipv6.address: auto
+      storage_pools:
+        - name: {{ pool | default('default') }}
+          driver: dir
+      profiles:
+        - name: default
+          devices:
+            eth0:
+              name: eth0
+              network: {{ bridge | default('incusbr0') }}
+              type: nic
+            root:
+              path: /
+              pool: {{ pool | default('default') }}
+              type: disk
+          config: {}
+  when: not incus_database.stat.exists
+  changed_when: true
+
+- name: Start Incus
+  ansible.builtin.systemd:
+    name: incus
+    enabled: true
+    state: started
+
+- name: Let the operator use Incus
+  ansible.builtin.user:
+    name: "{{ user | default('ops') }}"
+    groups: incus-admin
+    append: true

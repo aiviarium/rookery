@@ -1,0 +1,33 @@
+{
+  "type": "sync",
+  "status": "Success",
+  "status_code": 200,
+  "operation": "",
+  "error_code": 0,
+  "error": "",
+  "metadata": {
+    "api_extensions": ["instances", "cloud_init", "instance_create_start"],
+    "api_status": "stable",
+    "api_version": "1.0",
+    "auth": "trusted",
+    "public": false,
+    "environment": {
+      "addresses": ["10.42.7.2:8443"],
+      "architectures": ["x86_64", "aarch64"],
+      "certificate": "",
+      "certificate_fingerprint": "",
+      "driver": "lxc | qemu",
+      "driver_version": "6.0.0 | 9.0.2",
+      "firewall": "nftables",
+      "kernel": "Linux",
+      "kernel_architecture": "x86_64",
+      "kernel_version": "6.8.0-45-generic",
+      "os_name": "Ubuntu",
+      "os_version": "24.04",
+      "server": "incus",
+      "server_clustered": false,
+      "server_version": "6.23",
+      "storage": "zfs"
+    }
+  }
+}

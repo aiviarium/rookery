@@ -1,0 +1,10 @@
+{
+  "type": "sync",
+  "status": "Success",
+  "status_code": 200,
+  "metadata": [
+    {"name": "ubuntu/24.04", "description": "Ubuntu 24.04 LTS", "target": "", "type": "container"},
+    {"name": "ubuntu/24.04", "description": "Ubuntu 24.04 LTS", "target": "", "type": "virtual-machine"},
+    {"name": "debian/12", "description": "Debian 12 bookworm", "target": "", "type": "container"}
+  ]
+}
