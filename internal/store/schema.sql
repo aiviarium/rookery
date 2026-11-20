@@ -146,3 +146,74 @@ CREATE TABLE rookery.tailnet_state (
 	value      bytea       NOT NULL,
 	updated_at timestamptz NOT NULL DEFAULT now()
 );
+-- ---------------------------------------------------------------- data
+--
+-- The datastore's shared tables: the change feed, references between records,
+-- and the entities search reads. A plugin's collections live in its own schema,
+-- p_<plugin>, and each collection's history in its own table beside it; the
+-- core keeps only what it has to read across them.
+
+-- Entity search's embeddings are pgvector columns. A database cloned from the
+-- storetest template carries the extension with it.
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- changes is the datastore's change feed: one row per write, in one global
+-- order. The writer inserts its row in the transaction that writes the record,
+-- and notifies rookery_changes after it commits, so the feed reads a change only
+-- once the record is there.
+CREATE TABLE rookery.changes (
+	seq        bigint      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	collection text        NOT NULL,
+	resource   text        NOT NULL,
+	kind       text        NOT NULL,
+	rev        bigint      NOT NULL,
+	space_id   text,
+	owner_id   text,
+	principal  text        NOT NULL,
+	data       bytea,
+	at         timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE rookery.changes IS 'One row per datastore write, in one order: the live queries and the change feed read them.';
+COMMENT ON COLUMN rookery.changes.kind IS 'insert, update, delete or undelete.';
+COMMENT ON COLUMN rookery.changes.data IS 'The record as a CBOR map, or null for a delete.';
+
+CREATE INDEX changes_collection_seq ON rookery.changes (collection, seq);
+CREATE INDEX changes_resource_seq ON rookery.changes (resource, seq);
+
+-- refs records every reference a record holds: the record that holds it, the
+-- field, the target URI, and what deleting the target does to the holder.
+CREATE TABLE rookery.refs (
+	source    text NOT NULL,
+	field     text NOT NULL,
+	target    text NOT NULL,
+	on_delete text NOT NULL,
+	PRIMARY KEY (source, field, target)
+);
+
+COMMENT ON TABLE rookery.refs IS 'The references records hold, for RefsTo, RefsFrom and what a delete does to a holder.';
+COMMENT ON COLUMN rookery.refs.source IS 'The holding record, as a record:// URI.';
+COMMENT ON COLUMN rookery.refs.on_delete IS 'restrict, nullify or cascade.';
+
+CREATE INDEX refs_target ON rookery.refs (target);
+
+-- entities holds what search and resolution need of every record whose
+-- collection declares an entity block, and of every document that is one. The
+-- core computes no embedding: a plugin that has one writes it.
+CREATE TABLE rookery.entities (
+	uri        text        PRIMARY KEY,
+	kind       text        NOT NULL,
+	title      text        NOT NULL,
+	body       text        NOT NULL,
+	search     tsvector    GENERATED ALWAYS AS (to_tsvector('simple', title || ' ' || body)) STORED,
+	embedding  vector,
+	access     text        NOT NULL,
+	updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE rookery.entities IS 'What search resolves: a record or document by URI, with its title, its searchable text and its access parent.';
+COMMENT ON COLUMN rookery.entities.access IS 'The resource URI whose grants decide who may see the entity.';
+
+CREATE INDEX entities_kind ON rookery.entities (kind);
+CREATE INDEX entities_search ON rookery.entities USING gin (search);
+CREATE INDEX entities_access ON rookery.entities (access);

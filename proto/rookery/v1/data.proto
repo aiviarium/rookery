@@ -1,0 +1,393 @@
+// The datastore's edge API.
+//
+// A record and a filter are CBOR maps in bytes fields, because their shape is a
+// collection's declaration and not part of this contract. Every method checks
+// the caller's level on each record's scope itself, so no method names one
+// resource in its access option: the datastore is the one place that knows a
+// record's scope.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// DataService reads and writes the records of the collections plugins declare.
+service DataService {
+  // Get reads one record.
+  rpc Get(GetRequest) returns (GetResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // Find reads the records a filter, an order and a window select.
+  rpc Find(FindRequest) returns (FindResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // Count counts the records a filter selects.
+  rpc Count(CountRequest) returns (CountResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // Aggregate computes count, sum, min, max or avg, grouped or not.
+  rpc Aggregate(AggregateRequest) returns (AggregateResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // Insert writes a record.
+  rpc Insert(InsertRequest) returns (InsertResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // Update changes the fields a record names, checking the revision it expects.
+  rpc Update(UpdateRequest) returns (UpdateResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // Upsert writes a record, or changes the one its id names.
+  rpc Upsert(UpsertRequest) returns (UpsertResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // Delete marks a record deleted, following every reference's rule first.
+  rpc Delete(DeleteRequest) returns (DeleteResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // Restore brings a deleted record back.
+  rpc Restore(RestoreRequest) returns (RestoreResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // Batch runs several writes on one collection in one transaction.
+  rpc Batch(BatchRequest) returns (BatchResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // History lists a record's revisions.
+  rpc History(HistoryRequest) returns (HistoryResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // RefsTo lists the references that point at a resource.
+  rpc RefsTo(RefsToRequest) returns (RefsToResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // RefsFrom lists the references a record holds.
+  rpc RefsFrom(RefsFromRequest) returns (RefsFromResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+}
+
+// GetRequest names one record.
+message GetRequest {
+  // Collection is "plugin/collection".
+  string collection = 1;
+
+  // Id is the record's id.
+  string id = 2;
+}
+
+// GetResponse carries the record.
+message GetResponse {
+  // RecordCbor is the record as a CBOR map: its fields, plus id, rev,
+  // created_at, updated_at, deleted_at and its scope's id.
+  bytes record_cbor = 1;
+}
+
+// Sort orders a Find.
+message Sort {
+  // Field is a declared field's name.
+  string field = 1;
+
+  // Desc is true for the largest first.
+  bool desc = 2;
+}
+
+// FindRequest selects the records to read.
+message FindRequest {
+  // Collection is "plugin/collection".
+  string collection = 1;
+
+  // FilterCbor is the filter as a CBOR structure, and empty for every record.
+  bytes filter_cbor = 2;
+
+  // Sorts order the records, by id when empty.
+  repeated Sort sorts = 3;
+
+  // Limit is how many records to return: 100 when zero, 1000 at most.
+  int32 limit = 4;
+
+  // Cursor continues the previous Find, and comes from its response.
+  string cursor = 5;
+
+  // Space is the caller's current space, which a space-scoped collection
+  // needs.
+  string space = 6;
+}
+
+// FindResponse carries a page of records.
+message FindResponse {
+  // RecordsCbor are the records, each a CBOR map.
+  repeated bytes records_cbor = 1;
+
+  // Cursor continues the query, and is empty at its end.
+  string cursor = 2;
+}
+
+// CountRequest selects the records to count.
+message CountRequest {
+  // Collection is "plugin/collection".
+  string collection = 1;
+
+  // FilterCbor is the filter as a CBOR structure.
+  bytes filter_cbor = 2;
+
+  // Space is the caller's current space.
+  string space = 3;
+}
+
+// CountResponse is how many records the filter selects.
+message CountResponse {
+  int64 count = 1;
+}
+
+// AggregateOperation is what an aggregate computes.
+enum AggregateOperation {
+  AGGREGATE_OPERATION_UNSPECIFIED = 0;
+
+  // How many records there are.
+  AGGREGATE_OPERATION_COUNT = 1;
+
+  // The sum of a number field.
+  AGGREGATE_OPERATION_SUM = 2;
+
+  // The least value of an ordered field.
+  AGGREGATE_OPERATION_MIN = 3;
+
+  // The greatest value of an ordered field.
+  AGGREGATE_OPERATION_MAX = 4;
+
+  // The mean of a number field.
+  AGGREGATE_OPERATION_AVG = 5;
+}
+
+// AggregateRequest selects what to aggregate.
+message AggregateRequest {
+  // Collection is "plugin/collection".
+  string collection = 1;
+
+  // FilterCbor is the filter as a CBOR structure.
+  bytes filter_cbor = 2;
+
+  // Space is the caller's current space.
+  string space = 3;
+
+  // Operation is what to compute.
+  AggregateOperation operation = 4;
+
+  // Field is the field to compute it on, empty for count.
+  string field = 5;
+
+  // GroupBy are the fields to group by.
+  repeated string group_by = 6;
+}
+
+// AggregateResponse carries one entry per group.
+message AggregateResponse {
+  // GroupsCbor are CBOR maps with "group", a map of the grouping fields'
+  // values, and "value", the aggregate.
+  repeated bytes groups_cbor = 1;
+}
+
+// InsertRequest writes a record.
+message InsertRequest {
+  // Collection is "plugin/collection".
+  string collection = 1;
+
+  // RecordCbor is the record as a CBOR map. Its id is made when absent.
+  bytes record_cbor = 2;
+}
+
+// InsertResponse carries the record as it was stored.
+message InsertResponse {
+  bytes record_cbor = 1;
+}
+
+// UpdateRequest changes a record.
+message UpdateRequest {
+  // Collection is "plugin/collection".
+  string collection = 1;
+
+  // Id is the record's id.
+  string id = 2;
+
+  // RecordCbor is the fields to change, as a CBOR map. A field with a null
+  // value is cleared; a field the map leaves out stays.
+  bytes record_cbor = 3;
+
+  // Revision is the revision the caller expects, and zero for no check. A
+  // record at another revision fails with ABORTED.
+  int64 revision = 4;
+}
+
+// UpdateResponse carries the record as it was stored.
+message UpdateResponse {
+  bytes record_cbor = 1;
+}
+
+// UpsertRequest writes a record or changes the one its id names.
+message UpsertRequest {
+  // Collection is "plugin/collection".
+  string collection = 1;
+
+  // RecordCbor is the record as a CBOR map. Without a revision this is an
+  // insert or a change of what is there.
+  bytes record_cbor = 2;
+
+  // Revision is the revision the caller expects, and zero for no check.
+  int64 revision = 3;
+}
+
+// UpsertResponse carries the record as it was stored.
+message UpsertResponse {
+  bytes record_cbor = 1;
+}
+
+// DeleteRequest deletes a record.
+message DeleteRequest {
+  // Collection is "plugin/collection".
+  string collection = 1;
+
+  // Id is the record's id.
+  string id = 2;
+
+  // Revision is the revision the caller expects, and zero for no check.
+  int64 revision = 3;
+}
+
+// DeleteResponse is empty: the delete returned.
+message DeleteResponse {}
+
+// RestoreRequest brings a deleted record back.
+message RestoreRequest {
+  // Collection is "plugin/collection".
+  string collection = 1;
+
+  // Id is the record's id.
+  string id = 2;
+
+  // Revision is the revision the caller expects, and zero for no check.
+  int64 revision = 3;
+}
+
+// RestoreResponse carries the record as it was restored.
+message RestoreResponse {
+  bytes record_cbor = 1;
+}
+
+// BatchOperationKind is what one operation of a batch does.
+enum BatchOperationKind {
+  BATCH_OPERATION_KIND_UNSPECIFIED = 0;
+
+  BATCH_OPERATION_KIND_INSERT = 1;
+
+  BATCH_OPERATION_KIND_UPDATE = 2;
+
+  BATCH_OPERATION_KIND_UPSERT = 3;
+
+  BATCH_OPERATION_KIND_DELETE = 4;
+
+  BATCH_OPERATION_KIND_RESTORE = 5;
+}
+
+// BatchOperation is one write of a batch.
+message BatchOperation {
+  // Kind is what it does.
+  BatchOperationKind kind = 1;
+
+  // Id is the record's id, for the operations that name one.
+  string id = 2;
+
+  // RecordCbor is the record as a CBOR map, for the operations that write one.
+  bytes record_cbor = 3;
+
+  // Revision is the revision the caller expects, and zero for no check.
+  int64 revision = 4;
+}
+
+// BatchRequest runs several writes on one collection in one transaction.
+message BatchRequest {
+  // Collection is "plugin/collection".
+  string collection = 1;
+
+  // Operations are the writes, in order.
+  repeated BatchOperation operations = 2;
+}
+
+// BatchResponse carries the records the writes returned, in order.
+message BatchResponse {
+  repeated bytes records_cbor = 1;
+}
+
+// HistoryRequest lists a record's revisions.
+message HistoryRequest {
+  // Collection is "plugin/collection".
+  string collection = 1;
+
+  // Id is the record's id.
+  string id = 2;
+
+  // FromRevision lists the revisions after it.
+  int64 from_revision = 3;
+
+  // Limit is how many entries to return: 100 when zero, 1000 at most.
+  int32 limit = 4;
+}
+
+// HistoryResponse carries the revisions, oldest first.
+message HistoryResponse {
+  // EntriesCbor are CBOR maps with "id", "rev", "deleted", "at", "principal"
+  // and "record".
+  repeated bytes entries_cbor = 1;
+}
+
+// RefsToRequest lists the references to a resource.
+message RefsToRequest {
+  // Target is the resource's URI.
+  string target = 1;
+}
+
+// RefsFromRequest lists a record's references.
+message RefsFromRequest {
+  // Source is the record's URI.
+  string source = 1;
+}
+
+// Reference is one row of the reference table.
+message Reference {
+  // Source is the record that holds the reference, as a URI.
+  string source = 1;
+
+  // Field is the field it is held in.
+  string field = 2;
+
+  // Target is the resource it names.
+  string target = 3;
+
+  // OnDelete is what deleting the target does: restrict, nullify or cascade.
+  string on_delete = 4;
+}
+
+// RefsToResponse carries the references to a resource.
+message RefsToResponse {
+  repeated Reference references = 1;
+}
+
+// RefsFromResponse carries the references a record holds.
+message RefsFromResponse {
+  repeated Reference references = 1;
+}
