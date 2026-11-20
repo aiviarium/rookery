@@ -105,3 +105,42 @@ proto is not on `go` yet, so the call speaks Connect's JSON encoding against the
 shape in `src/contributions.ts`, which mirrors the manifest's `contributions`
 block; when the proto lands, the generated message replaces the hand-written type
 and nothing else changes.
+
+## A plugin's service
+
+The server starts a plugin's service as a process and names two Unix sockets and a
+token in its environment, the same variables `pkg/sdk` reads in Go:
+
+| Variable | What it names |
+| --- | --- |
+| `ROOKERY_SOCKET` | The server's socket, which the service calls |
+| `ROOKERY_PLUGIN_SOCKET` | The socket this service serves on |
+| `ROOKERY_PLUGIN_TOKEN` | The credential for the server's socket |
+| `ROOKERY_SECRETS` | The file a provisioner's secrets are in, when it declared any |
+
+```ts
+import { pluginConfig, servePlugin } from "@rookery/sdk";
+
+const config = pluginConfig();                 // refuses to start without the two sockets
+const plugin = await servePlugin((router) => {
+  // The procedures the manifest declares are registered here.
+});
+process.on("SIGTERM", () => void plugin.close());
+```
+
+On Node the socket serves HTTP/2, which is what the server's gRPC caller needs;
+Bun has no HTTP/2 server, so a service on Bun speaks Connect and gRPC-Web over
+HTTP/1.1. The plugin service proto (`rookery.plugin.v1.PluginService`, its
+procedures and the server's service) is not on `go` yet; `servePlugin` takes the
+router those land on, and the rest of the runtime follows it.
+
+## The fixtures
+
+`testdata/plugins/example-ts` and `testdata/plugins/shell` are workspace members,
+so `bun install` links them to the packages here and `make ts` type-checks and
+builds them:
+
+| Fixture | What it is |
+| --- | --- |
+| `example-ts` | The manifest `example` has in TypeScript: a collection, a procedure, a job kind, and a client half that draws the notes |
+| `shell` | The shell contract as a page: `createRookery`, the contributions of every installed plugin, and a client half's view in the outlet |

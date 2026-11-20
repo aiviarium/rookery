@@ -1,0 +1,13 @@
+{
+  "name": "@rookery-fixture/shell",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "bun build web/main.ts --outfile=web/index.js --format=esm --target=browser",
+    "serve": "bun run serve.ts"
+  },
+  "dependencies": {
+    "@rookery/client": "workspace:*"
+  }
+}
