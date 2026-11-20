@@ -1,0 +1,29 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - contextcheck
+    - errcheck
+    - errorlint
+    - gosec
+    - govet
+    - ineffassign
+    - noctx
+    - revive
+    - staticcheck
+    - unused
+  exclusions:
+    # buf's output is checked in, never edited, and never linted.
+    generated: lax
+    paths:
+      - gen/
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
