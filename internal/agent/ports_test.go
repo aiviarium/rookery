@@ -159,11 +159,18 @@ func TestPortsRefusedOnUserSocket(t *testing.T) {
 	client := daemon.dialUser(t)
 
 	stream := client.Ports.Dial(context.Background())
-	if err := stream.Send(&hostv1.PortServiceDialRequest{
+	sendErr := stream.Send(&hostv1.PortServiceDialRequest{
 		Target: &hostv1.PortServiceDialRequest_TcpPort{TcpPort: 9},
-	}); err != nil {
-		t.Fatalf("sending the target: %v", err)
+	})
+	// The refusal may arrive while the send is still in flight: the server
+	// closes the stream as soon as it sees the target, which can be before the
+	// client's write finishes. Either call carries the code.
+	_, receiveErr := stream.Receive()
+	for _, err := range []error{receiveErr, sendErr} {
+		var connectErr *connect.Error
+		if errors.As(err, &connectErr) && connectErr.Code() == connect.CodePermissionDenied {
+			return
+		}
 	}
-	_, err := stream.Receive()
-	wantCode(t, err, connect.CodePermissionDenied)
+	t.Fatalf("neither the send nor the receive was refused with PermissionDenied: send %v, receive %v", sendErr, receiveErr)
 }
