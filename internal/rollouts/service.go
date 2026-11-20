@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -19,6 +21,13 @@ import (
 	"github.com/aiviarium/rookery/internal/store"
 )
 
+// ChildJobs is the subset of job operations needed by a roll-out.
+type ChildJobs interface {
+	EnqueueLinked(context.Context, jobs.EnqueueRequest, access.Principal, func(context.Context, *store.Queries, jobs.Job) error) (jobs.Job, error)
+	Get(context.Context, string) (jobs.Job, error)
+	Cancel(context.Context, string) (jobs.Job, error)
+}
+
 // Options are what a roll-out service is made of.
 type Options struct {
 	// Store is the database.
@@ -26,7 +35,7 @@ type Options struct {
 	// Checker answers what the caller holds.
 	Checker *access.Checker
 	// Jobs enqueues and cancels the child jobs.
-	Jobs *jobs.Service
+	Jobs ChildJobs
 	// Hosts is the host registry, without which only hosts named one by one
 	// can be selected.
 	Hosts HostSelector
@@ -42,11 +51,12 @@ type Options struct {
 type Service struct {
 	store         *store.Store
 	checker       *access.Checker
-	jobs          *jobs.Service
+	jobs          ChildJobs
 	hosts         HostSelector
 	notifications *messaging.Notifications
 	publisher     jobs.Publisher
 	logger        *slog.Logger
+	mutations     chan struct{}
 }
 
 // New returns a roll-out service.
@@ -67,6 +77,16 @@ func New(options Options) *Service {
 		notifications: options.Notifications,
 		publisher:     publisher,
 		logger:        logger,
+		mutations:     make(chan struct{}, 1),
+	}
+}
+
+func (s *Service) lock(ctx context.Context) (func(), error) {
+	select {
+	case s.mutations <- struct{}{}:
+		return func() { <-s.mutations }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 }
 
@@ -111,13 +131,21 @@ func (s *Service) StartScheduled(ctx context.Context, spec []byte) (string, erro
 
 // Plan resolves a selection into the hosts a roll-out would work.
 func (s *Service) Plan(ctx context.Context, kind string, selection Selection) (Plan, error) {
+	principal, ok := access.PrincipalFrom(ctx)
+	if !ok {
+		principal = access.LocalAdmin()
+	}
+	return s.plan(ctx, principal, kind, selection)
+}
+
+func (s *Service) plan(ctx context.Context, principal access.Principal, kind string, selection Selection) (Plan, error) {
 	if err := checkKind(kind); err != nil {
 		return Plan{}, err
 	}
 	if err := selection.Validate(); err != nil {
 		return Plan{}, err
 	}
-	hosts, skipped, err := s.resolve(ctx, selection)
+	hosts, skipped, err := s.resolve(ctx, principal, kind, selection)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -160,7 +188,7 @@ func (s *Service) start(ctx context.Context, request StartRequest, principal acc
 		return Rollout{}, err
 	}
 
-	resolved, err := s.Plan(ctx, request.Kind, request.Selection)
+	resolved, err := s.plan(ctx, principal, request.Kind, request.Selection)
 	if err != nil {
 		return Rollout{}, err
 	}
@@ -201,12 +229,13 @@ func (s *Service) start(ctx context.Context, request StartRequest, principal acc
 	if err != nil {
 		return Rollout{}, fmt.Errorf("rollouts: recording the roll-out: %w", err)
 	}
-	for _, host := range hosts {
+	for _, host := range append(slices.Clone(hosts), resolved.Skipped...) {
 		if err := queries.CreateRolloutHost(ctx, store.CreateRolloutHostParams{
 			RolloutID: rolloutID,
 			Host:      host.Name,
 			Batch:     int32(host.Batch), //nolint:gosec // a batch number is a host count
-			State:     string(HostPending),
+			State:     string(host.State),
+			Reason:    host.Reason,
 		}); err != nil {
 			return Rollout{}, fmt.Errorf("rollouts: recording the host %s: %w", host.Name, err)
 		}
@@ -259,24 +288,38 @@ func (s *Service) List(ctx context.Context, state, cursor string, limit int) ([]
 		// Ids are ULIDs in Crockford's base32, so "~" sorts after all of them.
 		cursor = "~"
 	}
-	records, err := s.store.Queries().ListRollouts(ctx, store.ListRolloutsParams{
-		ID:    cursor,
-		State: optional(state),
-		Limit: clampLimit(limit),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("rollouts: listing roll-outs: %w", err)
-	}
-
-	out := make([]Rollout, 0, len(records))
-	ids := make([]string, 0, len(records))
-	for _, record := range records {
-		rollout, err := rolloutOf(record)
+	params := store.ListRolloutsParams{ID: cursor, State: optional(state), Limit: clampLimit(limit)}
+	principal, authenticated := access.PrincipalFrom(ctx)
+	out := make([]Rollout, 0, params.Limit)
+	ids := make([]string, 0, params.Limit)
+	for len(out) < int(params.Limit) {
+		records, err := s.store.Queries().ListRollouts(ctx, params)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("rollouts: listing roll-outs: %w", err)
 		}
-		out = append(out, rollout)
-		ids = append(ids, rollout.ID)
+		for _, record := range records {
+			if authenticated {
+				if err := s.checker.Check(ctx, principal, access.RolloutURI(record.ID), access.View); err != nil {
+					if errors.Is(err, access.ErrDenied) {
+						continue
+					}
+					return nil, err
+				}
+			}
+			rollout, err := rolloutOf(record)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, rollout)
+			ids = append(ids, rollout.ID)
+			if len(out) == int(params.Limit) {
+				break
+			}
+		}
+		if len(records) < int(params.Limit) {
+			break
+		}
+		params.ID = records[len(records)-1].ID
 	}
 	if len(ids) == 0 {
 		return out, nil
@@ -288,14 +331,16 @@ func (s *Service) List(ctx context.Context, state, cursor string, limit int) ([]
 	}
 	byRollout := make(map[string][]Host, len(ids))
 	for _, row := range hostRows {
-		host := hostOf(row)
-		if host.State == HostSkipped {
-			continue
-		}
-		byRollout[row.RolloutID] = append(byRollout[row.RolloutID], host)
+		byRollout[row.RolloutID] = append(byRollout[row.RolloutID], hostOf(row))
 	}
 	for i := range out {
-		out[i].Hosts = byRollout[out[i].ID]
+		for _, host := range byRollout[out[i].ID] {
+			if host.State == HostSkipped {
+				out[i].Skipped = append(out[i].Skipped, host)
+			} else {
+				out[i].Hosts = append(out[i].Hosts, host)
+			}
+		}
 	}
 	return out, nil
 }
@@ -331,6 +376,11 @@ func (s *Service) Get(ctx context.Context, rolloutID string) (Rollout, error) {
 
 // Pause stops a roll-out: the jobs that run finish, and no more start.
 func (s *Service) Pause(ctx context.Context, rolloutID, why string) (Rollout, error) {
+	unlock, err := s.lock(ctx)
+	if err != nil {
+		return Rollout{}, err
+	}
+	defer unlock()
 	rollout, err := s.Get(ctx, rolloutID)
 	if err != nil {
 		return Rollout{}, err
@@ -355,6 +405,11 @@ func (s *Service) Pause(ctx context.Context, rolloutID, why string) (Rollout, er
 
 // Resume lets a paused roll-out carry on.
 func (s *Service) Resume(ctx context.Context, rolloutID string) (Rollout, error) {
+	unlock, err := s.lock(ctx)
+	if err != nil {
+		return Rollout{}, err
+	}
+	defer unlock()
 	rollout, err := s.Get(ctx, rolloutID)
 	if err != nil {
 		return Rollout{}, err
@@ -366,7 +421,10 @@ func (s *Service) Resume(ctx context.Context, rolloutID string) (Rollout, error)
 	default:
 		return Rollout{}, fmt.Errorf("%w: the roll-out %s is not paused", access.ErrConflict, rolloutID)
 	}
-	if _, err := s.store.Queries().ResumeRollout(ctx, rolloutID); err != nil {
+	if _, err := s.store.Queries().ResumeRollout(ctx, store.ResumeRolloutParams{
+		ID: rolloutID, CanaryDone: rollout.CanaryDone || rollout.Strategy.Canary > 0 && canaryDone(rollout),
+		FailuresSeen: int32(min(rollout.Counts().Failed, math.MaxInt32)), //nolint:gosec // clamped to int32
+	}); err != nil {
 		return Rollout{}, fmt.Errorf("rollouts: resuming %s: %w", rolloutID, err)
 	}
 	resumed, err := s.Get(ctx, rolloutID)
@@ -374,15 +432,16 @@ func (s *Service) Resume(ctx context.Context, rolloutID string) (Rollout, error)
 		return Rollout{}, err
 	}
 	s.publish(resumed)
-	if resumed.Hosts == nil && resumed.State == Running {
-		// Nothing more to do: the advance loop starts the next batch.
-		return resumed, nil
-	}
 	return resumed, nil
 }
 
 // Cancel stops a roll-out, cancelling the jobs that are running.
 func (s *Service) Cancel(ctx context.Context, rolloutID string) (Rollout, error) {
+	unlock, err := s.lock(ctx)
+	if err != nil {
+		return Rollout{}, err
+	}
+	defer unlock()
 	rollout, err := s.Get(ctx, rolloutID)
 	if err != nil {
 		return Rollout{}, err
@@ -396,9 +455,9 @@ func (s *Service) Cancel(ctx context.Context, rolloutID string) (Rollout, error)
 			continue
 		}
 		if host.Job != "" {
-			if _, err := s.jobs.Cancel(ctx, host.Job); err != nil {
-				s.logger.Warn("cancelling a host's job",
-					slog.String("rollout", rolloutID), slog.String("host", host.Name), slog.String("error", err.Error()))
+			if _, err := s.jobs.Cancel(ctx, host.Job); err != nil &&
+				!errors.Is(err, access.ErrConflict) && !errors.Is(err, access.ErrNotFound) {
+				return Rollout{}, fmt.Errorf("rollouts: cancelling job %s: %w", host.Job, err)
 			}
 		}
 		if _, err := s.store.Queries().EndRolloutHost(ctx, store.EndRolloutHostParams{
@@ -461,7 +520,7 @@ func (s *Service) Watch(ctx context.Context, rolloutID string, send func(Rollout
 }
 
 // resolve is a selection as the hosts it names, and the ones it cannot use.
-func (s *Service) resolve(ctx context.Context, selection Selection) ([]Host, []Host, error) {
+func (s *Service) resolve(ctx context.Context, principal access.Principal, kind string, selection Selection) ([]Host, []Host, error) {
 	selector, err := ParseSelector(selection.Labels)
 	if err != nil {
 		return nil, nil, err
@@ -477,8 +536,25 @@ func (s *Service) resolve(ctx context.Context, selection Selection) ([]Host, []H
 		if !matches(candidate, selection, selector) {
 			continue
 		}
-		if candidate.Skip != "" {
-			skipped = append(skipped, Host{Name: candidate.Name, State: HostSkipped, Reason: candidate.Skip})
+		resource := access.HostURI(candidate.Name)
+		if err := s.checker.Check(ctx, principal, resource, access.View); err != nil {
+			if errors.Is(err, access.ErrDenied) {
+				continue
+			}
+			return nil, nil, err
+		}
+		reason := candidate.Skip
+		if kind == KindAction && candidate.ActionSkip != "" {
+			reason = candidate.ActionSkip
+		}
+		if err := s.checker.Check(ctx, principal, resource, access.Manage); err != nil {
+			if !errors.Is(err, access.ErrDenied) {
+				return nil, nil, err
+			}
+			reason = "host manage access is required"
+		}
+		if reason != "" {
+			skipped = append(skipped, Host{Name: candidate.Name, State: HostSkipped, Reason: reason})
 			continue
 		}
 		hosts = append(hosts, Host{Name: candidate.Name, State: HostPending})
@@ -491,10 +567,14 @@ func (s *Service) resolve(ctx context.Context, selection Selection) ([]Host, []H
 // candidates are the hosts a selection could name. Hosts named one by one need
 // no host registry; labels and the hosts that are behind do.
 func (s *Service) candidates(ctx context.Context, selection Selection) ([]Candidate, error) {
-	if selection.Labels == "" && !selection.Behind {
+	if s.hosts == nil && selection.Labels == "" && !selection.Behind {
 		out := make([]Candidate, 0, len(selection.Hosts))
+		seen := make(map[string]struct{}, len(selection.Hosts))
 		for _, host := range selection.Hosts {
-			out = append(out, Candidate{Name: host})
+			if _, ok := seen[host]; !ok {
+				out = append(out, Candidate{Name: host})
+				seen[host] = struct{}{}
+			}
 		}
 		return out, nil
 	}
@@ -511,11 +591,16 @@ func (s *Service) candidates(ctx context.Context, selection Selection) ([]Candid
 // advanceOne moves a roll-out on: it reads how its running hosts ended, then
 // starts the next batch, pauses it, or ends it.
 func (s *Service) advanceOne(ctx context.Context, rolloutID string) error {
+	unlock, err := s.lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	rollout, err := s.Get(ctx, rolloutID)
 	if err != nil {
 		return err
 	}
-	if rollout.State != Running {
+	if rollout.State.Done() {
 		return nil
 	}
 
@@ -542,11 +627,14 @@ func (s *Service) advanceOne(ctx context.Context, rolloutID string) error {
 	if err != nil {
 		return err
 	}
+	if rollout.State != Running || rollout.PausedUntil.After(time.Now()) {
+		return nil
+	}
 	counts := rollout.Counts()
 
 	// The hosts that failed stop the roll-out once there are enough of them.
-	if counts.Failed >= rollout.Strategy.Normalize().FailuresAllowed {
-		why := fmt.Sprintf("%d %s failed", counts.Failed, hosts(counts.Failed))
+	if failures := counts.Failed - rollout.failuresSeen; failures >= rollout.Strategy.Normalize().FailuresAllowed {
+		why := fmt.Sprintf("%d %s failed", failures, hosts(failures))
 		return s.pause(ctx, rollout, why)
 	}
 	if counts.Running > 0 {
@@ -568,7 +656,7 @@ func (s *Service) advanceOne(ctx context.Context, rolloutID string) error {
 	}
 
 	// A pause between batches: it is over when its time has come.
-	if pause := rollout.Strategy.Normalize().Pause; pause > 0 && rollout.PausedUntil.IsZero() {
+	if pause := rollout.Strategy.Normalize().Pause; pause > 0 && rollout.PausedUntil.IsZero() && counts.Pending < len(rollout.Hosts) {
 		until := time.Now().Add(pause)
 		updated, err := s.store.Queries().SetRolloutPause(ctx, store.SetRolloutPauseParams{ID: rolloutID, PausedUntil: &until})
 		if err != nil {
@@ -600,33 +688,70 @@ func (s *Service) advanceOne(ctx context.Context, rolloutID string) error {
 
 // startHost enqueues a host's child job and records it as running.
 func (s *Service) startHost(ctx context.Context, rollout Rollout, host Host) error {
-	job, err := s.jobs.EnqueueSystem(ctx, jobs.EnqueueRequest{
-		Kind:     rollout.Kind,
-		Args:     rollout.Args,
-		Resource: access.HostURI(host.Name),
-		Parent:   rollout.ID,
+	principal, err := s.actor(ctx, rollout.CreatedBy)
+	if err == nil {
+		var args []byte
+		args, err = hostArgs(rollout.Args, host.Name)
+		if err == nil {
+			_, err = s.jobs.EnqueueLinked(ctx, jobs.EnqueueRequest{
+				Kind: rollout.Kind, Args: args, Resource: access.HostURI(host.Name), Parent: rollout.ID,
+			}, principal, func(ctx context.Context, q *store.Queries, job jobs.Job) error {
+				_, err := q.StartRolloutHost(ctx, store.StartRolloutHostParams{
+					RolloutID: rollout.ID, Job: job.ID, Host: host.Name,
+				})
+				if err != nil {
+					return fmt.Errorf("rollouts: linking job to host %s: %w", host.Name, err)
+				}
+				return nil
+			})
+		}
+	}
+	if err == nil || ctx.Err() != nil {
+		return err
+	}
+	if !errors.Is(err, access.ErrDenied) && !errors.Is(err, access.ErrInvalid) && !errors.Is(err, access.ErrNotFound) {
+		return err
+	}
+	_, endErr := s.store.Queries().EndRolloutHost(ctx, store.EndRolloutHostParams{
+		RolloutID: rollout.ID, State: string(HostFailed), Error: err.Error(), Host: host.Name,
 	})
-	if err != nil {
-		// A host whose job cannot be enqueued has failed, so the roll-out
-		// carries on rather than stopping here.
-		s.logger.Error("enqueueing a host's job",
-			slog.String("rollout", rollout.ID), slog.String("host", host.Name), slog.String("error", err.Error()))
-		_, endErr := s.store.Queries().EndRolloutHost(ctx, store.EndRolloutHostParams{
-			RolloutID: rollout.ID,
-			State:     string(HostFailed),
-			Error:     err.Error(),
-			Host:      host.Name,
-		})
-		return endErr
+	return endErr
+}
+
+func (s *Service) actor(ctx context.Context, creator string) (access.Principal, error) {
+	switch {
+	case creator == access.KindLocal:
+		return access.LocalAdmin(), nil
+	case strings.HasPrefix(creator, access.KindPluginPrincipal+":"):
+		return access.Plugin(strings.TrimPrefix(creator, access.KindPluginPrincipal+":")), nil
+	default:
+		userID, ok := userOf(creator)
+		if !ok {
+			return access.Principal{}, access.ErrDenied
+		}
+		user, err := s.store.Queries().GetUser(ctx, userID)
+		if errors.Is(err, pgx.ErrNoRows) || user.Disabled {
+			return access.Principal{}, access.ErrDenied
+		}
+		if err != nil {
+			return access.Principal{}, fmt.Errorf("rollouts: reading the creator: %w", err)
+		}
+		return access.Principal{Kind: access.KindUser, ID: user.ID, Admin: user.Admin}, nil
 	}
-	if _, err := s.store.Queries().StartRolloutHost(ctx, store.StartRolloutHostParams{
-		RolloutID: rollout.ID,
-		Job:       job.ID,
-		Host:      host.Name,
-	}); err != nil {
-		return fmt.Errorf("rollouts: starting the host %s: %w", host.Name, err)
+}
+
+func hostArgs(encoded []byte, host string) ([]byte, error) {
+	args := make(map[string]any)
+	if len(encoded) != 0 {
+		if err := cborx.Unmarshal(encoded, &args); err != nil {
+			return nil, fmt.Errorf("%w: rollout arguments must be a CBOR map: %w", access.ErrInvalid, err)
+		}
+		if args == nil {
+			args = make(map[string]any)
+		}
 	}
-	return nil
+	args["host"] = host
+	return cborx.Marshal(args)
 }
 
 // hostOutcome is how a running host ended, or empty while its job runs.
@@ -765,7 +890,7 @@ func assignBatches(hosts []Host, strategy Strategy) []Host {
 // canaryDone reports whether no host of the canary batch is still pending.
 func canaryDone(rollout Rollout) bool {
 	for _, host := range rollout.Hosts {
-		if host.Batch == 0 && host.State == HostPending {
+		if host.Batch == 0 && (host.State == HostPending || host.State == HostRunning) {
 			return false
 		}
 	}

@@ -117,6 +117,19 @@ func (s *Secrets) Value(ctx context.Context, name, scope string) ([]byte, error)
 	return value, nil
 }
 
+// ProvisionerSecrets opens only the named secrets scoped to one entry.
+func (s *Secrets) ProvisionerSecrets(ctx context.Context, entry string, names []string) (map[string]string, error) {
+	values := make(map[string]string, len(names))
+	for _, name := range names {
+		value, err := s.Value(ctx, name, "provisioner/"+entry)
+		if err != nil {
+			return nil, err
+		}
+		values[name] = string(value)
+	}
+	return values, nil
+}
+
 // List returns the secrets' names and scopes, never their values.
 func (s *Secrets) List(ctx context.Context, scope string) ([]Secret, error) {
 	records, err := s.store.Queries().ListSecrets(ctx, optional(strings.TrimSpace(scope)))

@@ -34,7 +34,7 @@ func TestRenderSeed(t *testing.T) {
 		"a tailnet key joins it": {
 			seed: provision.Seed{Host: "desk-2", PublicKey: "ssh-ed25519 AAAAtest rookery", TailnetKey: "tskey-test-2"},
 			wants: []string{
-				"tailscale up --auth-key=tskey-test-2 --hostname=desk-2",
+				"--auth-key=file:/run/rookery-tailnet-key", "content: tskey-test-2", "--hostname=desk-2",
 				"https://tailscale.com/install.sh",
 			},
 		},

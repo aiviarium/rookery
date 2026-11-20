@@ -248,6 +248,8 @@ message ProvisionerServiceRunActionRequest {
 }
 
 message ProvisionerServiceRunActionResponse {
+  // Job is the queued job when the server runs the action in its job runner.
+  string job = 2;
   string line = 1;
 }
 

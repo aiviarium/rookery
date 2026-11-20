@@ -27,6 +27,8 @@ type Candidate struct {
 	// Skip is why the host cannot take this roll-out's work, such as a
 	// capability its type has not got. Empty when it can.
 	Skip string
+	// ActionSkip is an additional refusal for an action.
+	ActionSkip string
 }
 
 // Term is one part of a label selector.

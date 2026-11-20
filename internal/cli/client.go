@@ -103,6 +103,8 @@ type api struct {
 	Audit         rookeryv1connect.AuditServiceClient
 	Local         rookeryv1connect.LocalServiceClient
 	Jobs          rookeryv1connect.JobServiceClient
+	Rollouts      rookeryv1connect.RolloutServiceClient
+	Provisioners  rookeryv1connect.ProvisionerServiceClient
 	Schedules     rookeryv1connect.ScheduleServiceClient
 	Events        rookeryv1connect.EventServiceClient
 	Topics        rookeryv1connect.TopicServiceClient
@@ -138,6 +140,8 @@ func dial(ctx context.Context, address, token string) (*api, error) {
 		Audit:         rookeryv1connect.NewAuditServiceClient(httpClient, base, options...),
 		Local:         rookeryv1connect.NewLocalServiceClient(httpClient, base, options...),
 		Jobs:          rookeryv1connect.NewJobServiceClient(httpClient, base, options...),
+		Rollouts:      rookeryv1connect.NewRolloutServiceClient(httpClient, base, options...),
+		Provisioners:  rookeryv1connect.NewProvisionerServiceClient(httpClient, base, options...),
 		Schedules:     rookeryv1connect.NewScheduleServiceClient(httpClient, base, options...),
 		Events:        rookeryv1connect.NewEventServiceClient(httpClient, base, options...),
 		Topics:        rookeryv1connect.NewTopicServiceClient(httpClient, base, options...),

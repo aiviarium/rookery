@@ -37,15 +37,13 @@ type Seed struct {
 // Validate refuses a seed that would not bring a machine up reachable.
 func (s Seed) Validate() error {
 	switch {
-	case strings.TrimSpace(s.Host) == "":
-		return fmt.Errorf("%w: a seed names the host", access.ErrInvalid)
-	case strings.ContainsAny(s.Host, " \t\n"):
-		return fmt.Errorf("%w: the host's name has no space", access.ErrInvalid)
+	case !validHostName(s.Host):
+		return fmt.Errorf("%w: a seed needs a valid host name", access.ErrInvalid)
 	case strings.TrimSpace(s.PublicKey) == "":
 		return fmt.Errorf("%w: a seed carries the key ring's public key", access.ErrInvalid)
 	case strings.ContainsAny(s.PublicKey, "\n\r"):
 		return fmt.Errorf("%w: the public key is one line", access.ErrInvalid)
-	case strings.ContainsAny(s.TailnetKey, " \t\n"):
+	case strings.ContainsAny(s.TailnetKey, " \t\r\n"):
 		return fmt.Errorf("%w: a tailnet auth key has no space", access.ErrInvalid)
 	}
 	if name := s.operator(); !validAccount(name) {
@@ -94,12 +92,14 @@ func RenderSeed(seed Seed) (string, error) {
 		}},
 	}
 	if seed.TailnetKey != "" {
-		// The auth key is one-use and pre-authorised, and it is in the user data
-		// the machine reads once: it is not on a command line Rookery runs, and
-		// Rookery never logs the seed.
+		const keyPath = "/run/rookery-tailnet-key"
+		document.WriteFiles = append(document.WriteFiles, cloudFile{
+			Path: keyPath, Permissions: "0600", Content: seed.TailnetKey,
+		})
 		document.RunCmd = [][]string{
 			{"sh", "-c", "curl -fsSL https://tailscale.com/install.sh | sh"},
-			{"sh", "-c", fmt.Sprintf("tailscale up --auth-key=%s --hostname=%s", seed.TailnetKey, seed.Host)},
+			{"tailscale", "up", "--auth-key=file:" + keyPath, "--hostname=" + seed.Host},
+			{"rm", "-f", keyPath},
 		}
 	}
 

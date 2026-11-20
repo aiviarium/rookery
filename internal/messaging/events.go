@@ -5,6 +5,7 @@ package messaging
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -130,12 +131,7 @@ func (s *EventsService) Subscribe(ctx context.Context, request *connect.Request[
 		return access.ToConnect(access.ErrUnauthenticated)
 	}
 
-	subscription := s.bus.Subscribe(request.Msg.GetPrefix(), func(event Event) bool {
-		if event.Resource == "" {
-			return true
-		}
-		return s.checker.Check(ctx, principal, event.Resource, access.View) == nil
-	})
+	subscription := s.bus.Subscribe(request.Msg.GetPrefix(), nil)
 	defer subscription.Close()
 
 	for {
@@ -145,6 +141,14 @@ func (s *EventsService) Subscribe(ctx context.Context, request *connect.Request[
 		case event, ok := <-subscription.Events:
 			if !ok {
 				return nil
+			}
+			if event.Resource != "" {
+				if err := s.checker.Check(ctx, principal, event.Resource, access.View); err != nil {
+					if errors.Is(err, access.ErrDenied) || errors.Is(err, access.ErrInvalid) {
+						continue
+					}
+					return access.ToConnect(err)
+				}
 			}
 			sent := &rookeryv1.Event{
 				Name:        event.Name,

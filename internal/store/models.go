@@ -364,8 +364,9 @@ type RookeryRollouts struct {
 	// The selection as CBOR, so a roll-out says what it was for even after its hosts changed.
 	Selection []byte
 	// The strategy as CBOR: batch size, failures allowed, the pause and the canary.
-	Strategy   []byte
-	CanaryDone bool
+	Strategy     []byte
+	CanaryDone   bool
+	FailuresSeen int32
 	// When the pause between batches ends; set while the roll-out is still running.
 	PausedUntil   *time.Time
 	PausedBecause string

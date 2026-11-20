@@ -326,11 +326,17 @@ func (s *Service) Enqueue(ctx context.Context, request EnqueueRequest) (Job, err
 	if !ok {
 		return Job{}, access.ErrUnauthenticated
 	}
-	return s.enqueue(ctx, request, principal)
+	return s.enqueue(ctx, request, principal, nil)
+}
+
+// EnqueueLinked persists a job and its owning operation's update together.
+func (s *Service) EnqueueLinked(ctx context.Context, request EnqueueRequest, principal access.Principal,
+	link func(context.Context, *store.Queries, Job) error) (Job, error) {
+	return s.enqueue(ctx, request, principal, link)
 }
 
 // enqueue is Enqueue for a caller the caller has already resolved.
-func (s *Service) enqueue(ctx context.Context, request EnqueueRequest, principal access.Principal) (Job, error) {
+func (s *Service) enqueue(ctx context.Context, request EnqueueRequest, principal access.Principal, link func(context.Context, *store.Queries, Job) error) (Job, error) {
 	kind, known := s.registry.Kind(request.Kind)
 	if !known {
 		return Job{}, fmt.Errorf("%w: there is no job kind %q", access.ErrInvalid, request.Kind)
@@ -405,17 +411,22 @@ func (s *Service) enqueue(ctx context.Context, request EnqueueRequest, principal
 		}
 	}
 
+	job := JobOf(record)
+	if link != nil {
+		if err := link(ctx, queries, job); err != nil {
+			return Job{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Job{}, fmt.Errorf("jobs: committing the enqueue: %w", err)
 	}
-	job := JobOf(record)
 	s.publish(job)
 	return job, nil
 }
 
 // EnqueueSystem makes a job with no caller behind it: a schedule's run.
 func (s *Service) EnqueueSystem(ctx context.Context, request EnqueueRequest) (Job, error) {
-	return s.enqueue(ctx, request, access.LocalAdmin())
+	return s.enqueue(ctx, request, access.LocalAdmin(), nil)
 }
 
 // Get returns a job.
@@ -453,14 +464,31 @@ func (s *Service) List(ctx context.Context, filter Filter) ([]Job, error) {
 		Cursor:   cursor,
 		RowLimit: clampLimit(filter.Limit),
 	}
-	records, err := s.store.Queries().ListJobs(ctx, params)
-	if err != nil {
-		return nil, fmt.Errorf("jobs: listing jobs: %w", err)
-	}
-
-	out := make([]Job, 0, len(records))
-	for _, record := range records {
-		out = append(out, JobOf(record))
+	principal, authenticated := access.PrincipalFrom(ctx)
+	out := make([]Job, 0, params.RowLimit)
+	for len(out) < int(params.RowLimit) {
+		records, err := s.store.Queries().ListJobs(ctx, params)
+		if err != nil {
+			return nil, fmt.Errorf("jobs: listing jobs: %w", err)
+		}
+		for _, record := range records {
+			if authenticated {
+				if err := s.checker.Check(ctx, principal, access.JobURI(record.ID), access.View); err != nil {
+					if errors.Is(err, access.ErrDenied) {
+						continue
+					}
+					return nil, err
+				}
+			}
+			out = append(out, JobOf(record))
+			if len(out) == int(params.RowLimit) {
+				break
+			}
+		}
+		if len(records) < int(params.RowLimit) {
+			break
+		}
+		params.Cursor = records[len(records)-1].ID
 	}
 	return out, nil
 }
@@ -473,7 +501,12 @@ func (s *Service) Follow(ctx context.Context, jobID string, from int64, send fun
 
 	after := from
 	for {
-		lines, err := s.store.Queries().LinesAfter(ctx, store.LinesAfterParams{JobID: jobID, ID: after, Limit: 200})
+		job, err := s.Get(ctx, jobID)
+		if err != nil {
+			return err
+		}
+		const batch = 200
+		lines, err := s.store.Queries().LinesAfter(ctx, store.LinesAfterParams{JobID: jobID, ID: after, Limit: batch})
 		if err != nil {
 			return fmt.Errorf("jobs: reading the log of %s: %w", jobID, err)
 		}
@@ -483,26 +516,12 @@ func (s *Service) Follow(ctx context.Context, jobID string, from int64, send fun
 				return err
 			}
 		}
-
-		job, err := s.Get(ctx, jobID)
-		if err != nil {
-			return err
+		if len(lines) == batch {
+			continue
 		}
 		if job.State.Done() {
-			// The log's last line can arrive after the state, so read once more
-			// before saying the job is over.
-			lines, err := s.store.Queries().LinesAfter(ctx, store.LinesAfterParams{JobID: jobID, ID: after, Limit: 200})
-			if err != nil {
-				return fmt.Errorf("jobs: reading the log of %s: %w", jobID, err)
-			}
-			for _, line := range lines {
-				if err := send(line, false, Job{}); err != nil {
-					return err
-				}
-			}
 			return send(store.RookeryJobLines{}, true, job)
 		}
-
 		select {
 		case <-ctx.Done():
 			return nil
@@ -525,7 +544,7 @@ func (s *Service) Cancel(ctx context.Context, jobID string) (Job, error) {
 			return Job{}, fmt.Errorf("jobs: cancelling %s: %w", jobID, err)
 		}
 		if cancelled == 0 {
-			return s.Get(ctx, jobID)
+			return s.Cancel(ctx, jobID)
 		}
 	case Running:
 		asked, err := s.store.Queries().RequestCancel(ctx, jobID)
@@ -552,7 +571,10 @@ func (s *Service) Retry(ctx context.Context, jobID string) (Job, error) {
 	record, err := s.store.Queries().RequeueJob(ctx, jobID)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		return Job{}, fmt.Errorf("%w: no job %s", access.ErrNotFound, jobID)
+		if _, err := s.Get(ctx, jobID); err != nil {
+			return Job{}, err
+		}
+		return Job{}, fmt.Errorf("%w: job %s is active", access.ErrConflict, jobID)
 	case err != nil:
 		return Job{}, fmt.Errorf("jobs: retrying %s: %w", jobID, err)
 	}

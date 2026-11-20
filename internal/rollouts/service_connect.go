@@ -22,6 +22,9 @@ func NewRolloutService(service *Service) *RolloutService {
 
 // Plan resolves a selection into the hosts a roll-out would work.
 func (s *RolloutService) Plan(ctx context.Context, request *connect.Request[rookeryv1.RolloutServicePlanRequest]) (*connect.Response[rookeryv1.RolloutServicePlanResponse], error) {
+	if _, ok := access.PrincipalFrom(ctx); !ok {
+		return nil, access.ToConnect(access.ErrUnauthenticated)
+	}
 	plan, err := s.rollouts.Plan(ctx, request.Msg.GetKind(), selectionOf(request.Msg.GetSelection()))
 	if err != nil {
 		return nil, access.ToConnect(err)
@@ -86,9 +89,9 @@ func (s *RolloutService) Get(ctx context.Context, request *connect.Request[rooke
 
 // Watch streams a roll-out until it has ended.
 func (s *RolloutService) Watch(ctx context.Context, request *connect.Request[rookeryv1.RolloutServiceWatchRequest], stream *connect.ServerStream[rookeryv1.RolloutServiceWatchResponse]) error {
-	return s.rollouts.Watch(ctx, request.Msg.GetRollout(), func(rollout Rollout) error {
+	return access.ToConnect(s.rollouts.Watch(ctx, request.Msg.GetRollout(), func(rollout Rollout) error {
 		return stream.Send(&rookeryv1.RolloutServiceWatchResponse{Rollout: rollout.Message()})
-	})
+	}))
 }
 
 // Pause stops a roll-out.

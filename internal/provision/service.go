@@ -3,6 +3,7 @@ package provision
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -10,6 +11,7 @@ import (
 	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
 	"github.com/aiviarium/rookery/internal/access"
 	"github.com/aiviarium/rookery/internal/cborx"
+	"github.com/aiviarium/rookery/internal/jobs"
 	"github.com/aiviarium/rookery/pkg/sdk"
 )
 
@@ -20,11 +22,36 @@ var emptyArguments = []byte{0xa0}
 // Service is ProvisionerService, the edge's view of the core's provisioners.
 type Service struct {
 	provisioners *Provisioners
+	jobs         *jobs.Service
 }
 
 // NewService returns ProvisionerService.
 func NewService(provisioners *Provisioners) *Service {
 	return &Service{provisioners: provisioners}
+}
+
+// RunActionsAsJobs uses the job runner for the production edge.
+func (s *Service) RunActionsAsJobs(registry *jobs.Registry, service *jobs.Service) error {
+	s.jobs = service
+	return registry.Handle("provisioner.action", jobs.HandlerFunc(func(ctx context.Context, job jobs.Job, log *jobs.Log) ([]byte, error) {
+		var action actionArguments
+		if err := cborx.Unmarshal(job.Args, &action); err != nil {
+			return nil, fmt.Errorf("%w: invalid provisioner action arguments: %w", access.ErrInvalid, err)
+		}
+		name, ok := strings.CutPrefix(job.Resource, "provisioner://")
+		if !ok || name == "" || action.Action == "" {
+			return nil, fmt.Errorf("%w: an action requires a provisioner and action name", access.ErrInvalid)
+		}
+		err := s.provisioners.RunAction(ctx, name, action.Action, action.Args, func(line string) { //nolint:contextcheck // the log owns its job context
+			_ = log.WriteLine(line) //nolint:contextcheck // the log owns its job context
+		})
+		return nil, err
+	}))
+}
+
+type actionArguments struct {
+	Action string `cbor:"action"`
+	Args   []byte `cbor:"args"`
 }
 
 // ListTypes returns every provisioner type the installed plugins declare, with
@@ -227,7 +254,26 @@ func (s *Service) ListResources(ctx context.Context, request *connect.Request[ro
 
 // RunAction runs one of the type's actions, streaming its output.
 func (s *Service) RunAction(ctx context.Context, request *connect.Request[rookeryv1.ProvisionerServiceRunActionRequest], stream *connect.ServerStream[rookeryv1.ProvisionerServiceRunActionResponse]) error {
-	err := s.provisioners.RunAction(ctx, request.Msg.GetProvisioner(), request.Msg.GetAction(), request.Msg.GetArgsCbor(), func(line string) {
+	if s.jobs != nil {
+		if _, err := s.provisioners.Entries().ByName(ctx, request.Msg.GetProvisioner()); err != nil {
+			return access.ToConnect(err)
+		}
+		if request.Msg.GetAction() == "" {
+			return access.ToConnect(fmt.Errorf("%w: a provisioner action needs a name", access.ErrInvalid))
+		}
+		args, err := cborx.Marshal(actionArguments{Action: request.Msg.GetAction(), Args: request.Msg.GetArgsCbor()})
+		if err != nil {
+			return access.ToConnect(err)
+		}
+		job, err := s.jobs.Enqueue(ctx, jobs.EnqueueRequest{
+			Kind: "provisioner.action", Args: args, Resource: access.ProvisionerURI(request.Msg.GetProvisioner()),
+		})
+		if err != nil {
+			return access.ToConnect(err)
+		}
+		return stream.Send(&rookeryv1.ProvisionerServiceRunActionResponse{Job: job.ID})
+	}
+	err := s.provisioners.RunAction(ctx, request.Msg.GetProvisioner(), request.Msg.GetAction(), request.Msg.GetArgsCbor(), func(line string) { //nolint:contextcheck // the log owns its job context
 		// A failed send means the caller is gone; the call's context ends and
 		// the runner stops the provisioner.
 		_ = stream.Send(&rookeryv1.ProvisionerServiceRunActionResponse{Line: line})

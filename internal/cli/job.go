@@ -131,31 +131,29 @@ func followJob(ctx context.Context, out io.Writer, session *session, jobID strin
 	}
 	defer func() { _ = stream.Close() }()
 
-	var last any
 	for stream.Receive() {
 		message := stream.Msg()
-		switch event := message.GetEvent().(type) {
-		case *rookeryv1.JobServiceFollowResponse_Line:
-			if _, err := fmt.Fprintln(out, event.Line.GetLine()); err != nil {
+		if session.printer.asJSON {
+			if err := session.printer.message(message); err != nil {
 				return err
 			}
-		case *rookeryv1.JobServiceFollowResponse_Job:
-			if _, err := fmt.Fprintf(out, "%s %s\n", event.Job.GetId(), event.Job.GetState()); err != nil {
-				return err
-			}
-			last = event.Job.GetState()
-			if !follow {
-				return nil
+		} else {
+			switch event := message.GetEvent().(type) {
+			case *rookeryv1.JobServiceFollowResponse_Line:
+				if _, err := fmt.Fprintln(out, event.Line.GetLine()); err != nil {
+					return err
+				}
+			case *rookeryv1.JobServiceFollowResponse_Job:
+				if _, err := fmt.Fprintf(out, "%s %s\n", event.Job.GetId(), event.Job.GetState()); err != nil {
+					return err
+				}
 			}
 		}
+		if job := message.GetJob(); follow && job != nil && job.GetState() != "succeeded" {
+			return fmt.Errorf("job %s %s", job.GetId(), job.GetState())
+		}
 	}
-	if err := stream.Err(); err != nil {
-		return err
-	}
-	if last == nil {
-		return nil
-	}
-	return nil
+	return stream.Err()
 }
 
 // scheduleCommand is `rookery schedule`: the deployment's schedules.
@@ -203,7 +201,10 @@ func scheduleCommand() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				return session.printer.line(made.Msg.GetJob())
+				if job := made.Msg.GetJob(); job != "" {
+					return followJob(cmd.Context(), cmd.OutOrStdout(), session, job, true)
+				}
+				return session.followRollout(cmd, made.Msg.GetRollout())
 			},
 		},
 	)
