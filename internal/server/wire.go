@@ -89,7 +89,6 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	schedules := jobs.NewSchedules(opened, registry, jobRunner, s.log)
 	scheduler := jobs.NewScheduler(schedules)
 
-
 	// Plugins: the packages installed in this deployment. Their services arrive
 	// with the rest of the plugin item, and their collections with the
 	// datastore's service, which fills in Data.
