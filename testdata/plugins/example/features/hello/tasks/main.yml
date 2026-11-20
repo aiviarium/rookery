@@ -1,0 +1,25 @@
+---
+- name: Write the example greeting
+  ansible.builtin.copy:
+    dest: /etc/example-hello
+    content: "{{ greeting }}\n"
+    mode: "0644"
+
+- name: Install the greeting command
+  ansible.builtin.copy:
+    src: example-wave
+    dest: /usr/local/bin/example-wave
+    mode: "0755"
+
+- name: Install the example host service
+  ansible.builtin.copy:
+    src: example-hello.service
+    dest: /etc/systemd/system/example-hello.service
+    mode: "0644"
+
+- name: Start the example host service
+  ansible.builtin.systemd_service:
+    name: example-hello.service
+    daemon_reload: true
+    enabled: true
+    state: started

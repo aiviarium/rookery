@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+greeting=$(cat /etc/example-hello)
+/usr/local/bin/box publish example/progress "$greeting" --keep last
+printf '%s\n' "$greeting"

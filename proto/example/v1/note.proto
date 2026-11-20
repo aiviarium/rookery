@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package example.v1;
+
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/example/v1;examplev1";
+
+message SummarizeRequest {
+  repeated string titles = 1;
+}
+
+message SummarizeResponse {
+  string summary = 1;
+  string user = 2;
+}
+
+service NoteService {
+  rpc Summarize(SummarizeRequest) returns (SummarizeResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW, resource: "space" };
+  }
+}

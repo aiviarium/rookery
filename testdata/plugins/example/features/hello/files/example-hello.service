@@ -1,0 +1,8 @@
+[Unit]
+Description=Example host service
+After=network.target
+[Service]
+ExecStart=/usr/local/bin/box serve example/hello -- /usr/local/bin/example-wave
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target

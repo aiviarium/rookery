@@ -84,7 +84,7 @@ func TestLoadTheFixture(t *testing.T) {
 	if got := manifest.HostFeatures[0].Actions[1]; got.User != plugins.ActionDesktop || !got.OnHost {
 		t.Errorf("the desktop action = %+v", got)
 	}
-	if manifest.Service == nil || manifest.Service.Runtime != "bun" || manifest.Service.Start != plugins.StartLazy {
+	if manifest.Service == nil || manifest.Service.Command["linux/amd64"] != "bin/service-amd64" || manifest.Service.Start != plugins.StartLazy {
 		t.Errorf("service = %+v", manifest.Service)
 	}
 	if job := manifest.Jobs[0]; job.Timeout.Duration().String() != "10m0s" {
