@@ -1,7 +1,7 @@
 package link
 
 import (
-	"bytes"
+	"io"
 	"context"
 	"errors"
 	"fmt"
@@ -110,9 +110,8 @@ func (m *Manager) Contact(ctx context.Context, target Target, credential Credent
 	}
 	defer func() { _ = session.Close() }()
 	session.Stdin = strings.NewReader(key.Public)
-	var out bytes.Buffer
-	session.Stdout = &out
-	session.Stderr = &out
+	session.Stdout = io.Discard
+	session.Stderr = io.Discard
 	if err := session.Run(InstallScript); err != nil {
 		return Contact{}, fmt.Errorf("%w: installing the key ring's key on %s: %w", access.ErrUnavailable, target.Name, err)
 	}

@@ -156,7 +156,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 
 	hostService.SetJobs(jobRunner)
 	hostService.SetLinks(hostLinks)
-	if err := registry.Register(jobs.Kind{Name: "host.contact", Core: true, Level: access.Manage, HostLock: true, Timeout: 10 * time.Minute}, hostService.ContactHandler()); err != nil {
+	if err := registry.Handle("host.contact", hostService.ContactHandler()); err != nil {
 		return nil, err
 	}
 
