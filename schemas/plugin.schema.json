@@ -1792,7 +1792,7 @@
           }
         },
         "tools": {
-          "description": "Tools for agents, declared so that a shell can list them before the plugin runs. The host half registers the handler of each, or a handler names an app service method.",
+          "description": "Reserved for a later version: tools a plugin would offer agent sessions. This Rookery has no MCP server, so it accepts the list and drops it when the plugin loads, and a handler registered with `rookery.agents.tool` is not served either.",
           "type": "array",
           "items": {
             "type": "object",

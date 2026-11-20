@@ -24,8 +24,15 @@ fn plugins(kernel: &Kernel) -> Result<Arc<Plugins>, RpcError> {
 
 fn report(
     plugins: &Plugins,
-    (lines, behind): (Vec<String>, Vec<rookery_api::HostBehind>),
+    (mut lines, behind): (Vec<String>, Vec<rookery_api::HostBehind>),
 ) -> Result<PluginReport, RpcError> {
+    // A declaration this version does not serve installs, and whoever changed the plugins is told
+    // that it will not do anything.
+    for plugin in plugins.all() {
+        for warning in &plugin.warnings {
+            lines.push(format!("{}: {warning}", plugin.id));
+        }
+    }
     Ok(PluginReport {
         lines,
         plugins: plugins.infos(),

@@ -31,6 +31,9 @@ pub struct Loaded {
     pub manifest: Option<Value>,
     /// Why it cannot be used, with each problem in `details.problems`.
     pub problem: Option<ErrorBody>,
+    /// What its manifest declares that this version does not serve, in the words of
+    /// [`plugin_contract::warnings`]. An install and `rookery plugin check` print them.
+    pub warnings: Vec<String>,
     pub client: Option<ClientHalf>,
     /// The shell it contributes, with its folder resolved when the plugin was read.
     pub shell: Option<Shell>,
@@ -147,7 +150,6 @@ const LISTS: &[&str] = &[
     "collections",
     "entityTypes",
     "spaceKinds",
-    "tools",
     "jobs",
     "rpc",
     "topics",
@@ -205,6 +207,7 @@ pub fn load(plugin: &rookery_core::plugins::Plugin) -> Loaded {
         format: None,
         manifest: None,
         problem: None,
+        warnings: Vec::new(),
         client: None,
         shell: None,
         declared: Default::default(),
@@ -249,7 +252,20 @@ pub fn load(plugin: &rookery_core::plugins::Plugin) -> Loaded {
         ));
         return loaded;
     }
-    let manifest = complete(read.manifest, &plugin.id, &plugin.version, &plugin.label);
+    loaded.warnings = plugin_contract::warnings(&read);
+    for warning in &loaded.warnings {
+        tracing::warn!(plugin = %plugin.id, "{}", warning);
+    }
+    let mut manifest = complete(read.manifest, &plugin.id, &plugin.version, &plugin.label);
+    // What this version does not serve is not in the manifest a client reads, so a shell lists no
+    // tools it cannot call. The list stays, as every list a client reads does.
+    if let Some(contributes) = manifest
+        .get_mut("contributes")
+        .and_then(Value::as_object_mut)
+    {
+        contributes.insert("tools".into(), json!([]));
+    }
+
     match client_half(&plugin.dir, &manifest) {
         Ok(client) => loaded.client = client,
         Err(problem) => {

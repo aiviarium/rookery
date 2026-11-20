@@ -147,6 +147,8 @@ The line `rookery ">=0.6"` in `requires` is a range of Rookery versions, in Carg
 | `interface` | The module that exports `defineInterface`. The extension host loads it before activation |
 | `database`, `app`, `services` | Raw SQL for the plugin's own schema, a plugin that is an app of its own, and servers it ships |
 
+`contributes.tools` and a host half's `rookery.agents.tool` are for a later version. This Rookery has no MCP server, so a package may declare its tools and they are dropped when it loads: nothing lists them to an agent, and nothing calls their handlers. `rookery plugin check` and an install say so, and the plugin works without them.
+
 `contributes.shell` makes the plugin the server's shell, and holds its entry: `{"entry": "dist/index.html"}`. One plugin on a server has it ([Client halves and the shell](/docs/extend/plugins#client-halves-and-the-shell)).
 
 A plugin written before `plugin.json` has a `rookery.json` with the lists `features` and `provisioners`. Rookery reads it for one more release as a `plugin.json` whose `contributes.hostFeatures` and `contributes.provisioners` are those lists, with the same fields. To convert one, move the lists there, add `apiVersion` and `name`, and remove `rookery.json`: a package with both is refused.

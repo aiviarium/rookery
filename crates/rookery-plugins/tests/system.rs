@@ -600,6 +600,56 @@ async fn installs_are_recorded_and_client_halves_served_by_their_hash() {
 }
 
 /// Whether Bun and the checkout's packages are there to run the extension host. CI has both.
+#[tokio::test]
+async fn contributes_tools_installs_with_a_warning_and_is_dropped() {
+    let k = test_kernel!(methods());
+    let scratch = tempfile::tempdir().unwrap();
+    let _plugins = plugins(&k, scratch.path()).await;
+    let admin = k.person("Ada", true).await;
+
+    let dir = package(
+        scratch.path(),
+        "mcp",
+        "1.0.0",
+        &[(
+            "plugin.json",
+            r#"{"apiVersion": "1", "name": "Mcp", "contributes": {
+                "tools": [{"id": "mcp.echo", "description": "Echo what it is given"}]}}"#,
+        )],
+    );
+    let egg = hatchery::Egg::pack(&dir, &[&rookery_api::plugin_contract::RookeryTarget]).unwrap();
+    let report = k
+        .call(
+            &admin,
+            "plugins.upload",
+            json!({"base64": rookery_api::b64(egg.bytes())}),
+        )
+        .await
+        .unwrap();
+    let lines = report["lines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        lines.contains("contributes.tools is for a later version"),
+        "{lines}"
+    );
+
+    // It is installed, and the manifest a client reads promises no tools it cannot call.
+    let list = k.call(&admin, "plugins.list", json!({})).await.unwrap();
+    let seen = info(&list, "mcp").unwrap();
+    assert_eq!(seen["state"], json!("active"), "{seen}");
+    assert_eq!(
+        seen["manifest"]["contributes"]["tools"],
+        json!([]),
+        "{seen}"
+    );
+    k.close().await;
+}
+
 fn bun_ready() -> bool {
     let ready = std::process::Command::new("bun")
         .arg("--version")
