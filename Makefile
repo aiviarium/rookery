@@ -47,14 +47,24 @@ gen-sql:
 	@if [ -f internal/store/schema.sql ]; then sqlc generate; else echo "sqlc: no schema yet, skipped"; fi
 
 db:
-	@docker inspect $(PG_NAME) >/dev/null 2>&1 && docker start $(PG_NAME) >/dev/null || \
+	@if bash -c 'exec 3<>/dev/tcp/127.0.0.1/$(PG_PORT)' 2>/dev/null; then \
+		echo "db: a Postgres already answers on 127.0.0.1:$(PG_PORT)"; \
+		exit 0; \
+	fi; \
+	if docker inspect $(PG_NAME) >/dev/null 2>&1; then \
+		docker start $(PG_NAME) >/dev/null; \
+	else \
 		docker run -d --name $(PG_NAME) \
 			-e POSTGRES_USER=$(PG_USER) \
 			-e POSTGRES_PASSWORD=$(PG_PASSWORD) \
 			-e POSTGRES_DB=rookery \
 			-p 127.0.0.1:$(PG_PORT):5432 \
-			$(PG_IMAGE) -c fsync=off
-	@for i in $$(seq 1 60); do docker exec $(PG_NAME) pg_isready -U $(PG_USER) >/dev/null 2>&1 && break; sleep 1; done
+			$(PG_IMAGE) -c fsync=off >/dev/null; \
+	fi; \
+	for i in $$(seq 1 60); do \
+		docker exec $(PG_NAME) pg_isready -U $(PG_USER) >/dev/null 2>&1 && break; \
+		sleep 1; \
+	done
 	@echo "export ROOKERY_TEST_POSTGRES=$(TEST_POSTGRES)"
 
 reset:
