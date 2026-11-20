@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"net/url"
@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestConfirm(t *testing.T) {
+func TestConfirmReset(t *testing.T) {
 	t.Parallel()
 
 	// Made at run time, the way a configuration carries it.
@@ -36,15 +36,15 @@ func TestConfirm(t *testing.T) {
 			t.Parallel()
 
 			var out strings.Builder
-			err := confirm(strings.NewReader(tc.answer), &out, databaseURL)
+			err := confirmReset(strings.NewReader(tc.answer), &out, databaseURL)
 			if tc.wantErr {
 				if err == nil {
-					t.Fatal("confirm accepted an answer other than reset")
+					t.Fatal("confirmReset accepted an answer other than reset")
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("confirm: %v", err)
+				t.Fatalf("confirmReset: %v", err)
 			}
 
 			prompt := out.String()

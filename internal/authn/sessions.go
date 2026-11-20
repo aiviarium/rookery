@@ -97,11 +97,26 @@ type sessionKey struct{}
 // WithSession puts the session a call came from in the context, so that
 // ListSessions marks it current.
 func WithSession(ctx context.Context, sessionID string) context.Context {
-	return context.WithValue(ctx, sessionKey{}, sessionID)
+	return context.WithValue(ctx, sessionKey{}, store.RookerySessions{ID: sessionID})
 }
 
-// SessionFrom reads the session a call came from, empty for a token call.
+// WithSessionRecord puts the whole session in the context. The edge's
+// authentication middleware does this, so that the CSRF token is at hand without
+// another query.
+func WithSessionRecord(ctx context.Context, session store.RookerySessions) context.Context {
+	return context.WithValue(ctx, sessionKey{}, session)
+}
+
+// SessionFrom reads the id of the session a call came from, empty for a token
+// call.
 func SessionFrom(ctx context.Context) string {
-	session, _ := ctx.Value(sessionKey{}).(string)
-	return session
+	session, _ := ctx.Value(sessionKey{}).(store.RookerySessions)
+	return session.ID
+}
+
+// SessionRecordFrom reads the session a call came from, and whether there was
+// one.
+func SessionRecordFrom(ctx context.Context) (store.RookerySessions, bool) {
+	session, ok := ctx.Value(sessionKey{}).(store.RookerySessions)
+	return session, ok && session.ID != ""
 }
