@@ -464,6 +464,28 @@ wire! {
 }
 
 wire! {
+    /// Notification `notify.new`: one of a person's notifications, on their connections.
+    pub struct NotifyNew {
+        pub notification: NotificationInfo,
+        pub unread: i64,
+        /// Whether the user wants this kind as a native notification.
+        pub native: bool,
+    }
+}
+
+wire! {
+    /// Notification `notify.changed`: notifications changed on another device. `allRead` means every
+    /// notification is read now.
+    pub struct NotifyChanged {
+        pub notifications: Vec<NotificationInfo>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[cfg_attr(feature = "ts", ts(optional, type = "boolean"))]
+        pub all_read: bool,
+        pub unread: i64,
+    }
+}
+
+wire! {
     /// `notify.list`: the caller's, newest first.
     pub struct NotifyQuery {
         #[serde(default)]

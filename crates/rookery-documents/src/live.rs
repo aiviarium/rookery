@@ -1123,11 +1123,9 @@ pub async fn index_content(
             })
             .await;
         match sent {
-            Ok(Some(n)) => kernel.conns.notify_user(
-                &user.to_string(),
-                "notify.new",
-                rookery_jobs::notify::info(n),
-            ),
+            Ok(Some(n)) => {
+                rookery_jobs::notify::announce(kernel, user, rookery_jobs::notify::info(n)).await;
+            }
             Ok(None) => {}
             Err(e) => tracing::warn!(document = %id, error = %e, "a mention's notification failed"),
         }

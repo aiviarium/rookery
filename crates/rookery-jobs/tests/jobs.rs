@@ -630,7 +630,9 @@ async fn notifications_reach_a_persons_inbox_and_answers_the_plugin() {
     let new = tokio::time::timeout(Duration::from_secs(5), live.notification("notify.new"))
         .await
         .expect("the person's connection hears of it, whatever the spelling of their id");
-    assert_eq!(new["id"], id);
+    assert_eq!(new["notification"]["id"], id);
+    assert_eq!(new["unread"], 1);
+    assert_eq!(new["native"], false);
     let listed = k
         .call(&ops, "notify.list", json!({"unread": true}))
         .await
@@ -656,6 +658,13 @@ async fn notifications_reach_a_persons_inbox_and_answers_the_plugin() {
     )
     .await
     .unwrap();
+    // Answering marks it read, and every other device hears what changed.
+    let changed = tokio::time::timeout(Duration::from_secs(5), live.notification("notify.changed"))
+        .await
+        .expect("the person's connection hears of the change");
+    assert_eq!(changed["notifications"][0]["id"], id);
+    assert_eq!(changed["notifications"][0]["answer"], "approve");
+    assert_eq!(changed["unread"], 0);
     let answers = k
         .call(&fleet, "topics.inspect", json!({"topic": "notify.answers"}))
         .await

@@ -119,16 +119,15 @@ impl Notify<'_> {
         .await?)
     }
 
-    /// Marks some, or with no ids all, of a person's notifications read. Returns how many changed.
-    pub async fn read(&self, user: Uuid, ids: Option<&[Uuid]>) -> Result<u64> {
-        let done = sqlx::query(
-            "UPDATE rookery.notifications SET read_at = now() WHERE user_id = $1 AND read_at IS NULL AND ($2::uuid[] IS NULL OR id = ANY ($2))",
-        )
+    /// Marks some, or with no ids all, of a person's notifications read. Returns those that changed.
+    pub async fn read(&self, user: Uuid, ids: Option<&[Uuid]>) -> Result<Vec<Notification>> {
+        Ok(sqlx::query_as(sqlx::AssertSqlSafe(format!(
+            "UPDATE rookery.notifications SET read_at = now() WHERE user_id = $1 AND read_at IS NULL AND ($2::uuid[] IS NULL OR id = ANY ($2)) RETURNING {COLS}"
+        )))
         .bind(user)
         .bind(ids)
-        .execute(self.pool)
-        .await?;
-        Ok(done.rows_affected())
+        .fetch_all(self.pool)
+        .await?)
     }
 
     /// Gives one of a notification's answers, once.
