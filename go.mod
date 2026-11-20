@@ -19,6 +19,7 @@ require (
 	golang.org/x/crypto v0.59.0
 	golang.org/x/oauth2 v0.38.0
 	golang.org/x/sync v0.25.0
+	golang.org/x/term v0.48.0
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/yaml.v3 v3.0.1
 	tailscale.com v1.102.5
@@ -78,7 +79,6 @@ require (
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
-	golang.org/x/term v0.48.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect

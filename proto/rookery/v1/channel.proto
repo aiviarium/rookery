@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package rookery.v1;
+
+import "rookery/host/v1/channel.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+service ChannelService {
+  rpc Publish(ChannelServicePublishRequest) returns (ChannelServicePublishResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE, resource: "host", mutates: true };
+  }
+  // Follow delivers channel messages live, including messages with keep none.
+  rpc Follow(ChannelServiceFollowRequest) returns (stream ChannelServiceFollowResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE, resource: "host" };
+  }
+  rpc Read(ChannelServiceReadRequest) returns (ChannelServiceReadResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE, resource: "host" };
+  }
+}
+
+message ChannelServicePublishRequest {
+  string host = 1;
+  rookery.host.v1.ChannelServicePublishRequest publish = 2;
+}
+message ChannelServicePublishResponse {
+  rookery.host.v1.ChannelMessage message = 1;
+}
+message ChannelServiceFollowRequest {
+  string host = 1;
+  rookery.host.v1.ChannelServiceFollowRequest follow = 2;
+}
+message ChannelServiceFollowResponse {
+  rookery.host.v1.ChannelMessage message = 1;
+}
+message ChannelServiceReadRequest {
+  string host = 1;
+  rookery.host.v1.ChannelServiceReadRequest read = 2;
+}
+message ChannelServiceReadResponse {
+  repeated rookery.host.v1.ChannelMessage messages = 1;
+  uint64 next = 2;
+}

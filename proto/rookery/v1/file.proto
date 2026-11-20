@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package rookery.v1;
+
+import "rookery/host/v1/files.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+service FileService {
+  rpc Read(FileServiceReadRequest) returns (FileServiceReadResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE, resource: "host" };
+  }
+  rpc Write(FileServiceWriteRequest) returns (FileServiceWriteResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE, resource: "host", mutates: true };
+  }
+  rpc List(FileServiceListRequest) returns (FileServiceListResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE, resource: "host" };
+  }
+  rpc Stat(FileServiceStatRequest) returns (FileServiceStatResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE, resource: "host" };
+  }
+  rpc Delete(FileServiceDeleteRequest) returns (FileServiceDeleteResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE, resource: "host", mutates: true };
+  }
+}
+
+message FileServiceReadRequest {
+  string host = 1;
+  rookery.host.v1.FileServiceReadRequest file = 2;
+}
+message FileServiceReadResponse {
+  rookery.host.v1.FileServiceReadResponse result = 1;
+}
+
+message FileServiceWriteRequest {
+  string host = 1;
+  rookery.host.v1.FileServiceWriteRequest file = 2;
+}
+message FileServiceWriteResponse {
+  rookery.host.v1.FileServiceWriteResponse result = 1;
+}
+
+message FileServiceListRequest {
+  string host = 1;
+  rookery.host.v1.FileServiceListRequest file = 2;
+}
+message FileServiceListResponse {
+  rookery.host.v1.FileServiceListResponse result = 1;
+}
+
+message FileServiceStatRequest {
+  string host = 1;
+  rookery.host.v1.FileServiceStatRequest file = 2;
+}
+message FileServiceStatResponse {
+  rookery.host.v1.FileServiceStatResponse result = 1;
+}
+
+message FileServiceDeleteRequest {
+  string host = 1;
+  rookery.host.v1.FileServiceDeleteRequest file = 2;
+}
+message FileServiceDeleteResponse {
+  rookery.host.v1.FileServiceDeleteResponse result = 1;
+}

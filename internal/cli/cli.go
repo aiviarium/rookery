@@ -8,8 +8,10 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -19,7 +21,9 @@ import (
 func Run(version string) error {
 	root := New(version)
 	root.SetArgs(append([]string{}, os.Args[1:]...))
-	return root.Execute()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	return root.ExecuteContext(ctx)
 }
 
 // New is the command tree, for a test to drive.
@@ -67,6 +71,12 @@ that ` + "`rookery login`" + ` saved.`,
 		hostCommand(),
 		desktopCommand(),
 		screenshotCommand(),
+		execCommand(),
+		sshCommand(),
+		portCommand(),
+		cpCommand(),
+		channelCommand(),
+		hostCallCommand(),
 		keyCommand(),
 	)
 	return root

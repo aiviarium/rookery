@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -22,17 +24,24 @@ import (
 // Files are for the server: a local program's account may read and write its own
 // files without rookeryd, so the user socket refuses these calls.
 type fileService struct {
-	server *Server
+	mutations sync.Mutex
 }
 
 func (h *fileService) Read(ctx context.Context, request *connect.Request[hostv1.FileServiceReadRequest]) (*connect.Response[hostv1.FileServiceReadResponse], error) {
-	acct, err := h.account(ctx)
+	acct, err := fileAccount(ctx, request.Msg.GetUser().GetName())
 	if err != nil {
 		return nil, err
 	}
+	if credential, err := acct.credential(); err != nil {
+		return nil, toConnect(err)
+	} else if credential != nil {
+
+		return runFileWorker(ctx, "read", acct, credential, request.Msg, &hostv1.FileServiceReadResponse{})
+	}
+
 	path := resolvePath(acct, request.Msg.GetPath())
 
-	file, err := os.Open(path) //nolint:gosec // the server named the path.
+	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0) //nolint:gosec // the server named the path.
 	if err != nil {
 		return nil, toConnect(fmt.Errorf("agent: opening %s: %w", path, err))
 	}
@@ -42,8 +51,8 @@ func (h *fileService) Read(ctx context.Context, request *connect.Request[hostv1.
 	if err != nil {
 		return nil, toConnect(fmt.Errorf("agent: %s: %w", path, err))
 	}
-	if info.IsDir() {
-		return nil, invalid("agent: %s is a directory", path)
+	if !info.Mode().IsRegular() {
+		return nil, invalid("agent: %s is not a regular file", path)
 	}
 
 	size := uint64(info.Size()) //nolint:gosec // a size is not negative.
@@ -59,6 +68,8 @@ func (h *fileService) Read(ctx context.Context, request *connect.Request[hostv1.
 	if length == 0 || length > size-offset {
 		length = size - offset
 	}
+	// Callers can continue a ranged read, including when a file is large.
+	length = min(length, 4<<20)
 	data := make([]byte, length)
 	read, err := io.ReadFull(file, data)
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
@@ -73,10 +84,19 @@ func (h *fileService) Read(ctx context.Context, request *connect.Request[hostv1.
 }
 
 func (h *fileService) Write(ctx context.Context, request *connect.Request[hostv1.FileServiceWriteRequest]) (*connect.Response[hostv1.FileServiceWriteResponse], error) {
-	acct, err := h.account(ctx)
+	acct, err := fileAccount(ctx, request.Msg.GetUser().GetName())
 	if err != nil {
 		return nil, err
 	}
+	if credential, err := acct.credential(); err != nil {
+		return nil, toConnect(err)
+	} else if credential != nil {
+		h.mutations.Lock()
+		defer h.mutations.Unlock()
+		return runFileWorker(ctx, "write", acct, credential, request.Msg, &hostv1.FileServiceWriteResponse{})
+	}
+	h.mutations.Lock()
+	defer h.mutations.Unlock()
 	path := resolvePath(acct, request.Msg.GetPath())
 
 	revision := request.Msg.GetRevision()
@@ -93,11 +113,25 @@ func (h *fileService) Write(ctx context.Context, request *connect.Request[hostv1
 		}
 	}
 
-	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	if strings.HasSuffix(request.Msg.GetPath(), "/") {
+		if revision != "" || len(request.Msg.GetData()) > 0 {
+			return nil, invalid("agent: a directory write has no content or revision")
+		}
+		mode := os.FileMode(request.Msg.GetMode() & 0o777)
+		if mode == 0 {
+			mode = 0o755
+		}
+		if err := os.Mkdir(path, mode); err != nil {
+			return nil, toConnect(fmt.Errorf("agent: creating %s: %w", path, err))
+		}
+		return connect.NewResponse(&hostv1.FileServiceWriteResponse{}), nil
+	}
+
+	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC | syscall.O_NONBLOCK
 	if request.Msg.GetCreate() {
 		flags = os.O_WRONLY | os.O_CREATE | os.O_EXCL
 	}
-	mode := os.FileMode(request.Msg.GetMode())
+	mode := os.FileMode(request.Msg.GetMode() & 0o777)
 	if mode == 0 {
 		mode = 0o644
 	}
@@ -116,14 +150,8 @@ func (h *fileService) Write(ctx context.Context, request *connect.Request[hostv1
 	if err := file.Close(); err != nil {
 		return nil, toConnect(fmt.Errorf("agent: closing %s: %w", path, err))
 	}
-	if err := h.own(path, acct); err != nil {
-		return nil, toConnect(err)
-	}
-
-	written, err := revisionOf(path)
-	if err != nil {
-		return nil, toConnect(err)
-	}
+	digest := sha256.Sum256(request.Msg.GetData())
+	written := "sha256:" + hex.EncodeToString(digest[:])
 	return connect.NewResponse(&hostv1.FileServiceWriteResponse{
 		Revision: written,
 		Size:     uint64(len(request.Msg.GetData())),
@@ -131,10 +159,17 @@ func (h *fileService) Write(ctx context.Context, request *connect.Request[hostv1
 }
 
 func (h *fileService) List(ctx context.Context, request *connect.Request[hostv1.FileServiceListRequest]) (*connect.Response[hostv1.FileServiceListResponse], error) {
-	acct, err := h.account(ctx)
+	acct, err := fileAccount(ctx, request.Msg.GetUser().GetName())
 	if err != nil {
 		return nil, err
 	}
+	if credential, err := acct.credential(); err != nil {
+		return nil, toConnect(err)
+	} else if credential != nil {
+
+		return runFileWorker(ctx, "list", acct, credential, request.Msg, &hostv1.FileServiceListResponse{})
+	}
+
 	path := resolvePath(acct, request.Msg.GetPath())
 
 	entries, err := os.ReadDir(path)
@@ -159,10 +194,17 @@ func (h *fileService) List(ctx context.Context, request *connect.Request[hostv1.
 }
 
 func (h *fileService) Stat(ctx context.Context, request *connect.Request[hostv1.FileServiceStatRequest]) (*connect.Response[hostv1.FileServiceStatResponse], error) {
-	acct, err := h.account(ctx)
+	acct, err := fileAccount(ctx, request.Msg.GetUser().GetName())
 	if err != nil {
 		return nil, err
 	}
+	if credential, err := acct.credential(); err != nil {
+		return nil, toConnect(err)
+	} else if credential != nil {
+
+		return runFileWorker(ctx, "stat", acct, credential, request.Msg, &hostv1.FileServiceStatResponse{})
+	}
+
 	path := resolvePath(acct, request.Msg.GetPath())
 
 	info, err := os.Stat(path)
@@ -179,10 +221,19 @@ func (h *fileService) Stat(ctx context.Context, request *connect.Request[hostv1.
 }
 
 func (h *fileService) Delete(ctx context.Context, request *connect.Request[hostv1.FileServiceDeleteRequest]) (*connect.Response[hostv1.FileServiceDeleteResponse], error) {
-	acct, err := h.account(ctx)
+	acct, err := fileAccount(ctx, request.Msg.GetUser().GetName())
 	if err != nil {
 		return nil, err
 	}
+	if credential, err := acct.credential(); err != nil {
+		return nil, toConnect(err)
+	} else if credential != nil {
+		h.mutations.Lock()
+		defer h.mutations.Unlock()
+		return runFileWorker(ctx, "delete", acct, credential, request.Msg, &hostv1.FileServiceDeleteResponse{})
+	}
+	h.mutations.Lock()
+	defer h.mutations.Unlock()
 	path := resolvePath(acct, request.Msg.GetPath())
 
 	info, err := os.Lstat(path)
@@ -209,7 +260,7 @@ func (h *fileService) Delete(ctx context.Context, request *connect.Request[hostv
 }
 
 // account resolves the call's account, and refuses the user socket.
-func (h *fileService) account(ctx context.Context) (*account, error) {
+func fileAccount(ctx context.Context, name string) (*account, error) {
 	caller, err := callerOf(ctx)
 	if err != nil {
 		return nil, err
@@ -217,20 +268,8 @@ func (h *fileService) account(ctx context.Context) (*account, error) {
 	if caller.role != roleRoot {
 		return nil, denied("agent: files are for the server, not for local programs")
 	}
-	acct, _, err := accountFor(ctx, "")
+	acct, _, err := accountFor(ctx, name)
 	return acct, err
-}
-
-// own chowns a file to the account it was written for, so that a write as a user
-// leaves a file the user owns.
-func (h *fileService) own(path string, acct *account) error {
-	if os.Geteuid() != 0 {
-		return nil
-	}
-	if err := os.Chown(path, int(acct.UID), int(acct.GID)); err != nil {
-		return fmt.Errorf("agent: giving %s to %s: %w", path, acct.Name, err)
-	}
-	return nil
 }
 
 // resolvePath makes a relative path relative to the account's home, so that the
@@ -262,12 +301,19 @@ func describeFile(path string, info os.FileInfo) *hostv1.File {
 
 // revisionOf is a file's revision: the SHA-256 of its content.
 func revisionOf(path string) (string, error) {
-	file, err := os.Open(path) //nolint:gosec // the server named the path.
+	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0) //nolint:gosec // the server named the path.
 	if err != nil {
 		return "", fmt.Errorf("agent: reading %s: %w", path, err)
 	}
 	defer func() { _ = file.Close() }()
 
+	info, err := file.Stat()
+	if err != nil {
+		return "", fmt.Errorf("agent: stating %s: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%w: %s is not a regular file", ErrInvalid, path)
+	}
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
 		return "", fmt.Errorf("agent: hashing %s: %w", path, err)

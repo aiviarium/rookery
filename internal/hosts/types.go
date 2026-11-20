@@ -38,8 +38,10 @@ const (
 	CapabilityPorts Capability = "ports"
 	// CapabilityDesktop is the host's shared desktop.
 	CapabilityDesktop Capability = "desktop"
-	// CapabilityChannel is the host's channel: topics and host services.
+	// CapabilityChannel is the host's channel.
 	CapabilityChannel Capability = "channel"
+	// CapabilityHostServices is host-local service registration and calls.
+	CapabilityHostServices Capability = "host-services"
 	// CapabilityActions is the actions the host's features declare.
 	CapabilityActions Capability = "actions"
 )
@@ -54,25 +56,27 @@ var capabilities = map[profile.Type]map[Capability]bool{
 		CapabilityExec:    true,
 	},
 	profile.TypeManaged: {
-		CapabilityContact:  true,
-		CapabilityApply:    true,
-		CapabilityExec:     true,
-		CapabilityTerminal: true,
-		CapabilityFiles:    true,
-		CapabilityPorts:    true,
-		CapabilityChannel:  true,
-		CapabilityActions:  true,
+		CapabilityContact:      true,
+		CapabilityApply:        true,
+		CapabilityExec:         true,
+		CapabilityTerminal:     true,
+		CapabilityFiles:        true,
+		CapabilityPorts:        true,
+		CapabilityChannel:      true,
+		CapabilityHostServices: true,
+		CapabilityActions:      true,
 	},
 	profile.TypeWorkstation: {
-		CapabilityContact:  true,
-		CapabilityApply:    true,
-		CapabilityExec:     true,
-		CapabilityTerminal: true,
-		CapabilityFiles:    true,
-		CapabilityPorts:    true,
-		CapabilityChannel:  true,
-		CapabilityActions:  true,
-		CapabilityDesktop:  true,
+		CapabilityContact:      true,
+		CapabilityApply:        true,
+		CapabilityExec:         true,
+		CapabilityTerminal:     true,
+		CapabilityFiles:        true,
+		CapabilityPorts:        true,
+		CapabilityChannel:      true,
+		CapabilityHostServices: true,
+		CapabilityActions:      true,
+		CapabilityDesktop:      true,
 	},
 }
 
@@ -148,7 +152,7 @@ func reasonFor(hostType profile.Type, capability Capability) (string, bool) {
 		case profile.TypeSSH, profile.TypeManaged:
 			return "apply the base role, then make the host a workstation: give it a desktop in its profile and apply again", true
 		}
-	case CapabilityTerminal, CapabilityFiles, CapabilityPorts, CapabilityChannel, CapabilityActions:
+	case CapabilityTerminal, CapabilityFiles, CapabilityPorts, CapabilityChannel, CapabilityHostServices, CapabilityActions:
 		if hostType == profile.TypeSSH {
 			return "apply the base role: it installs rookeryd, box and the tailnet, which makes the host managed", true
 		}

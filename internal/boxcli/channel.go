@@ -33,7 +33,7 @@ func runPublish(ctx context.Context, options Options, args []string) error {
 
 	var value any
 	if len(rest) == 2 {
-		value = parseValue(rest[1])
+		value = cborx.ParseText(rest[1])
 	}
 	payload, err := cborx.Marshal(value)
 	if err != nil {
@@ -142,7 +142,7 @@ func runListen(ctx context.Context, options Options, args []string) error {
 				return fmt.Errorf("box: decoding the message on %s: %w", message.GetTopic(), err)
 			}
 		}
-		line["value"] = jsonable(value)
+		line["value"] = cborx.JSONValue(value)
 		if err := writeJSON(options.Stdout, line); err != nil {
 			return err
 		}

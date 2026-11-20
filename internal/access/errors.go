@@ -80,6 +80,9 @@ func ToConnect(err error) error {
 	switch {
 	case errors.As(err, &denied):
 		code = connect.CodePermissionDenied
+		if denied.Capability != "" {
+			code = connect.CodeUnavailable
+		}
 	case errors.Is(err, ErrInvalid):
 		code = connect.CodeInvalidArgument
 	case errors.Is(err, ErrUnauthenticated):

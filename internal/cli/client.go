@@ -117,6 +117,12 @@ type api struct {
 	Hosts         rookeryv1connect.HostServiceClient
 	Desktop       rookeryv1connect.DesktopServiceClient
 	Keys          rookeryv1connect.KeyServiceClient
+	Terminals     rookeryv1connect.TerminalServiceClient
+	Exec          rookeryv1connect.ExecServiceClient
+	Files         rookeryv1connect.FileServiceClient
+	Ports         rookeryv1connect.PortServiceClient
+	Channel       rookeryv1connect.ChannelServiceClient
+	HostCalls     rookeryv1connect.HostCallServiceClient
 }
 
 // dial connects to a server at an address: a Unix socket, or an http or https
@@ -129,9 +135,10 @@ func dial(ctx context.Context, address, token string) (*api, error) {
 	_ = ctx
 
 	options := []connectrpc.ClientOption{connectrpc.WithGRPC()}
-	desktopClient := *httpClient
-	// A viewer can stay attached for as long as its local connection is open.
-	desktopClient.Timeout = 0
+	// A viewer or a terminal stays attached for as long as its local connection
+	// is open, so the streaming clients have no overall timeout.
+	streamClient := *httpClient
+	streamClient.Timeout = 0
 	return &api{
 		Server:        base,
 		Auth:          rookeryv1connect.NewAuthServiceClient(httpClient, base, options...),
@@ -154,8 +161,14 @@ func dial(ctx context.Context, address, token string) (*api, error) {
 		Plugins:       rookeryv1connect.NewPluginServiceClient(httpClient, base, options...),
 		Registries:    rookeryv1connect.NewRegistryServiceClient(httpClient, base, options...),
 		Hosts:         rookeryv1connect.NewHostServiceClient(httpClient, base, options...),
-		Desktop:       rookeryv1connect.NewDesktopServiceClient(&desktopClient, base, options...),
+		Desktop:       rookeryv1connect.NewDesktopServiceClient(&streamClient, base, options...),
 		Keys:          rookeryv1connect.NewKeyServiceClient(httpClient, base, options...),
+		Terminals:     rookeryv1connect.NewTerminalServiceClient(&streamClient, base, options...),
+		Exec:          rookeryv1connect.NewExecServiceClient(&streamClient, base, options...),
+		Files:         rookeryv1connect.NewFileServiceClient(httpClient, base, options...),
+		Ports:         rookeryv1connect.NewPortServiceClient(httpClient, base, options...),
+		Channel:       rookeryv1connect.NewChannelServiceClient(httpClient, base, options...),
+		HostCalls:     rookeryv1connect.NewHostCallServiceClient(httpClient, base, options...),
 	}, nil
 }
 

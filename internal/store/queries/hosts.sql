@@ -87,3 +87,11 @@ SET sequence = excluded.sequence,
 -- name: DeleteHostCursor :exec
 DELETE FROM rookery.host_cursors
 WHERE host = $1;
+
+-- name: AdvanceHostCursor :execrows
+INSERT INTO rookery.host_cursors (host, sequence)
+VALUES ($1, $2)
+ON CONFLICT (host) DO UPDATE
+SET sequence = excluded.sequence,
+    updated_at = now()
+WHERE rookery.host_cursors.sequence < excluded.sequence;

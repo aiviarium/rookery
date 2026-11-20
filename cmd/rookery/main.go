@@ -2,6 +2,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -14,6 +15,10 @@ var version = "dev"
 func main() {
 	if err := cli.Run(version); err != nil {
 		fmt.Fprintln(os.Stderr, "rookery:", err)
+		var exited cli.ExitStatus
+		if errors.As(err, &exited) && exited > 0 && exited < 256 {
+			os.Exit(int(exited))
+		}
 		os.Exit(1)
 	}
 }

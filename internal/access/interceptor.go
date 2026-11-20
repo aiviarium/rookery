@@ -155,6 +155,16 @@ func MethodOption(method protoreflect.MethodDescriptor) (Level, string, error) {
 	return extension.GetLevel(), extension.GetResource(), nil
 }
 
+// Mutates reports whether the procedure explicitly marks a state change.
+func Mutates(method protoreflect.MethodDescriptor) bool {
+	options, ok := method.Options().(*descriptorpb.MethodOptions)
+	if !ok || options == nil {
+		return false
+	}
+	option, _ := proto.GetExtension(options, rookeryv1.E_Access).(*rookeryv1.Access)
+	return option.GetMutates()
+}
+
 // ResourceOf is the resource a call is about: the named field's value as a URI,
 // or the empty string when the procedure names no resource or the field is
 // empty (a create has no id yet).

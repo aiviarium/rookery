@@ -9,6 +9,28 @@ import (
 	"context"
 )
 
+const advanceHostCursor = `-- name: AdvanceHostCursor :execrows
+INSERT INTO rookery.host_cursors (host, sequence)
+VALUES ($1, $2)
+ON CONFLICT (host) DO UPDATE
+SET sequence = excluded.sequence,
+    updated_at = now()
+WHERE rookery.host_cursors.sequence < excluded.sequence
+`
+
+type AdvanceHostCursorParams struct {
+	Host     string
+	Sequence int64
+}
+
+func (q *Queries) AdvanceHostCursor(ctx context.Context, arg AdvanceHostCursorParams) (int64, error) {
+	result, err := q.db.Exec(ctx, advanceHostCursor, arg.Host, arg.Sequence)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createHost = `-- name: CreateHost :one
 INSERT INTO rookery.hosts (name, type, profile, address, created_by)
 VALUES ($1, $2, $3, $4, $5)

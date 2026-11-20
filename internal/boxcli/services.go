@@ -53,7 +53,7 @@ func runCall(ctx context.Context, options Options, args []string) error {
 
 	var value any
 	if len(args) == 3 {
-		value = parseValue(args[2])
+		value = cborx.ParseText(args[2])
 	}
 	arguments, err := cborx.Marshal(value)
 	if err != nil {
@@ -79,7 +79,7 @@ func runCall(ctx context.Context, options Options, args []string) error {
 			return fmt.Errorf("box: decoding the answer: %w", err)
 		}
 	}
-	return writeJSON(options.Stdout, jsonable(answer))
+	return writeJSON(options.Stdout, cborx.JSONValue(answer))
 }
 
 // runServe offers a host service, running a command for each call.

@@ -21,7 +21,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"connectrpc.com/connect"
 	"golang.org/x/crypto/ssh"
+
+	hostv1 "github.com/aiviarium/rookery/gen/go/rookery/host/v1"
 
 	"github.com/aiviarium/rookery/internal/access"
 	"github.com/aiviarium/rookery/internal/pipeconn"
@@ -32,7 +35,7 @@ import (
 const DefaultIdle = 5 * time.Minute
 
 // RookerydCommand is what a session runs to become the daemon's connection.
-var RookerydCommand = "sudo -n rookeryd connect"
+const RookerydCommand = "sudo -n rookeryd connect"
 
 // Tailnet dials a host by its tailnet address, through the server's node.
 type Tailnet interface {
@@ -104,8 +107,11 @@ type Manager struct {
 	known   *KnownHosts
 	options Options
 
-	mu    sync.Mutex
-	links map[string]*connection
+	mu      sync.Mutex
+	links   map[string]*connection
+	opening map[string]chan struct{}
+	closed  bool
+	wg      sync.WaitGroup
 }
 
 // NewManager returns the link manager. It holds no link until one is asked
@@ -117,7 +123,7 @@ func NewManager(opened *store.Store, ring *Ring, known *KnownHosts, options Opti
 	if options.Log == nil {
 		options.Log = slog.Default()
 	}
-	return &Manager{opened: opened, ring: ring, known: known, options: options, links: make(map[string]*connection)}
+	return &Manager{opened: opened, ring: ring, known: known, options: options, links: make(map[string]*connection), opening: make(map[string]chan struct{})}
 }
 
 // Ring is the key ring links log in with.
@@ -141,6 +147,7 @@ func (m *Manager) Use(ctx context.Context, name string) (*Client, func(), error)
 // daemon in, and the daemon client on the session's pipe.
 type connection struct {
 	host string
+	done chan struct{}
 	ssh  *ssh.Client
 	sess *ssh.Session
 	pipe net.Conn
@@ -156,34 +163,64 @@ type connection struct {
 
 // connect returns the host's link, opening it if needed.
 func (m *Manager) connect(ctx context.Context, name string) (*connection, error) {
-	m.mu.Lock()
-	conn := m.links[name]
-	if conn != nil && !conn.closed.Load() {
-		conn.touch()
+	for {
+		m.mu.Lock()
+		if m.closed {
+			m.mu.Unlock()
+			return nil, fmt.Errorf("%w: the link manager is closed", access.ErrUnavailable)
+		}
+		if conn := m.links[name]; conn != nil && !conn.closed.Load() {
+			conn.touch()
+			m.mu.Unlock()
+			return conn, nil
+		}
+		if pending := m.opening[name]; pending != nil {
+			m.mu.Unlock()
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-pending:
+				continue
+			}
+		}
+		pending := make(chan struct{})
+		m.opening[name] = pending
+		m.mu.Unlock()
+
+		conn, err := m.open(ctx, name)
+		m.mu.Lock()
+		delete(m.opening, name)
+		close(pending)
+		if err != nil {
+			m.mu.Unlock()
+			return nil, err
+		}
+		if m.closed {
+			m.mu.Unlock()
+			m.close(conn)
+			return nil, fmt.Errorf("%w: the link manager is closed", access.ErrUnavailable)
+		}
+		m.links[name] = conn
+		m.wg.Add(2)
+		go func() {
+			defer m.wg.Done()
+			m.reap(conn)
+		}()
+		go func() {
+			defer m.wg.Done()
+			_ = conn.sess.Wait()
+			m.close(conn)
+		}()
 		m.mu.Unlock()
 		return conn, nil
 	}
-	m.mu.Unlock()
-
-	// One dialer per host at a time: two callers must not open two links.
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if conn = m.links[name]; conn != nil && !conn.closed.Load() {
-		conn.touch()
-		return conn, nil
-	}
-	opened, err := m.open(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	m.links[name] = opened
-	go m.reap(opened)
-	return opened, nil
 }
 
 // open makes a host's link: the SSH connection, the daemon session and the
 // client on it.
 func (m *Manager) open(ctx context.Context, name string) (*connection, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	target, err := m.options.Targets.Target(ctx, name)
 	if err != nil {
 		return nil, err
@@ -201,6 +238,8 @@ func (m *Manager) open(ctx context.Context, name string) (*connection, error) {
 		return nil, err
 	}
 
+	stop := context.AfterFunc(ctx, func() { _ = client.Close() })
+	defer stop()
 	session, err := client.NewSession()
 	if err != nil {
 		_ = client.Close()
@@ -232,10 +271,17 @@ func (m *Manager) open(ctx context.Context, name string) (*connection, error) {
 	}
 	conn := &connection{
 		host:   name,
+		done:   make(chan struct{}),
 		ssh:    client,
 		sess:   session,
 		pipe:   pipe,
 		client: clients(pipeconn.Client(pipe)),
+	}
+	// Start HTTP/2 before handing the client to concurrent callers. Go's
+	// transport can otherwise race a second dial against the first handshake.
+	if _, err := conn.client.Agent.Version(ctx, connect.NewRequest(&hostv1.AgentServiceVersionRequest{})); err != nil {
+		m.close(conn)
+		return nil, fmt.Errorf("%w: rookeryd on %s did not answer: %w", access.ErrUnavailable, name, err)
 	}
 	conn.touch()
 	m.options.Log.Info("opened a link", slog.String("host", name), slog.String("address", target.dialAddress()))
@@ -266,28 +312,25 @@ func (m *Manager) reap(conn *connection) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
-		if conn.closed.Load() {
+		select {
+		case <-conn.done:
 			return
+		case <-ticker.C:
 		}
 		if m.options.KeepOpen != nil && m.options.KeepOpen(conn.host) {
-			// A host whose channel is followed stays open however idle it is.
-			conn.touch()
-			conn.release()
-			<-ticker.C
 			continue
 		}
-		<-ticker.C
-		if conn.closed.Load() {
+		m.mu.Lock()
+		idle := !conn.closed.Load() && conn.users.Load() == 0 &&
+			time.Since(time.Unix(0, conn.lastUse.Load())) >= idle
+		if idle && m.links[conn.host] == conn {
+			delete(m.links, conn.host)
+		}
+		m.mu.Unlock()
+		if idle {
+			m.close(conn)
 			return
 		}
-		if conn.users.Load() > 0 {
-			continue
-		}
-		if time.Since(time.Unix(0, conn.lastUse.Load())) < idle {
-			continue
-		}
-		m.close(conn)
-		return
 	}
 }
 
@@ -302,6 +345,7 @@ func (m *Manager) close(conn *connection) {
 	}
 	m.mu.Unlock()
 
+	close(conn.done)
 	if conn.client != nil {
 		_ = conn.client.Close()
 	}
@@ -320,6 +364,7 @@ func (m *Manager) close(conn *connection) {
 // Close closes every link, as a stopping server does.
 func (m *Manager) Close() {
 	m.mu.Lock()
+	m.closed = true
 	links := make([]*connection, 0, len(m.links))
 	for _, conn := range m.links {
 		links = append(links, conn)
@@ -328,11 +373,24 @@ func (m *Manager) Close() {
 	for _, conn := range links {
 		m.close(conn)
 	}
+	m.wg.Wait()
+}
+
+// Disconnect drops a host's current link so its next call reads a new target.
+func (m *Manager) Disconnect(name string) {
+	m.mu.Lock()
+	conn := m.links[name]
+	m.mu.Unlock()
+	if conn != nil {
+		m.close(conn)
+	}
 }
 
 // Dial opens a raw SSH connection to a target for a caller that is not a link:
 // first contact and an apply's key check.
 func (m *Manager) dialSSH(ctx context.Context, target Target, auth ssh.AuthMethod, hostKey ssh.HostKeyCallback) (*ssh.Client, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	address := target.dialAddress()
 	var dialer net.Dialer
 	conn, err := m.dial(ctx, &dialer, address, target)
@@ -350,6 +408,8 @@ func (m *Manager) dialSSH(ctx context.Context, target Target, auth ssh.AuthMetho
 		HostKeyCallback: hostKey,
 		Timeout:         30 * time.Second,
 	}
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
 	clientConn, channels, requests, err := ssh.NewClientConn(conn, address, config)
 	if err != nil {
 		_ = conn.Close()

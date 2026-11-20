@@ -18,9 +18,13 @@ type sessionService struct {
 }
 
 func (h *sessionService) Create(ctx context.Context, request *connect.Request[hostv1.SessionServiceCreateRequest]) (*connect.Response[hostv1.SessionServiceCreateResponse], error) {
-	acct, _, err := accountFor(ctx, request.Msg.GetUser().GetName())
+	acct, caller, err := accountFor(ctx, request.Msg.GetUser().GetName())
 	if err != nil {
 		return nil, err
+	}
+
+	if caller.role != roleRoot && request.Msg.GetSharing() != nil {
+		return nil, denied("agent: only the server may set terminal sharing")
 	}
 
 	sess, err := startSession(ctx, acct, request.Msg)
@@ -97,45 +101,31 @@ func (h *sessionService) Attach(ctx context.Context, stream *connect.BidiStream[
 			return err
 		}
 	}
-	replayed := from + uint64(len(replay))
 	if len(first.GetInput()) > 0 {
 		if err := sess.write(first.GetInput()); err != nil {
 			return toConnect(err)
 		}
 	}
 
-	// One goroutine sends and one receives, because a stream is one way at each
-	// end. Whichever ends first ends the handler. The sender is stopped and
-	// waited for before the handler returns: a message written after a handler
-	// has finished is a panic in net/http.
-	ended := make(chan error, 2)
-	stop := make(chan struct{})
-	sent := make(chan struct{})
+	// CloseRequest leaves output open. A blocked Receive is released by
+	// net/http when the handler returns, so only this goroutine may Send.
+	inputErr := make(chan error, 1)
 	go func() {
-		defer close(sent)
-		ended <- sendSessionOutput(stream, sess, viewer, replayed, stop)
+		if err := readSessionInput(stream, sess); err != nil {
+			inputErr <- err
+		}
 	}()
-	go func() { ended <- readSessionInput(stream, sess) }()
-
-	err = <-ended
-	close(stop)
-	// The sender is waited for even when the call is over: a message written
-	// after a handler has returned is a panic in net/http, and a canceled stream
-	// ends the sender's own Send.
-	<-sent
-	return err
+	return sendSessionOutput(ctx, stream, sess, viewer, inputErr)
 }
 
-// sendSessionOutput streams a session's output to a viewer until the session
-// ends, the caller goes, or the handler stops it.
-func sendSessionOutput(stream *connect.BidiStream[hostv1.SessionServiceAttachRequest, hostv1.SessionServiceAttachResponse], sess *session, viewer *viewer, replayed uint64, stop <-chan struct{}) error {
+func sendSessionOutput(ctx context.Context, stream *connect.BidiStream[hostv1.SessionServiceAttachRequest, hostv1.SessionServiceAttachResponse], sess *session, viewer *viewer, inputErr <-chan error) error {
 	for {
-		var output chunk
-		var open bool
 		select {
-		case <-stop:
-			return nil
-		case output, open = <-viewer.chunks:
+		case <-ctx.Done():
+			return ctx.Err()
+		case err := <-inputErr:
+			return err
+		case output, open := <-viewer.chunks:
 			if !open {
 				if sess.viewerDropped(viewer) {
 					return stream.Send(&hostv1.SessionServiceAttachResponse{Dropped: true})
@@ -145,17 +135,10 @@ func sendSessionOutput(stream *connect.BidiStream[hostv1.SessionServiceAttachReq
 				}
 				return nil
 			}
-		}
 
-		if output.offset+uint64(len(output.data)) <= replayed {
-			continue
-		}
-		if output.offset < replayed {
-			output.data = output.data[replayed-output.offset:]
-			output.offset = replayed
-		}
-		if err := stream.Send(&hostv1.SessionServiceAttachResponse{Output: output.data, Offset: output.offset}); err != nil {
-			return err
+			if err := stream.Send(&hostv1.SessionServiceAttachResponse{Output: output.data, Offset: output.offset}); err != nil {
+				return err
+			}
 		}
 	}
 }

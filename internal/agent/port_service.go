@@ -9,13 +9,12 @@ import (
 	"strconv"
 
 	"connectrpc.com/connect"
-	"golang.org/x/sync/errgroup"
 
 	hostv1 "github.com/aiviarium/rookery/gen/go/rookery/host/v1"
 )
 
-// portService serves PortService: bytes to a port on the host's loopback, or to
-// a Unix socket there.
+// portService serves PortService: bytes to a port on the host's loopback, to a
+// Unix socket there, or the desktop's RFB socket.
 type portService struct {
 	server *Server
 }
@@ -53,10 +52,28 @@ func (h *portService) Dial(ctx context.Context, stream *connect.BidiStream[hostv
 	}
 	defer func() { _ = conn.Close() }()
 
-	group, ctx := errgroup.WithContext(ctx)
-	group.Go(func() error { return writeToPort(ctx, stream, conn, first.GetData()) })
-	group.Go(func() error { return readFromPort(ctx, stream, conn) })
-	return group.Wait()
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+	if err := stream.Send(&hostv1.PortServiceDialResponse{Connected: true}); err != nil {
+		return err
+	}
+
+	// Keep sending on the handler goroutine. Returning closes the request
+	// body, which unblocks Receive if the target hung up first.
+	inputErr := make(chan error, 1)
+	go func() {
+		if err := writeToPort(ctx, stream, conn, first.GetData()); err != nil {
+			inputErr <- err
+			_ = conn.Close()
+		}
+	}()
+	err = readFromPort(ctx, stream, conn)
+	select {
+	case err := <-inputErr:
+		return err
+	default:
+		return err
+	}
 }
 
 // targetOf is where a Dial's first message says to connect.

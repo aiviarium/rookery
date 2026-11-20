@@ -48,6 +48,10 @@ message Access {
   // "id" for a host's or a record's id. Empty means the procedure needs no
   // resource, and the level is checked against the caller alone.
   string resource = 2;
+
+  // Mutates makes a successful call auditable even when it needs less than
+  // manage access.
+  bool mutates = 3;
 }
 
 extend google.protobuf.MethodOptions {

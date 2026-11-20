@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"time"
 
@@ -180,8 +181,8 @@ type AddInput struct {
 // Add records a host. The profile's type and the host's type are the same to
 // begin with: an apply is what makes it grow.
 func (h *Hosts) Add(ctx context.Context, input AddInput) (Record, error) {
-	if input.Name == "" {
-		return Record{}, fmt.Errorf("%w: a host needs a name", access.ErrInvalid)
+	if err := validateName(input.Name); err != nil {
+		return Record{}, err
 	}
 	p := input.Profile.Normalize()
 	if input.Type.Valid() {
@@ -288,8 +289,8 @@ func (h *Hosts) SetLabels(ctx context.Context, name string, set map[string]strin
 
 // Rename renames a host, with the grants and the resource its name was.
 func (h *Hosts) Rename(ctx context.Context, name, newName string) (Record, error) {
-	if newName == "" {
-		return Record{}, fmt.Errorf("%w: a host needs a name", access.ErrInvalid)
+	if err := validateName(newName); err != nil {
+		return Record{}, err
 	}
 	row, err := h.store.Queries().RenameHost(ctx, store.RenameHostParams{Name: name, NewName: newName})
 	if err != nil {
@@ -371,6 +372,15 @@ func (h *Hosts) MarkApplied(ctx context.Context, name, digest string, hostType p
 func (h *Hosts) Touch(ctx context.Context, name string) error {
 	if err := h.store.Queries().TouchHost(ctx, name); err != nil {
 		return fmt.Errorf("hosts: touching %s: %w", name, err)
+	}
+	return nil
+}
+
+var hostName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
+
+func validateName(name string) error {
+	if !hostName.MatchString(name) {
+		return fmt.Errorf("%w: a host name must be one to 64 letters, digits, dots, underscores or dashes and start with a letter or digit", access.ErrInvalid)
 	}
 	return nil
 }

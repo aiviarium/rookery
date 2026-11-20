@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package rookery.v1;
+
+import "rookery/host/v1/exec.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+service ExecService {
+  rpc Run(ExecServiceRunRequest) returns (stream ExecServiceRunResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE, resource: "host", mutates: true };
+  }
+}
+message ExecServiceRunRequest {
+  string host = 1;
+  // User, when provided, selects desktop, operator or root.
+  rookery.host.v1.ExecServiceRunRequest exec = 2;
+}
+message ExecServiceRunResponse {
+  rookery.host.v1.ExecServiceRunResponse event = 1;
+}
