@@ -1,0 +1,230 @@
+// The live documents API.
+//
+// A document is a CRDT document of a type, with a parent resource its access
+// comes from; the core stores and relays its updates without reading them. The
+// level is checked on document://<id> for every call, so no method option names
+// the resource.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// DocumentService creates, reads and syncs live documents.
+service DocumentService {
+  // Create makes a document under a parent resource.
+  rpc Create(DocumentServiceCreateRequest) returns (DocumentServiceCreateResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // Get returns a document.
+  rpc Get(DocumentServiceGetRequest) returns (DocumentServiceGetResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // Sync is a participant's stream: the server sends the document's snapshot
+  // and updates, then relays what the others send, and appends what this
+  // participant sends.
+  rpc Sync(stream DocumentServiceSyncRequest) returns (stream DocumentServiceSyncResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // Snapshot stores a compacted state covering a sequence, and a version for the
+  // document's history.
+  rpc Snapshot(SnapshotRequest) returns (SnapshotResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // History lists the document's versions.
+  rpc History(DocumentServiceHistoryRequest) returns (DocumentServiceHistoryResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // Delete marks a document deleted.
+  rpc Delete(DocumentServiceDeleteRequest) returns (DocumentServiceDeleteResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+}
+
+// Document is one live document.
+message Document {
+  // Id is the document's id, a ULID.
+  string id = 1;
+
+  // Type is the CRDT a client opens it with, such as "yjs".
+  string type = 2;
+
+  // Parent is the resource URI whose grants reach the document.
+  string parent = 3;
+
+  // Owner is who made it, as access writes a principal.
+  string owner = 4;
+
+  // CreatedAt and UpdatedAt are its timestamps.
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+// DocumentServiceCreateRequest makes a document.
+message DocumentServiceCreateRequest {
+  // Type is the CRDT a client opens it with.
+  string type = 1;
+
+  // Parent is the resource URI the document hangs under.
+  string parent = 2;
+}
+
+// DocumentServiceCreateResponse carries the document.
+message DocumentServiceCreateResponse {
+  Document document = 1;
+}
+
+// DocumentServiceGetRequest names a document.
+message DocumentServiceGetRequest {
+  // Id is the document's id.
+  string id = 1;
+}
+
+// DocumentServiceGetResponse carries the document.
+message DocumentServiceGetResponse {
+  Document document = 1;
+}
+
+// SyncHello opens a participant's stream. It is the first message.
+message SyncHello {
+  // DocumentId is the document to sync.
+  string document_id = 1;
+
+  // FromSequence is the last update the participant has, and zero asks for
+  // everything the server keeps.
+  int64 from_sequence = 2;
+}
+
+// SyncUpdate is a CRDT update, in either direction. The server sets the
+// sequence on the ones it relays.
+message SyncUpdate {
+  // Data is the update, which the core does not read.
+  bytes data = 1;
+
+  // Sequence is the update's place in the log, which the server assigns.
+  int64 sequence = 2;
+}
+
+// SyncAwareness is an awareness message: relayed, never stored.
+message SyncAwareness {
+  // Data is the message, which the core does not read.
+  bytes data = 1;
+}
+
+// SyncSnapshot is a compacted state, with the last update it covers.
+message SyncSnapshot {
+  // Sequence is the last update it covers.
+  int64 sequence = 1;
+
+  // Data is the state.
+  bytes data = 2;
+}
+
+// SyncResync tells a participant that it fell behind: a snapshot and the
+// updates after it follow.
+message SyncResync {
+  // Sequence is the last update the snapshot that follows covers.
+  int64 sequence = 1;
+}
+
+// DocumentServiceSyncRequest is one message of a participant's stream.
+message DocumentServiceSyncRequest {
+  oneof message {
+    // Hello is the first message.
+    SyncHello hello = 1;
+
+    // Update is an update to append and relay.
+    SyncUpdate update = 2;
+
+    // Awareness is a message to relay and not store.
+    SyncAwareness awareness = 3;
+  }
+}
+
+// DocumentServiceSyncResponse is one message of a participant's stream.
+message DocumentServiceSyncResponse {
+  oneof message {
+    // Snapshot is the state the document starts from.
+    SyncSnapshot snapshot = 1;
+
+    // Update is an update to apply.
+    SyncUpdate update = 2;
+
+    // Awareness is another participant's message.
+    SyncAwareness awareness = 3;
+
+    // Resync says that the participant fell behind, and that a snapshot and
+    // its updates follow.
+    SyncResync resync = 4;
+  }
+}
+
+// SnapshotRequest stores a compacted state.
+message SnapshotRequest {
+  // Id is the document's id.
+  string id = 1;
+
+  // Sequence is the last update the state covers.
+  int64 sequence = 2;
+
+  // Data is the state.
+  bytes data = 3;
+
+  // Version marks it as a version in the document's history.
+  bool version = 4;
+
+  // Label names a version.
+  string label = 5;
+}
+
+// SnapshotResponse is the stored snapshot's time.
+message SnapshotResponse {
+  google.protobuf.Timestamp at = 1;
+}
+
+// DocumentSnapshot is one snapshot of a document.
+message DocumentSnapshot {
+  // Sequence is the last update it covers.
+  int64 sequence = 1;
+
+  // Version is true when it is in the document's history.
+  bool version = 2;
+
+  // Label names a version.
+  string label = 3;
+
+  // CreatedBy is who wrote it, as access writes a principal.
+  string created_by = 4;
+
+  // At is when it was written.
+  google.protobuf.Timestamp at = 5;
+}
+
+// DocumentServiceHistoryRequest names a document.
+message DocumentServiceHistoryRequest {
+  // Id is the document's id.
+  string id = 1;
+}
+
+// DocumentServiceHistoryResponse carries the versions, oldest first.
+message DocumentServiceHistoryResponse {
+  repeated DocumentSnapshot snapshots = 1;
+}
+
+// DocumentServiceDeleteRequest names a document.
+message DocumentServiceDeleteRequest {
+  // Id is the document's id.
+  string id = 1;
+}
+
+// DocumentServiceDeleteResponse is empty: the delete returned.
+message DocumentServiceDeleteResponse {}

@@ -504,3 +504,52 @@ CREATE TABLE rookery.blobs (
 );
 
 COMMENT ON TABLE rookery.blobs IS 'Blob metadata: size, type, owner and the resource the blob belongs to.';
+-- Live documents. A document is a type of CRDT document and a parent resource
+-- its access comes from; its updates are an append-only log, and a snapshot is
+-- a compacted state with the sequence it covers. The core never reads an
+-- update: a Yjs or another CRDT client makes and consumes them.
+
+CREATE TABLE rookery.documents (
+	id         text        PRIMARY KEY,
+	type       text        NOT NULL,
+	parent     text        NOT NULL,
+	owner_id   text        NOT NULL,
+	created_at timestamptz NOT NULL DEFAULT now(),
+	updated_at timestamptz NOT NULL DEFAULT now(),
+	deleted_at timestamptz
+);
+
+COMMENT ON TABLE rookery.documents IS 'Live documents: a CRDT type and a parent resource whose grants decide access.';
+COMMENT ON COLUMN rookery.documents.type IS 'The CRDT a client opens it with, such as yjs.';
+COMMENT ON COLUMN rookery.documents.parent IS 'The resource URI the document hangs under, as document://<id> is its own resource.';
+
+CREATE INDEX documents_parent ON rookery.documents (parent);
+
+CREATE TABLE rookery.document_updates (
+	document_id text        NOT NULL,
+	seq         bigint      NOT NULL,
+	data        bytea       NOT NULL,
+	created_at  timestamptz NOT NULL DEFAULT now(),
+	PRIMARY KEY (document_id, seq)
+);
+
+COMMENT ON TABLE rookery.document_updates IS 'The append-only log of updates to documents, in the order they were appended.';
+COMMENT ON COLUMN rookery.document_updates.data IS 'The CRDT update, which the core relays without reading.';
+
+CREATE INDEX document_updates_created ON rookery.document_updates (created_at);
+
+CREATE TABLE rookery.document_snapshots (
+	document_id text        NOT NULL,
+	seq         bigint      NOT NULL,
+	data        bytea       NOT NULL,
+	version     boolean     NOT NULL DEFAULT false,
+	label       text,
+	created_by  text        NOT NULL,
+	created_at  timestamptz NOT NULL DEFAULT now(),
+	PRIMARY KEY (document_id, seq)
+);
+
+COMMENT ON TABLE rookery.document_snapshots IS 'Compacted document states, each with the sequence it covers; the ones marked as versions are the document history.';
+COMMENT ON COLUMN rookery.document_snapshots.seq IS 'The last update the snapshot covers; the updates up to it go a day after it was written.';
+
+CREATE INDEX document_snapshots_versions ON rookery.document_snapshots (document_id, seq) WHERE version;
