@@ -1,0 +1,29 @@
+id: docker
+version: 0.1.0
+name: Docker
+requires: ">=0.1.0"
+
+# The engine feature makes a managed host a node: the provisioner reaches its
+# Docker socket through the server, so a machine made there needs no route from
+# here.
+hostFeatures:
+  - id: engine
+    label: Docker Engine
+    types: [managed, workstation]
+    tasks: features/engine/tasks/main.yml
+    vars:
+      sysbox: { type: bool, default: false }
+      user: { type: string, default: ops }
+    offers: [docker/container]
+    channelTopics: [docker/progress]
+    actions:
+      - { name: docker-version, label: Docker version, group: Docker, user: operator, run: docker version }
+
+# One executable serves both kinds: a machine for a host, and a compose project.
+provisioners:
+  - id: container
+    label: Docker container
+    kinds: [machine, deployment]
+    command:
+      linux/amd64: bin/provisioner-amd64
+      linux/arm64: bin/provisioner-arm64

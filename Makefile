@@ -30,7 +30,7 @@ PLUGIN_MODULES := $(patsubst %/go.mod,%,$(wildcard plugins/*/go.mod))
 # The TypeScript SDK's workspace.
 TS_DIR ?= sdk/ts
 
-.PHONY: all tools tools-ts gen gen-proto gen-sql gen-schema db reset test lint fmt ts e2e dev build cross clean ansible
+.PHONY: all tools tools-ts gen gen-proto gen-sql gen-schema db reset test test-plugins lint fmt ts e2e dev build cross clean ansible
 
 all: gen lint test
 
@@ -90,6 +90,11 @@ reset:
 test:
 	@mkdir -p $(TMPDIR)
 	$(GO) test -race ./...
+
+# Each plugin module: the Docker one drives the runner's engine, the Incus one a
+# fake of its API.
+test-plugins:
+	@mkdir -p $(TMPDIR)
 	@for m in $(PLUGIN_MODULES); do \
 		echo "==> $$m"; (cd $$m && $(GO) test -race ./...) || exit 1; \
 	done
