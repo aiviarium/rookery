@@ -939,5 +939,3 @@ func titles(records []map[string]any) []string {
 	}
 	return out
 }
-
-
