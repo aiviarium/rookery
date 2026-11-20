@@ -13,6 +13,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      plugins: ${{ steps.filter.outputs.plugins }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            plugins:
+              - 'plugins/**'
+              - 'pkg/sdk/**'
+              - 'proto/**'
+              - 'gen/**'
+              - 'go.work'
+              - 'go.work.sum'
+              - 'Makefile'
+
   go:
     name: go
     runs-on: ubuntu-latest
@@ -114,3 +135,35 @@ jobs:
       # fixture plugins' bundles. The fixtures are workspace members, so the
       # lockfile covers them too.
       - run: make ts
+
+  # The plugins' own modules: the Docker plugin drives the runner's Docker engine
+  # with plain containers, and skips its systemd machine tests, which run only
+  # where ROOKERY_TEST_DOCKER_SYSTEMD=1 -- the machine image build below runs
+  # them here, unprivileged.
+  plugins:
+    name: plugins
+    needs: changes
+    if: needs.changes.outputs.plugins == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Prepare the environment
+        run: |
+          mkdir -p "$RUNNER_TEMP/tmp"
+          echo "TMPDIR=$RUNNER_TEMP/tmp" >> "$GITHUB_ENV"
+
+      - name: Build the machine image
+        run: docker build -t rookery/machine:test -f images/machine.Dockerfile images
+
+      - name: Test the plugins
+        env:
+          ROOKERY_TEST_DOCKER_SYSTEMD: "1"
+          ROOKERY_TEST_MACHINE_IMAGE: rookery/machine:test
+        run: make test-plugins

@@ -1,0 +1,89 @@
+---
+# Docker Engine, from Docker's repository, for a host the docker/container
+# provisioner drives. The engine's socket is reached from the server through the
+# host's link, so nothing here opens a port.
+
+- name: Install the packages Docker's repository needs
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+    state: present
+    update_cache: true
+
+- name: Make the keyring's directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Install Docker's apt key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+
+- name: Add Docker's repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch={{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}
+      signed-by=/etc/apt/keyrings/docker.asc]
+      https://download.docker.com/linux/ubuntu
+      {{ ansible_distribution_release }} stable
+    filename: docker
+    state: present
+    update_cache: true
+
+- name: Install Docker Engine
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+
+- name: Start the engine
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Let the operator use the engine
+  ansible.builtin.user:
+    name: "{{ user | default('ops') }}"
+    groups: docker
+    append: true
+
+# sysbox runs systemd in an unprivileged container, which is what a machine
+# wants: the provisioner picks sysbox-runc when the engine has it, and only falls
+# back to a privileged container when an entry allows it.
+- name: Install sysbox
+  when: sysbox | bool
+  block:
+    - name: Find sysbox's package for this architecture
+      ansible.builtin.set_fact:
+        sysbox_deb: >-
+          sysbox-ce_0.6.7.linux.{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}.deb
+
+    - name: Download sysbox
+      ansible.builtin.get_url:
+        url: "https://downloads.nestybox.com/sysbox/releases/v0.6.7/{{ sysbox_deb }}"
+        dest: "/tmp/{{ sysbox_deb }}"
+        mode: "0644"
+
+    - name: Install sysbox
+      ansible.builtin.apt:
+        deb: "/tmp/{{ sysbox_deb }}"
+
+    - name: Start the container manager
+      ansible.builtin.systemd:
+        name: sysbox-mgr
+        enabled: true
+        state: started
+
+    - name: Remove sysbox's package
+      ansible.builtin.file:
+        path: "/tmp/{{ sysbox_deb }}"
+        state: absent
