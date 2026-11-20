@@ -208,6 +208,6 @@ pub fn register(methods: &mut Methods) {
                 .await?;
             Ok(Empty {})
         })
-        .summary("Records an action of the plugin that made the call, under its id.")
+        .summary("Records an action of the plugin that made the call, under its id. The resource is free text; the actor is what a reader can trust.")
         .level(Level::Plugin);
 }

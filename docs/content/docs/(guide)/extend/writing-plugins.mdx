@@ -279,7 +279,7 @@ The rest of the handle takes the context of the handler, and runs as its person:
 | `schedules.create(ctx, …)`, `list`, `setEnabled`, `fire`, `remove` | The person's own recurring jobs, never another's |
 | `terminals.list(ctx)`, `get`, `screen`, `write`, `close` | The person's terminals, at their level on the host |
 
-Two handles stay the plugin's own, whoever the handler serves: `sql.query`, `sql.execute` and `sql.begin` are the schema the plugin owns and needs `database.sql` in the manifest, and `audit.record` records an action under the plugin's id. `blobs.read` needs the server's stream channel to a host half, which this version does not serve.
+Two handles stay the plugin's own, whoever the handler serves: `sql.query`, `sql.execute` and `sql.begin` are the schema the plugin owns and needs `database.sql` in the manifest, and `audit.record` records an action under the plugin's id, its `resource` being free text a reader should not take as proof. `blobs.read` needs the server's stream channel to a host half, which this version does not serve.
 
 A handler's call is checked as the person it serves, and a person's own schedules, blobs and terminals are theirs alone. A plugin cannot name a user: the server binds the call to the invocation, refuses a call whose invocation has ended, and ends the change feeds the handler started when the call does.
 

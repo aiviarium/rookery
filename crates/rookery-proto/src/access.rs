@@ -211,7 +211,8 @@ wire! {
 }
 
 wire! {
-    /// `audit.record`: a plugin's own action in the log, under its id.
+    /// `audit.record`: a plugin's own action in the log, under its id. `resource` is free text: the
+    /// actor and the plugin are the fields a reader can trust, not a claim about a resource.
     pub struct AuditRecord {
         pub action: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
