@@ -1,0 +1,73 @@
+// The edge API's access declarations.
+//
+// Every RPC of a core or plugin service declares what it needs with the method
+// option below. The access interceptor reads it before the handler runs, and a
+// test walks every registered procedure and fails for one without it.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// Level is the access a principal holds on a resource.
+//
+// The first three form a chain: view is included in use, use in manage. Admin is
+// held by admins everywhere and is not granted. Self names the caller's own
+// principal, and local is the Unix socket's local admin.
+enum Level {
+  LEVEL_UNSPECIFIED = 0;
+
+  // See the resource and its state.
+  LEVEL_VIEW = 1;
+
+  // Use the resource: open a terminal on a host, read a record.
+  LEVEL_USE = 2;
+
+  // Change the resource: write a record, apply a host.
+  LEVEL_MANAGE = 3;
+
+  // Any level on any resource, for users with the admin flag.
+  LEVEL_ADMIN = 4;
+
+  // The caller's own principal, as for a user's own sessions.
+  LEVEL_SELF = 5;
+
+  // The local admin of the server's Unix socket.
+  LEVEL_LOCAL = 6;
+}
+
+// Access is what a procedure requires of its caller.
+message Access {
+  // The level the caller needs.
+  Level level = 1;
+
+  // The request field that holds the resource the level is needed on, such as
+  // "id" for a host's or a record's id. Empty means the procedure needs no
+  // resource, and the level is checked against the caller alone.
+  string resource = 2;
+}
+
+extend google.protobuf.MethodOptions {
+  // access declares what a procedure requires. It is required on every method.
+  Access access = 50001;
+}
+
+// Refusal is the error detail of a refused call. It says what was missing, and
+// for a capability what would change the answer.
+message Refusal {
+  // The resource the call was about, as a URI, when it names one.
+  string resource = 1;
+
+  // The level the caller lacked.
+  Level level = 2;
+
+  // The host capability that was false, such as "desktop", "exec" or
+  // "terminal". Empty for a refusal that is only about access.
+  string capability = 3;
+
+  // What would change the answer, in words fit for the caller.
+  string reason = 4;
+}

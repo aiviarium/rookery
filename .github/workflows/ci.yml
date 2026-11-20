@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [go]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: go
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: rookery
+          POSTGRES_PASSWORD: rookery-test
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U rookery"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Prepare the environment
+        run: |
+          mkdir -p "$RUNNER_TEMP/tmp" "$RUNNER_TEMP/go/bin"
+          {
+            echo "ROOKERY_TEST_POSTGRES=postgres://rookery:rookery-test@127.0.0.1:55432/postgres?sslmode=disable"
+            echo "TMPDIR=$RUNNER_TEMP/tmp"
+            echo "GOBIN=$RUNNER_TEMP/go/bin"
+          } >> "$GITHUB_ENV"
+
+      - name: Install the generation and lint tools
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/go/bin
+          key: tools-${{ runner.os }}-${{ hashFiles('Makefile') }}
+
+      - run: make tools
+
+      - name: Generated code is current
+        run: |
+          make gen
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
+
+      - name: Modules are tidy
+        run: go mod tidy -diff
+
+      - run: make lint
+
+      - run: make test
+
+      - name: Cross-builds
+        run: make cross
