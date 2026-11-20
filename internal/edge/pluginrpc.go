@@ -81,9 +81,9 @@ func (e *Edge) pluginRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The service speaks Connect on its own Unix socket: the edge is only a
-	// proxy, so the plugin's contract stays the proto's.
-	target := &url.URL{Scheme: "http", Host: "plugin", Path: r.URL.Path, RawQuery: r.URL.RawQuery}
+	// The service speaks Connect on its own Unix socket, at the procedure's own
+	// path: the edge's /plugins/<id>/rpc prefix is only the way to reach it.
+	target := &url.URL{Scheme: "http", Host: "plugin", Path: "/" + procedure, RawQuery: r.URL.RawQuery}
 	request, err := http.NewRequestWithContext(r.Context(), r.Method, target.String(), r.Body)
 	if err != nil {
 		writePluginError(w, err)
