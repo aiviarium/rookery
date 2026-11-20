@@ -1,0 +1,27 @@
+format 1
+
+package {
+  group example
+  id agent
+  version "0.1.0"
+}
+
+about {
+  name "Echo agent"
+  summary "An agent driver for rookery's end-to-end tests: it answers every prompt with its text, and needs no network."
+  license MIT
+  license Apache-2.0
+}
+
+targets {
+  rookery {
+    requires {
+      rookery ">=0.6"
+    }
+  }
+  parrot {
+    requires {
+      parrot "^0.1"
+    }
+  }
+}
