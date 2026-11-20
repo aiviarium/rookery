@@ -1,0 +1,53 @@
+---
+# The firewall: incoming traffic is refused except SSH and the tailnet. It is
+# set up after everything else, so a run cannot be closed out of the host.
+- name: Read the firewall's state
+  ansible.builtin.command: ufw status verbose
+  register: base_firewall_state
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: base_firewall | bool
+
+- name: Refuse incoming traffic by default
+  ansible.builtin.command: ufw default deny incoming
+  changed_when: true
+  when:
+    - base_firewall | bool
+    - "'Default: deny (incoming)' not in base_firewall_state.stdout"
+
+- name: Let outgoing traffic through
+  ansible.builtin.command: ufw default allow outgoing
+  changed_when: true
+  when:
+    - base_firewall | bool
+    - "'allow (outgoing)' not in base_firewall_state.stdout"
+
+- name: Allow SSH through
+  ansible.builtin.command:
+    argv: "{{ base_firewall_ssh_rule }}"
+  register: base_firewall_ssh
+  changed_when: "'Skipping' not in base_firewall_ssh.stdout"
+  when: base_firewall | bool
+  loop: "{{ base_ssh_allowed_from }}"
+  loop_control:
+    label: "{{ item }}"
+  vars:
+    base_firewall_ssh_rule: >-
+      {{ ['ufw', 'allow'] + ([] if item == 'any' else ['from', item])
+         + ['to', 'any', 'port', base_ssh_port | string, 'proto', 'tcp'] }}
+
+- name: Allow the tailnet through
+  ansible.builtin.command: ufw allow in on tailscale0
+  register: base_firewall_tailnet
+  changed_when: "'Skipping' not in base_firewall_tailnet.stdout"
+  when:
+    - base_firewall | bool
+    - base_tailnet | bool
+
+- name: Switch the firewall on
+  ansible.builtin.command: ufw --force enable
+  changed_when: true
+  when:
+    - base_firewall | bool
+    - "'Status: active' not in base_firewall_state.stdout"

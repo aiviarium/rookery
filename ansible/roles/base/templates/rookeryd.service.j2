@@ -1,0 +1,23 @@
+[Unit]
+Description=Rookery's host daemon
+Documentation=https://github.com/aiviarium/rookery
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart={{ base_rookeryd_bin | default('/usr/local/bin/rookeryd') }} serve
+Restart=on-failure
+RestartSec=2
+# Its sockets live here: root.sock for the server, user.sock for box and the
+# host's own programs.
+RuntimeDirectory=rookeryd
+RuntimeDirectoryMode=0755
+# Its only state is the channel store.
+StateDirectory=rookeryd
+StateDirectoryMode=0700
+# Sessions are its children and end with it.
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+---
+# The base role on one host by hand. An apply renders site.yml.j2 instead, with
+# the desktop role for a workstation and the profile's features after the base.
+# Run it with:
+#
+#   ansible-playbook -i HOST, ansible/base.yml
+#
+# and give the role what it needs with -e, at least base_operator_key,
+# base_rookeryd_path and base_box_path.
+- name: Set up a host
+  hosts: all
+  become: true
+  gather_facts: true
+  roles:
+    - base

@@ -1,0 +1,14 @@
+---
+# Rookery's files are read when rookeryd starts, so a change to them restarts it.
+# A restart ends the sessions it holds, which is why nothing else notifies this.
+- name: Restart rookeryd
+  ansible.builtin.systemd_service:
+    name: rookeryd.service
+    daemon_reload: true
+    state: restarted
+
+# Both Ubuntu and Debian name the server's unit ssh.service.
+- name: Reload sshd
+  ansible.builtin.systemd_service:
+    name: ssh
+    state: reloaded

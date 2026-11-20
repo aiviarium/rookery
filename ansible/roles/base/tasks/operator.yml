@@ -1,0 +1,58 @@
+---
+# The operator: the account the server logs in as, with the key ring's key and
+# sudo without a password. An account a machine already had keeps its password
+# and its other groups; only the key block is Rookery's to replace.
+- name: Create the operator
+  ansible.builtin.user:
+    name: "{{ base_operator }}"
+    groups: sudo
+    append: true
+    shell: /bin/bash
+    create_home: true
+    state: present
+
+- name: Read the operator's account
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ base_operator }}"
+
+- name: Note where the operator lives
+  ansible.builtin.set_fact:
+    base_operator_home: "{{ ansible_facts.getent_passwd[base_operator][4] }}"
+
+- name: Make the operator's folder of keys
+  ansible.builtin.file:
+    path: "{{ base_operator_home }}/.ssh"
+    state: directory
+    owner: "{{ base_operator }}"
+    group: "{{ base_operator }}"
+    mode: '0700'
+
+# A block of its own, so keys put there by hand stay, and a rotation replaces
+# the block rather than adding to it.
+- name: Give the operator the key ring's key
+  ansible.builtin.blockinfile:
+    path: "{{ base_operator_home }}/.ssh/authorized_keys"
+    create: true
+    owner: "{{ base_operator }}"
+    group: "{{ base_operator }}"
+    mode: '0600'
+    marker: "# {mark} ROOKERY KEY RING"
+    block: "{{ base_operator_key | trim }}"
+  when: base_operator_key | length > 0
+
+- name: Let the operator use sudo without a password
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/90-rookery-operator
+    owner: root
+    group: root
+    mode: '0440'
+    content: "{{ base_operator }} ALL=(ALL) NOPASSWD: ALL\n"
+    validate: /usr/sbin/visudo -cf %s
+  when: base_operator_passwordless_sudo | bool
+
+- name: Take that right away when it is switched off
+  ansible.builtin.file:
+    path: /etc/sudoers.d/90-rookery-operator
+    state: absent
+  when: not base_operator_passwordless_sudo | bool

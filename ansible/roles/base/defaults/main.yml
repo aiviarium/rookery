@@ -1,0 +1,52 @@
+---
+# The base role: what every host Rookery manages gets.
+#
+# An apply writes these variables into vars.json (see internal/apply), so a value
+# here is what a run by hand starts from. Profile variables may change any of
+# them except the ones an apply sets itself: the tailnet key, the programs'
+# paths, the actions, the registry logins and the secrets.
+
+# The operator is the account the server logs in as and applies from. It takes
+# the key ring's public key, one key to a line, and may use sudo without a
+# password.
+base_operator: ops
+base_operator_key: ""
+base_operator_passwordless_sudo: true
+
+# SSH. Only keys log in: the operator's key is the way in, so turning passwords
+# off needs a key to have been given.
+base_ssh_port: 22
+base_ssh_password_authentication: false
+base_ssh_permit_root_login: prohibit-password
+
+# The tailnet. The server mints a one-use key for each apply and passes it here.
+# With base_tailnet off nothing is installed and no key is needed.
+base_tailnet: true
+base_tailnet_auth_key: ""
+# Headscale's control URL. Empty is Tailscale's own service.
+base_tailnet_login_server: ""
+base_tailnet_timeout: 3m
+# The name the host takes on the tailnet. Empty is the inventory name, which is
+# the host's name in Rookery, so that devices are looked up by it.
+base_tailnet_hostname: ""
+
+# rookeryd and box. The apply passes the built binaries' paths, and the actions
+# rookeryd offers: a list of {name, label, user, onHost, run, args}.
+base_rookeryd_path: ""
+base_box_path: ""
+base_actions: []
+base_rookeryd_bin: /usr/local/bin/rookeryd
+base_box_bin: /usr/local/bin/box
+
+# Registry logins, written to root's Docker config:
+# [{address: registry.example, username: someone, password: …}].
+base_registries: []
+base_docker_auths: {}
+base_secrets: {}
+
+# Unattended upgrades and the firewall. Incoming traffic is refused except SSH
+# and the tailnet. base_ssh_allowed_from is "any", or addresses and networks.
+base_unattended_upgrades: true
+base_firewall: true
+base_ssh_allowed_from:
+  - any

@@ -1,0 +1,31 @@
+---
+# The registry logins a profile's hosts name, in root's Docker config. They are
+# secrets: the file is 0600 and nothing here logs them.
+- name: Write the registry logins
+  when: base_registries | length > 0
+  block:
+    - name: Create root's Docker folder
+      ansible.builtin.file:
+        path: /root/.docker
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: Encode the registry logins
+      ansible.builtin.set_fact:
+        base_docker_auths: >-
+          {{ base_docker_auths | combine({item.address: (item.username ~ ':' ~ item.password) | b64encode}) }}
+      loop: "{{ base_registries }}"
+      loop_control:
+        label: "{{ item.address }}"
+      no_log: true
+
+    - name: Write root's Docker config
+      ansible.builtin.copy:
+        dest: /root/.docker/config.json
+        owner: root
+        group: root
+        mode: '0600'
+        content: "{{ {'auths': base_docker_auths} | to_nice_json }}\n"
+      no_log: true
