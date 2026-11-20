@@ -2,37 +2,26 @@ package boxcli
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
+
+	"connectrpc.com/connect"
+
+	hostv1 "github.com/aiviarium/rookery/gen/go/rookery/host/v1"
 )
 
 // runSecret prints a host secret granted to the account running box.
-//
-// The apply writes each `host/<name>` secret as a file under the secrets
-// directory, owned by the account it is for and unreadable by anyone else, so the
-// kernel is what decides whether box may print it. The daemon never holds one.
-func runSecret(_ context.Context, options Options, args []string) error {
+func runSecret(ctx context.Context, options Options, args []string) error {
 	if len(args) != 1 {
 		return usage("usage: box secret NAME")
 	}
-	name := args[0]
-	if strings.ContainsAny(name, "/\x00") || name == "." || name == ".." {
-		return usage("box secret: %q is not a secret's name", name)
-	}
-
-	secret, err := os.ReadFile(filepath.Join(options.SecretsDir, name)) //nolint:gosec // the name is checked above.
+	client, err := dial(options)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("box: there is no secret %s for %s", name, "this account")
-		}
-		if errors.Is(err, os.ErrPermission) {
-			return fmt.Errorf("box: the secret %s is not granted to this account: %w", name, err)
-		}
-		return fmt.Errorf("box: reading the secret %s: %w", name, err)
+		return err
 	}
-	_, err = options.Stdout.Write(secret)
+	defer func() { _ = client.Close() }()
+	response, err := client.Secrets.Get(ctx, connect.NewRequest(&hostv1.SecretServiceGetRequest{Name: args[0]}))
+	if err != nil {
+		return connectError("secret", err)
+	}
+	_, err = options.Stdout.Write(response.Msg.GetValue())
 	return err
 }

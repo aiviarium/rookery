@@ -2,7 +2,9 @@ package x11
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/jezek/xgb/xproto"
@@ -34,26 +36,20 @@ const (
 
 // Click moves the pointer to a pixel and clicks a button there.
 func (c *Conn) Click(ctx context.Context, x, y int, button Button, count int) error {
+	c.inputMu.Lock()
+	defer c.inputMu.Unlock()
+	if button < ButtonLeft || button > ButtonRight {
+		return fmt.Errorf("x11: invalid mouse button %d", button)
+	}
 	if err := c.pointer(ctx, x, y); err != nil {
 		return err
 	}
-	if count < 1 {
-		count = 1
-	}
-	for i := 0; i < count; i++ {
-		if err := c.fakeInput(ctx, xproto.ButtonPress, byte(button), x, y); err != nil { //nolint:gosec // a button is one byte.
-			return err
-		}
-		if err := c.fakeInput(ctx, xproto.ButtonRelease, byte(button), x, y); err != nil { //nolint:gosec // a button is one byte.
-			return err
-		}
-	}
-	return nil
+	return c.clickButton(ctx, button, count)
 }
 
 // pointer moves the pointer to a pixel.
 func (c *Conn) pointer(ctx context.Context, x, y int) error {
-	if x < 0 || y < 0 || x > 65535 || y > 65535 {
+	if x < 0 || y < 0 || x > math.MaxInt16 || y > math.MaxInt16 {
 		return fmt.Errorf("x11: (%d, %d) is not a pixel on this screen", x, y)
 	}
 	return c.fakeInput(ctx, xproto.MotionNotify, 0, x, y)
@@ -61,18 +57,23 @@ func (c *Conn) pointer(ctx context.Context, x, y int) error {
 
 // Scroll turns the wheel at where the pointer is.
 func (c *Conn) Scroll(ctx context.Context, direction Direction, count int) error {
+	c.inputMu.Lock()
+	defer c.inputMu.Unlock()
 	button := buttonWheelUp
 	if direction == Down {
 		button = buttonWheelDown
+	} else if direction != Up {
+		return fmt.Errorf("x11: invalid scroll direction %d", direction)
 	}
-	if count < 1 {
-		count = 1
-	}
-	for i := 0; i < count; i++ {
-		if err := c.fakeInput(ctx, xproto.ButtonPress, byte(button), 0, 0); err != nil { //nolint:gosec // a button is one byte.
+	return c.clickButton(ctx, button, count)
+}
+
+func (c *Conn) clickButton(ctx context.Context, button Button, count int) error {
+	for range max(1, count) {
+		if err := c.fakeInput(ctx, xproto.ButtonPress, byte(button), 0, 0); err != nil { //nolint:gosec // a button fits in a byte.
 			return err
 		}
-		if err := c.fakeInput(ctx, xproto.ButtonRelease, byte(button), 0, 0); err != nil { //nolint:gosec // a button is one byte.
+		if err := c.fakeInput(context.WithoutCancel(ctx), xproto.ButtonRelease, byte(button), 0, 0); err != nil { //nolint:gosec // a button fits in a byte.
 			return err
 		}
 	}
@@ -82,6 +83,8 @@ func (c *Conn) Scroll(ctx context.Context, direction Direction, count int) error
 // Type types text, one keysym at a time: the character as the keyboard has it,
 // and a key of its own for one it does not.
 func (c *Conn) Type(ctx context.Context, text string) error {
+	c.inputMu.Lock()
+	defer c.inputMu.Unlock()
 	layout, err := c.keyboard()
 	if err != nil {
 		return err
@@ -91,14 +94,9 @@ func (c *Conn) Type(ctx context.Context, text string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		keysym := keysymFor(character)
-		stroke, found := layout.byKeysym[keysym]
-		if !found {
-			if stroke, err = c.remap(ctx, layout, keysym); err != nil {
-				return err
-			}
-		}
-		if err := c.press(ctx, stroke); err != nil {
+		if err := c.withKey(ctx, layout, keysymFor(character), func(stroke keyStroke) error {
+			return c.press(ctx, layout, stroke)
+		}); err != nil {
 			return err
 		}
 	}
@@ -108,8 +106,10 @@ func (c *Conn) Type(ctx context.Context, text string) error {
 // Key presses a chord such as "ctrl+shift+t" or "Return". Its parts are
 // modifiers and one key, named as X names keysyms, or a single character.
 func (c *Conn) Key(ctx context.Context, chord string) error {
+	c.inputMu.Lock()
+	defer c.inputMu.Unlock()
 	parts := strings.Split(chord, "+")
-	if len(parts) == 0 {
+	if strings.TrimSpace(chord) == "" {
 		return fmt.Errorf("x11: no key in %q", chord)
 	}
 
@@ -140,27 +140,18 @@ func (c *Conn) Key(ctx context.Context, chord string) error {
 		}
 		keysym = keysymFor(runes[0])
 	}
-	stroke, found := layout.byKeysym[keysym]
-	if !found {
-		if stroke, err = c.remap(ctx, layout, keysym); err != nil {
-			return err
+	// Unwind the keys already pressed if the call was canceled midway.
+	return c.withKey(ctx, layout, keysym, func(stroke keyStroke) (err error) {
+		for _, modifier := range modifiers {
+			if err := c.pressKey(ctx, modifier.code, true); err != nil {
+				return err
+			}
+			defer func() {
+				err = errors.Join(err, c.pressKey(context.WithoutCancel(ctx), modifier.code, false))
+			}()
 		}
-	}
-
-	for _, modifier := range modifiers {
-		if err := c.pressKey(ctx, modifier.code, true); err != nil {
-			return err
-		}
-	}
-	if err := c.press(ctx, stroke); err != nil {
-		return err
-	}
-	for i := len(modifiers) - 1; i >= 0; i-- {
-		if err := c.pressKey(ctx, modifiers[i].code, false); err != nil {
-			return err
-		}
-	}
-	return nil
+		return c.press(ctx, layout, stroke)
+	})
 }
 
 // keyStroke is a keycode and whether shift is held for it.
@@ -170,27 +161,24 @@ type keyStroke struct {
 }
 
 // press presses and releases a key, with shift when the character needs it.
-func (c *Conn) press(ctx context.Context, stroke keyStroke) error {
+func (c *Conn) press(ctx context.Context, layout *layout, stroke keyStroke) (err error) {
+	releaseCtx := context.WithoutCancel(ctx)
 	if stroke.shift {
-		if err := c.pressKey(ctx, keycodeShiftLeft, true); err != nil {
+		shift, ok := layout.byKeysym[0xffe1] // Shift_L
+		if !ok {
+			return fmt.Errorf("x11: the keyboard has no left shift key")
+		}
+		if err := c.pressKey(ctx, shift.code, true); err != nil {
 			return err
 		}
+		defer func() { err = errors.Join(err, c.pressKey(releaseCtx, shift.code, false)) }()
 	}
 	if err := c.pressKey(ctx, stroke.code, true); err != nil {
 		return err
 	}
-	if err := c.pressKey(ctx, stroke.code, false); err != nil {
-		return err
-	}
-	if stroke.shift {
-		if err := c.pressKey(ctx, keycodeShiftLeft, false); err != nil {
-			return err
-		}
-	}
-	return nil
+	return c.pressKey(releaseCtx, stroke.code, false)
 }
 
-// pressKey presses or releases one keycode.
 func (c *Conn) pressKey(ctx context.Context, code byte, down bool) error {
 	event := byte(xproto.KeyRelease)
 	if down {
@@ -206,7 +194,7 @@ func (c *Conn) fakeInput(ctx context.Context, event, detail byte, x, y int) erro
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	fake := xtest.FakeInputChecked(c.conn, event, detail, xproto.TimeCurrentTime, c.root, int16(x), int16(y), 0) //nolint:gosec // a pixel is at most 65535.
+	fake := xtest.FakeInputChecked(c.conn, event, detail, xproto.TimeCurrentTime, c.root, int16(x), int16(y), 0) //nolint:gosec // pointer coordinates are checked against int16.
 	if err := fake.Check(); err != nil {
 		return fmt.Errorf("x11: input: %w", err)
 	}
@@ -271,42 +259,44 @@ func (c *Conn) readKeyboard() (*layout, error) {
 	return read, nil
 }
 
-// remap types a keysym the keyboard has no key for by borrowing an unused
-// keycode for the moment it takes.
-func (c *Conn) remap(ctx context.Context, read *layout, keysym uint32) (keyStroke, error) {
+// withKey borrows an unused keycode when the keyboard has no matching key.
+func (c *Conn) withKey(ctx context.Context, read *layout, keysym uint32, use func(keyStroke) error) (err error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if stroke, found := read.byKeysym[keysym]; found {
+		return use(stroke)
+	}
 	if read.spare == 0 {
-		return keyStroke{}, fmt.Errorf("x11: the keyboard has no key for U+%04X and no spare keycode", keysym)
+		return fmt.Errorf("x11: the keyboard has no key for U+%04X and no spare keycode", keysym)
 	}
 
-	c.mu.Lock()
-	err := xproto.ChangeKeyboardMappingChecked(c.conn, 1, xproto.Keycode(read.spare), 1, []xproto.Keysym{xproto.Keysym(keysym)}).Check()
-	c.mu.Unlock()
-	if err != nil {
-		return keyStroke{}, fmt.Errorf("x11: borrowing a keycode for U+%04X: %w", keysym, err)
+	if err := c.mapKeycode(read.spare, xproto.Keysym(keysym)); err != nil {
+		return fmt.Errorf("x11: borrowing a keycode for U+%04X: %w", keysym, err)
 	}
-
-	stroke := keyStroke{code: read.spare}
-	if err := c.press(ctx, stroke); err != nil {
-		return keyStroke{}, err
-	}
-
-	// Put the keycode back, so that the keyboard is what it was for the next
-	// program that reads it.
-	c.mu.Lock()
-	restoreErr := xproto.ChangeKeyboardMappingChecked(c.conn, 1, xproto.Keycode(read.spare), 1, []xproto.Keysym{0}).Check()
-	c.mu.Unlock()
-	if restoreErr != nil {
-		return keyStroke{}, fmt.Errorf("x11: returning a borrowed keycode: %w", restoreErr)
-	}
-	return stroke, nil
+	defer func() {
+		if restoreErr := c.mapKeycode(read.spare, 0); restoreErr != nil {
+			err = errors.Join(err, fmt.Errorf("x11: returning a borrowed keycode: %w", restoreErr))
+		}
+	}()
+	return use(keyStroke{code: read.spare})
 }
 
-// keycodeShiftLeft is the keycode X reserves for the left shift key.
-const keycodeShiftLeft byte = 50
+func (c *Conn) mapKeycode(code byte, keysym xproto.Keysym) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return xproto.ChangeKeyboardMappingChecked(c.conn, 1, xproto.Keycode(code), 1, []xproto.Keysym{keysym}).Check()
+}
 
 // keysymFor is a character's keysym: Latin-1 characters are their own keysym,
 // and the rest are Unicode keysyms.
 func keysymFor(character rune) uint32 {
+	switch character {
+	case '\n', '\r':
+		return 0xff0d // Return
+	case '\t':
+		return 0xff09 // Tab
+	}
 	if character >= 0x20 && character <= 0x7e {
 		return uint32(character)
 	}

@@ -48,6 +48,8 @@ const (
 	// DesktopEnvPath is the desktop's environment, which `box exec` and an exec
 	// with Desktop set use.
 	DesktopEnvPath = "/etc/rookery/desktop.env"
+	// SecretsDir is where the host stores local accounts' secret grants.
+	SecretsDir = "/etc/rookery/secrets" //nolint:gosec // a directory path.
 
 	// DefaultOperator is the account that runs operator work.
 	DefaultOperator = "ops"
@@ -74,6 +76,9 @@ type Config struct {
 
 	// DesktopEnvPath is the desktop's environment file.
 	DesktopEnvPath string
+
+	// SecretsDir is the directory of per-account secret files.
+	SecretsDir string
 
 	// Operator and DesktopUser are the accounts operator work and the desktop
 	// belong to.
@@ -116,6 +121,9 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	}
 	if config.DesktopEnvPath == "" {
 		config.DesktopEnvPath = DesktopEnvPath
+	}
+	if config.SecretsDir == "" {
+		config.SecretsDir = SecretsDir
 	}
 	if config.Operator == "" {
 		config.Operator = DefaultOperator
@@ -225,6 +233,7 @@ func (s *Server) handlers() http.Handler {
 	register(hostCallPath, streamio.WithReadInterrupt(hostCallHandler))
 	register(hostv1connect.NewActionServiceHandler(&actionService{server: s}))
 	register(hostv1connect.NewDesktopServiceHandler(&desktopService{server: s}))
+	register(hostv1connect.NewSecretServiceHandler(&secretService{dir: s.config.SecretsDir}))
 	return mux
 }
 

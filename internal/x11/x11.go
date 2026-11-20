@@ -15,6 +15,7 @@ package x11
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"sync"
@@ -29,9 +30,7 @@ type Conn struct {
 	display string
 	conn    *xgb.Conn
 	root    xproto.Window
-	width   uint16
-	height  uint16
-	depth   byte
+	inputMu sync.Mutex
 
 	// mu serialises the connection, which xgb does not do for its callers.
 	mu sync.Mutex
@@ -41,9 +40,9 @@ type Conn struct {
 	layout     *layout
 	layoutErr  error
 
-	clipboardOnce sync.Once
-	clipboard     *clipboard
-	clipboardErr  error
+	clipboardMu sync.Mutex
+	clipboard   *clipboard
+	closed      bool
 }
 
 // Open connects to a display and checks that it has the XTest extension, without
@@ -68,18 +67,22 @@ func Open(ctx context.Context, display string) (*Conn, error) {
 		display: display,
 		conn:    conn,
 		root:    screen.Root,
-		width:   screen.WidthInPixels,
-		height:  screen.HeightInPixels,
-		depth:   screen.RootDepth,
 	}, nil
 }
 
 // Close ends the connection and stops owning the clipboard.
 func (c *Conn) Close() error {
+	c.inputMu.Lock()
+	defer c.inputMu.Unlock()
+	c.clipboardMu.Lock()
+	defer c.clipboardMu.Unlock()
+	if c.closed {
+		return nil
+	}
 	if c.clipboard != nil {
 		c.clipboard.close()
-		c.clipboard = nil
 	}
+	c.closed = true
 	c.conn.Close()
 	return nil
 }
@@ -87,18 +90,35 @@ func (c *Conn) Close() error {
 // Display is the display's name.
 func (c *Conn) Display() string { return c.display }
 
-// Size is the screen's size in pixels.
-func (c *Conn) Size() (width, height int) { return int(c.width), int(c.height) }
+// Size reads the root window's current geometry.
+func (c *Conn) Size(ctx context.Context) (width, height uint16, err error) {
+	if err := ctx.Err(); err != nil {
+		return 0, 0, err
+	}
+	c.mu.Lock()
+	reply, err := xproto.GetGeometry(c.conn, xproto.Drawable(c.root)).Reply()
+	c.mu.Unlock()
+	if err != nil {
+		return 0, 0, fmt.Errorf("x11: reading the screen geometry: %w", err)
+	}
+	if reply == nil {
+		return 0, 0, fmt.Errorf("x11: reading the screen geometry: %w", errNoReply)
+	}
+	return reply.Width, reply.Height, nil
+}
 
 // Screenshot reads the whole screen.
 func (c *Conn) Screenshot(ctx context.Context) (image.Image, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	width, height := c.Size()
+	width, height, err := c.Size(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	c.mu.Lock()
-	reply, err := xproto.GetImage(c.conn, xproto.ImageFormatZPixmap, xproto.Drawable(c.root), 0, 0, c.width, c.height, ^uint32(0)).Reply()
+	reply, err := xproto.GetImage(c.conn, xproto.ImageFormatZPixmap, xproto.Drawable(c.root), 0, 0, width, height, ^uint32(0)).Reply()
 	c.mu.Unlock()
 	if err != nil {
 		return nil, fmt.Errorf("x11: taking a screenshot: %w", err)
@@ -106,11 +126,11 @@ func (c *Conn) Screenshot(ctx context.Context) (image.Image, error) {
 	if reply == nil {
 		return nil, fmt.Errorf("x11: taking a screenshot: %w", errNoReply)
 	}
-	return decodeZPixmap(reply.Data, width, height)
+	return decodeZPixmap(reply.Data, int(width), int(height))
 }
 
 // errNoReply is an X request that the server answered with nothing at all.
-var errNoReply = fmt.Errorf("the server sent no reply")
+var errNoReply = errors.New("the server sent no reply")
 
 // decodeZPixmap turns a ZPixmap of a 24- or 32-bit screen into an image: four
 // bytes a pixel, blue, green, red, unused, as every X server Rookery meets
@@ -139,35 +159,37 @@ func decodeZPixmap(data []byte, width, height int) (image.Image, error) {
 // of the sides is given, and leaving it alone when both are zero. It is nearest
 // neighbour on purpose: a screenshot for a thumbnail is not a photograph, and
 // this keeps a two-pixel cursor visible.
-func Scale(source image.Image, width, height int) image.Image {
+func Scale(source image.Image, width, height uint32) (image.Image, error) {
 	bounds := source.Bounds()
-	sourceWidth, sourceHeight := bounds.Dx(), bounds.Dy()
-	if width <= 0 && height <= 0 {
-		return source
+	sourceWidth, sourceHeight := uint64(bounds.Dx()), uint64(bounds.Dy()) //nolint:gosec // a screen's dimensions are positive.
+	if width == 0 && height == 0 {
+		return source, nil
 	}
-	if width <= 0 {
-		width = sourceWidth * height / sourceHeight
+	w, h := uint64(width), uint64(height)
+	switch {
+	case sourceWidth == 0 || sourceHeight == 0:
+		return nil, errors.New("x11: cannot scale an empty screenshot")
+	case w == 0:
+		w = max(1, sourceWidth*h/sourceHeight)
+	case h == 0:
+		h = max(1, sourceHeight*w/sourceWidth)
 	}
-	if height <= 0 {
-		height = sourceHeight * width / sourceWidth
+	if w == sourceWidth && h == sourceHeight {
+		return source, nil
 	}
-	if width == sourceWidth && height == sourceHeight {
-		return source
-	}
-	if width < 1 {
-		width = 1
-	}
-	if height < 1 {
-		height = 1
+	const maxPixels = 32 << 20
+	if w > maxPixels/h {
+		return nil, fmt.Errorf("x11: the requested screenshot is too large (%dx%d)", w, h)
 	}
 
-	scaled := image.NewNRGBA(image.Rect(0, 0, width, height))
-	for y := 0; y < height; y++ {
-		sourceY := bounds.Min.Y + y*sourceHeight/height
-		for x := 0; x < width; x++ {
-			sourceX := bounds.Min.X + x*sourceWidth/width
+	targetWidth, targetHeight := int(w), int(h) //nolint:gosec // both dimensions fit within the pixel limit.
+	scaled := image.NewNRGBA(image.Rect(0, 0, targetWidth, targetHeight))
+	for y := 0; y < targetHeight; y++ {
+		sourceY := bounds.Min.Y + int(uint64(y)*sourceHeight/h) //nolint:gosec // the offset is within the source image.
+		for x := 0; x < targetWidth; x++ {
+			sourceX := bounds.Min.X + int(uint64(x)*sourceWidth/w) //nolint:gosec // the offset is within the source image.
 			scaled.Set(x, y, source.At(sourceX, sourceY))
 		}
 	}
-	return scaled
+	return scaled, nil
 }

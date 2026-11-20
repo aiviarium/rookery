@@ -94,7 +94,10 @@ func TestSizeAndScreenshot(t *testing.T) {
 	t.Parallel()
 
 	conn := openTestDisplay(t, 320, 200)
-	width, height := conn.Size()
+	width, height, err := conn.Size(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if width != 320 || height != 200 {
 		t.Fatalf("the screen is %dx%d, want 320x200", width, height)
 	}
@@ -232,13 +235,20 @@ func TestScale(t *testing.T) {
 	t.Parallel()
 
 	source := image.NewNRGBA(image.Rect(0, 0, 100, 50))
-	if scaled := Scale(source, 0, 0); scaled != source {
-		t.Error("Scale with no size changed the image")
+	for _, test := range []struct {
+		width, height uint32
+		want          image.Rectangle
+	}{
+		{0, 0, source.Bounds()},
+		{50, 0, image.Rect(0, 0, 50, 25)},
+		{0, 10, image.Rect(0, 0, 20, 10)},
+	} {
+		scaled, err := Scale(source, test.width, test.height)
+		if err != nil || scaled.Bounds() != test.want {
+			t.Fatalf("Scale(%d,%d) = %v, %v, want %s", test.width, test.height, scaled, err, test.want)
+		}
 	}
-	if scaled := Scale(source, 50, 0); scaled.Bounds().Dx() != 50 || scaled.Bounds().Dy() != 25 {
-		t.Errorf("Scale to a width of 50 gave %v", scaled.Bounds())
-	}
-	if scaled := Scale(source, 0, 10); scaled.Bounds().Dx() != 20 || scaled.Bounds().Dy() != 10 {
-		t.Errorf("Scale to a height of 10 gave %v", scaled.Bounds())
+	if _, err := Scale(source, ^uint32(0), 0); err == nil {
+		t.Error("Scale accepted an oversized request")
 	}
 }
