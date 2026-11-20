@@ -19,7 +19,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file rookery/plugin/v1/server.proto.
  */
 export const file_rookery_plugin_v1_server: GenFile = /*@__PURE__*/
-  fileDesc("Ch5yb29rZXJ5L3BsdWdpbi92MS9zZXJ2ZXIucHJvdG8SEXJvb2tlcnkucGx1Z2luLnYxIl8KHFNlcnZlclNlcnZpY2VEaWFsTm9kZVJlcXVlc3QSDAoEbm9kZRgBIAEoCRIQCgh0Y3BfcG9ydBgCIAEoDRIRCgl1bml4X3BhdGgYAyABKAkSDAoEZGF0YRgEIAEoDCItCh1TZXJ2ZXJTZXJ2aWNlRGlhbE5vZGVSZXNwb25zZRIMCgRkYXRhGAEgASgMMoIBCg1TZXJ2ZXJTZXJ2aWNlEnEKCERpYWxOb2RlEi8ucm9va2VyeS5wbHVnaW4udjEuU2VydmVyU2VydmljZURpYWxOb2RlUmVxdWVzdBowLnJvb2tlcnkucGx1Z2luLnYxLlNlcnZlclNlcnZpY2VEaWFsTm9kZVJlc3BvbnNlKAEwAUJAWj5naXRodWIuY29tL2Fpdmlhcml1bS9yb29rZXJ5L2dlbi9nby9yb29rZXJ5L3BsdWdpbi92MTtwbHVnaW52MWIGcHJvdG8z");
+  fileDesc("Ch5yb29rZXJ5L3BsdWdpbi92MS9zZXJ2ZXIucHJvdG8SEXJvb2tlcnkucGx1Z2luLnYxIl8KHFNlcnZlclNlcnZpY2VEaWFsTm9kZVJlcXVlc3QSDAoEbm9kZRgBIAEoCRIQCgh0Y3BfcG9ydBgCIAEoDRIRCgl1bml4X3BhdGgYAyABKAkSDAoEZGF0YRgEIAEoDCItCh1TZXJ2ZXJTZXJ2aWNlRGlhbE5vZGVSZXNwb25zZRIMCgRkYXRhGAEgASgMIlMKG1NlcnZlclNlcnZpY2VQdWJsaXNoUmVxdWVzdBIMCgRuYW1lGAEgASgJEhAKCHJlc291cmNlGAIgASgJEhQKDHBheWxvYWRfY2JvchgDIAEoDCIeChxTZXJ2ZXJTZXJ2aWNlUHVibGlzaFJlc3BvbnNlIooBCiRTZXJ2ZXJTZXJ2aWNlU2VuZE5vdGlmaWNhdGlvblJlcXVlc3QSDwoHdXNlcl9pZBgBIAEoCRINCgV0aXRsZRgCIAEoCRIMCgRib2R5GAMgASgJEgwKBGxpbmsYBCABKAkSEAoIcmVzb3VyY2UYBSABKAkSFAoMYWN0aW9uc19jYm9yGAYgASgMIjMKJVNlcnZlclNlcnZpY2VTZW5kTm90aWZpY2F0aW9uUmVzcG9uc2USCgoCaWQYASABKAky9gIKDVNlcnZlclNlcnZpY2USagoHUHVibGlzaBIuLnJvb2tlcnkucGx1Z2luLnYxLlNlcnZlclNlcnZpY2VQdWJsaXNoUmVxdWVzdBovLnJvb2tlcnkucGx1Z2luLnYxLlNlcnZlclNlcnZpY2VQdWJsaXNoUmVzcG9uc2UShQEKEFNlbmROb3RpZmljYXRpb24SNy5yb29rZXJ5LnBsdWdpbi52MS5TZXJ2ZXJTZXJ2aWNlU2VuZE5vdGlmaWNhdGlvblJlcXVlc3QaOC5yb29rZXJ5LnBsdWdpbi52MS5TZXJ2ZXJTZXJ2aWNlU2VuZE5vdGlmaWNhdGlvblJlc3BvbnNlEnEKCERpYWxOb2RlEi8ucm9va2VyeS5wbHVnaW4udjEuU2VydmVyU2VydmljZURpYWxOb2RlUmVxdWVzdBowLnJvb2tlcnkucGx1Z2luLnYxLlNlcnZlclNlcnZpY2VEaWFsTm9kZVJlc3BvbnNlKAEwAUJAWj5naXRodWIuY29tL2Fpdmlhcml1bS9yb29rZXJ5L2dlbi9nby9yb29rZXJ5L3BsdWdpbi92MTtwbHVnaW52MWIGcHJvdG8z");
 
 /**
  * @generated from message rookery.plugin.v1.ServerServiceDialNodeRequest
@@ -77,11 +77,138 @@ export const ServerServiceDialNodeResponseSchema: GenMessage<ServerServiceDialNo
   messageDesc(file_rookery_plugin_v1_server, 1);
 
 /**
+ * ServerServicePublishRequest is an event a plugin publishes. Its name must
+ * start with the plugin's id, such as example/note.changed.
+ *
+ * @generated from message rookery.plugin.v1.ServerServicePublishRequest
+ */
+export type ServerServicePublishRequest = Message<"rookery.plugin.v1.ServerServicePublishRequest"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * resource is the resource URI the event is about, when it is about one.
+   *
+   * @generated from field: string resource = 2;
+   */
+  resource: string;
+
+  /**
+   * @generated from field: bytes payload_cbor = 3;
+   */
+  payloadCbor: Uint8Array;
+};
+
+/**
+ * Describes the message rookery.plugin.v1.ServerServicePublishRequest.
+ * Use `create(ServerServicePublishRequestSchema)` to create a new message.
+ */
+export const ServerServicePublishRequestSchema: GenMessage<ServerServicePublishRequest> = /*@__PURE__*/
+  messageDesc(file_rookery_plugin_v1_server, 2);
+
+/**
+ * @generated from message rookery.plugin.v1.ServerServicePublishResponse
+ */
+export type ServerServicePublishResponse = Message<"rookery.plugin.v1.ServerServicePublishResponse"> & {
+};
+
+/**
+ * Describes the message rookery.plugin.v1.ServerServicePublishResponse.
+ * Use `create(ServerServicePublishResponseSchema)` to create a new message.
+ */
+export const ServerServicePublishResponseSchema: GenMessage<ServerServicePublishResponse> = /*@__PURE__*/
+  messageDesc(file_rookery_plugin_v1_server, 3);
+
+/**
+ * ServerServiceSendNotificationRequest tells one user something, as
+ * NotificationService does for their own notifications.
+ *
+ * @generated from message rookery.plugin.v1.ServerServiceSendNotificationRequest
+ */
+export type ServerServiceSendNotificationRequest = Message<"rookery.plugin.v1.ServerServiceSendNotificationRequest"> & {
+  /**
+   * @generated from field: string user_id = 1;
+   */
+  userId: string;
+
+  /**
+   * @generated from field: string title = 2;
+   */
+  title: string;
+
+  /**
+   * @generated from field: string body = 3;
+   */
+  body: string;
+
+  /**
+   * @generated from field: string link = 4;
+   */
+  link: string;
+
+  /**
+   * @generated from field: string resource = 5;
+   */
+  resource: string;
+
+  /**
+   * @generated from field: bytes actions_cbor = 6;
+   */
+  actionsCbor: Uint8Array;
+};
+
+/**
+ * Describes the message rookery.plugin.v1.ServerServiceSendNotificationRequest.
+ * Use `create(ServerServiceSendNotificationRequestSchema)` to create a new message.
+ */
+export const ServerServiceSendNotificationRequestSchema: GenMessage<ServerServiceSendNotificationRequest> = /*@__PURE__*/
+  messageDesc(file_rookery_plugin_v1_server, 4);
+
+/**
+ * @generated from message rookery.plugin.v1.ServerServiceSendNotificationResponse
+ */
+export type ServerServiceSendNotificationResponse = Message<"rookery.plugin.v1.ServerServiceSendNotificationResponse"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+};
+
+/**
+ * Describes the message rookery.plugin.v1.ServerServiceSendNotificationResponse.
+ * Use `create(ServerServiceSendNotificationResponseSchema)` to create a new message.
+ */
+export const ServerServiceSendNotificationResponseSchema: GenMessage<ServerServiceSendNotificationResponse> = /*@__PURE__*/
+  messageDesc(file_rookery_plugin_v1_server, 5);
+
+/**
  * ServerService is the server's socket, as a plugin sees it.
  *
  * @generated from service rookery.plugin.v1.ServerService
  */
 export const ServerService: GenService<{
+  /**
+   * Publish sends an event to whoever hears the plugin's events.
+   *
+   * @generated from rpc rookery.plugin.v1.ServerService.Publish
+   */
+  publish: {
+    methodKind: "unary";
+    input: typeof ServerServicePublishRequestSchema;
+    output: typeof ServerServicePublishResponseSchema;
+  },
+  /**
+   * SendNotification tells one user something.
+   *
+   * @generated from rpc rookery.plugin.v1.ServerService.SendNotification
+   */
+  sendNotification: {
+    methodKind: "unary";
+    input: typeof ServerServiceSendNotificationRequestSchema;
+    output: typeof ServerServiceSendNotificationResponseSchema;
+  },
   /**
    * DialNode carries bytes to a port on a managed host's loopback or to a Unix
    * socket there, through the server's link to the host. It is how a provisioner

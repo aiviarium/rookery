@@ -15,6 +15,7 @@ import (
 
 	"github.com/aiviarium/rookery/internal/blobs"
 	"github.com/aiviarium/rookery/internal/jobs"
+	"github.com/aiviarium/rookery/internal/plugins"
 	"github.com/aiviarium/rookery/internal/store"
 )
 
@@ -110,12 +111,13 @@ type handlers struct {
 	edge   http.Handler
 	socket http.Handler
 
-	log       *slog.Logger
-	store     *store.Store
-	blobs     *blobs.Blobs
-	runner    *jobs.Runner
-	scheduler *jobs.Scheduler
-	retention time.Duration
+	log        *slog.Logger
+	store      *store.Store
+	blobs      *blobs.Blobs
+	runner     *jobs.Runner
+	scheduler  *jobs.Scheduler
+	supervisor *plugins.Supervisor
+	retention  time.Duration
 }
 
 // logger is the server's logger, for the loops the handlers own.

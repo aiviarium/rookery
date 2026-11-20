@@ -1,0 +1,56 @@
+// PluginService is what a plugin's server-side code serves on
+// ROOKERY_PLUGIN_SOCKET. The server starts the process, hands it the socket and
+// a token, and calls it here; its declared procedures are served beside this
+// service.
+
+syntax = "proto3";
+
+package rookery.plugin.v1;
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/plugin/v1;pluginv1";
+
+message PluginServiceInitRequest {
+  // ID and Version are the installed plugin the process is serving.
+  string id = 1;
+  string version = 2;
+  // Settings is the plugin's settings, as CBOR, for the scopes the server has.
+  bytes settings = 3;
+}
+
+message PluginServiceInitResponse {
+  // Settings is what the process wants changed, as CBOR: the values it wrote
+  // as defaults. Empty when it has nothing to say.
+  bytes settings = 1;
+}
+
+message PluginServiceHealthRequest {}
+
+message PluginServiceHealthResponse {
+  // Healthy is false while the process is starting, or when it cannot reach
+  // something it needs.
+  bool healthy = 1;
+  // Message says why it is not healthy.
+  string message = 2;
+}
+
+message PluginServiceTestConnectionRequest {
+  // Type is the connection type's id in the plugin's manifest.
+  string type = 1;
+  // Config is the connection's fields, as CBOR.
+  bytes config = 2;
+}
+
+message PluginServiceTestConnectionResponse {
+  // Message is what the process says about the connection.
+  string message = 1;
+}
+
+// PluginService is served by every plugin with a service.
+service PluginService {
+  // Init tells the process what it is serving and with which settings.
+  rpc Init(PluginServiceInitRequest) returns (PluginServiceInitResponse);
+  // Health says whether the process can serve.
+  rpc Health(PluginServiceHealthRequest) returns (PluginServiceHealthResponse);
+  // TestConnection tries a connection's fields against what they name.
+  rpc TestConnection(PluginServiceTestConnectionRequest) returns (PluginServiceTestConnectionResponse);
+}

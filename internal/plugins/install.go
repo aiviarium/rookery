@@ -46,6 +46,8 @@ type Options struct {
 	Schedules *jobs.Schedules
 	// Spaces is the kinds of space a plugin adds.
 	Spaces *spaces.Registry
+	// Services runs the plugins' services. Without it they are not started.
+	Services *Supervisor
 	// Logger says what an install did.
 	Logger *slog.Logger
 }
@@ -59,6 +61,7 @@ type Installer struct {
 	jobs      *jobs.Registry
 	schedules *jobs.Schedules
 	spaces    *spaces.Registry
+	services  *Supervisor
 	logger    *slog.Logger
 }
 
@@ -75,9 +78,15 @@ func NewInstaller(options Options) *Installer {
 		jobs:      options.Jobs,
 		schedules: options.Schedules,
 		spaces:    options.Spaces,
+		services:  options.Services,
 		logger:    logger,
 	}
 }
+
+// SetServices makes the installer start and stop the plugins' services. It is
+// set after both exist, since the supervisor reads its plugins back through the
+// installer.
+func (i *Installer) SetServices(services *Supervisor) { i.services = services }
 
 // Plugin is an installed package.
 type Plugin struct {
@@ -193,7 +202,16 @@ func (i *Installer) Install(ctx context.Context, packageReader io.Reader) (Plugi
 
 	i.declareAtRuntime(ctx, manifest)
 	i.logger.Info("installed a plugin", slog.String("plugin", manifest.ID), slog.String("version", manifest.Version))
-	return pluginOf(record)
+	plugin, err := pluginOf(record)
+	if err != nil {
+		return Plugin{}, err
+	}
+	if i.services != nil && manifest.Service != nil && manifest.Service.Start != StartLazy {
+		if err := i.services.Start(context.WithoutCancel(ctx), plugin); err != nil {
+			i.logger.Error("starting a plugin's service", slog.String("plugin", plugin.ID), slog.String("error", err.Error()))
+		}
+	}
+	return plugin, nil
 }
 
 // declare adds a plugin's declarations to the packages that own them, and makes
@@ -322,6 +340,10 @@ func (i *Installer) Remove(ctx context.Context, id string, purge bool) error {
 		}
 	}
 
+	// The process goes before its files do.
+	if i.services != nil {
+		i.services.Stop(id)
+	}
 	if purge && i.data != nil {
 		if err := i.data.Drop(ctx, id); err != nil {
 			return err
@@ -342,6 +364,9 @@ func (i *Installer) Remove(ctx context.Context, id string, purge bool) error {
 
 // SetEnabled turns a plugin on or off.
 func (i *Installer) SetEnabled(ctx context.Context, id string, enabled bool) (Plugin, error) {
+	if i.services != nil && !enabled {
+		i.services.Stop(id)
+	}
 	record, err := i.store.Queries().SetPluginEnabled(ctx, store.SetPluginEnabledParams{ID: id, Enabled: enabled})
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -349,7 +374,18 @@ func (i *Installer) SetEnabled(ctx context.Context, id string, enabled bool) (Pl
 	case err != nil:
 		return Plugin{}, fmt.Errorf("plugins: changing %s: %w", id, err)
 	}
-	return pluginOf(record)
+	plugin, err := pluginOf(record)
+	if err != nil {
+		return Plugin{}, err
+	}
+	if i.services != nil && enabled {
+		if manifest, err := pluginManifest(plugin); err == nil && manifest.Service != nil && manifest.Service.Start != StartLazy {
+			if err := i.services.Start(context.WithoutCancel(ctx), plugin); err != nil {
+				i.logger.Error("starting a plugin's service", slog.String("plugin", id), slog.String("error", err.Error()))
+			}
+		}
+	}
+	return plugin, nil
 }
 
 // Contribution is what the shell needs from one plugin that has a client half:
@@ -541,4 +577,27 @@ func fileIn(folder, name string) (string, bool) {
 		return "", false
 	}
 	return file, true
+}
+
+// Access is what a declared procedure needs, from the installed manifest. It
+// reports whether the plugin declares the procedure at all.
+func (i *Installer) Access(ctx context.Context, id, procedure string) (Level, Resource, bool, error) {
+	plugin, err := i.Get(ctx, id)
+	if err != nil {
+		return "", "", false, err
+	}
+	manifest, err := pluginManifest(plugin)
+	if err != nil {
+		return "", "", false, err
+	}
+	if manifest.Service == nil {
+		return "", "", false, nil
+	}
+	for _, declared := range manifest.Service.RPC {
+		if declared.Procedure != procedure {
+			continue
+		}
+		return declared.Access.Level, declared.Access.Resource, true, nil
+	}
+	return "", "", false, nil
 }

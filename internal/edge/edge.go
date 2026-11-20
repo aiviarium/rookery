@@ -45,6 +45,13 @@ type Deps struct {
 	Plugins Plugins
 	// Blobs serves /blobs/{id} when it is set.
 	Blobs http.Handler
+	// Services starts a plugin's service for a call. Without it the edge serves
+	// client halves only.
+	Services PluginServices
+	// Procedures is what the installed plugins declare their procedures need.
+	Procedures PluginProcedures
+	// PluginTokens is the plugin whose service holds a token, for the socket.
+	PluginTokens PluginTokens
 
 	// RegisterServices adds the core services to a mux, both listeners.
 	RegisterServices func(mux *http.ServeMux, options []connect.HandlerOption)
@@ -74,6 +81,7 @@ func (e *Edge) Handler() http.Handler {
 	}
 	e.registerAuth(mux)
 	e.registerPlugins(mux)
+	e.registerPluginRPC(mux)
 	mux.HandleFunc("/", e.fallback)
 	return e.authenticate(mux)
 }
@@ -85,7 +93,25 @@ func (e *Edge) SocketHandler() http.Handler {
 	e.deps.RegisterServices(mux, e.handlerOptions())
 	e.deps.RegisterLocal(mux, e.handlerOptions())
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := access.WithPrincipal(r.Context(), access.LocalAdmin())
+		// The socket is the local admin's, and a plugin's service reaches it
+		// with the token the server started it with. A token that is not one of
+		// those is not a lesser admin: it is refused.
+		ctx := r.Context()
+		if header := r.Header.Get("Authorization"); strings.HasPrefix(header, "Bearer ") {
+			secret := strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
+			if e.deps.PluginTokens == nil {
+				unauthorized(w)
+				return
+			}
+			id, ok := e.deps.PluginTokens.PluginByToken(secret)
+			if !ok {
+				unauthorized(w)
+				return
+			}
+			ctx = access.WithPrincipal(ctx, access.Plugin(id))
+		} else {
+			ctx = access.WithPrincipal(ctx, access.LocalAdmin())
+		}
 		mux.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

@@ -13,6 +13,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	pluginv1connect "github.com/aiviarium/rookery/gen/go/rookery/plugin/v1/pluginv1connect"
 	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
 	"github.com/aiviarium/rookery/gen/go/rookery/v1/rookeryv1connect"
 	"github.com/aiviarium/rookery/internal/access"
@@ -101,7 +102,8 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	bus := messaging.NewBus()
 	events := messaging.NewEventsService(bus, checker)
 	topics := messaging.NewTopicsService(messaging.NewTopics(opened))
-	notifications := messaging.NewNotificationsService(messaging.NewNotifications(opened))
+	notificationStore := messaging.NewNotifications(opened)
+	notifications := messaging.NewNotificationsService(notificationStore)
 
 	registry := jobs.NewRegistry()
 	if err := registry.RegisterKinds(jobs.CoreKinds()...); err != nil {
@@ -123,6 +125,13 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		Spaces:    spaceKinds,
 		Logger:    s.log,
 	})
+	supervisor := plugins.NewSupervisor(plugins.SupervisorOptions{
+		Source:   installer,
+		StateDir: s.config.StateDir,
+		Socket:   s.config.Socket,
+		Logger:   s.log,
+	})
+	installer.SetServices(supervisor)
 
 	if interrupted, err := jobs.InterruptRunning(ctx, opened); err != nil {
 		return nil, err
@@ -164,6 +173,9 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		OIDCAdmins:   s.config.Admins,
 		Interceptors: interceptors,
 		Plugins:      installer,
+		Services:     supervisor,
+		Procedures:   installer,
+		PluginTokens: supervisor,
 		RegisterServices: func(mux *http.ServeMux, options []connect.HandlerOption) {
 			service.register(mux, options)
 		},
@@ -171,18 +183,21 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		RegisterLocal: func(mux *http.ServeMux, options []connect.HandlerOption) {
 			path, handler := rookeryv1connect.NewLocalServiceHandler(service.local, options...)
 			mux.Handle(path, handler)
+			path, handler = pluginv1connect.NewServerServiceHandler(NewPluginServer(bus, notificationStore), options...)
+			mux.Handle(path, handler)
 		},
 	})
 
 	return &handlers{
-		edge:      build.Handler(),
-		socket:    build.SocketHandler(),
-		log:       s.log,
-		runner:    runner,
-		scheduler: scheduler,
-		retention: time.Duration(s.config.RetentionDays) * 24 * time.Hour,
-		store:     opened,
-		blobs:     blobStore,
+		edge:       build.Handler(),
+		socket:     build.SocketHandler(),
+		log:        s.log,
+		runner:     runner,
+		scheduler:  scheduler,
+		supervisor: supervisor,
+		retention:  time.Duration(s.config.RetentionDays) * 24 * time.Hour,
+		store:      opened,
+		blobs:      blobStore,
 	}, nil
 }
 
@@ -191,6 +206,8 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 // returns when ctx ends.
 func (h *handlers) start(ctx context.Context) error {
 	group, ctx := errgroup.WithContext(ctx)
+	h.supervisor.StartAll(ctx)
+	defer h.supervisor.StopAll()
 	group.Go(func() error { return h.runner.Run(ctx) })
 	group.Go(func() error { return h.scheduler.Run(ctx) })
 	group.Go(func() error {

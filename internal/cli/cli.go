@@ -61,6 +61,7 @@ that ` + "`rookery login`" + ` saved.`,
 		secretCommand(),
 		settingCommand(),
 		connectionCommand(),
+		pluginCommand(),
 	)
 	return root
 }

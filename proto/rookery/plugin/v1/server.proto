@@ -29,8 +29,40 @@ message ServerServiceDialNodeResponse {
   bytes data = 1;
 }
 
+// ServerServicePublishRequest is an event a plugin publishes. Its name must
+// start with the plugin's id, such as example/note.changed.
+message ServerServicePublishRequest {
+  string name = 1;
+  // resource is the resource URI the event is about, when it is about one.
+  string resource = 2;
+  bytes payload_cbor = 3;
+}
+
+message ServerServicePublishResponse {}
+
+// ServerServiceSendNotificationRequest tells one user something, as
+// NotificationService does for their own notifications.
+message ServerServiceSendNotificationRequest {
+  string user_id = 1;
+  string title = 2;
+  string body = 3;
+  string link = 4;
+  string resource = 5;
+  bytes actions_cbor = 6;
+}
+
+message ServerServiceSendNotificationResponse {
+  string id = 1;
+}
+
 // ServerService is the server's socket, as a plugin sees it.
 service ServerService {
+  // Publish sends an event to whoever hears the plugin's events.
+  rpc Publish(ServerServicePublishRequest) returns (ServerServicePublishResponse);
+
+  // SendNotification tells one user something.
+  rpc SendNotification(ServerServiceSendNotificationRequest) returns (ServerServiceSendNotificationResponse);
+
   // DialNode carries bytes to a port on a managed host's loopback or to a Unix
   // socket there, through the server's link to the host. It is how a provisioner
   // on the server reaches a Docker or Incus socket on a node.

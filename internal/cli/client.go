@@ -111,6 +111,7 @@ type api struct {
 	Secrets       rookeryv1connect.SecretServiceClient
 	Connections   rookeryv1connect.ConnectionServiceClient
 	Blobs         rookeryv1connect.BlobServiceClient
+	Plugins       rookeryv1connect.PluginServiceClient
 }
 
 // dial connects to a server at an address: a Unix socket, or an http or https
@@ -141,6 +142,7 @@ func dial(ctx context.Context, address, token string) (*api, error) {
 		Secrets:       rookeryv1connect.NewSecretServiceClient(httpClient, base, options...),
 		Connections:   rookeryv1connect.NewConnectionServiceClient(httpClient, base, options...),
 		Blobs:         rookeryv1connect.NewBlobServiceClient(httpClient, base, options...),
+		Plugins:       rookeryv1connect.NewPluginServiceClient(httpClient, base, options...),
 	}, nil
 }
 

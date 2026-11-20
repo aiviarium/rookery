@@ -35,12 +35,30 @@ type Harness struct {
 	config Config
 	client *Client
 
-	mu    sync.Mutex
-	dials []Target
+	mu            sync.Mutex
+	dials         []Target
+	events        []PublishedEvent
+	notifications []SentNotification
 	// DialNode is how a target is reached on this machine. A test points it at
 	// what it wants a node's socket to be; by default it dials the target
 	// itself.
 	DialNode func(ctx context.Context, target Target) (net.Conn, error)
+}
+
+// PublishedEvent is an event a plugin's service published.
+type PublishedEvent struct {
+	Name     string
+	Resource string
+	Payload  []byte
+}
+
+// SentNotification is a notification a plugin's service sent.
+type SentNotification struct {
+	UserID   string
+	Title    string
+	Body     string
+	Link     string
+	Resource string
 }
 
 // StartHarness starts a server socket for a test. It is closed when the test
@@ -221,6 +239,46 @@ func (h *Harness) ServeProvisioner(provisioner Provisioner) *ProvisionerClient {
 
 // harnessServer serves ServerService for a test.
 type harnessServer struct{ harness *Harness }
+
+// Publish records the event.
+func (s harnessServer) Publish(_ context.Context, request *connect.Request[pluginv1.ServerServicePublishRequest]) (*connect.Response[pluginv1.ServerServicePublishResponse], error) {
+	s.harness.mu.Lock()
+	defer s.harness.mu.Unlock()
+	s.harness.events = append(s.harness.events, PublishedEvent{
+		Name:     request.Msg.GetName(),
+		Resource: request.Msg.GetResource(),
+		Payload:  request.Msg.GetPayloadCbor(),
+	})
+	return connect.NewResponse(&pluginv1.ServerServicePublishResponse{}), nil
+}
+
+// SendNotification records the notification.
+func (s harnessServer) SendNotification(_ context.Context, request *connect.Request[pluginv1.ServerServiceSendNotificationRequest]) (*connect.Response[pluginv1.ServerServiceSendNotificationResponse], error) {
+	s.harness.mu.Lock()
+	defer s.harness.mu.Unlock()
+	s.harness.notifications = append(s.harness.notifications, SentNotification{
+		UserID:   request.Msg.GetUserId(),
+		Title:    request.Msg.GetTitle(),
+		Body:     request.Msg.GetBody(),
+		Link:     request.Msg.GetLink(),
+		Resource: request.Msg.GetResource(),
+	})
+	return connect.NewResponse(&pluginv1.ServerServiceSendNotificationResponse{Id: id.Secret(8)}), nil
+}
+
+// Events are what the service published.
+func (h *Harness) Events() []PublishedEvent {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]PublishedEvent{}, h.events...)
+}
+
+// Notifications are what the service sent.
+func (h *Harness) Notifications() []SentNotification {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]SentNotification{}, h.notifications...)
+}
 
 // DialNode reaches the target on this machine, through DialNode when the test set
 // one, and carries bytes both ways.

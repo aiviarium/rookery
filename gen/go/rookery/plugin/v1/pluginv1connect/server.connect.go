@@ -42,12 +42,21 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// ServerServicePublishProcedure is the fully-qualified name of the ServerService's Publish RPC.
+	ServerServicePublishProcedure = "/rookery.plugin.v1.ServerService/Publish"
+	// ServerServiceSendNotificationProcedure is the fully-qualified name of the ServerService's
+	// SendNotification RPC.
+	ServerServiceSendNotificationProcedure = "/rookery.plugin.v1.ServerService/SendNotification"
 	// ServerServiceDialNodeProcedure is the fully-qualified name of the ServerService's DialNode RPC.
 	ServerServiceDialNodeProcedure = "/rookery.plugin.v1.ServerService/DialNode"
 )
 
 // ServerServiceClient is a client for the rookery.plugin.v1.ServerService service.
 type ServerServiceClient interface {
+	// Publish sends an event to whoever hears the plugin's events.
+	Publish(context.Context, *connect.Request[v1.ServerServicePublishRequest]) (*connect.Response[v1.ServerServicePublishResponse], error)
+	// SendNotification tells one user something.
+	SendNotification(context.Context, *connect.Request[v1.ServerServiceSendNotificationRequest]) (*connect.Response[v1.ServerServiceSendNotificationResponse], error)
 	// DialNode carries bytes to a port on a managed host's loopback or to a Unix
 	// socket there, through the server's link to the host. It is how a provisioner
 	// on the server reaches a Docker or Incus socket on a node.
@@ -65,6 +74,18 @@ func NewServerServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 	baseURL = strings.TrimRight(baseURL, "/")
 	serverServiceMethods := v1.File_rookery_plugin_v1_server_proto.Services().ByName("ServerService").Methods()
 	return &serverServiceClient{
+		publish: connect.NewClient[v1.ServerServicePublishRequest, v1.ServerServicePublishResponse](
+			httpClient,
+			baseURL+ServerServicePublishProcedure,
+			connect.WithSchema(serverServiceMethods.ByName("Publish")),
+			connect.WithClientOptions(opts...),
+		),
+		sendNotification: connect.NewClient[v1.ServerServiceSendNotificationRequest, v1.ServerServiceSendNotificationResponse](
+			httpClient,
+			baseURL+ServerServiceSendNotificationProcedure,
+			connect.WithSchema(serverServiceMethods.ByName("SendNotification")),
+			connect.WithClientOptions(opts...),
+		),
 		dialNode: connect.NewClient[v1.ServerServiceDialNodeRequest, v1.ServerServiceDialNodeResponse](
 			httpClient,
 			baseURL+ServerServiceDialNodeProcedure,
@@ -76,7 +97,19 @@ func NewServerServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 
 // serverServiceClient implements ServerServiceClient.
 type serverServiceClient struct {
-	dialNode *connect.Client[v1.ServerServiceDialNodeRequest, v1.ServerServiceDialNodeResponse]
+	publish          *connect.Client[v1.ServerServicePublishRequest, v1.ServerServicePublishResponse]
+	sendNotification *connect.Client[v1.ServerServiceSendNotificationRequest, v1.ServerServiceSendNotificationResponse]
+	dialNode         *connect.Client[v1.ServerServiceDialNodeRequest, v1.ServerServiceDialNodeResponse]
+}
+
+// Publish calls rookery.plugin.v1.ServerService.Publish.
+func (c *serverServiceClient) Publish(ctx context.Context, req *connect.Request[v1.ServerServicePublishRequest]) (*connect.Response[v1.ServerServicePublishResponse], error) {
+	return c.publish.CallUnary(ctx, req)
+}
+
+// SendNotification calls rookery.plugin.v1.ServerService.SendNotification.
+func (c *serverServiceClient) SendNotification(ctx context.Context, req *connect.Request[v1.ServerServiceSendNotificationRequest]) (*connect.Response[v1.ServerServiceSendNotificationResponse], error) {
+	return c.sendNotification.CallUnary(ctx, req)
 }
 
 // DialNode calls rookery.plugin.v1.ServerService.DialNode.
@@ -86,6 +119,10 @@ func (c *serverServiceClient) DialNode(ctx context.Context) *connect.BidiStreamF
 
 // ServerServiceHandler is an implementation of the rookery.plugin.v1.ServerService service.
 type ServerServiceHandler interface {
+	// Publish sends an event to whoever hears the plugin's events.
+	Publish(context.Context, *connect.Request[v1.ServerServicePublishRequest]) (*connect.Response[v1.ServerServicePublishResponse], error)
+	// SendNotification tells one user something.
+	SendNotification(context.Context, *connect.Request[v1.ServerServiceSendNotificationRequest]) (*connect.Response[v1.ServerServiceSendNotificationResponse], error)
 	// DialNode carries bytes to a port on a managed host's loopback or to a Unix
 	// socket there, through the server's link to the host. It is how a provisioner
 	// on the server reaches a Docker or Incus socket on a node.
@@ -99,6 +136,18 @@ type ServerServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewServerServiceHandler(svc ServerServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	serverServiceMethods := v1.File_rookery_plugin_v1_server_proto.Services().ByName("ServerService").Methods()
+	serverServicePublishHandler := connect.NewUnaryHandler(
+		ServerServicePublishProcedure,
+		svc.Publish,
+		connect.WithSchema(serverServiceMethods.ByName("Publish")),
+		connect.WithHandlerOptions(opts...),
+	)
+	serverServiceSendNotificationHandler := connect.NewUnaryHandler(
+		ServerServiceSendNotificationProcedure,
+		svc.SendNotification,
+		connect.WithSchema(serverServiceMethods.ByName("SendNotification")),
+		connect.WithHandlerOptions(opts...),
+	)
 	serverServiceDialNodeHandler := connect.NewBidiStreamHandler(
 		ServerServiceDialNodeProcedure,
 		svc.DialNode,
@@ -107,6 +156,10 @@ func NewServerServiceHandler(svc ServerServiceHandler, opts ...connect.HandlerOp
 	)
 	return "/rookery.plugin.v1.ServerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case ServerServicePublishProcedure:
+			serverServicePublishHandler.ServeHTTP(w, r)
+		case ServerServiceSendNotificationProcedure:
+			serverServiceSendNotificationHandler.ServeHTTP(w, r)
 		case ServerServiceDialNodeProcedure:
 			serverServiceDialNodeHandler.ServeHTTP(w, r)
 		default:
@@ -117,6 +170,14 @@ func NewServerServiceHandler(svc ServerServiceHandler, opts ...connect.HandlerOp
 
 // UnimplementedServerServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedServerServiceHandler struct{}
+
+func (UnimplementedServerServiceHandler) Publish(context.Context, *connect.Request[v1.ServerServicePublishRequest]) (*connect.Response[v1.ServerServicePublishResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.plugin.v1.ServerService.Publish is not implemented"))
+}
+
+func (UnimplementedServerServiceHandler) SendNotification(context.Context, *connect.Request[v1.ServerServiceSendNotificationRequest]) (*connect.Response[v1.ServerServiceSendNotificationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.plugin.v1.ServerService.SendNotification is not implemented"))
+}
 
 func (UnimplementedServerServiceHandler) DialNode(context.Context, *connect.BidiStream[v1.ServerServiceDialNodeRequest, v1.ServerServiceDialNodeResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("rookery.plugin.v1.ServerService.DialNode is not implemented"))
