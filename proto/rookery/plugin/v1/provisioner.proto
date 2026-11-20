@@ -1,0 +1,323 @@
+// ProvisionerService is what the server calls in a provisioner's executable.
+//
+// A provisioner is a small program a plugin's package carries. The server starts
+// it for one call, with ROOKERY_PLUGIN_SOCKET, ROOKERY_SOCKET and a token in its
+// environment, calls this service on the socket it names, and stops it when the
+// call is done. Its stderr is a line of the job's log.
+//
+// Arguments and state are CBOR: arguments are what an admin gave an entry, and
+// state is what the provisioner needs to reach what it made again, which the core
+// stores without reading it.
+
+syntax = "proto3";
+
+package rookery.plugin.v1;
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/plugin/v1;pluginv1";
+
+// Resource is something a provisioner made, as List reports it.
+message Resource {
+  // Kind is the resource kind it is: machine, deployment, or one of the
+  // provisioner's own.
+  string kind = 1;
+
+  // Name is what an entry calls it, and for a machine the host's name.
+  string name = 2;
+
+  // Id is the provisioner's own name for it, such as a container's.
+  string id = 3;
+
+  // Address is where it answers, when it has one: a machine's address.
+  string address = 4;
+
+  // State is what the provisioner needs to reach it again.
+  bytes state_cbor = 5;
+
+  // Labels are what the provisioner set on it, user.rookery.* among them, which
+  // is how the core matches it to its records.
+  map<string, string> labels = 6;
+}
+
+// Engine is where an entry's engine is: the managed host whose Docker or Incus
+// socket the server reaches for it, or an address the provisioner reaches
+// itself with the credentials in its arguments and secrets. Neither set is the
+// server's own engine, which a provisioner declares with Local.
+message Engine {
+  // Node is the managed host whose engine the entry drives. The provisioner
+  // reaches it through ServerService.DialNode.
+  string node = 1;
+
+  // Remote is the address of an engine the provisioner reaches itself.
+  string remote = 2;
+}
+
+// Kind is a resource kind a provisioner makes.
+message Kind {
+  // Id is the kind's name: machine, deployment, or the provisioner's own.
+  string id = 1;
+
+  // Label is what people see.
+  string label = 2;
+
+  // Machine says this kind is the core's machine, of which a host has at most
+  // one.
+  bool machine = 3;
+}
+
+// Argument is one argument an entry's type takes.
+message Argument {
+  // Name is what the argument is called on the command line, such as "image".
+  string name = 1;
+
+  // Label is what people see.
+  string label = 2;
+
+  // Type is how the value is read: string, int, bool, duration, size, select or
+  // cbor.
+  string type = 3;
+
+  // Required refuses an entry without it.
+  bool required = 4;
+
+  // DefaultCbor is the value it has when the entry leaves it out.
+  bytes default_cbor = 5;
+
+  // Choices are the values a select takes.
+  repeated string choices = 6;
+
+  // Help says what it does, in a sentence.
+  string help = 7;
+
+  // Secret says the value comes from the provisioner's secrets rather than its
+  // arguments, and never shows in a listing.
+  bool secret = 8;
+}
+
+// Size is one of the machine sizes a provisioner offers.
+message Size {
+  string id = 1;
+  string label = 2;
+  uint32 cpus = 3;
+  uint64 memory_mb = 4;
+  uint64 disk_gb = 5;
+}
+
+// Image is one of the images a provisioner offers.
+message Image {
+  string id = 1;
+  string label = 2;
+  string os = 3;
+  string release = 4;
+  string architecture = 5;
+}
+
+// Action is something a provisioner's entry can be told to do with the engine.
+message Action {
+  // Name is what the action is called, such as "images".
+  string name = 1;
+  string label = 2;
+
+  // Group is the section it appears in.
+  string group = 3;
+
+  // Arguments are what it takes.
+  repeated Argument arguments = 4;
+
+  // Destructive says it changes or removes what the engine holds.
+  bool destructive = 5;
+}
+
+// Description is what a provisioner declares about itself: its kinds, the
+// arguments its entries take, the secrets it needs and its actions.
+message Description {
+  // Type is the type's name, such as "docker/container".
+  string type = 1;
+  string label = 2;
+
+  // Kinds are the resources it makes.
+  repeated Kind kinds = 3;
+
+  // Arguments are what an entry of this type takes.
+  repeated Argument arguments = 4;
+
+  // Secrets are the names it reads from the entry's secrets.
+  repeated string secrets = 5;
+
+  // Sizes and Images are the choices it offers for a machine.
+  repeated Size sizes = 6;
+  repeated Image images = 7;
+
+  // Actions are what its entries can be told to do.
+  repeated Action actions = 8;
+
+  // Node says an entry of this type runs against the engine on a managed host,
+  // reached through the server. Local says the server's own engine is a node too.
+  bool node = 9;
+  bool local = 10;
+}
+
+message ProvisionerServiceDescribeRequest {}
+
+message ProvisionerServiceDescribeResponse {
+  Description description = 1;
+}
+
+message ProvisionerServiceStatusRequest {
+  // ArgsCbor are the entry's arguments, CBOR in Core Deterministic mode.
+  bytes args_cbor = 1;
+
+  // Engine is where the entry's engine is.
+  Engine engine = 2;
+}
+
+message ProvisionerServiceStatusResponse {
+  // Up says the engine answered.
+  bool up = 1;
+
+  // Message is what to show about it: the version, or why it did not answer.
+  string message = 2;
+}
+
+message ProvisionerServiceCreateRequest {
+  // Entry is the provisioner entry's name, which the resource's labels carry.
+  string entry = 1;
+
+  // Kind is the resource kind to make, one of the description's.
+  string kind = 2;
+
+  // Name is what to call it: for a machine the host's name.
+  string name = 3;
+
+  // ArgsCbor are the entry's arguments, CBOR in Core Deterministic mode.
+  bytes args_cbor = 4;
+
+  // Seed is the cloud-init user data a machine starts with. Empty for kinds
+  // that are not machines.
+  string seed = 5;
+
+  // Engine is where the entry's engine is.
+  Engine engine = 6;
+}
+
+message ProvisionerServiceCreateResponse {
+  // StateCbor is what the provisioner needs to reach the resource again.
+  bytes state_cbor = 1;
+
+  // Address is where a machine answers, once it is known.
+  string address = 2;
+
+  // Id is the provisioner's own name for it.
+  string id = 3;
+}
+
+// Instance names something a provisioner made, by its stored state.
+message Instance {
+  string kind = 1;
+  string name = 2;
+  bytes state_cbor = 3;
+  string id = 4;
+
+  // Engine is where the entry's engine is.
+  Engine engine = 5;
+}
+
+message ProvisionerServiceGetRequest {
+  Instance instance = 1;
+}
+
+message ProvisionerServiceGetResponse {
+  bytes state_cbor = 1;
+  string address = 2;
+}
+
+message ProvisionerServiceStartRequest {
+  Instance instance = 1;
+}
+
+message ProvisionerServiceStartResponse {
+  bytes state_cbor = 1;
+  string address = 2;
+}
+
+message ProvisionerServiceStopRequest {
+  Instance instance = 1;
+}
+
+message ProvisionerServiceStopResponse {
+  bytes state_cbor = 1;
+}
+
+message ProvisionerServiceRemoveRequest {
+  Instance instance = 1;
+}
+
+message ProvisionerServiceRemoveResponse {}
+
+message ProvisionerServiceListRequest {
+  // Kind narrows the list to one kind. Empty lists every kind.
+  string kind = 1;
+
+  // ArgsCbor are the entry's arguments, so that the provisioner knows which of
+  // what it made is this entry's.
+  bytes args_cbor = 2;
+
+  // Engine is where the entry's engine is.
+  Engine engine = 3;
+
+  // Entry is the entry whose resources the list is: the provisioner matches it
+  // by the labels it set.
+  string entry = 4;
+}
+
+message ProvisionerServiceListResponse {
+  repeated Resource resources = 1;
+}
+
+message ProvisionerServiceRunActionRequest {
+  // Action is the action's name, one of the description's.
+  string action = 1;
+
+  // ArgsCbor are the action's arguments, CBOR in Core Deterministic mode.
+  bytes args_cbor = 2;
+
+  // EntryArgsCbor are the entry's arguments, CBOR in Core Deterministic mode.
+  bytes entry_args_cbor = 3;
+
+  // Engine is where the entry's engine is.
+  Engine engine = 4;
+}
+
+message ProvisionerServiceRunActionResponse {
+  // Line is one line of the action's output, without its newline.
+  string line = 1;
+}
+
+// ProvisionerService is a provisioner's executable.
+service ProvisionerService {
+  // Describe says what the provisioner makes and takes.
+  rpc Describe(ProvisionerServiceDescribeRequest) returns (ProvisionerServiceDescribeResponse);
+
+  // Status says whether the engine answers.
+  rpc Status(ProvisionerServiceStatusRequest) returns (ProvisionerServiceStatusResponse);
+
+  // Create makes one resource.
+  rpc Create(ProvisionerServiceCreateRequest) returns (ProvisionerServiceCreateResponse);
+
+  // Get reports a resource's state and address.
+  rpc Get(ProvisionerServiceGetRequest) returns (ProvisionerServiceGetResponse);
+
+  // Start starts a stopped resource.
+  rpc Start(ProvisionerServiceStartRequest) returns (ProvisionerServiceStartResponse);
+
+  // Stop stops a resource and keeps it.
+  rpc Stop(ProvisionerServiceStopRequest) returns (ProvisionerServiceStopResponse);
+
+  // Remove removes a resource and what it kept.
+  rpc Remove(ProvisionerServiceRemoveRequest) returns (ProvisionerServiceRemoveResponse);
+
+  // List is what the entry made.
+  rpc List(ProvisionerServiceListRequest) returns (ProvisionerServiceListResponse);
+
+  // RunAction runs one of the provisioner's actions, streaming its output.
+  rpc RunAction(ProvisionerServiceRunActionRequest) returns (stream ProvisionerServiceRunActionResponse);
+}

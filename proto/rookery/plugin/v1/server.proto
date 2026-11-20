@@ -1,0 +1,38 @@
+// ServerService is what a plugin process calls on the server's Unix socket,
+// with ROOKERY_PLUGIN_TOKEN as its credential.
+//
+// The rest of the service (events, topics, leases, its own kv and secrets, the
+// jobs it works) arrives with the plugin system. DialNode is here because a
+// provisioner needs it: an engine on a managed host has a Unix socket on that
+// host, and the provisioner reaches it through the server, which already has the
+// link to the host.
+
+syntax = "proto3";
+
+package rookery.plugin.v1;
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/plugin/v1;pluginv1";
+
+message ServerServiceDialNodeRequest {
+  // Where to connect on the node. Only the first message sets it: the node's
+  // name, and one of a port on its loopback or the path of a Unix socket there.
+  string node = 1;
+  uint32 tcp_port = 2;
+  string unix_path = 3;
+
+  // Data is bytes for the other side. The first message's bytes go after it
+  // connects.
+  bytes data = 4;
+}
+
+message ServerServiceDialNodeResponse {
+  bytes data = 1;
+}
+
+// ServerService is the server's socket, as a plugin sees it.
+service ServerService {
+  // DialNode carries bytes to a port on a managed host's loopback or to a Unix
+  // socket there, through the server's link to the host. It is how a provisioner
+  // on the server reaches a Docker or Incus socket on a node.
+  rpc DialNode(stream ServerServiceDialNodeRequest) returns (stream ServerServiceDialNodeResponse);
+}

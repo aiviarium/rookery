@@ -155,6 +155,30 @@ type RookeryNotifications struct {
 	CreatedAt time.Time
 }
 
+// Machines and other resources provisioner entries made, with the CBOR state that reaches them.
+type RookeryProvisionedResources struct {
+	ID          string
+	Kind        string
+	Name        string
+	Provisioner string
+	State       []byte
+	Address     string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// Provisioner entries: a type, its CBOR arguments, and where its engine is.
+type RookeryProvisioners struct {
+	Name      string
+	Type      string
+	Plugin    string
+	Args      []byte
+	Node      string
+	Remote    string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 // The references records hold, for RefsTo, RefsFrom and what a delete does to a holder.
 type RookeryRefs struct {
 	// The holding record, as a record:// URI.
