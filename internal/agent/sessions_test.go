@@ -18,7 +18,10 @@ import (
 type attachment struct {
 	stream    *connect.BidiStreamForClient[hostv1.SessionServiceAttachRequest, hostv1.SessionServiceAttachResponse]
 	responses chan *hostv1.SessionServiceAttachResponse
-	errs      chan error
+
+	// stopped is closed when the stream ends, and err says how.
+	stopped chan struct{}
+	err     error
 }
 
 // attach subscribes to a session from an offset.
@@ -33,13 +36,17 @@ func attach(t *testing.T, client *agent.Client, id string, offset uint64) *attac
 	watching := &attachment{
 		stream:    stream,
 		responses: make(chan *hostv1.SessionServiceAttachResponse, 256),
-		errs:      make(chan error, 1),
+		stopped:   make(chan struct{}),
 	}
 	go func() {
 		for {
 			response, err := stream.Receive()
 			if err != nil {
-				watching.errs <- err
+				// The stream's messages and its end are not a race: the reader
+				// pushes what it has before it says it has stopped, and a test
+				// drains that before it reports the end.
+				watching.err = err
+				close(watching.stopped)
 				return
 			}
 			watching.responses <- response
@@ -67,12 +74,14 @@ func (a *attachment) waitFor(t *testing.T, want string) string {
 		select {
 		case response := <-a.responses:
 			output.Write(response.GetOutput())
-		case err := <-a.errs:
-			if late := lateExit(a); late != nil {
-				output.Write(late.GetOutput())
-				continue
+		case <-a.stopped:
+			for _, response := range a.drain() {
+				output.Write(response.GetOutput())
 			}
-			t.Fatalf("the stream ended after %q, waiting for %q: %v", output.String(), want, err)
+			if strings.Contains(output.String(), want) {
+				return output.String()
+			}
+			t.Fatalf("the stream ended after %q, waiting for %q: %v", output.String(), want, a.err)
 		case <-deadline:
 			t.Fatalf("the output is %q after 20s, waiting for %q", output.String(), want)
 		}
@@ -91,34 +100,29 @@ func (a *attachment) waitForExit(t *testing.T) int32 {
 			if response.GetExited() {
 				return response.GetExitCode()
 			}
-		case err := <-a.errs:
-			if late := lateExit(a); late != nil {
-				return late.GetExitCode()
+		case <-a.stopped:
+			for _, response := range a.drain() {
+				if response.GetExited() {
+					return response.GetExitCode()
+				}
 			}
-			t.Fatalf("the stream ended before the session: %v", err)
+			t.Fatalf("the stream ended before the session: %v", a.err)
 		case <-deadline:
 			t.Fatal("the session did not end within 20s")
 		}
 	}
 }
 
-// lateExit is a response that was already on its way when the stream ended: a
-// test reads the two channels together, and the end of the stream may be
-// selected before the message it carried.
-func lateExit(a *attachment) *hostv1.SessionServiceAttachResponse {
-	select {
-	case response := <-a.responses:
-		if response.GetExited() {
-			return response
-		}
-		// Put it back for the next read, unless it cannot be.
+// drain takes what the stream had already delivered.
+func (a *attachment) drain() []*hostv1.SessionServiceAttachResponse {
+	var left []*hostv1.SessionServiceAttachResponse
+	for {
 		select {
-		case a.responses <- response:
+		case response := <-a.responses:
+			left = append(left, response)
 		default:
+			return left
 		}
-		return nil
-	default:
-		return nil
 	}
 }
 
