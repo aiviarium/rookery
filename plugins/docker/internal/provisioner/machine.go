@@ -263,11 +263,23 @@ func listByKind(ctx context.Context, opened *client.Client, kind, entry string) 
 			address = networksAddress(summary.NetworkSettings.Networks, networkName)
 		}
 		if address == "" {
-			// Not every engine reports an address in the list: ask it once more
-			// for the container itself rather than list a machine without one.
-			address, err = containerAddress(ctx, opened, summary.ID, networkName)
-			if err != nil {
-				return nil, err
+			// Not every engine reports an address in the list, and a container
+			// that is starting has none yet: ask it again for a moment rather
+			// than list a running machine without one.
+			for attempt := 0; attempt < 30 && address == ""; attempt++ {
+				var up bool
+				address, up, err = containerEndpoint(ctx, opened, summary.ID, networkName)
+				if err != nil {
+					return nil, err
+				}
+				if !up {
+					break
+				}
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(100 * time.Millisecond):
+				}
 			}
 		}
 		state, err := sdk.Marshal(machineState{Entry: entry, Container: summary.ID, Network: networkName, Address: address})
@@ -363,11 +375,19 @@ func addressOf(ctx context.Context, opened *client.Client, containerID, networkN
 // containerAddress is the address one container has on a network, empty when it
 // has none yet.
 func containerAddress(ctx context.Context, opened *client.Client, containerID, networkName string) (string, error) {
+	address, _, err := containerEndpoint(ctx, opened, containerID, networkName)
+	return address, err
+}
+
+// containerEndpoint is a container's address and whether it is up or coming up.
+func containerEndpoint(ctx context.Context, opened *client.Client, containerID, networkName string) (string, bool, error) {
 	inspected, err := opened.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
 	if err != nil {
-		return "", fmt.Errorf("reading the machine's address: %w", err)
+		return "", false, fmt.Errorf("reading the machine's address: %w", err)
 	}
-	return networksAddress(inspected.Container.NetworkSettings.Networks, networkName), nil
+	state := inspected.Container.State
+	up := state != nil && (state.Running || state.Restarting)
+	return networksAddress(inspected.Container.NetworkSettings.Networks, networkName), up, nil
 }
 
 // networksAddress is a container's address on the named network, or on the one

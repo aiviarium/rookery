@@ -55,7 +55,10 @@ SET state = 'running',
     attempts = attempts + 1,
     started_at = coalesce(started_at, now()),
     claim = sqlc.arg('claim'),
-    heartbeat_at = now()
+    heartbeat_at = now(),
+    claim_started_at = now(),
+    progress = NULL,
+    error = ''
 FROM candidate
 WHERE jobs.id = candidate.id
 RETURNING jobs.*;
@@ -185,3 +188,26 @@ WHERE state = 'running';
 -- name: DeleteOldJobs :execrows
 DELETE FROM rookery.jobs
 WHERE finished_at < now() - sqlc.arg('before')::interval;
+
+
+-- name: GetPluginJobClaim :one
+SELECT *
+FROM rookery.jobs
+WHERE id = $1 AND claim = $2 AND state = 'running';
+
+-- name: SetPluginJobProgress :execrows
+UPDATE rookery.jobs
+SET progress = $3, heartbeat_at = now()
+WHERE id = $1 AND claim = $2 AND state = 'running' AND NOT cancel_requested;
+
+-- name: InsertPluginJobLine :execrows
+INSERT INTO rookery.job_lines (job_id, line)
+SELECT jobs.id, sqlc.arg('line')
+FROM rookery.jobs
+WHERE jobs.id = sqlc.arg('id') AND jobs.claim = sqlc.arg('claim') AND jobs.state = 'running'
+FOR UPDATE;
+
+-- name: CancelClaimedPluginJob :execrows
+UPDATE rookery.jobs
+SET state = 'cancelled', claim = NULL, heartbeat_at = NULL, finished_at = now()
+WHERE id = $1 AND claim = $2 AND state = 'running' AND cancel_requested;

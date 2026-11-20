@@ -23,3 +23,5 @@ export * from "./gen/rookery/v1/space_pb.js";
 export * from "./gen/rookery/v1/terminal_pb.js";
 export * from "./gen/rookery/v1/topic_pb.js";
 export * from "./gen/rookery/v1/user_pb.js";
+export * from "./gen/rookery/plugin/v1/server_pb.js";
+export * as pluginLifecycle from "./gen/rookery/plugin/v1/plugin_pb.js";

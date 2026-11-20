@@ -4,10 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
-	"net/url"
+	"net/http/httputil"
 	"time"
 
 	"github.com/aiviarium/rookery/internal/access"
@@ -49,6 +48,10 @@ func (e *Edge) pluginRPC(w http.ResponseWriter, r *http.Request) {
 		unauthorized(w)
 		return
 	}
+	if err := checkCSRF(r.Context(), r.Header); err != nil {
+		http.Error(w, "Invalid request credential.", http.StatusForbidden)
+		return
+	}
 	level, kind, declared, err := e.deps.Procedures.Access(r.Context(), id, procedure)
 	if err != nil {
 		writePluginError(w, err)
@@ -81,52 +84,68 @@ func (e *Edge) pluginRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The service speaks Connect on its own Unix socket, at the procedure's own
-	// path: the edge's /plugins/<id>/rpc prefix is only the way to reach it.
-	target := &url.URL{Scheme: "http", Host: "plugin", Path: "/" + procedure, RawQuery: r.URL.RawQuery}
-	request, err := http.NewRequestWithContext(r.Context(), r.Method, target.String(), r.Body)
-	if err != nil {
-		writePluginError(w, err)
-		return
-	}
-	request.Header = r.Header.Clone()
-	request.Header.Del("Authorization")
-	request.Header.Del("Cookie")
-
-	client := &http.Client{Transport: &http.Transport{
+	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			var dialer net.Dialer
 			return dialer.DialContext(ctx, "unix", socket)
 		},
 		MaxIdleConns:    2,
 		IdleConnTimeout: time.Minute,
-	}}
-	defer client.CloseIdleConnections()
+	}
+	defer transport.CloseIdleConnections()
+	if services, ok := e.deps.Services.(interface{ HTTP2(string) bool }); ok && services.HTTP2(id) {
+		protocols := new(http.Protocols)
+		protocols.SetUnencryptedHTTP2(true)
+		transport.Protocols = protocols
+	}
 
-	response, err := client.Do(request) //nolint:gosec // the address is the plugin socket the supervisor started
-	if err != nil {
-		writePluginError(w, err)
-		return
+	var caller string
+	if principal.Kind == access.KindUser && e.deps.Callers != nil {
+		caller = e.deps.Callers.Issue(id, principal.ID, r.Header.Get("Rookery-Space"), time.Time{})
 	}
-	defer func() { _ = response.Body.Close() }()
-	for name, values := range response.Header {
-		for _, value := range values {
-			w.Header().Add(name, value)
-		}
+	proxy := &httputil.ReverseProxy{
+		Transport: transport,
+		Rewrite: func(req *httputil.ProxyRequest) {
+			req.Out.URL.Scheme, req.Out.URL.Host = "http", "plugin"
+			req.Out.URL.Path, req.Out.URL.RawPath = "/"+procedure, ""
+			req.Out.Host = "plugin"
+			req.Out.Header.Del("Authorization")
+			req.Out.Header.Del("Cookie")
+			req.Out.Header.Del(CSRFHeader)
+			req.Out.Header.Del(access.CallerTokenHeader)
+			if caller != "" {
+				req.Out.Header.Set(access.CallerTokenHeader, caller)
+			}
+		},
+		ModifyResponse: func(response *http.Response) error {
+			response.Header.Del(access.CallerTokenHeader)
+			response.Header.Del("Set-Cookie")
+			return nil
+		},
+		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+			writePluginError(w, err)
+		},
 	}
-	w.WriteHeader(response.StatusCode)
-	_, _ = io.Copy(w, response.Body)
+	proxy.ServeHTTP(w, r)
 }
 
 // accessResource is the resource a declared procedure's access is checked on.
 func accessResource(r *http.Request, pluginID string, kind plugins.Resource) (string, error) {
 	switch kind {
-	case plugins.ResourceSpace:
-		space := r.Header.Get("Rookery-Space")
-		if space == "" {
-			return "", errors.New("the procedure needs a space: send Rookery-Space")
+	case plugins.ResourceSpace, plugins.ResourceHost, plugins.ResourceRecord, plugins.ResourceDocument, plugins.ResourceProvisioner, plugins.ResourceRollout:
+		value := r.Header.Get("Rookery-" + string(kind))
+		if value == "" {
+			return "", fmt.Errorf("the procedure needs the Rookery-%s header", kind)
 		}
-		return access.SpaceURI(space), nil
+		resource := string(kind) + "://" + value
+		if kind == plugins.ResourceRecord {
+			resource = value
+		}
+		resolved, err := access.ParseResource(resource)
+		if err != nil || resolved != string(kind) {
+			return "", fmt.Errorf("the Rookery-%s header has an invalid resource", kind)
+		}
+		return resource, nil
 	case plugins.ResourcePlugin:
 		return access.PluginURI(pluginID), nil
 	case "":

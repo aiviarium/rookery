@@ -11,6 +11,25 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const cancelClaimedPluginJob = `-- name: CancelClaimedPluginJob :execrows
+UPDATE rookery.jobs
+SET state = 'cancelled', claim = NULL, heartbeat_at = NULL, finished_at = now()
+WHERE id = $1 AND claim = $2 AND state = 'running' AND cancel_requested
+`
+
+type CancelClaimedPluginJobParams struct {
+	ID    string
+	Claim *string
+}
+
+func (q *Queries) CancelClaimedPluginJob(ctx context.Context, arg CancelClaimedPluginJobParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cancelClaimedPluginJob, arg.ID, arg.Claim)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const cancelQueuedJob = `-- name: CancelQueuedJob :execrows
 UPDATE rookery.jobs
 SET state = 'cancelled',
@@ -59,7 +78,7 @@ SET state = 'running',
     cancel_requested = false
 FROM candidate
 WHERE jobs.id = candidate.id
-RETURNING jobs.id, jobs.kind, jobs.args, jobs.resource, jobs.created_by, jobs.parent, jobs.state, jobs.attempts, jobs.max_attempts, jobs.host, jobs.claim, jobs.heartbeat_at, jobs.available_at, jobs.result, jobs.error, jobs.cancel_requested, jobs.created_at, jobs.started_at, jobs.finished_at
+RETURNING jobs.id, jobs.kind, jobs.args, jobs.resource, jobs.created_by, jobs.parent, jobs.state, jobs.attempts, jobs.max_attempts, jobs.host, jobs.claim, jobs.heartbeat_at, jobs.claim_started_at, jobs.progress, jobs.available_at, jobs.result, jobs.error, jobs.cancel_requested, jobs.created_at, jobs.started_at, jobs.finished_at
 `
 
 type ClaimCoreJobParams struct {
@@ -83,6 +102,8 @@ func (q *Queries) ClaimCoreJob(ctx context.Context, arg ClaimCoreJobParams) (Roo
 		&i.Host,
 		&i.Claim,
 		&i.HeartbeatAt,
+		&i.ClaimStartedAt,
+		&i.Progress,
 		&i.AvailableAt,
 		&i.Result,
 		&i.Error,
@@ -110,10 +131,13 @@ SET state = 'running',
     attempts = attempts + 1,
     started_at = coalesce(started_at, now()),
     claim = $1,
-    heartbeat_at = now()
+    heartbeat_at = now(),
+    claim_started_at = now(),
+    progress = NULL,
+    error = ''
 FROM candidate
 WHERE jobs.id = candidate.id
-RETURNING jobs.id, jobs.kind, jobs.args, jobs.resource, jobs.created_by, jobs.parent, jobs.state, jobs.attempts, jobs.max_attempts, jobs.host, jobs.claim, jobs.heartbeat_at, jobs.available_at, jobs.result, jobs.error, jobs.cancel_requested, jobs.created_at, jobs.started_at, jobs.finished_at
+RETURNING jobs.id, jobs.kind, jobs.args, jobs.resource, jobs.created_by, jobs.parent, jobs.state, jobs.attempts, jobs.max_attempts, jobs.host, jobs.claim, jobs.heartbeat_at, jobs.claim_started_at, jobs.progress, jobs.available_at, jobs.result, jobs.error, jobs.cancel_requested, jobs.created_at, jobs.started_at, jobs.finished_at
 `
 
 type ClaimPluginJobParams struct {
@@ -137,6 +161,8 @@ func (q *Queries) ClaimPluginJob(ctx context.Context, arg ClaimPluginJobParams) 
 		&i.Host,
 		&i.Claim,
 		&i.HeartbeatAt,
+		&i.ClaimStartedAt,
+		&i.Progress,
 		&i.AvailableAt,
 		&i.Result,
 		&i.Error,
@@ -177,7 +203,7 @@ func (q *Queries) CompleteJob(ctx context.Context, arg CompleteJobParams) (int64
 const createJob = `-- name: CreateJob :one
 INSERT INTO rookery.jobs (id, kind, args, resource, created_by, parent, state, max_attempts, host)
 VALUES ($1, $2, $3, $4, $5, $6, 'queued', $7, $8)
-RETURNING id, kind, args, resource, created_by, parent, state, attempts, max_attempts, host, claim, heartbeat_at, available_at, result, error, cancel_requested, created_at, started_at, finished_at
+RETURNING id, kind, args, resource, created_by, parent, state, attempts, max_attempts, host, claim, heartbeat_at, claim_started_at, progress, available_at, result, error, cancel_requested, created_at, started_at, finished_at
 `
 
 type CreateJobParams struct {
@@ -216,6 +242,8 @@ func (q *Queries) CreateJob(ctx context.Context, arg CreateJobParams) (RookeryJo
 		&i.Host,
 		&i.Claim,
 		&i.HeartbeatAt,
+		&i.ClaimStartedAt,
+		&i.Progress,
 		&i.AvailableAt,
 		&i.Result,
 		&i.Error,
@@ -292,7 +320,7 @@ func (q *Queries) FailJob(ctx context.Context, arg FailJobParams) (int64, error)
 }
 
 const getJob = `-- name: GetJob :one
-SELECT id, kind, args, resource, created_by, parent, state, attempts, max_attempts, host, claim, heartbeat_at, available_at, result, error, cancel_requested, created_at, started_at, finished_at
+SELECT id, kind, args, resource, created_by, parent, state, attempts, max_attempts, host, claim, heartbeat_at, claim_started_at, progress, available_at, result, error, cancel_requested, created_at, started_at, finished_at
 FROM rookery.jobs
 WHERE id = $1
 `
@@ -313,6 +341,48 @@ func (q *Queries) GetJob(ctx context.Context, id string) (RookeryJobs, error) {
 		&i.Host,
 		&i.Claim,
 		&i.HeartbeatAt,
+		&i.ClaimStartedAt,
+		&i.Progress,
+		&i.AvailableAt,
+		&i.Result,
+		&i.Error,
+		&i.CancelRequested,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+	)
+	return i, err
+}
+
+const getPluginJobClaim = `-- name: GetPluginJobClaim :one
+SELECT id, kind, args, resource, created_by, parent, state, attempts, max_attempts, host, claim, heartbeat_at, claim_started_at, progress, available_at, result, error, cancel_requested, created_at, started_at, finished_at
+FROM rookery.jobs
+WHERE id = $1 AND claim = $2 AND state = 'running'
+`
+
+type GetPluginJobClaimParams struct {
+	ID    string
+	Claim *string
+}
+
+func (q *Queries) GetPluginJobClaim(ctx context.Context, arg GetPluginJobClaimParams) (RookeryJobs, error) {
+	row := q.db.QueryRow(ctx, getPluginJobClaim, arg.ID, arg.Claim)
+	var i RookeryJobs
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Args,
+		&i.Resource,
+		&i.CreatedBy,
+		&i.Parent,
+		&i.State,
+		&i.Attempts,
+		&i.MaxAttempts,
+		&i.Host,
+		&i.Claim,
+		&i.HeartbeatAt,
+		&i.ClaimStartedAt,
+		&i.Progress,
 		&i.AvailableAt,
 		&i.Result,
 		&i.Error,
@@ -366,6 +436,28 @@ func (q *Queries) InsertJobLine(ctx context.Context, arg InsertJobLineParams) (R
 		&i.Line,
 	)
 	return i, err
+}
+
+const insertPluginJobLine = `-- name: InsertPluginJobLine :execrows
+INSERT INTO rookery.job_lines (job_id, line)
+SELECT jobs.id, $1
+FROM rookery.jobs
+WHERE jobs.id = $2 AND jobs.claim = $3 AND jobs.state = 'running'
+FOR UPDATE
+`
+
+type InsertPluginJobLineParams struct {
+	Line  string
+	ID    string
+	Claim *string
+}
+
+func (q *Queries) InsertPluginJobLine(ctx context.Context, arg InsertPluginJobLineParams) (int64, error) {
+	result, err := q.db.Exec(ctx, insertPluginJobLine, arg.Line, arg.ID, arg.Claim)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const interruptRunningJobs = `-- name: InterruptRunningJobs :execrows
@@ -427,7 +519,7 @@ func (q *Queries) LinesAfter(ctx context.Context, arg LinesAfterParams) ([]Rooke
 }
 
 const listJobs = `-- name: ListJobs :many
-SELECT id, kind, args, resource, created_by, parent, state, attempts, max_attempts, host, claim, heartbeat_at, available_at, result, error, cancel_requested, created_at, started_at, finished_at
+SELECT id, kind, args, resource, created_by, parent, state, attempts, max_attempts, host, claim, heartbeat_at, claim_started_at, progress, available_at, result, error, cancel_requested, created_at, started_at, finished_at
 FROM rookery.jobs
 WHERE ($1::text IS NULL OR kind = $1)
   AND ($2::text IS NULL OR state = $2)
@@ -473,6 +565,8 @@ func (q *Queries) ListJobs(ctx context.Context, arg ListJobsParams) ([]RookeryJo
 			&i.Host,
 			&i.Claim,
 			&i.HeartbeatAt,
+			&i.ClaimStartedAt,
+			&i.Progress,
 			&i.AvailableAt,
 			&i.Result,
 			&i.Error,
@@ -519,7 +613,7 @@ SET state = 'queued',
     finished_at = NULL,
     cancel_requested = false
 WHERE id = $1 AND state IN ('succeeded', 'failed', 'cancelled', 'interrupted')
-RETURNING id, kind, args, resource, created_by, parent, state, attempts, max_attempts, host, claim, heartbeat_at, available_at, result, error, cancel_requested, created_at, started_at, finished_at
+RETURNING id, kind, args, resource, created_by, parent, state, attempts, max_attempts, host, claim, heartbeat_at, claim_started_at, progress, available_at, result, error, cancel_requested, created_at, started_at, finished_at
 `
 
 func (q *Queries) RequeueJob(ctx context.Context, id string) (RookeryJobs, error) {
@@ -538,6 +632,8 @@ func (q *Queries) RequeueJob(ctx context.Context, id string) (RookeryJobs, error
 		&i.Host,
 		&i.Claim,
 		&i.HeartbeatAt,
+		&i.ClaimStartedAt,
+		&i.Progress,
 		&i.AvailableAt,
 		&i.Result,
 		&i.Error,
@@ -601,6 +697,26 @@ WHERE state = 'running'
 
 func (q *Queries) ReturnExpiredClaims(ctx context.Context, after pgtype.Interval) (int64, error) {
 	result, err := q.db.Exec(ctx, returnExpiredClaims, after)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setPluginJobProgress = `-- name: SetPluginJobProgress :execrows
+UPDATE rookery.jobs
+SET progress = $3, heartbeat_at = now()
+WHERE id = $1 AND claim = $2 AND state = 'running' AND NOT cancel_requested
+`
+
+type SetPluginJobProgressParams struct {
+	ID       string
+	Claim    *string
+	Progress []byte
+}
+
+func (q *Queries) SetPluginJobProgress(ctx context.Context, arg SetPluginJobProgressParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setPluginJobProgress, arg.ID, arg.Claim, arg.Progress)
 	if err != nil {
 		return 0, err
 	}

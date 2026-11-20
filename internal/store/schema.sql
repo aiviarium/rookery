@@ -264,6 +264,8 @@ CREATE TABLE rookery.jobs (
 	-- claim is a plugin worker's token for the job it holds.
 	claim         text,
 	heartbeat_at  timestamptz,
+	claim_started_at timestamptz,
+	progress bytea,
 	-- available_at defers a queued job, for a retry's backoff.
 	available_at  timestamptz NOT NULL DEFAULT now(),
 	result        bytea,
@@ -740,4 +742,13 @@ CREATE TABLE rookery.registries (
     name       text PRIMARY KEY,
     url        text NOT NULL,
     public_key bytea NOT NULL CHECK (octet_length(public_key) = 32)
+);
+
+-- Per-plugin private key-value state, retained unless the plugin is purged.
+CREATE TABLE rookery.plugin_kv (
+    plugin   text NOT NULL,
+    key      text NOT NULL,
+    value    bytea NOT NULL,
+    revision bigint NOT NULL CHECK (revision > 0),
+    PRIMARY KEY (plugin, key)
 );

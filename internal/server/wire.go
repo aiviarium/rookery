@@ -108,7 +108,8 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	// runner's jobs are followed by the service.
 	bus := messaging.NewBus()
 	events := messaging.NewEventsService(bus, checker)
-	topics := messaging.NewTopicsService(messaging.NewTopics(opened), checker)
+	topicStore := messaging.NewTopics(opened)
+	topics := messaging.NewTopicsService(topicStore, checker)
 	notificationStore := messaging.NewNotifications(opened)
 	notifications := messaging.NewNotificationsService(notificationStore)
 
@@ -129,6 +130,8 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 
 	// Plugins install their declared collections through the datastore.
 	installer := plugins.NewInstaller(plugins.Options{
+		SQL:       collections.data,
+		Settings:  settings,
 		Version:   s.config.Version,
 		Store:     opened,
 		Data:      collections.data,
@@ -140,6 +143,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	})
 	supervisor := plugins.NewSupervisor(plugins.SupervisorOptions{
 		Source:   installer,
+		Settings: installer.InitSettings,
 		StateDir: s.config.StateDir,
 		Socket:   s.config.Socket,
 		Logger:   s.log,
@@ -236,6 +240,14 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		rollouts:      rollouts.NewRolloutService(rolloutList),
 	}
 
+	callers := access.NewCallerTokens()
+	pluginServer := &PluginServer{
+		bus: bus, notifications: notificationStore, topics: topicStore, topicService: topics,
+		leases: messaging.NewLeases(opened), worker: jobs.NewWorker(opened, registry, s.log),
+		checker: checker, callers: callers, installer: installer, secrets: secrets,
+		settings: settings, datastore: collections.data, store: opened, hostLinks: hostLinks,
+	}
+
 	build := edge.New(edge.Deps{
 		Logger:       s.log,
 		PublicURL:    s.config.PublicURL,
@@ -253,6 +265,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		Services:     supervisor,
 		Procedures:   installer,
 		PluginTokens: provisionTokens,
+		Callers:      callers,
 		RegisterServices: func(mux *http.ServeMux, options []connect.HandlerOption) {
 			service.register(mux, options)
 			collections.register(mux, options)
@@ -267,7 +280,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		RegisterLocal: func(mux *http.ServeMux, options []connect.HandlerOption) {
 			path, handler := rookeryv1connect.NewLocalServiceHandler(service.local, options...)
 			mux.Handle(path, handler)
-			path, handler = pluginv1connect.NewServerServiceHandler(NewPluginServer(bus, notificationStore), options...)
+			path, handler = pluginv1connect.NewServerServiceHandler(pluginServer, options...)
 			mux.Handle(path, handler)
 		},
 	})

@@ -58,6 +58,8 @@ type Deps struct {
 	Procedures PluginProcedures
 	// PluginTokens is the plugin whose service holds a token, for the socket.
 	PluginTokens PluginTokens
+	// Callers issues and verifies credentials delegated by browser RPCs.
+	Callers *access.CallerTokens
 
 	// RegisterServices adds the core services to a mux, both listeners.
 	RegisterServices func(mux *http.ServeMux, options []connect.HandlerOption)
@@ -124,23 +126,47 @@ func (e *Edge) SocketHandler() http.Handler {
 		// with the token the server started it with. A token that is not one of
 		// those is not a lesser admin: it is refused.
 		ctx := r.Context()
-		if space := r.Header.Get("Rookery-Space"); space != "" {
-			ctx = access.WithSpace(ctx, space)
-		}
-		if header := r.Header.Get("Authorization"); strings.HasPrefix(header, "Bearer ") {
-			secret := strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
-			if e.deps.PluginTokens == nil {
+		authorization := r.Header.Get("Authorization")
+		caller := r.Header.Get(access.CallerTokenHeader)
+		if authorization == "" && caller == "" {
+			ctx = access.WithPrincipal(ctx, access.LocalAdmin())
+			if space := r.Header.Get("Rookery-Space"); space != "" {
+				ctx = access.WithSpace(ctx, space)
+			}
+		} else {
+			secret, bearer := strings.CutPrefix(authorization, "Bearer ")
+			if !bearer || e.deps.PluginTokens == nil {
 				unauthorized(w)
 				return
 			}
-			id, ok := e.deps.PluginTokens.PluginByToken(secret)
+			plugin, ok := e.deps.PluginTokens.PluginByToken(strings.TrimSpace(secret))
 			if !ok {
 				unauthorized(w)
 				return
 			}
-			ctx = access.WithPrincipal(ctx, access.Plugin(id))
-		} else {
-			ctx = access.WithPrincipal(ctx, access.LocalAdmin())
+			principal := access.Plugin(plugin)
+			space := r.Header.Get("Rookery-Space")
+			if caller != "" {
+				if e.deps.Callers == nil {
+					unauthorized(w)
+					return
+				}
+				userID, currentSpace, err := e.deps.Callers.Verify(plugin, caller)
+				if err != nil {
+					unauthorized(w)
+					return
+				}
+				user, err := e.deps.Users.ByID(ctx, userID)
+				if err != nil || user.Disabled {
+					unauthorized(w)
+					return
+				}
+				principal, space = authn.Principal(user), currentSpace
+			}
+			ctx = access.WithPluginIdentity(access.WithPrincipal(ctx, principal), plugin)
+			if space != "" {
+				ctx = access.WithSpace(ctx, space)
+			}
 		}
 		mux.ServeHTTP(w, r.WithContext(ctx))
 	})

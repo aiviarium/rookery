@@ -20,7 +20,12 @@ import (
 	"syscall"
 	"time"
 
+	"connectrpc.com/connect"
 	"gopkg.in/yaml.v3"
+
+	pluginv1 "github.com/aiviarium/rookery/gen/go/rookery/plugin/v1"
+	"github.com/aiviarium/rookery/gen/go/rookery/plugin/v1/pluginv1connect"
+	"github.com/aiviarium/rookery/pkg/sdk"
 )
 
 // DefaultServiceMemoryMB is how much resident memory a plugin's service may use
@@ -35,6 +40,7 @@ type Supervisor struct {
 	socket   string
 	logger   *slog.Logger
 	memoryMB int64
+	settings func(context.Context, string) ([]byte, error)
 
 	mu      sync.Mutex
 	running map[string]*supervised
@@ -59,6 +65,8 @@ type SupervisorOptions struct {
 	Logger *slog.Logger
 	// MemoryMB overrides DefaultServiceMemoryMB.
 	MemoryMB int64
+	// Settings supplies the plugin's resolved global settings to Init.
+	Settings func(context.Context, string) ([]byte, error)
 }
 
 // NewSupervisor returns a supervisor.
@@ -80,6 +88,7 @@ func NewSupervisor(options SupervisorOptions) *Supervisor {
 		socket:   options.Socket,
 		logger:   logger,
 		memoryMB: memoryMB,
+		settings: options.Settings,
 		running:  make(map[string]*supervised),
 	}
 }
@@ -90,10 +99,12 @@ type supervised struct {
 	socket string
 	token  string
 
-	mu   sync.Mutex
-	cmd  *exec.Cmd
-	done chan struct{}
-	stop bool
+	mu     sync.Mutex
+	cmd    *exec.Cmd
+	done   chan struct{}
+	stop   bool
+	ready  bool
+	cancel context.CancelFunc
 }
 
 // Running says whether a service is running.
@@ -156,27 +167,29 @@ func (s *Supervisor) StartAll(ctx context.Context) {
 // Ensure starts a service if it is not running, and returns its socket. It is
 // what a lazy service's first call does, and what the edge's proxy calls.
 func (s *Supervisor) Ensure(ctx context.Context, id string) (string, error) {
-	if socket, ok := s.Socket(id); ok {
-		return socket, nil
-	}
-	plugin, err := s.get(ctx, id)
-	if err != nil {
-		return "", err
-	}
-	if err := s.Start(context.WithoutCancel(ctx), plugin); err != nil {
-		return "", err
+	if !s.Running(id) {
+		plugin, err := s.get(ctx, id)
+		if err != nil {
+			return "", err
+		}
+		if err := s.Start(context.WithoutCancel(ctx), plugin); err != nil {
+			return "", err
+		}
 	}
 
-	// The process is up when its socket is: it creates the socket before it
-	// serves, and the caller's request waits for that, not for a fixed time.
-	socket, _ := s.Socket(id)
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, err := os.Stat(socket); err == nil {
-			return socket, nil
-		}
-		if !s.Running(id) {
+		s.mu.Lock()
+		service := s.running[id]
+		s.mu.Unlock()
+		if service == nil {
 			break
+		}
+		service.mu.Lock()
+		ready := service.ready
+		service.mu.Unlock()
+		if ready {
+			return service.socket, nil
 		}
 		select {
 		case <-ctx.Done():
@@ -204,11 +217,13 @@ func (s *Supervisor) Start(ctx context.Context, plugin Plugin) error {
 		s.mu.Unlock()
 		return nil
 	}
+	ctx, cancel := context.WithCancel(ctx)
 	service := &supervised{
 		id:     plugin.ID,
 		socket: filepath.Join(s.stateDir, "plugins", "run", plugin.ID+".sock"),
 		token:  newPluginToken(),
 		done:   make(chan struct{}),
+		cancel: cancel,
 	}
 	s.running[plugin.ID] = service
 	s.mu.Unlock()
@@ -229,6 +244,7 @@ func (s *Supervisor) Stop(id string) {
 	}
 	service.mu.Lock()
 	service.stop = true
+	service.cancel()
 	cmd := service.cmd
 	service.mu.Unlock()
 	if cmd != nil && cmd.Process != nil {
@@ -281,6 +297,7 @@ func (s *Supervisor) Restart(ctx context.Context, plugin Plugin) error {
 // it exits.
 func (s *Supervisor) supervise(ctx context.Context, service *supervised, plugin Plugin, declared *Service, dir string) {
 	defer close(service.done)
+	defer service.cancel()
 	defer s.forget(service)
 
 	backoff := 250 * time.Millisecond
@@ -291,6 +308,9 @@ func (s *Supervisor) supervise(ctx context.Context, service *supervised, plugin 
 			return
 		}
 		started := time.Now()
+		s.mu.Lock()
+		service.token = newPluginToken()
+		s.mu.Unlock()
 		cmd, err := s.command(ctx, service, plugin, declared, dir)
 		if err != nil {
 			s.logger.Error("starting a plugin's service",
@@ -305,8 +325,19 @@ func (s *Supervisor) supervise(ctx context.Context, service *supervised, plugin 
 			go func() { waitErr = cmd.Wait(); close(exited) }()
 
 			stopWatching := s.watchMemory(service, cmd, exited)
+			if err := s.initialize(ctx, service.socket, plugin, exited); err == nil {
+				service.mu.Lock()
+				service.ready = true
+				service.mu.Unlock()
+			} else if ctx.Err() == nil {
+				s.logger.Warn("plugin service initialization failed", "plugin", plugin.ID)
+				s.terminate(cmd)
+			}
 			select {
 			case <-exited:
+				service.mu.Lock()
+				service.ready = false
+				service.mu.Unlock()
 				if ctx.Err() != nil || stopped(service) {
 					close(stopWatching)
 					return
@@ -574,4 +605,47 @@ func (s *Supervisor) PluginByToken(token string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// HTTP2 reports the protocol all supervised services listen on.
+func (s *Supervisor) HTTP2(string) bool { return true }
+
+func (s *Supervisor) initialize(ctx context.Context, socket string, plugin Plugin, exited <-chan struct{}) error {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	var settings []byte
+	if s.settings != nil {
+		var err error
+		settings, err = s.settings(ctx, plugin.ID)
+		if err != nil {
+			return err
+		}
+	}
+	httpClient, base := sdk.DialSocket(socket)
+	defer httpClient.CloseIdleConnections()
+	client := pluginv1connect.NewPluginServiceClient(httpClient, base, connect.WithGRPC())
+	initialized := false
+	for {
+		req := connect.NewRequest(&pluginv1.PluginServiceInitRequest{Id: plugin.ID, Version: plugin.Version, Settings: settings})
+		if !initialized {
+			_, err := client.Init(ctx, req)
+			if err != nil && connect.CodeOf(err) != connect.CodeUnavailable {
+				return err
+			}
+			initialized = err == nil
+		}
+		if initialized {
+			health, err := client.Health(ctx, connect.NewRequest(&pluginv1.PluginServiceHealthRequest{}))
+			if err == nil && health.Msg.GetHealthy() {
+				return nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-exited:
+			return errors.New("service exited before becoming healthy")
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
 }
