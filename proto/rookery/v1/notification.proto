@@ -1,0 +1,101 @@
+// Notifications: per user, with a link, a resource and actions to answer.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// Notification is one thing a user is told about.
+message Notification {
+  string id = 1;
+  string user_id = 2;
+  string title = 3;
+  string body = 4;
+  // Link is where a client takes the user, such as /hosts/forge.
+  string link = 5;
+  // Resource is the resource URI the notification is about, for access.
+  string resource = 6;
+  // ActionsCbor is the choices a user may answer with, CBOR.
+  bytes actions_cbor = 7;
+  // AnswersCbor is what the user answered, CBOR.
+  bytes answers_cbor = 8;
+  bool read = 9;
+  google.protobuf.Timestamp created_at = 10;
+}
+
+message NotificationServiceListRequest {
+  int32 limit = 1;
+  string cursor = 2;
+  bool unread_only = 3;
+}
+
+message NotificationServiceListResponse {
+  repeated Notification notifications = 1;
+  string next_cursor = 2;
+}
+
+message NotificationServiceWatchResponse {
+  Notification notification = 1;
+}
+
+message NotificationServiceWatchRequest {
+  // From is the last notification the caller has, and empty for new ones only.
+  string from = 1;
+}
+
+message NotificationServiceMarkReadRequest {
+  // Notification is the notification's id.
+  string notification = 1;
+  bool read = 2;
+}
+
+message NotificationServiceMarkReadResponse {
+  Notification notification = 1;
+}
+
+message NotificationServiceAnswerRequest {
+  string notification = 1;
+  // Action is which choice, out of the notification's actions.
+  string action = 2;
+  // ValueCbor is what the user chose, CBOR.
+  bytes value_cbor = 3;
+}
+
+message NotificationServiceAnswerResponse {
+  Notification notification = 1;
+}
+
+message NotificationServiceSetPreferenceRequest {
+  // PrefsCbor is the user's preferences, CBOR.
+  bytes prefs_cbor = 1;
+}
+
+message NotificationServiceSetPreferenceResponse {
+}
+
+// NotificationService is a user's own notifications.
+service NotificationService {
+  rpc List(NotificationServiceListRequest) returns (NotificationServiceListResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+
+  rpc Watch(NotificationServiceWatchRequest) returns (stream NotificationServiceWatchResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+
+  rpc MarkRead(NotificationServiceMarkReadRequest) returns (NotificationServiceMarkReadResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+
+  rpc Answer(NotificationServiceAnswerRequest) returns (NotificationServiceAnswerResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+
+  rpc SetPreference(NotificationServiceSetPreferenceRequest) returns (NotificationServiceSetPreferenceResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+}

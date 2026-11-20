@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"connectrpc.com/connect"
 
@@ -15,6 +18,8 @@ import (
 	"github.com/aiviarium/rookery/internal/audit"
 	"github.com/aiviarium/rookery/internal/authn"
 	"github.com/aiviarium/rookery/internal/edge"
+	"github.com/aiviarium/rookery/internal/jobs"
+	"github.com/aiviarium/rookery/internal/messaging"
 	"github.com/aiviarium/rookery/internal/seal"
 	"github.com/aiviarium/rookery/internal/spaces"
 	"github.com/aiviarium/rookery/internal/store"
@@ -66,14 +71,41 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		access.NewInterceptor(checker),
 	}
 
+	// Jobs and messaging: the bus is published to by the runner, and the
+	// runner's jobs are followed by the service.
+	bus := messaging.NewBus()
+	events := messaging.NewEventsService(bus, checker)
+	topics := messaging.NewTopicsService(messaging.NewTopics(opened))
+	notifications := messaging.NewNotificationsService(messaging.NewNotifications(opened))
+
+	registry := jobs.NewRegistry()
+	if err := registry.RegisterKinds(jobs.CoreKinds()...); err != nil {
+		return nil, err
+	}
+	runner := jobs.NewRunner(opened, registry, events, s.log)
+	jobRunner := jobs.NewService(opened, checker, registry, runner, s.log)
+	schedules := jobs.NewSchedules(opened, registry, jobRunner, s.log)
+	scheduler := jobs.NewScheduler(schedules)
+
+	if interrupted, err := jobs.InterruptRunning(ctx, opened); err != nil {
+		return nil, err
+	} else if interrupted > 0 {
+		s.log.Info("interrupted the jobs a stopped server left running", slog.Int64("jobs", interrupted))
+	}
+
 	service := services{
-		authn:  authn.NewService(users, sessions, tokens),
-		users:  authn.NewUsersService(users, links),
-		groups: authn.NewGroupsService(groups),
-		access: access.NewService(checker, opened),
-		spaces: spaces.NewService(spaceList),
-		audit:  audit.NewService(recorder),
-		local:  NewLocalService(opened, users, links, s.config.PublicURL),
+		authn:         authn.NewService(users, sessions, tokens),
+		users:         authn.NewUsersService(users, links),
+		groups:        authn.NewGroupsService(groups),
+		access:        access.NewService(checker, opened),
+		spaces:        spaces.NewService(spaceList),
+		audit:         audit.NewService(recorder),
+		local:         NewLocalService(opened, users, links, s.config.PublicURL),
+		jobs:          jobs.NewJobService(jobRunner),
+		schedules:     jobs.NewSchedulesService(schedules),
+		events:        events,
+		topics:        topics,
+		notifications: notifications,
 	}
 
 	build := edge.New(edge.Deps{
@@ -98,18 +130,58 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		},
 	})
 
-	return &handlers{edge: build.Handler(), socket: build.SocketHandler()}, nil
+	return &handlers{
+		edge:      build.Handler(),
+		socket:    build.SocketHandler(),
+		log:       s.log,
+		runner:    runner,
+		scheduler: scheduler,
+		retention: time.Duration(s.config.RetentionDays) * 24 * time.Hour,
+		store:     opened,
+	}, nil
+}
+
+// start runs what the leader runs besides its listeners: the job runner, the
+// scheduler, and the loop that deletes records older than the retention. It
+// returns when ctx ends.
+func (h *handlers) start(ctx context.Context) error {
+	group, ctx := errgroup.WithContext(ctx)
+	group.Go(func() error { return h.runner.Run(ctx) })
+	group.Go(func() error { return h.scheduler.Run(ctx) })
+	group.Go(func() error {
+		ticker := time.NewTicker(retentionCheck)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-ticker.C:
+				deleted, err := jobs.DeleteOlder(ctx, h.store, h.retention)
+				if err != nil && ctx.Err() == nil {
+					h.logger().Error("deleting old job records", slog.String("error", err.Error()))
+				} else if deleted > 0 {
+					h.logger().Info("deleted old job records", slog.Int64("jobs", deleted))
+				}
+			}
+		}
+	})
+	return group.Wait()
 }
 
 // services are the edge API's handlers, wired once per server.
 type services struct {
-	authn  *authn.Service
-	users  *authn.UsersService
-	groups *authn.GroupsService
-	access *access.Service
-	spaces *spaces.Service
-	audit  *audit.Service
-	local  *LocalService
+	authn         *authn.Service
+	users         *authn.UsersService
+	groups        *authn.GroupsService
+	access        *access.Service
+	spaces        *spaces.Service
+	audit         *audit.Service
+	local         *LocalService
+	jobs          *jobs.JobService
+	schedules     *jobs.SchedulesService
+	events        *messaging.EventsService
+	topics        *messaging.TopicsService
+	notifications *messaging.NotificationsService
 }
 
 // register adds the core services to a mux.
@@ -127,6 +199,16 @@ func (s services) register(mux *http.ServeMux, options []connect.HandlerOption) 
 	path, handler = rookeryv1connect.NewSpaceServiceHandler(s.spaces, options...)
 	handle(path, handler)
 	path, handler = rookeryv1connect.NewAuditServiceHandler(s.audit, options...)
+	handle(path, handler)
+	path, handler = rookeryv1connect.NewJobServiceHandler(s.jobs, options...)
+	handle(path, handler)
+	path, handler = rookeryv1connect.NewScheduleServiceHandler(s.schedules, options...)
+	handle(path, handler)
+	path, handler = rookeryv1connect.NewEventServiceHandler(s.events, options...)
+	handle(path, handler)
+	path, handler = rookeryv1connect.NewTopicServiceHandler(s.topics, options...)
+	handle(path, handler)
+	path, handler = rookeryv1connect.NewNotificationServiceHandler(s.notifications, options...)
 	handle(path, handler)
 }
 

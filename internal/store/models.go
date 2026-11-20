@@ -77,6 +77,46 @@ type RookeryGroups struct {
 	CreatedAt time.Time
 }
 
+// A job's log, a line at a time, in the order it was written.
+type RookeryJobLines struct {
+	ID    int64
+	JobID string
+	At    time.Time
+	Line  string
+}
+
+// Every job: its kind, arguments, resource, state and log.
+type RookeryJobs struct {
+	ID              string
+	Kind            string
+	Args            []byte
+	Resource        string
+	CreatedBy       string
+	Parent          string
+	State           string
+	Attempts        int32
+	MaxAttempts     int32
+	Host            string
+	Claim           *string
+	HeartbeatAt     *time.Time
+	AvailableAt     time.Time
+	Result          []byte
+	Error           string
+	CancelRequested bool
+	CreatedAt       time.Time
+	StartedAt       *time.Time
+	FinishedAt      *time.Time
+}
+
+// Named locks whose fencing number rises on each acquire.
+type RookeryLeases struct {
+	Name      string
+	Holder    string
+	Fencing   int64
+	ExpiresAt time.Time
+	UpdatedAt time.Time
+}
+
 // One-time sign-in links, 24 hours, held by their token hash.
 type RookeryLinks struct {
 	TokenHash []byte
@@ -95,6 +135,26 @@ type RookeryMeta struct {
 	UpdatedAt time.Time
 }
 
+type RookeryNotificationPrefs struct {
+	UserID    string
+	Prefs     []byte
+	UpdatedAt time.Time
+}
+
+// What a user is told about, and what they answered.
+type RookeryNotifications struct {
+	ID        string
+	UserID    string
+	Title     string
+	Body      string
+	Link      string
+	Resource  string
+	Actions   []byte
+	Answers   []byte
+	ReadAt    *time.Time
+	CreatedAt time.Time
+}
+
 // The references records hold, for RefsTo, RefsFrom and what a delete does to a holder.
 type RookeryRefs struct {
 	// The holding record, as a record:// URI.
@@ -109,6 +169,21 @@ type RookeryRefs struct {
 type RookeryResources struct {
 	Uri       string
 	Parent    *string
+	CreatedAt time.Time
+}
+
+// Jobs the deployment runs on a cron expression.
+type RookerySchedules struct {
+	ID        string
+	Name      string
+	Kind      string
+	Args      []byte
+	Resource  string
+	Cron      string
+	Timezone  string
+	Enabled   bool
+	NextRunAt *time.Time
+	LastRunAt *time.Time
 	CreatedAt time.Time
 }
 
@@ -147,6 +222,40 @@ type RookeryTokens struct {
 	TokenHash  []byte
 	CreatedAt  time.Time
 	LastUsedAt *time.Time
+}
+
+// Where each consumer group of a topic has got to.
+type RookeryTopicCursors struct {
+	Topic     string
+	Consumer  string
+	NextSeq   int64
+	UpdatedAt time.Time
+}
+
+// Messages a consumer gave up on, for an admin to retry or discard.
+type RookeryTopicDead struct {
+	ID       int64
+	Topic    string
+	Consumer string
+	Payload  []byte
+	Attempts int32
+	Error    string
+	At       time.Time
+}
+
+// Durable topic messages, in the order they were published.
+type RookeryTopicMessages struct {
+	ID          int64
+	Topic       string
+	Payload     []byte
+	Attempts    int32
+	AvailableAt time.Time
+	CreatedAt   time.Time
+}
+
+type RookeryTopics struct {
+	Name      string
+	CreatedAt time.Time
 }
 
 // People who can sign in. The email is stored lower-cased.

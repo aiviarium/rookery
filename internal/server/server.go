@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/aiviarium/rookery/internal/jobs"
 	"github.com/aiviarium/rookery/internal/store"
 )
 
@@ -81,23 +82,45 @@ func (s *Server) Run(ctx context.Context) error {
 		slog.String("public_url", s.config.PublicURL),
 	)
 
+	// The leader's other loops: the job runner, the scheduler and retention.
+	loopsCtx, stopLoops := context.WithCancel(ctx)
+	loops := make(chan error, 1)
+	go func() { loops <- wired.start(loopsCtx) }()
+
+	var stopped error
 	select {
 	case <-ctx.Done():
 		s.log.Info("stopping")
 	case err := <-leader.Watch(ctx):
-		s.healthy.Store(false)
-		return err
+		stopped = err
 	}
 
 	s.healthy.Store(false)
-	return nil
+	stopLoops()
+	if err := <-loops; err != nil {
+		s.log.Debug("a leader loop stopped", slog.String("error", err.Error()))
+	}
+	return stopped
 }
 
-// handlers are the two listeners' handlers.
+// handlers are the two listeners' handlers, and what the leader runs besides
+// them.
 type handlers struct {
 	edge   http.Handler
 	socket http.Handler
+
+	log       *slog.Logger
+	store     *store.Store
+	runner    *jobs.Runner
+	scheduler *jobs.Scheduler
+	retention time.Duration
 }
+
+// logger is the server's logger, for the loops the handlers own.
+func (h *handlers) logger() *slog.Logger { return h.log }
+
+// retentionCheck is how often old job records are looked for.
+const retentionCheck = 6 * time.Hour
 
 // edgeServer is the HTTP handler of the edge listener.
 func (s *Server) edgeServer() http.Handler {

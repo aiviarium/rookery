@@ -1,0 +1,109 @@
+// Schedules: a job kind on a cron expression, in a time zone.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// Schedule is a job the deployment runs on a cron expression.
+message Schedule {
+  string id = 1;
+  string name = 2;
+  // Kind is the job kind the schedule enqueues.
+  string kind = 3;
+  bytes args_cbor = 4;
+  // Resource is the resource URI the job is about.
+  string resource = 5;
+  // Cron is a five-field expression, such as "0 3 * * *".
+  string cron = 6;
+  // Timezone is an IANA name, such as Europe/Berlin. UTC when empty.
+  string timezone = 7;
+  bool enabled = 8;
+  google.protobuf.Timestamp next_run_at = 9;
+  google.protobuf.Timestamp last_run_at = 10;
+  google.protobuf.Timestamp created_at = 11;
+}
+
+message ScheduleServiceListRequest {
+  int32 limit = 1;
+  string cursor = 2;
+}
+
+message ScheduleServiceListResponse {
+  repeated Schedule schedules = 1;
+  string next_cursor = 2;
+}
+
+message ScheduleServiceCreateRequest {
+  string name = 1;
+  string kind = 2;
+  bytes args_cbor = 3;
+  string resource = 4;
+  string cron = 5;
+  string timezone = 6;
+}
+
+message ScheduleServiceCreateResponse {
+  Schedule schedule = 1;
+}
+
+message ScheduleServiceUpdateRequest {
+  // Schedule is the schedule's id.
+  string schedule = 1;
+  optional string name = 2;
+  optional string kind = 3;
+  optional bytes args_cbor = 4;
+  optional string resource = 5;
+  optional string cron = 6;
+  optional string timezone = 7;
+  optional bool enabled = 8;
+}
+
+message ScheduleServiceUpdateResponse {
+  Schedule schedule = 1;
+}
+
+message ScheduleServiceDeleteRequest {
+  // Schedule is the schedule's id.
+  string schedule = 1;
+}
+
+message ScheduleServiceDeleteResponse {
+}
+
+message ScheduleServiceRunNowRequest {
+  // Schedule is the schedule's id.
+  string schedule = 1;
+}
+
+message ScheduleServiceRunNowResponse {
+  // Job is the job the schedule enqueued.
+  string job = 1;
+}
+
+// ScheduleService manages the deployment's schedules.
+service ScheduleService {
+  rpc List(ScheduleServiceListRequest) returns (ScheduleServiceListResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+
+  rpc Create(ScheduleServiceCreateRequest) returns (ScheduleServiceCreateResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc Update(ScheduleServiceUpdateRequest) returns (ScheduleServiceUpdateResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc Delete(ScheduleServiceDeleteRequest) returns (ScheduleServiceDeleteResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc RunNow(ScheduleServiceRunNowRequest) returns (ScheduleServiceRunNowResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+}
