@@ -77,8 +77,8 @@ type Feature struct {
 	// Plugin and Feature name it; its role is <plugin>__<feature>.
 	Plugin  string
 	Feature string
-	// Dir is the installed plugin's folder, and Path the role inside it, such as
-	// features/hello.
+	// Dir is the installed plugin's folder, and Path the role there or the
+	// manifest's own tasks file, such as features/hello or its tasks/main.yml.
 	Dir  string
 	Path string
 	// Vars are the feature's variables, CBOR, and Secrets what it was given.

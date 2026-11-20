@@ -98,6 +98,17 @@ func (d *Data) Declare(collections ...*Collection) error {
 	return nil
 }
 
+// Forget removes a plugin's collection declarations without dropping its data.
+func (d *Data) Forget(plugin string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for key, collection := range d.collections {
+		if collection.Plugin == plugin {
+			delete(d.collections, key)
+		}
+	}
+}
+
 // Collection returns a declared collection by "plugin/collection".
 func (d *Data) Collection(key string) (*Collection, error) {
 	d.mu.RLock()

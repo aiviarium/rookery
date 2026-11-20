@@ -139,10 +139,16 @@ func (e *Edge) SocketHandler() http.Handler {
 				unauthorized(w)
 				return
 			}
-			plugin, ok := e.deps.PluginTokens.PluginByToken(strings.TrimSpace(secret))
+			secret = strings.TrimSpace(secret)
+			plugin, ok := e.deps.PluginTokens.PluginByToken(secret)
 			if !ok {
 				unauthorized(w)
 				return
+			}
+			if tokens, ok := e.deps.PluginTokens.(interface{ ProvisionerNode(string) (string, bool) }); ok {
+				if node, provisioner := tokens.ProvisionerNode(secret); provisioner {
+					ctx = access.WithProvisionerNode(ctx, node)
+				}
 			}
 			principal := access.Plugin(plugin)
 			space := r.Header.Get("Rookery-Space")

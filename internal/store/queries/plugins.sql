@@ -42,3 +42,35 @@ WHERE id = $1;
 -- name: DeleteSchedulesNamed :execrows
 DELETE FROM rookery.schedules
 WHERE name LIKE sqlc.arg('prefix')::text;
+
+-- name: PluginProvisionerUser :one
+SELECT name FROM rookery.provisioners WHERE plugin = $1 ORDER BY name LIMIT 1;
+
+-- name: PluginHostProfiles :many
+SELECT name, profile FROM rookery.hosts ORDER BY name;
+
+-- name: PutPluginArchive :exec
+INSERT INTO rookery.plugin_archives (plugin, archive) VALUES ($1, $2)
+ON CONFLICT (plugin) DO UPDATE SET archive = excluded.archive;
+
+-- name: GetPluginArchive :one
+SELECT archive FROM rookery.plugin_archives WHERE plugin = $1;
+
+-- name: PutPluginDeclaration :exec
+INSERT INTO rookery.plugin_declarations (plugin, manifest) VALUES ($1, $2)
+ON CONFLICT (plugin) DO UPDATE SET manifest = excluded.manifest;
+
+-- name: GetPluginDeclaration :one
+SELECT manifest FROM rookery.plugin_declarations WHERE plugin = $1;
+
+-- name: DeletePluginDeclaration :exec
+DELETE FROM rookery.plugin_declarations WHERE plugin = $1;
+
+-- name: PluginsWithQueuedJobs :many
+SELECT p.id FROM rookery.plugins p
+WHERE p.enabled AND EXISTS (
+    SELECT 1 FROM rookery.jobs j
+    WHERE j.state = 'queued' AND j.available_at <= now()
+      AND split_part(j.kind, '/', 1) = p.id AND strpos(j.kind, '/') > 0
+)
+ORDER BY p.id;

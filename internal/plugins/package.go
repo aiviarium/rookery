@@ -168,7 +168,8 @@ type Unpacked struct {
 	// SHA256 is the package's hash, in hex.
 	SHA256 string
 	// Size is the package's size in bytes.
-	Size int64
+	Size    int64
+	archive []byte
 }
 
 // Unpack reads a package from r and writes its files into dir, which it makes.
@@ -243,13 +244,14 @@ func Unpack(ctx context.Context, r io.Reader, dir string) (Unpacked, error) {
 	if manifest == nil {
 		return Unpacked{}, fmt.Errorf("%w: it has no %s", ErrPackage, FileName)
 	}
-	if err := manifest.Validate(); err != nil {
+	if _, err := Check(os.DirFS(dir)); err != nil {
 		return Unpacked{}, err
 	}
 	return Unpacked{
 		Manifest: manifest,
 		SHA256:   hex.EncodeToString(hash.Sum(nil)),
 		Size:     counted.n,
+		archive:  data,
 	}, nil
 }
 

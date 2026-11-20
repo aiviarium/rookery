@@ -95,7 +95,7 @@ func (r *Registries) Remove(ctx context.Context, request *connect.Request[rooker
 	return connect.NewResponse(&rookeryv1.RegistryServiceRemoveResponse{}), nil
 }
 
-func (r *Registries) install(ctx context.Context, installer *Installer, reference string) (Plugin, error) {
+func (r *Registries) install(ctx context.Context, installer *Installer, reference string, opts installOptions) (Plugin, error) {
 	id, version, pinned := strings.Cut(reference, "@")
 	if !pluginID.MatchString(id) {
 		return Plugin{}, fmt.Errorf("%w: expected ID or ID@VERSION", access.ErrInvalid)
@@ -110,7 +110,7 @@ func (r *Registries) install(ctx context.Context, installer *Installer, referenc
 		return Plugin{}, fmt.Errorf("registry: listing registries: %w", err)
 	}
 	for _, row := range rows {
-		plugin, err := r.installFrom(ctx, installer, row, id, reference)
+		plugin, err := r.installFrom(ctx, installer, row, id, reference, opts)
 		if !errors.Is(err, ErrNotFound) {
 			if err != nil {
 				return Plugin{}, fmt.Errorf("registry %s: %w", row.Name, err)
@@ -121,7 +121,7 @@ func (r *Registries) install(ctx context.Context, installer *Installer, referenc
 	return Plugin{}, fmt.Errorf("%w: no registry has %s", access.ErrNotFound, reference)
 }
 
-func (r *Registries) installFrom(ctx context.Context, installer *Installer, row store.RookeryRegistries, id, reference string) (Plugin, error) {
+func (r *Registries) installFrom(ctx context.Context, installer *Installer, row store.RookeryRegistries, id, reference string, opts installOptions) (Plugin, error) {
 	base, err := registryURL(row.Url)
 	if err != nil {
 		return Plugin{}, err
@@ -168,7 +168,8 @@ func (r *Registries) installFrom(ctx context.Context, installer *Installer, row 
 	if manifest.ID != id || manifest.Version != entry.Version || manifest.Requires != entry.Requires {
 		return Plugin{}, fmt.Errorf("%w: the package manifest does not match the signed index", access.ErrInvalid)
 	}
-	return installer.install(ctx, io.NewSectionReader(file, 0, n), true)
+	opts.expectedID = id
+	return installer.install(ctx, io.NewSectionReader(file, 0, n), opts)
 }
 
 func (r *Registries) fetchIndex(ctx context.Context, base *url.URL, key ed25519.PublicKey) (Index, error) {

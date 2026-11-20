@@ -22,6 +22,15 @@ func (q *Queries) DeletePlugin(ctx context.Context, id string) (int64, error) {
 	return result.RowsAffected(), nil
 }
 
+const deletePluginDeclaration = `-- name: DeletePluginDeclaration :exec
+DELETE FROM rookery.plugin_declarations WHERE plugin = $1
+`
+
+func (q *Queries) DeletePluginDeclaration(ctx context.Context, plugin string) error {
+	_, err := q.db.Exec(ctx, deletePluginDeclaration, plugin)
+	return err
+}
+
 const deleteSchedulesNamed = `-- name: DeleteSchedulesNamed :execrows
 DELETE FROM rookery.schedules
 WHERE name LIKE $1::text
@@ -55,6 +64,28 @@ func (q *Queries) GetPlugin(ctx context.Context, id string) (RookeryPlugins, err
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getPluginArchive = `-- name: GetPluginArchive :one
+SELECT archive FROM rookery.plugin_archives WHERE plugin = $1
+`
+
+func (q *Queries) GetPluginArchive(ctx context.Context, plugin string) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getPluginArchive, plugin)
+	var archive []byte
+	err := row.Scan(&archive)
+	return archive, err
+}
+
+const getPluginDeclaration = `-- name: GetPluginDeclaration :one
+SELECT manifest FROM rookery.plugin_declarations WHERE plugin = $1
+`
+
+func (q *Queries) GetPluginDeclaration(ctx context.Context, plugin string) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getPluginDeclaration, plugin)
+	var manifest []byte
+	err := row.Scan(&manifest)
+	return manifest, err
 }
 
 const listEnabledPlugins = `-- name: ListEnabledPlugins :many
@@ -126,6 +157,106 @@ func (q *Queries) ListPlugins(ctx context.Context) ([]RookeryPlugins, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const pluginHostProfiles = `-- name: PluginHostProfiles :many
+SELECT name, profile FROM rookery.hosts ORDER BY name
+`
+
+type PluginHostProfilesRow struct {
+	Name    string
+	Profile []byte
+}
+
+func (q *Queries) PluginHostProfiles(ctx context.Context) ([]PluginHostProfilesRow, error) {
+	rows, err := q.db.Query(ctx, pluginHostProfiles)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PluginHostProfilesRow{}
+	for rows.Next() {
+		var i PluginHostProfilesRow
+		if err := rows.Scan(&i.Name, &i.Profile); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const pluginProvisionerUser = `-- name: PluginProvisionerUser :one
+SELECT name FROM rookery.provisioners WHERE plugin = $1 ORDER BY name LIMIT 1
+`
+
+func (q *Queries) PluginProvisionerUser(ctx context.Context, plugin string) (string, error) {
+	row := q.db.QueryRow(ctx, pluginProvisionerUser, plugin)
+	var name string
+	err := row.Scan(&name)
+	return name, err
+}
+
+const pluginsWithQueuedJobs = `-- name: PluginsWithQueuedJobs :many
+SELECT p.id FROM rookery.plugins p
+WHERE p.enabled AND EXISTS (
+    SELECT 1 FROM rookery.jobs j
+    WHERE j.state = 'queued' AND j.available_at <= now()
+      AND split_part(j.kind, '/', 1) = p.id AND strpos(j.kind, '/') > 0
+)
+ORDER BY p.id
+`
+
+func (q *Queries) PluginsWithQueuedJobs(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, pluginsWithQueuedJobs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const putPluginArchive = `-- name: PutPluginArchive :exec
+INSERT INTO rookery.plugin_archives (plugin, archive) VALUES ($1, $2)
+ON CONFLICT (plugin) DO UPDATE SET archive = excluded.archive
+`
+
+type PutPluginArchiveParams struct {
+	Plugin  string
+	Archive []byte
+}
+
+func (q *Queries) PutPluginArchive(ctx context.Context, arg PutPluginArchiveParams) error {
+	_, err := q.db.Exec(ctx, putPluginArchive, arg.Plugin, arg.Archive)
+	return err
+}
+
+const putPluginDeclaration = `-- name: PutPluginDeclaration :exec
+INSERT INTO rookery.plugin_declarations (plugin, manifest) VALUES ($1, $2)
+ON CONFLICT (plugin) DO UPDATE SET manifest = excluded.manifest
+`
+
+type PutPluginDeclarationParams struct {
+	Plugin   string
+	Manifest []byte
+}
+
+func (q *Queries) PutPluginDeclaration(ctx context.Context, arg PutPluginDeclarationParams) error {
+	_, err := q.db.Exec(ctx, putPluginDeclaration, arg.Plugin, arg.Manifest)
+	return err
 }
 
 const setPluginEnabled = `-- name: SetPluginEnabled :one

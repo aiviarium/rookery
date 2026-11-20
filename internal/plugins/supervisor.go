@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ import (
 
 	pluginv1 "github.com/aiviarium/rookery/gen/go/rookery/plugin/v1"
 	"github.com/aiviarium/rookery/gen/go/rookery/plugin/v1/pluginv1connect"
+	"github.com/aiviarium/rookery/internal/access"
 	"github.com/aiviarium/rookery/pkg/sdk"
 )
 
@@ -42,8 +44,9 @@ type Supervisor struct {
 	memoryMB int64
 	settings func(context.Context, string) ([]byte, error)
 
-	mu      sync.Mutex
-	running map[string]*supervised
+	mu           sync.Mutex
+	running      map[string]*supervised
+	provisioners map[string]provisionerCredential
 }
 
 // PluginSource is where the supervisor reads the installed plugins from.
@@ -83,13 +86,14 @@ func NewSupervisor(options SupervisorOptions) *Supervisor {
 		}
 	}
 	return &Supervisor{
-		source:   options.Source,
-		stateDir: options.StateDir,
-		socket:   options.Socket,
-		logger:   logger,
-		memoryMB: memoryMB,
-		settings: options.Settings,
-		running:  make(map[string]*supervised),
+		source:       options.Source,
+		stateDir:     options.StateDir,
+		socket:       options.Socket,
+		logger:       logger,
+		memoryMB:     memoryMB,
+		settings:     options.Settings,
+		running:      make(map[string]*supervised),
+		provisioners: make(map[string]provisionerCredential),
 	}
 }
 
@@ -599,6 +603,9 @@ func (s *Supervisor) PluginByToken(token string) (string, bool) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if call, ok := s.provisioners[token]; ok {
+		return call.plugin, true
+	}
 	for id, service := range s.running {
 		if subtle.ConstantTimeCompare([]byte(service.token), []byte(token)) == 1 {
 			return id, true
@@ -648,4 +655,37 @@ func (s *Supervisor) initialize(ctx context.Context, socket string, plugin Plugi
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
+}
+
+type provisionerCredential struct {
+	plugin string
+	node   string
+}
+
+// IssueProvisionerToken authorizes one process until the returned function runs.
+func (s *Supervisor) IssueProvisionerToken(ctx context.Context, plugin, node string) (string, func(), error) {
+	installed, err := s.source.List(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	if !slices.ContainsFunc(installed, func(item Plugin) bool { return item.ID == plugin && item.Enabled }) {
+		return "", nil, access.ErrNotFound
+	}
+	token := newPluginToken()
+	s.mu.Lock()
+	s.provisioners[token] = provisionerCredential{plugin: plugin, node: node}
+	s.mu.Unlock()
+	return token, func() {
+		s.mu.Lock()
+		delete(s.provisioners, token)
+		s.mu.Unlock()
+	}, nil
+}
+
+// ProvisionerNode reports the node an ephemeral credential may reach.
+func (s *Supervisor) ProvisionerNode(token string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	call, ok := s.provisioners[token]
+	return call.node, ok
 }

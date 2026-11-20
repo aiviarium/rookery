@@ -77,7 +77,7 @@ func (s *PluginService) Install(ctx context.Context, stream *connect.ClientStrea
 		return nil, access.ToConnect(fmt.Errorf("plugins: reading the package back: %w", err))
 	}
 
-	plugin, err := s.installer.Install(ctx, packageFile)
+	plugin, err := s.installer.install(ctx, packageFile, installOptions{requireNew: true})
 	if err != nil {
 		return nil, access.ToConnect(err)
 	}
@@ -103,9 +103,33 @@ func (s *PluginService) SetEnabled(ctx context.Context, request *connect.Request
 
 // InstallFromRegistry verifies an indexed package before installing it.
 func (s *PluginService) InstallFromRegistry(ctx context.Context, request *connect.Request[rookeryv1.PluginServiceInstallFromRegistryRequest]) (*connect.Response[rookeryv1.PluginServiceInstallFromRegistryResponse], error) {
-	plugin, err := s.registries.install(ctx, s.installer, request.Msg.GetReference())
+	plugin, err := s.registries.install(ctx, s.installer, request.Msg.GetReference(), installOptions{requireNew: true})
 	if err != nil {
 		return nil, access.ToConnect(err)
 	}
 	return connect.NewResponse(&rookeryv1.PluginServiceInstallFromRegistryResponse{Plugin: plugin.Message()}), nil
+}
+
+// Update installs a signed release of an already installed plugin.
+func (s *PluginService) Update(ctx context.Context, request *connect.Request[rookeryv1.PluginServiceUpdateRequest]) (*connect.Response[rookeryv1.PluginServiceUpdateResponse], error) {
+	plugin, err := s.registries.install(ctx, s.installer, request.Msg.GetReference(), installOptions{requireExisting: true, resetData: request.Msg.GetResetData()})
+	if err != nil {
+		return nil, access.ToConnect(err)
+	}
+	return connect.NewResponse(&rookeryv1.PluginServiceUpdateResponse{Plugin: plugin.Message()}), nil
+}
+
+// Contributions lists the enabled client halves and their immutable hashes.
+func (s *PluginService) Contributions(ctx context.Context, _ *connect.Request[rookeryv1.PluginServiceContributionsRequest]) (*connect.Response[rookeryv1.PluginServiceContributionsResponse], error) {
+	declared, err := s.installer.Contributions(ctx)
+	if err != nil {
+		return nil, access.ToConnect(err)
+	}
+	out := &rookeryv1.PluginServiceContributionsResponse{}
+	for _, contribution := range declared {
+		out.Contributions = append(out.Contributions, &rookeryv1.PluginContribution{
+			Plugin: contribution.Plugin, Hash: contribution.Hash, Shell: contribution.Shell, ContributesJson: contribution.Contributes,
+		})
+	}
+	return connect.NewResponse(out), nil
 }

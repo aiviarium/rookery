@@ -60,24 +60,24 @@
     stdin: |
       config: {}
       networks:
-        - name: {{ bridge | default('incusbr0') }}
+        - name: {{ incus__server.vars.bridge }}
           type: bridge
           config:
             ipv4.address: auto
             ipv6.address: auto
       storage_pools:
-        - name: {{ pool | default('default') }}
+        - name: {{ incus__server.vars.pool }}
           driver: dir
       profiles:
         - name: default
           devices:
             eth0:
               name: eth0
-              network: {{ bridge | default('incusbr0') }}
+              network: {{ incus__server.vars.bridge }}
               type: nic
             root:
               path: /
-              pool: {{ pool | default('default') }}
+              pool: {{ incus__server.vars.pool }}
               type: disk
           config: {}
   when: not incus_database.stat.exists
@@ -91,6 +91,6 @@
 
 - name: Let the operator use Incus
   ansible.builtin.user:
-    name: "{{ user | default('ops') }}"
+    name: "{{ incus__server.vars.user }}"
     groups: incus-admin
     append: true

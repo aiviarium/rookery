@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -52,9 +53,11 @@ func CoreConnectionTypes() []ConnectionType {
 
 // Connections are a deployment's external credentials.
 type Connections struct {
-	store *store.Store
-	ring  *seal.Ring
-	types map[string]ConnectionType
+	store      *store.Store
+	ring       *seal.Ring
+	types      map[string]ConnectionType
+	mu         sync.RWMutex
+	testPlugin func(context.Context, ConnectionType, map[string]string) error
 }
 
 // NewConnections returns the connections of a database.
@@ -68,6 +71,8 @@ func NewConnections(opened *store.Store, ring *seal.Ring, types ...ConnectionTyp
 
 // Types are the connection types this deployment declares.
 func (c *Connections) Types() []ConnectionType {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	out := make([]ConnectionType, 0, len(c.types))
 	for _, declared := range c.types {
 		out = append(out, declared)
@@ -77,6 +82,8 @@ func (c *Connections) Types() []ConnectionType {
 
 // Type returns one type.
 func (c *Connections) Type(id string) (ConnectionType, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	declared, ok := c.types[id]
 	return declared, ok
 }
@@ -111,7 +118,7 @@ func (c Connection) Message() *rookeryv1.Connection {
 
 // Create makes a connection. values are its fields and are sealed as one value.
 func (c *Connections) Create(ctx context.Context, connectionType, name string, values map[string]string) (Connection, error) {
-	declared, known := c.types[connectionType]
+	declared, known := c.Type(connectionType)
 	if !known {
 		return Connection{}, fmt.Errorf("%w: there is no connection type %q", access.ErrInvalid, connectionType)
 	}
@@ -155,7 +162,7 @@ func (c *Connections) Update(ctx context.Context, connectionID string, name *str
 	case err != nil:
 		return Connection{}, fmt.Errorf("config: reading the connection %s: %w", connectionID, err)
 	}
-	declared, known := c.types[record.Type]
+	declared, known := c.Type(record.Type)
 	if !known {
 		return Connection{}, fmt.Errorf("%w: the connection type %q is not declared any more", access.ErrUnavailable, record.Type)
 	}
@@ -208,7 +215,7 @@ func (c *Connections) ByID(ctx context.Context, connectionID string) (Connection
 	case err != nil:
 		return Connection{}, fmt.Errorf("config: reading the connection %s: %w", connectionID, err)
 	}
-	declared, _ := c.types[record.Type]
+	declared, _ := c.Type(record.Type)
 	return connectionOf(record, declared), nil
 }
 
@@ -220,7 +227,7 @@ func (c *Connections) List(ctx context.Context, connectionType string) ([]Connec
 	}
 	out := make([]Connection, 0, len(records))
 	for _, record := range records {
-		declared, _ := c.types[record.Type]
+		declared, _ := c.Type(record.Type)
 		out = append(out, connectionOf(record, declared))
 	}
 	return out, nil
@@ -284,10 +291,21 @@ func (c *Connections) Test(ctx context.Context, connectionID string) (bool, stri
 	if err != nil {
 		return false, "", err
 	}
-	if declared, known := c.types[connection.Type]; !known || !declared.Test {
+	declared, known := c.Type(connection.Type)
+	if !known || !declared.Test {
 		return false, "the " + connection.Type + " type is checked when it is used", nil
 	}
-	return false, "this type's test arrives with the plugin system", nil
+	if c.testPlugin == nil {
+		return false, "", access.ErrUnavailable
+	}
+	values, err := c.Values(ctx, connectionID)
+	if err != nil {
+		return false, "", err
+	}
+	if err := c.testPlugin(ctx, declared, values); err != nil {
+		return false, "The plugin rejected this connection.", nil
+	}
+	return true, "Connection test passed.", nil
 }
 
 // connectionOf is a connection from the database, with secret fields left out of
@@ -466,4 +484,25 @@ func decodeValues(raw []byte) (map[string]string, error) {
 func isUniqueViolation(err error) bool {
 	var pgErr interface{ SQLState() string }
 	return errors.As(err, &pgErr) && pgErr.SQLState() == "23505"
+}
+
+// SetPluginTester installs the callback used for declared connection tests.
+func (c *Connections) SetPluginTester(test func(context.Context, ConnectionType, map[string]string) error) {
+	c.testPlugin = test
+}
+
+// ReplacePluginTypes refreshes the declarations of one plugin.
+func (c *Connections) ReplacePluginTypes(plugin string, types []ConnectionType) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for id, declared := range c.types {
+		if declared.Plugin == plugin {
+			delete(c.types, id)
+		}
+	}
+	for _, declared := range types {
+		declared.ID = plugin + "/" + declared.ID
+		declared.Plugin = plugin
+		c.types[declared.ID] = declared
+	}
 }

@@ -74,6 +74,29 @@ message PluginServiceSetEnabledResponse {
   Plugin plugin = 1;
 }
 
+message PluginServiceUpdateRequest {
+  // Reference selects the installed plugin and optionally an exact version.
+  string reference = 1;
+  bool reset_data = 2;
+}
+
+message PluginServiceUpdateResponse {
+  Plugin plugin = 1;
+}
+
+message PluginServiceContributionsRequest {}
+
+message PluginServiceContributionsResponse {
+  repeated PluginContribution contributions = 1;
+}
+
+message PluginContribution {
+  string plugin = 1;
+  string hash = 2;
+  bool shell = 3;
+  bytes contributes_json = 4;
+}
+
 // PluginService installs plugins, lists them and takes them away. Install
 // streams the package, so that a large one needs no large message.
 service PluginService {
@@ -91,6 +114,14 @@ service PluginService {
 
   rpc InstallFromRegistry(PluginServiceInstallFromRegistryRequest) returns (PluginServiceInstallFromRegistryResponse) {
     option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc Update(PluginServiceUpdateRequest) returns (PluginServiceUpdateResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc Contributions(PluginServiceContributionsRequest) returns (PluginServiceContributionsResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   rpc Remove(PluginServiceRemoveRequest) returns (PluginServiceRemoveResponse) {

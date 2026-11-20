@@ -105,6 +105,10 @@ FROM rookery.schedules
 WHERE enabled
   AND next_run_at IS NOT NULL
   AND next_run_at <= now()
+  AND (strpos(kind, '/') = 0 OR EXISTS (
+    SELECT 1 FROM rookery.plugins
+    WHERE id = split_part(kind, '/', 1) AND enabled
+  ))
 ORDER BY next_run_at
 LIMIT $1
 `

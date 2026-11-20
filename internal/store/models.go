@@ -280,6 +280,16 @@ type RookeryNotifications struct {
 	CreatedAt time.Time
 }
 
+type RookeryPluginArchives struct {
+	Plugin  string
+	Archive []byte
+}
+
+type RookeryPluginDeclarations struct {
+	Plugin   string
+	Manifest []byte
+}
+
 type RookeryPluginKv struct {
 	Plugin   string
 	Key      string

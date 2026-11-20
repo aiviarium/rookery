@@ -28,7 +28,11 @@ func (p *PluginServer) DialNode(ctx context.Context, upstream *connect.BidiStrea
 	if host == "" || strings.ContainsAny(host, "/?#") {
 		return access.ToConnect(access.ErrInvalid)
 	}
-	if err := p.checker.Check(ctx, access.MustPrincipal(ctx), access.HostURI(host), access.Manage); err != nil {
+	if node, provisioner := access.ProvisionerNode(ctx); provisioner {
+		if node == "" || node != host {
+			return access.ToConnect(access.ErrDenied)
+		}
+	} else if err := p.checker.Check(ctx, access.MustPrincipal(ctx), access.HostURI(host), access.Manage); err != nil {
 		return access.ToConnect(err)
 	}
 	target := &hostv1.PortServiceDialRequest{Data: first.GetData()}

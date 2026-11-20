@@ -140,6 +140,7 @@ type handlers struct {
 	runner     *jobs.Runner
 	scheduler  *jobs.Scheduler
 	supervisor *plugins.Supervisor
+	plugins    *plugins.Installer
 	retention  time.Duration
 	// links are the SSH connections to the hosts; a stopping leader closes
 	// them.
