@@ -1,0 +1,28 @@
+{
+  "type": "sync",
+  "status": "Success",
+  "status_code": 200,
+  "metadata": {
+    "name": "desk-1",
+    "type": "container",
+    "status": "Running",
+    "status_code": 103,
+    "project": "default",
+    "description": "Rookery machine desk-1",
+    "config": {
+      "cloud-init.user-data": "#cloud-config\nhostname: desk-1\n",
+      "limits.cpu": "2",
+      "limits.memory": "2048MB",
+      "user.rookery.entry": "lab-incus/vm",
+      "user.rookery.kind": "machine",
+      "user.rookery.name": "desk-1",
+      "user.rookery.type": "incus/container"
+    },
+    "devices": {
+      "root": {"type": "disk", "pool": "default", "path": "/", "size": "20GB"}
+    },
+    "profiles": ["default"],
+    "expanded_config": {},
+    "expanded_devices": {}
+  }
+}

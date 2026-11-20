@@ -1,0 +1,36 @@
+id: incus
+version: 0.1.0
+name: Incus
+requires: ">=0.1.0"
+
+# The server feature makes a managed host a node: the provisioner reaches Incus's
+# socket through the server, so a machine made there needs no route from here.
+hostFeatures:
+  - id: server
+    label: Incus
+    types: [managed, workstation]
+    tasks: features/server/tasks/main.yml
+    vars:
+      pool: { type: string, default: default }
+      bridge: { type: string, default: incusbr0 }
+      user: { type: string, default: ops }
+    offers: [incus/vm, incus/container]
+    channelTopics: [incus/progress]
+    actions:
+      - { name: incus-version, label: Incus version, group: Incus, user: operator, run: incus version }
+
+# Two types, one module: a program each, because a provisioner describes one
+# type.
+provisioners:
+  - id: vm
+    label: Incus VM
+    kinds: [machine]
+    command:
+      linux/amd64: bin/incus-vm-amd64
+      linux/arm64: bin/incus-vm-arm64
+  - id: container
+    label: Incus container
+    kinds: [machine]
+    command:
+      linux/amd64: bin/incus-container-amd64
+      linux/arm64: bin/incus-container-arm64
