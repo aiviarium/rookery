@@ -1,0 +1,779 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aiviarium/rookery/schemas/plugin.schema.json",
+  "title": "plugin.yaml",
+  "description": "A plugin's manifest: what it is, what it adds to Rookery, and how to run it.",
+  "type": "object",
+  "properties": {
+    "client": {
+      "type": "string"
+    },
+    "collections": {
+      "description": "The datastore collections the plugin declares, by name.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "access": {
+            "type": "object",
+            "properties": {
+              "read": {
+                "type": "string",
+                "enum": [
+                  "view",
+                  "use",
+                  "manage"
+                ]
+              },
+              "write": {
+                "type": "string",
+                "enum": [
+                  "view",
+                  "use",
+                  "manage"
+                ]
+              }
+            },
+            "required": [
+              "read",
+              "write"
+            ],
+            "additionalProperties": false
+          },
+          "entity": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "text": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "title"
+            ],
+            "additionalProperties": false
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "default": {},
+                "enum": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "onDelete": {
+                  "type": "string",
+                  "enum": [
+                    "restrict",
+                    "nullify",
+                    "cascade"
+                  ]
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "type": {
+                  "type": "string",
+                  "pattern": "^(string|text|int|float|bool|time|enum|ref|cbor|vector\\([0-9]+\\))$"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "history": {
+            "type": "boolean"
+          },
+          "indexes": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "global",
+              "space",
+              "user"
+            ]
+          }
+        },
+        "required": [
+          "scope",
+          "access",
+          "fields"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "connectionTypes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "secret": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "test": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "contributes": {
+      "type": "object",
+      "properties": {
+        "adminPages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "route": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "route"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "hostTabs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "types": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "ssh",
+                    "managed",
+                    "workstation"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "id",
+              "label"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "nav": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "group": {
+                "type": "string"
+              },
+              "view": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "view"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "views": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "route": {
+                "type": "string"
+              },
+              "space": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "route"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "widgets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "view": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "database": {
+      "type": "string",
+      "enum": [
+        "sql"
+      ]
+    },
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "hostFeatures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "args": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "default": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "required": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "name"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "group": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "onHost": {
+                  "type": "boolean"
+                },
+                "run": {
+                  "description": "The command, run with its arguments as ROOKERY_ARG_* variables and never through a shell string.",
+                  "type": "string"
+                },
+                "terminal": {
+                  "type": "boolean"
+                },
+                "user": {
+                  "type": "string",
+                  "enum": [
+                    "operator",
+                    "root",
+                    "desktop"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "user",
+                "run"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "channelTopics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "hostServices": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "offers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "secrets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tasks": {
+            "description": "The feature's Ansible tasks in the package; an apply links them in as the role \u003cplugin\u003e__\u003cfeature\u003e.",
+            "type": "string"
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "ssh",
+                "managed",
+                "workstation"
+              ]
+            }
+          },
+          "vars": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "default": {},
+                "scopes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "global",
+                      "space",
+                      "user"
+                    ]
+                  }
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "string",
+                    "int",
+                    "float",
+                    "bool",
+                    "time",
+                    "cbor"
+                  ]
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "types",
+          "tasks"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "id": {
+      "type": "string"
+    },
+    "jobs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "enqueue": {
+            "type": "object",
+            "properties": {
+              "level": {
+                "type": "string",
+                "enum": [
+                  "view",
+                  "use",
+                  "manage"
+                ]
+              },
+              "resource": {
+                "type": "string",
+                "enum": [
+                  "host",
+                  "space",
+                  "plugin",
+                  "record",
+                  "document",
+                  "provisioner",
+                  "rollout"
+                ]
+              }
+            },
+            "required": [
+              "level",
+              "resource"
+            ],
+            "additionalProperties": false
+          },
+          "kind": {
+            "type": "string"
+          },
+          "retries": {
+            "type": "integer"
+          },
+          "timeout": {
+            "type": "string",
+            "pattern": "^-?([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+          }
+        },
+        "required": [
+          "kind",
+          "enqueue"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "name": {
+      "type": "string"
+    },
+    "provisioners": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kinds",
+          "command"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "requires": {
+      "type": "string"
+    },
+    "schedules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "cron": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "cron"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "secrets": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "service": {
+      "description": "The plugin's server-side code: a binary per platform, or a runtime and an entry.",
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "entry": {
+          "type": "string"
+        },
+        "rpc": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "access": {
+                "type": "object",
+                "properties": {
+                  "level": {
+                    "type": "string",
+                    "enum": [
+                      "view",
+                      "use",
+                      "manage"
+                    ]
+                  },
+                  "resource": {
+                    "type": "string",
+                    "enum": [
+                      "host",
+                      "space",
+                      "plugin",
+                      "record",
+                      "document",
+                      "provisioner",
+                      "rollout"
+                    ]
+                  }
+                },
+                "required": [
+                  "level",
+                  "resource"
+                ],
+                "additionalProperties": false
+              },
+              "procedure": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "procedure",
+              "access"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "runtime": {
+          "type": "string"
+        },
+        "start": {
+          "type": "string",
+          "enum": [
+            "lazy",
+            "always"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "settings": {
+      "description": "The settings the plugin declares, by name.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "default": {},
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "global",
+                "space",
+                "user"
+              ]
+            }
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "string",
+              "int",
+              "float",
+              "bool",
+              "time",
+              "cbor"
+            ]
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "shell": {
+      "type": "boolean"
+    },
+    "spaceKinds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "version": {
+      "type": "string"
+    },
+    "webhooks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "job": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "verify": {
+            "type": "object",
+            "properties": {
+              "hmac-sha256": {
+                "type": "object",
+                "properties": {
+                  "header": {
+                    "type": "string"
+                  },
+                  "secret": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "header",
+                  "secret"
+                ],
+                "additionalProperties": false
+              },
+              "token": {
+                "type": "object",
+                "properties": {
+                  "header": {
+                    "type": "string"
+                  },
+                  "secret": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "header",
+                  "secret"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "name",
+          "verify",
+          "job"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "id",
+    "version",
+    "name"
+  ],
+  "additionalProperties": false
+}
