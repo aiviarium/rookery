@@ -123,6 +123,13 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		Spaces:    spaceKinds,
 		Logger:    s.log,
 	})
+	supervisor := plugins.NewSupervisor(plugins.SupervisorOptions{
+		Source:   installer,
+		StateDir: s.config.StateDir,
+		Socket:   s.config.Socket,
+		Logger:   s.log,
+	})
+	installer.SetServices(supervisor)
 
 	if interrupted, err := jobs.InterruptRunning(ctx, opened); err != nil {
 		return nil, err
@@ -175,14 +182,15 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	})
 
 	return &handlers{
-		edge:      build.Handler(),
-		socket:    build.SocketHandler(),
-		log:       s.log,
-		runner:    runner,
-		scheduler: scheduler,
-		retention: time.Duration(s.config.RetentionDays) * 24 * time.Hour,
-		store:     opened,
-		blobs:     blobStore,
+		edge:       build.Handler(),
+		socket:     build.SocketHandler(),
+		log:        s.log,
+		runner:     runner,
+		scheduler:  scheduler,
+		supervisor: supervisor,
+		retention:  time.Duration(s.config.RetentionDays) * 24 * time.Hour,
+		store:      opened,
+		blobs:      blobStore,
 	}, nil
 }
 
@@ -191,6 +199,8 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 // returns when ctx ends.
 func (h *handlers) start(ctx context.Context) error {
 	group, ctx := errgroup.WithContext(ctx)
+	h.supervisor.StartAll(ctx)
+	defer h.supervisor.StopAll()
 	group.Go(func() error { return h.runner.Run(ctx) })
 	group.Go(func() error { return h.scheduler.Run(ctx) })
 	group.Go(func() error {
