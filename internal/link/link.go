@@ -263,7 +263,7 @@ func (m *Manager) open(ctx context.Context, name string) (*connection, error) {
 		return nil, fmt.Errorf("%w: running rookeryd on %s: %w", access.ErrUnavailable, name, err)
 	}
 
-	pipe, err := pipeconn.New(pipeconn.Pair{Reader: io.NopCloser(stdout), Writer: stdin})
+	pipe, err := pipeconn.New(pipeconn.Pair{Reader: io.NopCloser(stdout), Writer: sshPipeWriter{Writer: stdin, client: client}})
 	if err != nil {
 		_ = session.Close()
 		_ = client.Close()

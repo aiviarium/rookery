@@ -146,10 +146,8 @@ ts:
 		if [ -f $$plugin/package.json ]; then cd $$plugin && bun run build || exit 1; cd $(CURDIR); fi; \
 	done
 
-# The end-to-end test arrives with item 7.
 e2e:
-	@if [ -d e2e ]; then $(GO) test -count=1 -tags e2e ./e2e/...; \
-		else echo "e2e: no e2e tests yet, skipped"; fi
+	$(GO) test -race -count=1 -tags e2e ./e2e/...
 
 dev: db
 	ROOKERY_DATABASE_URL=$(DATABASE_URL) $(GO) run ./cmd/rookery serve
