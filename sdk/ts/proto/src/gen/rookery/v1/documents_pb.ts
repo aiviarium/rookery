@@ -20,7 +20,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file rookery/v1/documents.proto.
  */
 export const file_rookery_v1_documents: GenFile = /*@__PURE__*/
-  fileDesc("Chpyb29rZXJ5L3YxL2RvY3VtZW50cy5wcm90bxIKcm9va2VyeS52MSKjAQoIRG9jdW1lbnQSCgoCaWQYASABKAkSDAoEdHlwZRgCIAEoCRIOCgZwYXJlbnQYAyABKAkSDQoFb3duZXIYBCABKAkSLgoKY3JlYXRlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiPAocRG9jdW1lbnRTZXJ2aWNlQ3JlYXRlUmVxdWVzdBIMCgR0eXBlGAEgASgJEg4KBnBhcmVudBgCIAEoCSJHCh1Eb2N1bWVudFNlcnZpY2VDcmVhdGVSZXNwb25zZRImCghkb2N1bWVudBgBIAEoCzIULnJvb2tlcnkudjEuRG9jdW1lbnQiJwoZRG9jdW1lbnRTZXJ2aWNlR2V0UmVxdWVzdBIKCgJpZBgBIAEoCSJEChpEb2N1bWVudFNlcnZpY2VHZXRSZXNwb25zZRImCghkb2N1bWVudBgBIAEoCzIULnJvb2tlcnkudjEuRG9jdW1lbnQiNwoJU3luY0hlbGxvEhMKC2RvY3VtZW50X2lkGAEgASgJEhUKDWZyb21fc2VxdWVuY2UYAiABKAMiLAoKU3luY1VwZGF0ZRIMCgRkYXRhGAEgASgMEhAKCHNlcXVlbmNlGAIgASgDIh0KDVN5bmNBd2FyZW5lc3MSDAoEZGF0YRgBIAEoDCIuCgxTeW5jU25hcHNob3QSEAoIc2VxdWVuY2UYASABKAMSDAoEZGF0YRgCIAEoDCIeCgpTeW5jUmVzeW5jEhAKCHNlcXVlbmNlGAEgASgDIqkBChpEb2N1bWVudFNlcnZpY2VTeW5jUmVxdWVzdBImCgVoZWxsbxgBIAEoCzIVLnJvb2tlcnkudjEuU3luY0hlbGxvSAASKAoGdXBkYXRlGAIgASgLMhYucm9va2VyeS52MS5TeW5jVXBkYXRlSAASLgoJYXdhcmVuZXNzGAMgASgLMhkucm9va2VyeS52MS5TeW5jQXdhcmVuZXNzSABCCQoHbWVzc2FnZSLaAQobRG9jdW1lbnRTZXJ2aWNlU3luY1Jlc3BvbnNlEiwKCHNuYXBzaG90GAEgASgLMhgucm9va2VyeS52MS5TeW5jU25hcHNob3RIABIoCgZ1cGRhdGUYAiABKAsyFi5yb29rZXJ5LnYxLlN5bmNVcGRhdGVIABIuCglhd2FyZW5lc3MYAyABKAsyGS5yb29rZXJ5LnYxLlN5bmNBd2FyZW5lc3NIABIoCgZyZXN5bmMYBCABKAsyFi5yb29rZXJ5LnYxLlN5bmNSZXN5bmNIAEIJCgdtZXNzYWdlIl0KD1NuYXBzaG90UmVxdWVzdBIKCgJpZBgBIAEoCRIQCghzZXF1ZW5jZRgCIAEoAxIMCgRkYXRhGAMgASgMEg8KB3ZlcnNpb24YBCABKAgSDQoFbGFiZWwYBSABKAkiOgoQU25hcHNob3RSZXNwb25zZRImCgJhdBgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAigAEKEERvY3VtZW50U25hcHNob3QSEAoIc2VxdWVuY2UYASABKAMSDwoHdmVyc2lvbhgCIAEoCBINCgVsYWJlbBgDIAEoCRISCgpjcmVhdGVkX2J5GAQgASgJEiYKAmF0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIrCh1Eb2N1bWVudFNlcnZpY2VIaXN0b3J5UmVxdWVzdBIKCgJpZBgBIAEoCSJRCh5Eb2N1bWVudFNlcnZpY2VIaXN0b3J5UmVzcG9uc2USLwoJc25hcHNob3RzGAEgAygLMhwucm9va2VyeS52MS5Eb2N1bWVudFNuYXBzaG90IioKHERvY3VtZW50U2VydmljZURlbGV0ZVJlcXVlc3QSCgoCaWQYASABKAkiHwodRG9jdW1lbnRTZXJ2aWNlRGVsZXRlUmVzcG9uc2UyzwQKD0RvY3VtZW50U2VydmljZRJjCgZDcmVhdGUSKC5yb29rZXJ5LnYxLkRvY3VtZW50U2VydmljZUNyZWF0ZVJlcXVlc3QaKS5yb29rZXJ5LnYxLkRvY3VtZW50U2VydmljZUNyZWF0ZVJlc3BvbnNlIgSKtRgAEloKA0dldBIlLnJvb2tlcnkudjEuRG9jdW1lbnRTZXJ2aWNlR2V0UmVxdWVzdBomLnJvb2tlcnkudjEuRG9jdW1lbnRTZXJ2aWNlR2V0UmVzcG9uc2UiBIq1GAASYQoEU3luYxImLnJvb2tlcnkudjEuRG9jdW1lbnRTZXJ2aWNlU3luY1JlcXVlc3QaJy5yb29rZXJ5LnYxLkRvY3VtZW50U2VydmljZVN5bmNSZXNwb25zZSIEirUYACgBMAESSwoIU25hcHNob3QSGy5yb29rZXJ5LnYxLlNuYXBzaG90UmVxdWVzdBocLnJvb2tlcnkudjEuU25hcHNob3RSZXNwb25zZSIEirUYABJmCgdIaXN0b3J5Eikucm9va2VyeS52MS5Eb2N1bWVudFNlcnZpY2VIaXN0b3J5UmVxdWVzdBoqLnJvb2tlcnkudjEuRG9jdW1lbnRTZXJ2aWNlSGlzdG9yeVJlc3BvbnNlIgSKtRgAEmMKBkRlbGV0ZRIoLnJvb2tlcnkudjEuRG9jdW1lbnRTZXJ2aWNlRGVsZXRlUmVxdWVzdBopLnJvb2tlcnkudjEuRG9jdW1lbnRTZXJ2aWNlRGVsZXRlUmVzcG9uc2UiBIq1GABCOlo4Z2l0aHViLmNvbS9haXZpYXJpdW0vcm9va2VyeS9nZW4vZ28vcm9va2VyeS92MTtyb29rZXJ5djFiBnByb3RvMw", [file_google_protobuf_timestamp, file_rookery_v1_access]);
+  fileDesc("Chpyb29rZXJ5L3YxL2RvY3VtZW50cy5wcm90bxIKcm9va2VyeS52MSKjAQoIRG9jdW1lbnQSCgoCaWQYASABKAkSDAoEdHlwZRgCIAEoCRIOCgZwYXJlbnQYAyABKAkSDQoFb3duZXIYBCABKAkSLgoKY3JlYXRlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiOwoaRG9jdW1lbnRTZXJ2aWNlTGlzdFJlcXVlc3QSDgoGcGFyZW50GAEgASgJEg0KBWxpbWl0GAIgASgFIkYKG0RvY3VtZW50U2VydmljZUxpc3RSZXNwb25zZRInCglkb2N1bWVudHMYASADKAsyFC5yb29rZXJ5LnYxLkRvY3VtZW50IjwKHERvY3VtZW50U2VydmljZUNyZWF0ZVJlcXVlc3QSDAoEdHlwZRgBIAEoCRIOCgZwYXJlbnQYAiABKAkiRwodRG9jdW1lbnRTZXJ2aWNlQ3JlYXRlUmVzcG9uc2USJgoIZG9jdW1lbnQYASABKAsyFC5yb29rZXJ5LnYxLkRvY3VtZW50IicKGURvY3VtZW50U2VydmljZUdldFJlcXVlc3QSCgoCaWQYASABKAkiRAoaRG9jdW1lbnRTZXJ2aWNlR2V0UmVzcG9uc2USJgoIZG9jdW1lbnQYASABKAsyFC5yb29rZXJ5LnYxLkRvY3VtZW50IjcKCVN5bmNIZWxsbxITCgtkb2N1bWVudF9pZBgBIAEoCRIVCg1mcm9tX3NlcXVlbmNlGAIgASgDIiwKClN5bmNVcGRhdGUSDAoEZGF0YRgBIAEoDBIQCghzZXF1ZW5jZRgCIAEoAyIdCg1TeW5jQXdhcmVuZXNzEgwKBGRhdGEYASABKAwiLgoMU3luY1NuYXBzaG90EhAKCHNlcXVlbmNlGAEgASgDEgwKBGRhdGEYAiABKAwiHgoKU3luY1Jlc3luYxIQCghzZXF1ZW5jZRgBIAEoAyKpAQoaRG9jdW1lbnRTZXJ2aWNlU3luY1JlcXVlc3QSJgoFaGVsbG8YASABKAsyFS5yb29rZXJ5LnYxLlN5bmNIZWxsb0gAEigKBnVwZGF0ZRgCIAEoCzIWLnJvb2tlcnkudjEuU3luY1VwZGF0ZUgAEi4KCWF3YXJlbmVzcxgDIAEoCzIZLnJvb2tlcnkudjEuU3luY0F3YXJlbmVzc0gAQgkKB21lc3NhZ2Ui2gEKG0RvY3VtZW50U2VydmljZVN5bmNSZXNwb25zZRIsCghzbmFwc2hvdBgBIAEoCzIYLnJvb2tlcnkudjEuU3luY1NuYXBzaG90SAASKAoGdXBkYXRlGAIgASgLMhYucm9va2VyeS52MS5TeW5jVXBkYXRlSAASLgoJYXdhcmVuZXNzGAMgASgLMhkucm9va2VyeS52MS5TeW5jQXdhcmVuZXNzSAASKAoGcmVzeW5jGAQgASgLMhYucm9va2VyeS52MS5TeW5jUmVzeW5jSABCCQoHbWVzc2FnZSJdCg9TbmFwc2hvdFJlcXVlc3QSCgoCaWQYASABKAkSEAoIc2VxdWVuY2UYAiABKAMSDAoEZGF0YRgDIAEoDBIPCgd2ZXJzaW9uGAQgASgIEg0KBWxhYmVsGAUgASgJIjoKEFNuYXBzaG90UmVzcG9uc2USJgoCYXQYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIoABChBEb2N1bWVudFNuYXBzaG90EhAKCHNlcXVlbmNlGAEgASgDEg8KB3ZlcnNpb24YAiABKAgSDQoFbGFiZWwYAyABKAkSEgoKY3JlYXRlZF9ieRgEIAEoCRImCgJhdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiKwodRG9jdW1lbnRTZXJ2aWNlSGlzdG9yeVJlcXVlc3QSCgoCaWQYASABKAkiUQoeRG9jdW1lbnRTZXJ2aWNlSGlzdG9yeVJlc3BvbnNlEi8KCXNuYXBzaG90cxgBIAMoCzIcLnJvb2tlcnkudjEuRG9jdW1lbnRTbmFwc2hvdCIqChxEb2N1bWVudFNlcnZpY2VEZWxldGVSZXF1ZXN0EgoKAmlkGAEgASgJIh8KHURvY3VtZW50U2VydmljZURlbGV0ZVJlc3BvbnNlMrAFCg9Eb2N1bWVudFNlcnZpY2USYwoGQ3JlYXRlEigucm9va2VyeS52MS5Eb2N1bWVudFNlcnZpY2VDcmVhdGVSZXF1ZXN0Gikucm9va2VyeS52MS5Eb2N1bWVudFNlcnZpY2VDcmVhdGVSZXNwb25zZSIEirUYABJaCgNHZXQSJS5yb29rZXJ5LnYxLkRvY3VtZW50U2VydmljZUdldFJlcXVlc3QaJi5yb29rZXJ5LnYxLkRvY3VtZW50U2VydmljZUdldFJlc3BvbnNlIgSKtRgAEl8KBExpc3QSJi5yb29rZXJ5LnYxLkRvY3VtZW50U2VydmljZUxpc3RSZXF1ZXN0Gicucm9va2VyeS52MS5Eb2N1bWVudFNlcnZpY2VMaXN0UmVzcG9uc2UiBoq1GAIIARJhCgRTeW5jEiYucm9va2VyeS52MS5Eb2N1bWVudFNlcnZpY2VTeW5jUmVxdWVzdBonLnJvb2tlcnkudjEuRG9jdW1lbnRTZXJ2aWNlU3luY1Jlc3BvbnNlIgSKtRgAKAEwARJLCghTbmFwc2hvdBIbLnJvb2tlcnkudjEuU25hcHNob3RSZXF1ZXN0Ghwucm9va2VyeS52MS5TbmFwc2hvdFJlc3BvbnNlIgSKtRgAEmYKB0hpc3RvcnkSKS5yb29rZXJ5LnYxLkRvY3VtZW50U2VydmljZUhpc3RvcnlSZXF1ZXN0Gioucm9va2VyeS52MS5Eb2N1bWVudFNlcnZpY2VIaXN0b3J5UmVzcG9uc2UiBIq1GAASYwoGRGVsZXRlEigucm9va2VyeS52MS5Eb2N1bWVudFNlcnZpY2VEZWxldGVSZXF1ZXN0Gikucm9va2VyeS52MS5Eb2N1bWVudFNlcnZpY2VEZWxldGVSZXNwb25zZSIEirUYAEI6WjhnaXRodWIuY29tL2Fpdmlhcml1bS9yb29rZXJ5L2dlbi9nby9yb29rZXJ5L3YxO3Jvb2tlcnl2MWIGcHJvdG8z", [file_google_protobuf_timestamp, file_rookery_v1_access]);
 
 /**
  * Document is one live document.
@@ -77,6 +77,50 @@ export const DocumentSchema: GenMessage<Document> = /*@__PURE__*/
   messageDesc(file_rookery_v1_documents, 0);
 
 /**
+ * @generated from message rookery.v1.DocumentServiceListRequest
+ */
+export type DocumentServiceListRequest = Message<"rookery.v1.DocumentServiceListRequest"> & {
+  /**
+   * Parent limits the list to the documents under a resource; empty lists
+   * every document the caller may read.
+   *
+   * @generated from field: string parent = 1;
+   */
+  parent: string;
+
+  /**
+   * Limit bounds the list: 100 when zero, 500 at most.
+   *
+   * @generated from field: int32 limit = 2;
+   */
+  limit: number;
+};
+
+/**
+ * Describes the message rookery.v1.DocumentServiceListRequest.
+ * Use `create(DocumentServiceListRequestSchema)` to create a new message.
+ */
+export const DocumentServiceListRequestSchema: GenMessage<DocumentServiceListRequest> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_documents, 1);
+
+/**
+ * @generated from message rookery.v1.DocumentServiceListResponse
+ */
+export type DocumentServiceListResponse = Message<"rookery.v1.DocumentServiceListResponse"> & {
+  /**
+   * @generated from field: repeated rookery.v1.Document documents = 1;
+   */
+  documents: Document[];
+};
+
+/**
+ * Describes the message rookery.v1.DocumentServiceListResponse.
+ * Use `create(DocumentServiceListResponseSchema)` to create a new message.
+ */
+export const DocumentServiceListResponseSchema: GenMessage<DocumentServiceListResponse> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_documents, 2);
+
+/**
  * DocumentServiceCreateRequest makes a document.
  *
  * @generated from message rookery.v1.DocumentServiceCreateRequest
@@ -102,7 +146,7 @@ export type DocumentServiceCreateRequest = Message<"rookery.v1.DocumentServiceCr
  * Use `create(DocumentServiceCreateRequestSchema)` to create a new message.
  */
 export const DocumentServiceCreateRequestSchema: GenMessage<DocumentServiceCreateRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_documents, 1);
+  messageDesc(file_rookery_v1_documents, 3);
 
 /**
  * DocumentServiceCreateResponse carries the document.
@@ -121,7 +165,7 @@ export type DocumentServiceCreateResponse = Message<"rookery.v1.DocumentServiceC
  * Use `create(DocumentServiceCreateResponseSchema)` to create a new message.
  */
 export const DocumentServiceCreateResponseSchema: GenMessage<DocumentServiceCreateResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_documents, 2);
+  messageDesc(file_rookery_v1_documents, 4);
 
 /**
  * DocumentServiceGetRequest names a document.
@@ -142,7 +186,7 @@ export type DocumentServiceGetRequest = Message<"rookery.v1.DocumentServiceGetRe
  * Use `create(DocumentServiceGetRequestSchema)` to create a new message.
  */
 export const DocumentServiceGetRequestSchema: GenMessage<DocumentServiceGetRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_documents, 3);
+  messageDesc(file_rookery_v1_documents, 5);
 
 /**
  * DocumentServiceGetResponse carries the document.
@@ -161,7 +205,7 @@ export type DocumentServiceGetResponse = Message<"rookery.v1.DocumentServiceGetR
  * Use `create(DocumentServiceGetResponseSchema)` to create a new message.
  */
 export const DocumentServiceGetResponseSchema: GenMessage<DocumentServiceGetResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_documents, 4);
+  messageDesc(file_rookery_v1_documents, 6);
 
 /**
  * SyncHello opens a participant's stream. It is the first message.
@@ -190,7 +234,7 @@ export type SyncHello = Message<"rookery.v1.SyncHello"> & {
  * Use `create(SyncHelloSchema)` to create a new message.
  */
 export const SyncHelloSchema: GenMessage<SyncHello> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_documents, 5);
+  messageDesc(file_rookery_v1_documents, 7);
 
 /**
  * SyncUpdate is a CRDT update, in either direction. The server sets the
@@ -219,7 +263,7 @@ export type SyncUpdate = Message<"rookery.v1.SyncUpdate"> & {
  * Use `create(SyncUpdateSchema)` to create a new message.
  */
 export const SyncUpdateSchema: GenMessage<SyncUpdate> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_documents, 6);
+  messageDesc(file_rookery_v1_documents, 8);
 
 /**
  * SyncAwareness is an awareness message: relayed, never stored.
@@ -240,7 +284,7 @@ export type SyncAwareness = Message<"rookery.v1.SyncAwareness"> & {
  * Use `create(SyncAwarenessSchema)` to create a new message.
  */
 export const SyncAwarenessSchema: GenMessage<SyncAwareness> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_documents, 7);
+  messageDesc(file_rookery_v1_documents, 9);
 
 /**
  * SyncSnapshot is a compacted state, with the last update it covers.
@@ -268,7 +312,7 @@ export type SyncSnapshot = Message<"rookery.v1.SyncSnapshot"> & {
  * Use `create(SyncSnapshotSchema)` to create a new message.
  */
 export const SyncSnapshotSchema: GenMessage<SyncSnapshot> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_documents, 8);
+  messageDesc(file_rookery_v1_documents, 10);
 
 /**
  * SyncResync tells a participant that it fell behind: a snapshot and the
@@ -290,7 +334,7 @@ export type SyncResync = Message<"rookery.v1.SyncResync"> & {
  * Use `create(SyncResyncSchema)` to create a new message.
  */
 export const SyncResyncSchema: GenMessage<SyncResync> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_documents, 9);
+  messageDesc(file_rookery_v1_documents, 11);
 
 /**
  * DocumentServiceSyncRequest is one message of a participant's stream.
@@ -333,7 +377,7 @@ export type DocumentServiceSyncRequest = Message<"rookery.v1.DocumentServiceSync
  * Use `create(DocumentServiceSyncRequestSchema)` to create a new message.
  */
 export const DocumentServiceSyncRequestSchema: GenMessage<DocumentServiceSyncRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_documents, 10);
+  messageDesc(file_rookery_v1_documents, 12);
 
 /**
  * DocumentServiceSyncResponse is one message of a participant's stream.
@@ -385,7 +429,7 @@ export type DocumentServiceSyncResponse = Message<"rookery.v1.DocumentServiceSyn
  * Use `create(DocumentServiceSyncResponseSchema)` to create a new message.
  */
 export const DocumentServiceSyncResponseSchema: GenMessage<DocumentServiceSyncResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_documents, 11);
+  messageDesc(file_rookery_v1_documents, 13);
 
 /**
  * SnapshotRequest stores a compacted state.
@@ -434,7 +478,7 @@ export type SnapshotRequest = Message<"rookery.v1.SnapshotRequest"> & {
  * Use `create(SnapshotRequestSchema)` to create a new message.
  */
 export const SnapshotRequestSchema: GenMessage<SnapshotRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_documents, 12);
+  messageDesc(file_rookery_v1_documents, 14);
 
 /**
  * SnapshotResponse is the stored snapshot's time.
@@ -453,7 +497,7 @@ export type SnapshotResponse = Message<"rookery.v1.SnapshotResponse"> & {
  * Use `create(SnapshotResponseSchema)` to create a new message.
  */
 export const SnapshotResponseSchema: GenMessage<SnapshotResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_documents, 13);
+  messageDesc(file_rookery_v1_documents, 15);
 
 /**
  * DocumentSnapshot is one snapshot of a document.
@@ -502,7 +546,7 @@ export type DocumentSnapshot = Message<"rookery.v1.DocumentSnapshot"> & {
  * Use `create(DocumentSnapshotSchema)` to create a new message.
  */
 export const DocumentSnapshotSchema: GenMessage<DocumentSnapshot> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_documents, 14);
+  messageDesc(file_rookery_v1_documents, 16);
 
 /**
  * DocumentServiceHistoryRequest names a document.
@@ -523,7 +567,7 @@ export type DocumentServiceHistoryRequest = Message<"rookery.v1.DocumentServiceH
  * Use `create(DocumentServiceHistoryRequestSchema)` to create a new message.
  */
 export const DocumentServiceHistoryRequestSchema: GenMessage<DocumentServiceHistoryRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_documents, 15);
+  messageDesc(file_rookery_v1_documents, 17);
 
 /**
  * DocumentServiceHistoryResponse carries the versions, oldest first.
@@ -542,7 +586,7 @@ export type DocumentServiceHistoryResponse = Message<"rookery.v1.DocumentService
  * Use `create(DocumentServiceHistoryResponseSchema)` to create a new message.
  */
 export const DocumentServiceHistoryResponseSchema: GenMessage<DocumentServiceHistoryResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_documents, 16);
+  messageDesc(file_rookery_v1_documents, 18);
 
 /**
  * DocumentServiceDeleteRequest names a document.
@@ -563,7 +607,7 @@ export type DocumentServiceDeleteRequest = Message<"rookery.v1.DocumentServiceDe
  * Use `create(DocumentServiceDeleteRequestSchema)` to create a new message.
  */
 export const DocumentServiceDeleteRequestSchema: GenMessage<DocumentServiceDeleteRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_documents, 17);
+  messageDesc(file_rookery_v1_documents, 19);
 
 /**
  * DocumentServiceDeleteResponse is empty: the delete returned.
@@ -578,7 +622,7 @@ export type DocumentServiceDeleteResponse = Message<"rookery.v1.DocumentServiceD
  * Use `create(DocumentServiceDeleteResponseSchema)` to create a new message.
  */
 export const DocumentServiceDeleteResponseSchema: GenMessage<DocumentServiceDeleteResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_documents, 18);
+  messageDesc(file_rookery_v1_documents, 20);
 
 /**
  * DocumentService creates, reads and syncs live documents.
@@ -605,6 +649,16 @@ export const DocumentService: GenService<{
     methodKind: "unary";
     input: typeof DocumentServiceGetRequestSchema;
     output: typeof DocumentServiceGetResponseSchema;
+  },
+  /**
+   * List returns the documents the caller may read, newest first.
+   *
+   * @generated from rpc rookery.v1.DocumentService.List
+   */
+  list: {
+    methodKind: "unary";
+    input: typeof DocumentServiceListRequestSchema;
+    output: typeof DocumentServiceListResponseSchema;
   },
   /**
    * Sync is a participant's stream: the server sends the document's snapshot

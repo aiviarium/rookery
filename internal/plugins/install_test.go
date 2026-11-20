@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
+
 	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
 	"github.com/aiviarium/rookery/internal/access"
 	"github.com/aiviarium/rookery/internal/data"
@@ -315,5 +317,27 @@ func TestInstallRegistersWhatThePluginDeclares(t *testing.T) {
 	listed := kinds.All()
 	if len(listed) != len(spaces.CoreKinds())+1 || listed[len(listed)-1].ID != "notebook" {
 		t.Errorf("the kinds of space are %+v", listed)
+	}
+}
+
+// TestInstallPackageInstallsTheWholeThing checks the call a browser uses: the
+// whole package in one message, and the same install a stream does.
+func TestInstallPackageInstallsTheWholeThing(t *testing.T) {
+	t.Parallel()
+
+	opened := storetest.New(t)
+	installer := plugins.NewInstaller(plugins.Options{Store: opened, StateDir: t.TempDir()})
+	var packageBytes bytes.Buffer
+	if _, err := plugins.Pack(t.Context(), &packageBytes, writeFixture(t)); err != nil {
+		t.Fatalf("packing the fixture: %v", err)
+	}
+
+	service := plugins.NewService(installer)
+	answer, err := service.InstallPackage(t.Context(), connect.NewRequest(&rookeryv1.PluginServiceInstallPackageRequest{Package: packageBytes.Bytes()}))
+	if err != nil {
+		t.Fatalf("installing the package: %v", err)
+	}
+	if answer.Msg.GetPlugin().GetId() != "example" {
+		t.Fatalf("the installed plugin is %q", answer.Msg.GetPlugin().GetId())
 	}
 }

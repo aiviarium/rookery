@@ -14,6 +14,7 @@ import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobu
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
+import type { Level } from "./access_pb.js";
 import { file_rookery_v1_access } from "./access_pb.js";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -21,7 +22,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file rookery/v1/data.proto.
  */
 export const file_rookery_v1_data: GenFile = /*@__PURE__*/
-  fileDesc("ChVyb29rZXJ5L3YxL2RhdGEucHJvdG8SCnJvb2tlcnkudjEiLAoKR2V0UmVxdWVzdBISCgpjb2xsZWN0aW9uGAEgASgJEgoKAmlkGAIgASgJIiIKC0dldFJlc3BvbnNlEhMKC3JlY29yZF9jYm9yGAEgASgMIiMKBFNvcnQSDQoFZmllbGQYASABKAkSDAoEZGVzYxgCIAEoCCKFAQoLRmluZFJlcXVlc3QSEgoKY29sbGVjdGlvbhgBIAEoCRITCgtmaWx0ZXJfY2JvchgCIAEoDBIfCgVzb3J0cxgDIAMoCzIQLnJvb2tlcnkudjEuU29ydBINCgVsaW1pdBgEIAEoBRIOCgZjdXJzb3IYBSABKAkSDQoFc3BhY2UYBiABKAkiNAoMRmluZFJlc3BvbnNlEhQKDHJlY29yZHNfY2JvchgBIAMoDBIOCgZjdXJzb3IYAiABKAkiRgoMQ291bnRSZXF1ZXN0EhIKCmNvbGxlY3Rpb24YASABKAkSEwoLZmlsdGVyX2Nib3IYAiABKAwSDQoFc3BhY2UYAyABKAkiHgoNQ291bnRSZXNwb25zZRINCgVjb3VudBgBIAEoAyKeAQoQQWdncmVnYXRlUmVxdWVzdBISCgpjb2xsZWN0aW9uGAEgASgJEhMKC2ZpbHRlcl9jYm9yGAIgASgMEg0KBXNwYWNlGAMgASgJEjEKCW9wZXJhdGlvbhgEIAEoDjIeLnJvb2tlcnkudjEuQWdncmVnYXRlT3BlcmF0aW9uEg0KBWZpZWxkGAUgASgJEhAKCGdyb3VwX2J5GAYgAygJIigKEUFnZ3JlZ2F0ZVJlc3BvbnNlEhMKC2dyb3Vwc19jYm9yGAEgAygMIjgKDUluc2VydFJlcXVlc3QSEgoKY29sbGVjdGlvbhgBIAEoCRITCgtyZWNvcmRfY2JvchgCIAEoDCIlCg5JbnNlcnRSZXNwb25zZRITCgtyZWNvcmRfY2JvchgBIAEoDCJWCg1VcGRhdGVSZXF1ZXN0EhIKCmNvbGxlY3Rpb24YASABKAkSCgoCaWQYAiABKAkSEwoLcmVjb3JkX2Nib3IYAyABKAwSEAoIcmV2aXNpb24YBCABKAMiJQoOVXBkYXRlUmVzcG9uc2USEwoLcmVjb3JkX2Nib3IYASABKAwiSgoNVXBzZXJ0UmVxdWVzdBISCgpjb2xsZWN0aW9uGAEgASgJEhMKC3JlY29yZF9jYm9yGAIgASgMEhAKCHJldmlzaW9uGAMgASgDIiUKDlVwc2VydFJlc3BvbnNlEhMKC3JlY29yZF9jYm9yGAEgASgMIkEKDURlbGV0ZVJlcXVlc3QSEgoKY29sbGVjdGlvbhgBIAEoCRIKCgJpZBgCIAEoCRIQCghyZXZpc2lvbhgDIAEoAyIQCg5EZWxldGVSZXNwb25zZSJCCg5SZXN0b3JlUmVxdWVzdBISCgpjb2xsZWN0aW9uGAEgASgJEgoKAmlkGAIgASgJEhAKCHJldmlzaW9uGAMgASgDIiYKD1Jlc3RvcmVSZXNwb25zZRITCgtyZWNvcmRfY2JvchgBIAEoDCJxCg5CYXRjaE9wZXJhdGlvbhIsCgRraW5kGAEgASgOMh4ucm9va2VyeS52MS5CYXRjaE9wZXJhdGlvbktpbmQSCgoCaWQYAiABKAkSEwoLcmVjb3JkX2Nib3IYAyABKAwSEAoIcmV2aXNpb24YBCABKAMiUgoMQmF0Y2hSZXF1ZXN0EhIKCmNvbGxlY3Rpb24YASABKAkSLgoKb3BlcmF0aW9ucxgCIAMoCzIaLnJvb2tlcnkudjEuQmF0Y2hPcGVyYXRpb24iJQoNQmF0Y2hSZXNwb25zZRIUCgxyZWNvcmRzX2Nib3IYASADKAwiVgoOSGlzdG9yeVJlcXVlc3QSEgoKY29sbGVjdGlvbhgBIAEoCRIKCgJpZBgCIAEoCRIVCg1mcm9tX3JldmlzaW9uGAMgASgDEg0KBWxpbWl0GAQgASgFIicKD0hpc3RvcnlSZXNwb25zZRIUCgxlbnRyaWVzX2Nib3IYASADKAwiHwoNUmVmc1RvUmVxdWVzdBIOCgZ0YXJnZXQYASABKAkiIQoPUmVmc0Zyb21SZXF1ZXN0Eg4KBnNvdXJjZRgBIAEoCSJNCglSZWZlcmVuY2USDgoGc291cmNlGAEgASgJEg0KBWZpZWxkGAIgASgJEg4KBnRhcmdldBgDIAEoCRIRCglvbl9kZWxldGUYBCABKAkiOwoOUmVmc1RvUmVzcG9uc2USKQoKcmVmZXJlbmNlcxgBIAMoCzIVLnJvb2tlcnkudjEuUmVmZXJlbmNlIj0KEFJlZnNGcm9tUmVzcG9uc2USKQoKcmVmZXJlbmNlcxgBIAMoCzIVLnJvb2tlcnkudjEuUmVmZXJlbmNlInUKC0xpdmVSZXF1ZXN0EhIKCmNvbGxlY3Rpb24YASABKAkSEwoLZmlsdGVyX2Nib3IYAiABKAwSHwoFc29ydHMYAyADKAsyEC5yb29rZXJ5LnYxLlNvcnQSDQoFbGltaXQYBCABKAUSDQoFc3BhY2UYBSABKAkiXgoMTGl2ZVJlc3BvbnNlEicKBGtpbmQYASABKA4yGS5yb29rZXJ5LnYxLkxpdmVFdmVudEtpbmQSEAoIcmVzb3VyY2UYAiABKAkSEwoLcmVjb3JkX2Nib3IYAyABKAwiPAoOQ2hhbmdlc1JlcXVlc3QSFQoNZnJvbV9zZXF1ZW5jZRgBIAEoAxITCgtjb2xsZWN0aW9ucxgCIAMoCSLvAQoPQ2hhbmdlc1Jlc3BvbnNlEhAKCHNlcXVlbmNlGAEgASgDEhIKCmNvbGxlY3Rpb24YAiABKAkSEAoIcmVzb3VyY2UYAyABKAkSJAoEa2luZBgEIAEoDjIWLnJvb2tlcnkudjEuQ2hhbmdlS2luZBIQCghyZXZpc2lvbhgFIAEoAxINCgVzcGFjZRgGIAEoCRINCgVvd25lchgHIAEoCRIRCglwcmluY2lwYWwYCCABKAkSEwoLcmVjb3JkX2Nib3IYCSABKAwSJgoCYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wKswBChJBZ2dyZWdhdGVPcGVyYXRpb24SIwofQUdHUkVHQVRFX09QRVJBVElPTl9VTlNQRUNJRklFRBAAEh0KGUFHR1JFR0FURV9PUEVSQVRJT05fQ09VTlQQARIbChdBR0dSRUdBVEVfT1BFUkFUSU9OX1NVTRACEhsKF0FHR1JFR0FURV9PUEVSQVRJT05fTUlOEAMSGwoXQUdHUkVHQVRFX09QRVJBVElPTl9NQVgQBBIbChdBR0dSRUdBVEVfT1BFUkFUSU9OX0FWRxAFKuABChJCYXRjaE9wZXJhdGlvbktpbmQSJAogQkFUQ0hfT1BFUkFUSU9OX0tJTkRfVU5TUEVDSUZJRUQQABIfChtCQVRDSF9PUEVSQVRJT05fS0lORF9JTlNFUlQQARIfChtCQVRDSF9PUEVSQVRJT05fS0lORF9VUERBVEUQAhIfChtCQVRDSF9PUEVSQVRJT05fS0lORF9VUFNFUlQQAxIfChtCQVRDSF9PUEVSQVRJT05fS0lORF9ERUxFVEUQBBIgChxCQVRDSF9PUEVSQVRJT05fS0lORF9SRVNUT1JFEAUqoAEKDUxpdmVFdmVudEtpbmQSHwobTElWRV9FVkVOVF9LSU5EX1VOU1BFQ0lGSUVEEAASGgoWTElWRV9FVkVOVF9LSU5EX0lOU0VSVBABEhoKFkxJVkVfRVZFTlRfS0lORF9VUERBVEUQAhIaChZMSVZFX0VWRU5UX0tJTkRfUkVNT1ZFEAMSGgoWTElWRV9FVkVOVF9LSU5EX1JFU1lOQxAEKosBCgpDaGFuZ2VLaW5kEhsKF0NIQU5HRV9LSU5EX1VOU1BFQ0lGSUVEEAASFgoSQ0hBTkdFX0tJTkRfSU5TRVJUEAESFgoSQ0hBTkdFX0tJTkRfVVBEQVRFEAISFgoSQ0hBTkdFX0tJTkRfREVMRVRFEAMSGAoUQ0hBTkdFX0tJTkRfVU5ERUxFVEUQBDK3CAoLRGF0YVNlcnZpY2USPAoDR2V0EhYucm9va2VyeS52MS5HZXRSZXF1ZXN0Ghcucm9va2VyeS52MS5HZXRSZXNwb25zZSIEirUYABI/CgRGaW5kEhcucm9va2VyeS52MS5GaW5kUmVxdWVzdBoYLnJvb2tlcnkudjEuRmluZFJlc3BvbnNlIgSKtRgAEkIKBUNvdW50Ehgucm9va2VyeS52MS5Db3VudFJlcXVlc3QaGS5yb29rZXJ5LnYxLkNvdW50UmVzcG9uc2UiBIq1GAASTgoJQWdncmVnYXRlEhwucm9va2VyeS52MS5BZ2dyZWdhdGVSZXF1ZXN0Gh0ucm9va2VyeS52MS5BZ2dyZWdhdGVSZXNwb25zZSIEirUYABJFCgZJbnNlcnQSGS5yb29rZXJ5LnYxLkluc2VydFJlcXVlc3QaGi5yb29rZXJ5LnYxLkluc2VydFJlc3BvbnNlIgSKtRgAEkUKBlVwZGF0ZRIZLnJvb2tlcnkudjEuVXBkYXRlUmVxdWVzdBoaLnJvb2tlcnkudjEuVXBkYXRlUmVzcG9uc2UiBIq1GAASRQoGVXBzZXJ0Ehkucm9va2VyeS52MS5VcHNlcnRSZXF1ZXN0Ghoucm9va2VyeS52MS5VcHNlcnRSZXNwb25zZSIEirUYABJFCgZEZWxldGUSGS5yb29rZXJ5LnYxLkRlbGV0ZVJlcXVlc3QaGi5yb29rZXJ5LnYxLkRlbGV0ZVJlc3BvbnNlIgSKtRgAEkgKB1Jlc3RvcmUSGi5yb29rZXJ5LnYxLlJlc3RvcmVSZXF1ZXN0Ghsucm9va2VyeS52MS5SZXN0b3JlUmVzcG9uc2UiBIq1GAASQgoFQmF0Y2gSGC5yb29rZXJ5LnYxLkJhdGNoUmVxdWVzdBoZLnJvb2tlcnkudjEuQmF0Y2hSZXNwb25zZSIEirUYABJICgdIaXN0b3J5Ehoucm9va2VyeS52MS5IaXN0b3J5UmVxdWVzdBobLnJvb2tlcnkudjEuSGlzdG9yeVJlc3BvbnNlIgSKtRgAEkUKBlJlZnNUbxIZLnJvb2tlcnkudjEuUmVmc1RvUmVxdWVzdBoaLnJvb2tlcnkudjEuUmVmc1RvUmVzcG9uc2UiBIq1GAASSwoIUmVmc0Zyb20SGy5yb29rZXJ5LnYxLlJlZnNGcm9tUmVxdWVzdBocLnJvb2tlcnkudjEuUmVmc0Zyb21SZXNwb25zZSIEirUYABJBCgRMaXZlEhcucm9va2VyeS52MS5MaXZlUmVxdWVzdBoYLnJvb2tlcnkudjEuTGl2ZVJlc3BvbnNlIgSKtRgAMAESSgoHQ2hhbmdlcxIaLnJvb2tlcnkudjEuQ2hhbmdlc1JlcXVlc3QaGy5yb29rZXJ5LnYxLkNoYW5nZXNSZXNwb25zZSIEirUYADABQjpaOGdpdGh1Yi5jb20vYWl2aWFyaXVtL3Jvb2tlcnkvZ2VuL2dvL3Jvb2tlcnkvdjE7cm9va2VyeXYxYgZwcm90bzM", [file_google_protobuf_timestamp, file_rookery_v1_access]);
+  fileDesc("ChVyb29rZXJ5L3YxL2RhdGEucHJvdG8SCnJvb2tlcnkudjEiLAoKR2V0UmVxdWVzdBISCgpjb2xsZWN0aW9uGAEgASgJEgoKAmlkGAIgASgJIiIKC0dldFJlc3BvbnNlEhMKC3JlY29yZF9jYm9yGAEgASgMIiMKBFNvcnQSDQoFZmllbGQYASABKAkSDAoEZGVzYxgCIAEoCCJ8CgpDb2xsZWN0aW9uEg4KBnBsdWdpbhgBIAEoCRIMCgRuYW1lGAIgASgJEg0KBXNjb3BlGAMgASgJEg4KBmZpZWxkcxgEIAMoCRIPCgdoaXN0b3J5GAUgASgIEiAKBWxldmVsGAYgASgOMhEucm9va2VyeS52MS5MZXZlbCInChZMaXN0Q29sbGVjdGlvbnNSZXF1ZXN0Eg0KBXNwYWNlGAEgASgJIkYKF0xpc3RDb2xsZWN0aW9uc1Jlc3BvbnNlEisKC2NvbGxlY3Rpb25zGAEgAygLMhYucm9va2VyeS52MS5Db2xsZWN0aW9uIoUBCgtGaW5kUmVxdWVzdBISCgpjb2xsZWN0aW9uGAEgASgJEhMKC2ZpbHRlcl9jYm9yGAIgASgMEh8KBXNvcnRzGAMgAygLMhAucm9va2VyeS52MS5Tb3J0Eg0KBWxpbWl0GAQgASgFEg4KBmN1cnNvchgFIAEoCRINCgVzcGFjZRgGIAEoCSI0CgxGaW5kUmVzcG9uc2USFAoMcmVjb3Jkc19jYm9yGAEgAygMEg4KBmN1cnNvchgCIAEoCSJGCgxDb3VudFJlcXVlc3QSEgoKY29sbGVjdGlvbhgBIAEoCRITCgtmaWx0ZXJfY2JvchgCIAEoDBINCgVzcGFjZRgDIAEoCSIeCg1Db3VudFJlc3BvbnNlEg0KBWNvdW50GAEgASgDIp4BChBBZ2dyZWdhdGVSZXF1ZXN0EhIKCmNvbGxlY3Rpb24YASABKAkSEwoLZmlsdGVyX2Nib3IYAiABKAwSDQoFc3BhY2UYAyABKAkSMQoJb3BlcmF0aW9uGAQgASgOMh4ucm9va2VyeS52MS5BZ2dyZWdhdGVPcGVyYXRpb24SDQoFZmllbGQYBSABKAkSEAoIZ3JvdXBfYnkYBiADKAkiKAoRQWdncmVnYXRlUmVzcG9uc2USEwoLZ3JvdXBzX2Nib3IYASADKAwiOAoNSW5zZXJ0UmVxdWVzdBISCgpjb2xsZWN0aW9uGAEgASgJEhMKC3JlY29yZF9jYm9yGAIgASgMIiUKDkluc2VydFJlc3BvbnNlEhMKC3JlY29yZF9jYm9yGAEgASgMIlYKDVVwZGF0ZVJlcXVlc3QSEgoKY29sbGVjdGlvbhgBIAEoCRIKCgJpZBgCIAEoCRITCgtyZWNvcmRfY2JvchgDIAEoDBIQCghyZXZpc2lvbhgEIAEoAyIlCg5VcGRhdGVSZXNwb25zZRITCgtyZWNvcmRfY2JvchgBIAEoDCJKCg1VcHNlcnRSZXF1ZXN0EhIKCmNvbGxlY3Rpb24YASABKAkSEwoLcmVjb3JkX2Nib3IYAiABKAwSEAoIcmV2aXNpb24YAyABKAMiJQoOVXBzZXJ0UmVzcG9uc2USEwoLcmVjb3JkX2Nib3IYASABKAwiQQoNRGVsZXRlUmVxdWVzdBISCgpjb2xsZWN0aW9uGAEgASgJEgoKAmlkGAIgASgJEhAKCHJldmlzaW9uGAMgASgDIhAKDkRlbGV0ZVJlc3BvbnNlIkIKDlJlc3RvcmVSZXF1ZXN0EhIKCmNvbGxlY3Rpb24YASABKAkSCgoCaWQYAiABKAkSEAoIcmV2aXNpb24YAyABKAMiJgoPUmVzdG9yZVJlc3BvbnNlEhMKC3JlY29yZF9jYm9yGAEgASgMInEKDkJhdGNoT3BlcmF0aW9uEiwKBGtpbmQYASABKA4yHi5yb29rZXJ5LnYxLkJhdGNoT3BlcmF0aW9uS2luZBIKCgJpZBgCIAEoCRITCgtyZWNvcmRfY2JvchgDIAEoDBIQCghyZXZpc2lvbhgEIAEoAyJSCgxCYXRjaFJlcXVlc3QSEgoKY29sbGVjdGlvbhgBIAEoCRIuCgpvcGVyYXRpb25zGAIgAygLMhoucm9va2VyeS52MS5CYXRjaE9wZXJhdGlvbiIlCg1CYXRjaFJlc3BvbnNlEhQKDHJlY29yZHNfY2JvchgBIAMoDCJWCg5IaXN0b3J5UmVxdWVzdBISCgpjb2xsZWN0aW9uGAEgASgJEgoKAmlkGAIgASgJEhUKDWZyb21fcmV2aXNpb24YAyABKAMSDQoFbGltaXQYBCABKAUiJwoPSGlzdG9yeVJlc3BvbnNlEhQKDGVudHJpZXNfY2JvchgBIAMoDCIfCg1SZWZzVG9SZXF1ZXN0Eg4KBnRhcmdldBgBIAEoCSIhCg9SZWZzRnJvbVJlcXVlc3QSDgoGc291cmNlGAEgASgJIk0KCVJlZmVyZW5jZRIOCgZzb3VyY2UYASABKAkSDQoFZmllbGQYAiABKAkSDgoGdGFyZ2V0GAMgASgJEhEKCW9uX2RlbGV0ZRgEIAEoCSI7Cg5SZWZzVG9SZXNwb25zZRIpCgpyZWZlcmVuY2VzGAEgAygLMhUucm9va2VyeS52MS5SZWZlcmVuY2UiPQoQUmVmc0Zyb21SZXNwb25zZRIpCgpyZWZlcmVuY2VzGAEgAygLMhUucm9va2VyeS52MS5SZWZlcmVuY2UidQoLTGl2ZVJlcXVlc3QSEgoKY29sbGVjdGlvbhgBIAEoCRITCgtmaWx0ZXJfY2JvchgCIAEoDBIfCgVzb3J0cxgDIAMoCzIQLnJvb2tlcnkudjEuU29ydBINCgVsaW1pdBgEIAEoBRINCgVzcGFjZRgFIAEoCSJeCgxMaXZlUmVzcG9uc2USJwoEa2luZBgBIAEoDjIZLnJvb2tlcnkudjEuTGl2ZUV2ZW50S2luZBIQCghyZXNvdXJjZRgCIAEoCRITCgtyZWNvcmRfY2JvchgDIAEoDCI8Cg5DaGFuZ2VzUmVxdWVzdBIVCg1mcm9tX3NlcXVlbmNlGAEgASgDEhMKC2NvbGxlY3Rpb25zGAIgAygJIu8BCg9DaGFuZ2VzUmVzcG9uc2USEAoIc2VxdWVuY2UYASABKAMSEgoKY29sbGVjdGlvbhgCIAEoCRIQCghyZXNvdXJjZRgDIAEoCRIkCgRraW5kGAQgASgOMhYucm9va2VyeS52MS5DaGFuZ2VLaW5kEhAKCHJldmlzaW9uGAUgASgDEg0KBXNwYWNlGAYgASgJEg0KBW93bmVyGAcgASgJEhEKCXByaW5jaXBhbBgIIAEoCRITCgtyZWNvcmRfY2JvchgJIAEoDBImCgJhdBgKIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAqzAEKEkFnZ3JlZ2F0ZU9wZXJhdGlvbhIjCh9BR0dSRUdBVEVfT1BFUkFUSU9OX1VOU1BFQ0lGSUVEEAASHQoZQUdHUkVHQVRFX09QRVJBVElPTl9DT1VOVBABEhsKF0FHR1JFR0FURV9PUEVSQVRJT05fU1VNEAISGwoXQUdHUkVHQVRFX09QRVJBVElPTl9NSU4QAxIbChdBR0dSRUdBVEVfT1BFUkFUSU9OX01BWBAEEhsKF0FHR1JFR0FURV9PUEVSQVRJT05fQVZHEAUq4AEKEkJhdGNoT3BlcmF0aW9uS2luZBIkCiBCQVRDSF9PUEVSQVRJT05fS0lORF9VTlNQRUNJRklFRBAAEh8KG0JBVENIX09QRVJBVElPTl9LSU5EX0lOU0VSVBABEh8KG0JBVENIX09QRVJBVElPTl9LSU5EX1VQREFURRACEh8KG0JBVENIX09QRVJBVElPTl9LSU5EX1VQU0VSVBADEh8KG0JBVENIX09QRVJBVElPTl9LSU5EX0RFTEVURRAEEiAKHEJBVENIX09QRVJBVElPTl9LSU5EX1JFU1RPUkUQBSqgAQoNTGl2ZUV2ZW50S2luZBIfChtMSVZFX0VWRU5UX0tJTkRfVU5TUEVDSUZJRUQQABIaChZMSVZFX0VWRU5UX0tJTkRfSU5TRVJUEAESGgoWTElWRV9FVkVOVF9LSU5EX1VQREFURRACEhoKFkxJVkVfRVZFTlRfS0lORF9SRU1PVkUQAxIaChZMSVZFX0VWRU5UX0tJTkRfUkVTWU5DEAQqiwEKCkNoYW5nZUtpbmQSGwoXQ0hBTkdFX0tJTkRfVU5TUEVDSUZJRUQQABIWChJDSEFOR0VfS0lORF9JTlNFUlQQARIWChJDSEFOR0VfS0lORF9VUERBVEUQAhIWChJDSEFOR0VfS0lORF9ERUxFVEUQAxIYChRDSEFOR0VfS0lORF9VTkRFTEVURRAEMpsJCgtEYXRhU2VydmljZRI8CgNHZXQSFi5yb29rZXJ5LnYxLkdldFJlcXVlc3QaFy5yb29rZXJ5LnYxLkdldFJlc3BvbnNlIgSKtRgAEj8KBEZpbmQSFy5yb29rZXJ5LnYxLkZpbmRSZXF1ZXN0Ghgucm9va2VyeS52MS5GaW5kUmVzcG9uc2UiBIq1GAASYgoPTGlzdENvbGxlY3Rpb25zEiIucm9va2VyeS52MS5MaXN0Q29sbGVjdGlvbnNSZXF1ZXN0GiMucm9va2VyeS52MS5MaXN0Q29sbGVjdGlvbnNSZXNwb25zZSIGirUYAggBEkIKBUNvdW50Ehgucm9va2VyeS52MS5Db3VudFJlcXVlc3QaGS5yb29rZXJ5LnYxLkNvdW50UmVzcG9uc2UiBIq1GAASTgoJQWdncmVnYXRlEhwucm9va2VyeS52MS5BZ2dyZWdhdGVSZXF1ZXN0Gh0ucm9va2VyeS52MS5BZ2dyZWdhdGVSZXNwb25zZSIEirUYABJFCgZJbnNlcnQSGS5yb29rZXJ5LnYxLkluc2VydFJlcXVlc3QaGi5yb29rZXJ5LnYxLkluc2VydFJlc3BvbnNlIgSKtRgAEkUKBlVwZGF0ZRIZLnJvb2tlcnkudjEuVXBkYXRlUmVxdWVzdBoaLnJvb2tlcnkudjEuVXBkYXRlUmVzcG9uc2UiBIq1GAASRQoGVXBzZXJ0Ehkucm9va2VyeS52MS5VcHNlcnRSZXF1ZXN0Ghoucm9va2VyeS52MS5VcHNlcnRSZXNwb25zZSIEirUYABJFCgZEZWxldGUSGS5yb29rZXJ5LnYxLkRlbGV0ZVJlcXVlc3QaGi5yb29rZXJ5LnYxLkRlbGV0ZVJlc3BvbnNlIgSKtRgAEkgKB1Jlc3RvcmUSGi5yb29rZXJ5LnYxLlJlc3RvcmVSZXF1ZXN0Ghsucm9va2VyeS52MS5SZXN0b3JlUmVzcG9uc2UiBIq1GAASQgoFQmF0Y2gSGC5yb29rZXJ5LnYxLkJhdGNoUmVxdWVzdBoZLnJvb2tlcnkudjEuQmF0Y2hSZXNwb25zZSIEirUYABJICgdIaXN0b3J5Ehoucm9va2VyeS52MS5IaXN0b3J5UmVxdWVzdBobLnJvb2tlcnkudjEuSGlzdG9yeVJlc3BvbnNlIgSKtRgAEkUKBlJlZnNUbxIZLnJvb2tlcnkudjEuUmVmc1RvUmVxdWVzdBoaLnJvb2tlcnkudjEuUmVmc1RvUmVzcG9uc2UiBIq1GAASSwoIUmVmc0Zyb20SGy5yb29rZXJ5LnYxLlJlZnNGcm9tUmVxdWVzdBocLnJvb2tlcnkudjEuUmVmc0Zyb21SZXNwb25zZSIEirUYABJBCgRMaXZlEhcucm9va2VyeS52MS5MaXZlUmVxdWVzdBoYLnJvb2tlcnkudjEuTGl2ZVJlc3BvbnNlIgSKtRgAMAESSgoHQ2hhbmdlcxIaLnJvb2tlcnkudjEuQ2hhbmdlc1JlcXVlc3QaGy5yb29rZXJ5LnYxLkNoYW5nZXNSZXNwb25zZSIEirUYADABQjpaOGdpdGh1Yi5jb20vYWl2aWFyaXVtL3Jvb2tlcnkvZ2VuL2dvL3Jvb2tlcnkvdjE7cm9va2VyeXYxYgZwcm90bzM", [file_google_protobuf_timestamp, file_rookery_v1_access]);
 
 /**
  * GetRequest names one record.
@@ -102,6 +103,99 @@ export const SortSchema: GenMessage<Sort> = /*@__PURE__*/
   messageDesc(file_rookery_v1_data, 2);
 
 /**
+ * Collection is one declared collection, as a caller may browse it.
+ *
+ * @generated from message rookery.v1.Collection
+ */
+export type Collection = Message<"rookery.v1.Collection"> & {
+  /**
+   * Plugin is the plugin the collection belongs to.
+   *
+   * @generated from field: string plugin = 1;
+   */
+  plugin: string;
+
+  /**
+   * Name is the collection's name.
+   *
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * Scope is what its records belong to: global, space or user.
+   *
+   * @generated from field: string scope = 3;
+   */
+  scope: string;
+
+  /**
+   * Fields are the declared field names, in alphabetical order.
+   *
+   * @generated from field: repeated string fields = 4;
+   */
+  fields: string[];
+
+  /**
+   * History says whether its changes are kept.
+   *
+   * @generated from field: bool history = 5;
+   */
+  history: boolean;
+
+  /**
+   * Level is the highest level the caller holds on the collection's scope.
+   *
+   * @generated from field: rookery.v1.Level level = 6;
+   */
+  level: Level;
+};
+
+/**
+ * Describes the message rookery.v1.Collection.
+ * Use `create(CollectionSchema)` to create a new message.
+ */
+export const CollectionSchema: GenMessage<Collection> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_data, 3);
+
+/**
+ * @generated from message rookery.v1.ListCollectionsRequest
+ */
+export type ListCollectionsRequest = Message<"rookery.v1.ListCollectionsRequest"> & {
+  /**
+   * Space is the space whose collections are listed, and empty uses the
+   * caller's current space.
+   *
+   * @generated from field: string space = 1;
+   */
+  space: string;
+};
+
+/**
+ * Describes the message rookery.v1.ListCollectionsRequest.
+ * Use `create(ListCollectionsRequestSchema)` to create a new message.
+ */
+export const ListCollectionsRequestSchema: GenMessage<ListCollectionsRequest> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_data, 4);
+
+/**
+ * @generated from message rookery.v1.ListCollectionsResponse
+ */
+export type ListCollectionsResponse = Message<"rookery.v1.ListCollectionsResponse"> & {
+  /**
+   * @generated from field: repeated rookery.v1.Collection collections = 1;
+   */
+  collections: Collection[];
+};
+
+/**
+ * Describes the message rookery.v1.ListCollectionsResponse.
+ * Use `create(ListCollectionsResponseSchema)` to create a new message.
+ */
+export const ListCollectionsResponseSchema: GenMessage<ListCollectionsResponse> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_data, 5);
+
+/**
  * FindRequest selects the records to read.
  *
  * @generated from message rookery.v1.FindRequest
@@ -156,7 +250,7 @@ export type FindRequest = Message<"rookery.v1.FindRequest"> & {
  * Use `create(FindRequestSchema)` to create a new message.
  */
 export const FindRequestSchema: GenMessage<FindRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 3);
+  messageDesc(file_rookery_v1_data, 6);
 
 /**
  * FindResponse carries a page of records.
@@ -184,7 +278,7 @@ export type FindResponse = Message<"rookery.v1.FindResponse"> & {
  * Use `create(FindResponseSchema)` to create a new message.
  */
 export const FindResponseSchema: GenMessage<FindResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 4);
+  messageDesc(file_rookery_v1_data, 7);
 
 /**
  * CountRequest selects the records to count.
@@ -219,7 +313,7 @@ export type CountRequest = Message<"rookery.v1.CountRequest"> & {
  * Use `create(CountRequestSchema)` to create a new message.
  */
 export const CountRequestSchema: GenMessage<CountRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 5);
+  messageDesc(file_rookery_v1_data, 8);
 
 /**
  * CountResponse is how many records the filter selects.
@@ -238,7 +332,7 @@ export type CountResponse = Message<"rookery.v1.CountResponse"> & {
  * Use `create(CountResponseSchema)` to create a new message.
  */
 export const CountResponseSchema: GenMessage<CountResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 6);
+  messageDesc(file_rookery_v1_data, 9);
 
 /**
  * AggregateRequest selects what to aggregate.
@@ -294,7 +388,7 @@ export type AggregateRequest = Message<"rookery.v1.AggregateRequest"> & {
  * Use `create(AggregateRequestSchema)` to create a new message.
  */
 export const AggregateRequestSchema: GenMessage<AggregateRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 7);
+  messageDesc(file_rookery_v1_data, 10);
 
 /**
  * AggregateResponse carries one entry per group.
@@ -316,7 +410,7 @@ export type AggregateResponse = Message<"rookery.v1.AggregateResponse"> & {
  * Use `create(AggregateResponseSchema)` to create a new message.
  */
 export const AggregateResponseSchema: GenMessage<AggregateResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 8);
+  messageDesc(file_rookery_v1_data, 11);
 
 /**
  * InsertRequest writes a record.
@@ -344,7 +438,7 @@ export type InsertRequest = Message<"rookery.v1.InsertRequest"> & {
  * Use `create(InsertRequestSchema)` to create a new message.
  */
 export const InsertRequestSchema: GenMessage<InsertRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 9);
+  messageDesc(file_rookery_v1_data, 12);
 
 /**
  * InsertResponse carries the record as it was stored.
@@ -363,7 +457,7 @@ export type InsertResponse = Message<"rookery.v1.InsertResponse"> & {
  * Use `create(InsertResponseSchema)` to create a new message.
  */
 export const InsertResponseSchema: GenMessage<InsertResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 10);
+  messageDesc(file_rookery_v1_data, 13);
 
 /**
  * UpdateRequest changes a record.
@@ -407,7 +501,7 @@ export type UpdateRequest = Message<"rookery.v1.UpdateRequest"> & {
  * Use `create(UpdateRequestSchema)` to create a new message.
  */
 export const UpdateRequestSchema: GenMessage<UpdateRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 11);
+  messageDesc(file_rookery_v1_data, 14);
 
 /**
  * UpdateResponse carries the record as it was stored.
@@ -426,7 +520,7 @@ export type UpdateResponse = Message<"rookery.v1.UpdateResponse"> & {
  * Use `create(UpdateResponseSchema)` to create a new message.
  */
 export const UpdateResponseSchema: GenMessage<UpdateResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 12);
+  messageDesc(file_rookery_v1_data, 15);
 
 /**
  * UpsertRequest writes a record or changes the one its id names.
@@ -462,7 +556,7 @@ export type UpsertRequest = Message<"rookery.v1.UpsertRequest"> & {
  * Use `create(UpsertRequestSchema)` to create a new message.
  */
 export const UpsertRequestSchema: GenMessage<UpsertRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 13);
+  messageDesc(file_rookery_v1_data, 16);
 
 /**
  * UpsertResponse carries the record as it was stored.
@@ -481,7 +575,7 @@ export type UpsertResponse = Message<"rookery.v1.UpsertResponse"> & {
  * Use `create(UpsertResponseSchema)` to create a new message.
  */
 export const UpsertResponseSchema: GenMessage<UpsertResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 14);
+  messageDesc(file_rookery_v1_data, 17);
 
 /**
  * DeleteRequest deletes a record.
@@ -516,7 +610,7 @@ export type DeleteRequest = Message<"rookery.v1.DeleteRequest"> & {
  * Use `create(DeleteRequestSchema)` to create a new message.
  */
 export const DeleteRequestSchema: GenMessage<DeleteRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 15);
+  messageDesc(file_rookery_v1_data, 18);
 
 /**
  * DeleteResponse is empty: the delete returned.
@@ -531,7 +625,7 @@ export type DeleteResponse = Message<"rookery.v1.DeleteResponse"> & {
  * Use `create(DeleteResponseSchema)` to create a new message.
  */
 export const DeleteResponseSchema: GenMessage<DeleteResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 16);
+  messageDesc(file_rookery_v1_data, 19);
 
 /**
  * RestoreRequest brings a deleted record back.
@@ -566,7 +660,7 @@ export type RestoreRequest = Message<"rookery.v1.RestoreRequest"> & {
  * Use `create(RestoreRequestSchema)` to create a new message.
  */
 export const RestoreRequestSchema: GenMessage<RestoreRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 17);
+  messageDesc(file_rookery_v1_data, 20);
 
 /**
  * RestoreResponse carries the record as it was restored.
@@ -585,7 +679,7 @@ export type RestoreResponse = Message<"rookery.v1.RestoreResponse"> & {
  * Use `create(RestoreResponseSchema)` to create a new message.
  */
 export const RestoreResponseSchema: GenMessage<RestoreResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 18);
+  messageDesc(file_rookery_v1_data, 21);
 
 /**
  * BatchOperation is one write of a batch.
@@ -627,7 +721,7 @@ export type BatchOperation = Message<"rookery.v1.BatchOperation"> & {
  * Use `create(BatchOperationSchema)` to create a new message.
  */
 export const BatchOperationSchema: GenMessage<BatchOperation> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 19);
+  messageDesc(file_rookery_v1_data, 22);
 
 /**
  * BatchRequest runs several writes on one collection in one transaction.
@@ -655,7 +749,7 @@ export type BatchRequest = Message<"rookery.v1.BatchRequest"> & {
  * Use `create(BatchRequestSchema)` to create a new message.
  */
 export const BatchRequestSchema: GenMessage<BatchRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 20);
+  messageDesc(file_rookery_v1_data, 23);
 
 /**
  * BatchResponse carries the records the writes returned, in order.
@@ -674,7 +768,7 @@ export type BatchResponse = Message<"rookery.v1.BatchResponse"> & {
  * Use `create(BatchResponseSchema)` to create a new message.
  */
 export const BatchResponseSchema: GenMessage<BatchResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 21);
+  messageDesc(file_rookery_v1_data, 24);
 
 /**
  * HistoryRequest lists a record's revisions.
@@ -716,7 +810,7 @@ export type HistoryRequest = Message<"rookery.v1.HistoryRequest"> & {
  * Use `create(HistoryRequestSchema)` to create a new message.
  */
 export const HistoryRequestSchema: GenMessage<HistoryRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 22);
+  messageDesc(file_rookery_v1_data, 25);
 
 /**
  * HistoryResponse carries the revisions, oldest first.
@@ -738,7 +832,7 @@ export type HistoryResponse = Message<"rookery.v1.HistoryResponse"> & {
  * Use `create(HistoryResponseSchema)` to create a new message.
  */
 export const HistoryResponseSchema: GenMessage<HistoryResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 23);
+  messageDesc(file_rookery_v1_data, 26);
 
 /**
  * RefsToRequest lists the references to a resource.
@@ -759,7 +853,7 @@ export type RefsToRequest = Message<"rookery.v1.RefsToRequest"> & {
  * Use `create(RefsToRequestSchema)` to create a new message.
  */
 export const RefsToRequestSchema: GenMessage<RefsToRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 24);
+  messageDesc(file_rookery_v1_data, 27);
 
 /**
  * RefsFromRequest lists a record's references.
@@ -780,7 +874,7 @@ export type RefsFromRequest = Message<"rookery.v1.RefsFromRequest"> & {
  * Use `create(RefsFromRequestSchema)` to create a new message.
  */
 export const RefsFromRequestSchema: GenMessage<RefsFromRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 25);
+  messageDesc(file_rookery_v1_data, 28);
 
 /**
  * Reference is one row of the reference table.
@@ -822,7 +916,7 @@ export type Reference = Message<"rookery.v1.Reference"> & {
  * Use `create(ReferenceSchema)` to create a new message.
  */
 export const ReferenceSchema: GenMessage<Reference> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 26);
+  messageDesc(file_rookery_v1_data, 29);
 
 /**
  * RefsToResponse carries the references to a resource.
@@ -841,7 +935,7 @@ export type RefsToResponse = Message<"rookery.v1.RefsToResponse"> & {
  * Use `create(RefsToResponseSchema)` to create a new message.
  */
 export const RefsToResponseSchema: GenMessage<RefsToResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 27);
+  messageDesc(file_rookery_v1_data, 30);
 
 /**
  * RefsFromResponse carries the references a record holds.
@@ -860,7 +954,7 @@ export type RefsFromResponse = Message<"rookery.v1.RefsFromResponse"> & {
  * Use `create(RefsFromResponseSchema)` to create a new message.
  */
 export const RefsFromResponseSchema: GenMessage<RefsFromResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 28);
+  messageDesc(file_rookery_v1_data, 31);
 
 /**
  * LiveRequest subscribes to a query.
@@ -909,7 +1003,7 @@ export type LiveRequest = Message<"rookery.v1.LiveRequest"> & {
  * Use `create(LiveRequestSchema)` to create a new message.
  */
 export const LiveRequestSchema: GenMessage<LiveRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 29);
+  messageDesc(file_rookery_v1_data, 32);
 
 /**
  * LiveResponse is one event of a live query.
@@ -944,7 +1038,7 @@ export type LiveResponse = Message<"rookery.v1.LiveResponse"> & {
  * Use `create(LiveResponseSchema)` to create a new message.
  */
 export const LiveResponseSchema: GenMessage<LiveResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 30);
+  messageDesc(file_rookery_v1_data, 33);
 
 /**
  * ChangesRequest subscribes to the change feed.
@@ -974,7 +1068,7 @@ export type ChangesRequest = Message<"rookery.v1.ChangesRequest"> & {
  * Use `create(ChangesRequestSchema)` to create a new message.
  */
 export const ChangesRequestSchema: GenMessage<ChangesRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 31);
+  messageDesc(file_rookery_v1_data, 34);
 
 /**
  * ChangesResponse is one change.
@@ -1056,7 +1150,7 @@ export type ChangesResponse = Message<"rookery.v1.ChangesResponse"> & {
  * Use `create(ChangesResponseSchema)` to create a new message.
  */
 export const ChangesResponseSchema: GenMessage<ChangesResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_data, 32);
+  messageDesc(file_rookery_v1_data, 35);
 
 /**
  * AggregateOperation is what an aggregate computes.
@@ -1263,6 +1357,17 @@ export const DataService: GenService<{
     methodKind: "unary";
     input: typeof FindRequestSchema;
     output: typeof FindResponseSchema;
+  },
+  /**
+   * ListCollections lists the collections the caller may browse: those whose
+   * scope the caller holds view on.
+   *
+   * @generated from rpc rookery.v1.DataService.ListCollections
+   */
+  listCollections: {
+    methodKind: "unary";
+    input: typeof ListCollectionsRequestSchema;
+    output: typeof ListCollectionsResponseSchema;
   },
   /**
    * Count counts the records a filter selects.

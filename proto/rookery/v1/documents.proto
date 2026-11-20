@@ -26,6 +26,11 @@ service DocumentService {
     option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
   }
 
+  // List returns the documents the caller may read, newest first.
+  rpc List(DocumentServiceListRequest) returns (DocumentServiceListResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+
   // Sync is a participant's stream: the server sends the document's snapshot
   // and updates, then relays what the others send, and appends what this
   // participant sends.
@@ -67,6 +72,19 @@ message Document {
   // CreatedAt and UpdatedAt are its timestamps.
   google.protobuf.Timestamp created_at = 5;
   google.protobuf.Timestamp updated_at = 6;
+}
+
+message DocumentServiceListRequest {
+  // Parent limits the list to the documents under a resource; empty lists
+  // every document the caller may read.
+  string parent = 1;
+
+  // Limit bounds the list: 100 when zero, 500 at most.
+  int32 limit = 2;
+}
+
+message DocumentServiceListResponse {
+  repeated Document documents = 1;
 }
 
 // DocumentServiceCreateRequest makes a document.

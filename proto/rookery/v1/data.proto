@@ -27,6 +27,12 @@ service DataService {
     option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
   }
 
+  // ListCollections lists the collections the caller may browse: those whose
+  // scope the caller holds view on.
+  rpc ListCollections(ListCollectionsRequest) returns (ListCollectionsResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+
   // Count counts the records a filter selects.
   rpc Count(CountRequest) returns (CountResponse) {
     option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
@@ -117,6 +123,37 @@ message Sort {
 
   // Desc is true for the largest first.
   bool desc = 2;
+}
+
+// Collection is one declared collection, as a caller may browse it.
+message Collection {
+  // Plugin is the plugin the collection belongs to.
+  string plugin = 1;
+
+  // Name is the collection's name.
+  string name = 2;
+
+  // Scope is what its records belong to: global, space or user.
+  string scope = 3;
+
+  // Fields are the declared field names, in alphabetical order.
+  repeated string fields = 4;
+
+  // History says whether its changes are kept.
+  bool history = 5;
+
+  // Level is the highest level the caller holds on the collection's scope.
+  Level level = 6;
+}
+
+message ListCollectionsRequest {
+  // Space is the space whose collections are listed, and empty uses the
+  // caller's current space.
+  string space = 1;
+}
+
+message ListCollectionsResponse {
+  repeated Collection collections = 1;
 }
 
 // FindRequest selects the records to read.

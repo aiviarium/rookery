@@ -49,6 +49,37 @@ func (s *Service) Get(ctx context.Context, request *connect.Request[rookeryv1.Ge
 	return connect.NewResponse(&rookeryv1.GetResponse{RecordCbor: encoded}), nil
 }
 
+// ListCollections lists the collections the caller may browse: those whose
+// scope the caller holds view on.
+func (s *Service) ListCollections(ctx context.Context, request *connect.Request[rookeryv1.ListCollectionsRequest]) (*connect.Response[rookeryv1.ListCollectionsResponse], error) {
+	principal, err := s.principal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	space := requestSpace(ctx, request.Msg.GetSpace())
+
+	collections := s.data.Collections("")
+	out := make([]*rookeryv1.Collection, 0, len(collections))
+	for _, collection := range collections {
+		level, err := s.data.levelOn(ctx, principal, collection, space)
+		if err != nil {
+			return nil, ConnectError(err)
+		}
+		if !Allows(level, rookeryv1.Level_LEVEL_VIEW) {
+			continue
+		}
+		out = append(out, &rookeryv1.Collection{
+			Plugin:  collection.Plugin,
+			Name:    collection.Name,
+			Scope:   string(collection.Scope),
+			Fields:  collection.FieldNames(),
+			History: collection.History,
+			Level:   level,
+		})
+	}
+	return connect.NewResponse(&rookeryv1.ListCollectionsResponse{Collections: out}), nil
+}
+
 // Find reads the records a filter, an order and a window select.
 func (s *Service) Find(ctx context.Context, request *connect.Request[rookeryv1.FindRequest]) (*connect.Response[rookeryv1.FindResponse], error) {
 	principal, err := s.principal(ctx)

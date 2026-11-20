@@ -160,6 +160,24 @@ func (d *Data) require(ctx context.Context, principal Principal, resource string
 	return nil
 }
 
+// levelOn is the caller's level on a collection's scope: its plugin for a global
+// collection, the space for a space-scoped one, and the caller for a user's own.
+func (d *Data) levelOn(ctx context.Context, principal Principal, collection *Collection, space string) (rookeryv1.Level, error) {
+	var resource string
+	switch collection.Scope {
+	case ScopeSpace:
+		if space == "" {
+			return rookeryv1.Level_LEVEL_UNSPECIFIED, nil
+		}
+		resource = "space://" + space
+	case ScopeUser:
+		resource = "user://" + principal.ID
+	default:
+		resource = "plugin://" + collection.Plugin
+	}
+	return d.auth.Level(ctx, principal, resource)
+}
+
 // allowed is require for queries that skip a record rather than refuse the call.
 func (d *Data) allowed(ctx context.Context, principal Principal, resource string, need rookeryv1.Level) (bool, error) {
 	if d.auth == nil {

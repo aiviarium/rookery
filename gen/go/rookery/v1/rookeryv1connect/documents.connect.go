@@ -44,6 +44,8 @@ const (
 	DocumentServiceCreateProcedure = "/rookery.v1.DocumentService/Create"
 	// DocumentServiceGetProcedure is the fully-qualified name of the DocumentService's Get RPC.
 	DocumentServiceGetProcedure = "/rookery.v1.DocumentService/Get"
+	// DocumentServiceListProcedure is the fully-qualified name of the DocumentService's List RPC.
+	DocumentServiceListProcedure = "/rookery.v1.DocumentService/List"
 	// DocumentServiceSyncProcedure is the fully-qualified name of the DocumentService's Sync RPC.
 	DocumentServiceSyncProcedure = "/rookery.v1.DocumentService/Sync"
 	// DocumentServiceSnapshotProcedure is the fully-qualified name of the DocumentService's Snapshot
@@ -61,6 +63,8 @@ type DocumentServiceClient interface {
 	Create(context.Context, *connect.Request[v1.DocumentServiceCreateRequest]) (*connect.Response[v1.DocumentServiceCreateResponse], error)
 	// Get returns a document.
 	Get(context.Context, *connect.Request[v1.DocumentServiceGetRequest]) (*connect.Response[v1.DocumentServiceGetResponse], error)
+	// List returns the documents the caller may read, newest first.
+	List(context.Context, *connect.Request[v1.DocumentServiceListRequest]) (*connect.Response[v1.DocumentServiceListResponse], error)
 	// Sync is a participant's stream: the server sends the document's snapshot
 	// and updates, then relays what the others send, and appends what this
 	// participant sends.
@@ -97,6 +101,12 @@ func NewDocumentServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(documentServiceMethods.ByName("Get")),
 			connect.WithClientOptions(opts...),
 		),
+		list: connect.NewClient[v1.DocumentServiceListRequest, v1.DocumentServiceListResponse](
+			httpClient,
+			baseURL+DocumentServiceListProcedure,
+			connect.WithSchema(documentServiceMethods.ByName("List")),
+			connect.WithClientOptions(opts...),
+		),
 		sync: connect.NewClient[v1.DocumentServiceSyncRequest, v1.DocumentServiceSyncResponse](
 			httpClient,
 			baseURL+DocumentServiceSyncProcedure,
@@ -128,6 +138,7 @@ func NewDocumentServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 type documentServiceClient struct {
 	create   *connect.Client[v1.DocumentServiceCreateRequest, v1.DocumentServiceCreateResponse]
 	get      *connect.Client[v1.DocumentServiceGetRequest, v1.DocumentServiceGetResponse]
+	list     *connect.Client[v1.DocumentServiceListRequest, v1.DocumentServiceListResponse]
 	sync     *connect.Client[v1.DocumentServiceSyncRequest, v1.DocumentServiceSyncResponse]
 	snapshot *connect.Client[v1.SnapshotRequest, v1.SnapshotResponse]
 	history  *connect.Client[v1.DocumentServiceHistoryRequest, v1.DocumentServiceHistoryResponse]
@@ -142,6 +153,11 @@ func (c *documentServiceClient) Create(ctx context.Context, req *connect.Request
 // Get calls rookery.v1.DocumentService.Get.
 func (c *documentServiceClient) Get(ctx context.Context, req *connect.Request[v1.DocumentServiceGetRequest]) (*connect.Response[v1.DocumentServiceGetResponse], error) {
 	return c.get.CallUnary(ctx, req)
+}
+
+// List calls rookery.v1.DocumentService.List.
+func (c *documentServiceClient) List(ctx context.Context, req *connect.Request[v1.DocumentServiceListRequest]) (*connect.Response[v1.DocumentServiceListResponse], error) {
+	return c.list.CallUnary(ctx, req)
 }
 
 // Sync calls rookery.v1.DocumentService.Sync.
@@ -170,6 +186,8 @@ type DocumentServiceHandler interface {
 	Create(context.Context, *connect.Request[v1.DocumentServiceCreateRequest]) (*connect.Response[v1.DocumentServiceCreateResponse], error)
 	// Get returns a document.
 	Get(context.Context, *connect.Request[v1.DocumentServiceGetRequest]) (*connect.Response[v1.DocumentServiceGetResponse], error)
+	// List returns the documents the caller may read, newest first.
+	List(context.Context, *connect.Request[v1.DocumentServiceListRequest]) (*connect.Response[v1.DocumentServiceListResponse], error)
 	// Sync is a participant's stream: the server sends the document's snapshot
 	// and updates, then relays what the others send, and appends what this
 	// participant sends.
@@ -202,6 +220,12 @@ func NewDocumentServiceHandler(svc DocumentServiceHandler, opts ...connect.Handl
 		connect.WithSchema(documentServiceMethods.ByName("Get")),
 		connect.WithHandlerOptions(opts...),
 	)
+	documentServiceListHandler := connect.NewUnaryHandler(
+		DocumentServiceListProcedure,
+		svc.List,
+		connect.WithSchema(documentServiceMethods.ByName("List")),
+		connect.WithHandlerOptions(opts...),
+	)
 	documentServiceSyncHandler := connect.NewBidiStreamHandler(
 		DocumentServiceSyncProcedure,
 		svc.Sync,
@@ -232,6 +256,8 @@ func NewDocumentServiceHandler(svc DocumentServiceHandler, opts ...connect.Handl
 			documentServiceCreateHandler.ServeHTTP(w, r)
 		case DocumentServiceGetProcedure:
 			documentServiceGetHandler.ServeHTTP(w, r)
+		case DocumentServiceListProcedure:
+			documentServiceListHandler.ServeHTTP(w, r)
 		case DocumentServiceSyncProcedure:
 			documentServiceSyncHandler.ServeHTTP(w, r)
 		case DocumentServiceSnapshotProcedure:
@@ -255,6 +281,10 @@ func (UnimplementedDocumentServiceHandler) Create(context.Context, *connect.Requ
 
 func (UnimplementedDocumentServiceHandler) Get(context.Context, *connect.Request[v1.DocumentServiceGetRequest]) (*connect.Response[v1.DocumentServiceGetResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.DocumentService.Get is not implemented"))
+}
+
+func (UnimplementedDocumentServiceHandler) List(context.Context, *connect.Request[v1.DocumentServiceListRequest]) (*connect.Response[v1.DocumentServiceListResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.DocumentService.List is not implemented"))
 }
 
 func (UnimplementedDocumentServiceHandler) Sync(context.Context, *connect.BidiStream[v1.DocumentServiceSyncRequest, v1.DocumentServiceSyncResponse]) error {

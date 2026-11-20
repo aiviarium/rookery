@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file rookery/v1/plugin.proto.
  */
 export const file_rookery_v1_plugin: GenFile = /*@__PURE__*/
-  fileDesc("Chdyb29rZXJ5L3YxL3BsdWdpbi5wcm90bxIKcm9va2VyeS52MSLxAQoGUGx1Z2luEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDwoHdmVyc2lvbhgDIAEoCRIOCgZzaGEyNTYYBCABKAkSDwoHZW5hYmxlZBgFIAEoCBIQCghtYW5pZmVzdBgGIAEoDBIYChBjb250cmlidXRlc19qc29uGAcgASgMEg0KBXNoZWxsGAggASgIEjAKDGluc3RhbGxlZF9hdBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgKIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiGgoYUGx1Z2luU2VydmljZUxpc3RSZXF1ZXN0IkAKGVBsdWdpblNlcnZpY2VMaXN0UmVzcG9uc2USIwoHcGx1Z2lucxgBIAMoCzISLnJvb2tlcnkudjEuUGx1Z2luIiUKF1BsdWdpblNlcnZpY2VHZXRSZXF1ZXN0EgoKAmlkGAEgASgJIj4KGFBsdWdpblNlcnZpY2VHZXRSZXNwb25zZRIiCgZwbHVnaW4YASABKAsyEi5yb29rZXJ5LnYxLlBsdWdpbiIsChtQbHVnaW5TZXJ2aWNlSW5zdGFsbFJlcXVlc3QSDQoFY2h1bmsYASABKAwiQgocUGx1Z2luU2VydmljZUluc3RhbGxSZXNwb25zZRIiCgZwbHVnaW4YASABKAsyEi5yb29rZXJ5LnYxLlBsdWdpbiI3ChpQbHVnaW5TZXJ2aWNlUmVtb3ZlUmVxdWVzdBIKCgJpZBgBIAEoCRINCgVwdXJnZRgCIAEoCCIdChtQbHVnaW5TZXJ2aWNlUmVtb3ZlUmVzcG9uc2UiPQoeUGx1Z2luU2VydmljZVNldEVuYWJsZWRSZXF1ZXN0EgoKAmlkGAEgASgJEg8KB2VuYWJsZWQYAiABKAgiRQofUGx1Z2luU2VydmljZVNldEVuYWJsZWRSZXNwb25zZRIiCgZwbHVnaW4YASABKAsyEi5yb29rZXJ5LnYxLlBsdWdpbiJDChpQbHVnaW5TZXJ2aWNlVXBkYXRlUmVxdWVzdBIRCglyZWZlcmVuY2UYASABKAkSEgoKcmVzZXRfZGF0YRgCIAEoCCJBChtQbHVnaW5TZXJ2aWNlVXBkYXRlUmVzcG9uc2USIgoGcGx1Z2luGAEgASgLMhIucm9va2VyeS52MS5QbHVnaW4iIwohUGx1Z2luU2VydmljZUNvbnRyaWJ1dGlvbnNSZXF1ZXN0IlsKIlBsdWdpblNlcnZpY2VDb250cmlidXRpb25zUmVzcG9uc2USNQoNY29udHJpYnV0aW9ucxgBIAMoCzIeLnJvb2tlcnkudjEuUGx1Z2luQ29udHJpYnV0aW9uIlsKElBsdWdpbkNvbnRyaWJ1dGlvbhIOCgZwbHVnaW4YASABKAkSDAoEaGFzaBgCIAEoCRINCgVzaGVsbBgDIAEoCBIYChBjb250cmlidXRlc19qc29uGAQgASgMIjwKJ1BsdWdpblNlcnZpY2VJbnN0YWxsRnJvbVJlZ2lzdHJ5UmVxdWVzdBIRCglyZWZlcmVuY2UYASABKAkiTgooUGx1Z2luU2VydmljZUluc3RhbGxGcm9tUmVnaXN0cnlSZXNwb25zZRIiCgZwbHVnaW4YASABKAsyEi5yb29rZXJ5LnYxLlBsdWdpbiI5CghSZWdpc3RyeRIMCgRuYW1lGAEgASgJEgsKA3VybBgCIAEoCRISCgpwdWJsaWNfa2V5GAMgASgMIkMKGVJlZ2lzdHJ5U2VydmljZUFkZFJlcXVlc3QSJgoIcmVnaXN0cnkYASABKAsyFC5yb29rZXJ5LnYxLlJlZ2lzdHJ5IhwKGlJlZ2lzdHJ5U2VydmljZUFkZFJlc3BvbnNlIhwKGlJlZ2lzdHJ5U2VydmljZUxpc3RSZXF1ZXN0IkcKG1JlZ2lzdHJ5U2VydmljZUxpc3RSZXNwb25zZRIoCgpyZWdpc3RyaWVzGAEgAygLMhQucm9va2VyeS52MS5SZWdpc3RyeSIsChxSZWdpc3RyeVNlcnZpY2VSZW1vdmVSZXF1ZXN0EgwKBG5hbWUYASABKAkiHwodUmVnaXN0cnlTZXJ2aWNlUmVtb3ZlUmVzcG9uc2Uy6gYKDVBsdWdpblNlcnZpY2USWwoETGlzdBIkLnJvb2tlcnkudjEuUGx1Z2luU2VydmljZUxpc3RSZXF1ZXN0GiUucm9va2VyeS52MS5QbHVnaW5TZXJ2aWNlTGlzdFJlc3BvbnNlIgaKtRgCCAESXAoDR2V0EiMucm9va2VyeS52MS5QbHVnaW5TZXJ2aWNlR2V0UmVxdWVzdBokLnJvb2tlcnkudjEuUGx1Z2luU2VydmljZUdldFJlc3BvbnNlIgqKtRgGCAESAmlkEmYKB0luc3RhbGwSJy5yb29rZXJ5LnYxLlBsdWdpblNlcnZpY2VJbnN0YWxsUmVxdWVzdBooLnJvb2tlcnkudjEuUGx1Z2luU2VydmljZUluc3RhbGxSZXNwb25zZSIGirUYAggEKAESiAEKE0luc3RhbGxGcm9tUmVnaXN0cnkSMy5yb29rZXJ5LnYxLlBsdWdpblNlcnZpY2VJbnN0YWxsRnJvbVJlZ2lzdHJ5UmVxdWVzdBo0LnJvb2tlcnkudjEuUGx1Z2luU2VydmljZUluc3RhbGxGcm9tUmVnaXN0cnlSZXNwb25zZSIGirUYAggEEmEKBlVwZGF0ZRImLnJvb2tlcnkudjEuUGx1Z2luU2VydmljZVVwZGF0ZVJlcXVlc3QaJy5yb29rZXJ5LnYxLlBsdWdpblNlcnZpY2VVcGRhdGVSZXNwb25zZSIGirUYAggEEnYKDUNvbnRyaWJ1dGlvbnMSLS5yb29rZXJ5LnYxLlBsdWdpblNlcnZpY2VDb250cmlidXRpb25zUmVxdWVzdBouLnJvb2tlcnkudjEuUGx1Z2luU2VydmljZUNvbnRyaWJ1dGlvbnNSZXNwb25zZSIGirUYAggBEmEKBlJlbW92ZRImLnJvb2tlcnkudjEuUGx1Z2luU2VydmljZVJlbW92ZVJlcXVlc3QaJy5yb29rZXJ5LnYxLlBsdWdpblNlcnZpY2VSZW1vdmVSZXNwb25zZSIGirUYAggEEm0KClNldEVuYWJsZWQSKi5yb29rZXJ5LnYxLlBsdWdpblNlcnZpY2VTZXRFbmFibGVkUmVxdWVzdBorLnJvb2tlcnkudjEuUGx1Z2luU2VydmljZVNldEVuYWJsZWRSZXNwb25zZSIGirUYAggEMrcCCg9SZWdpc3RyeVNlcnZpY2USXAoDQWRkEiUucm9va2VyeS52MS5SZWdpc3RyeVNlcnZpY2VBZGRSZXF1ZXN0GiYucm9va2VyeS52MS5SZWdpc3RyeVNlcnZpY2VBZGRSZXNwb25zZSIGirUYAggEEl8KBExpc3QSJi5yb29rZXJ5LnYxLlJlZ2lzdHJ5U2VydmljZUxpc3RSZXF1ZXN0Gicucm9va2VyeS52MS5SZWdpc3RyeVNlcnZpY2VMaXN0UmVzcG9uc2UiBoq1GAIIBBJlCgZSZW1vdmUSKC5yb29rZXJ5LnYxLlJlZ2lzdHJ5U2VydmljZVJlbW92ZVJlcXVlc3QaKS5yb29rZXJ5LnYxLlJlZ2lzdHJ5U2VydmljZVJlbW92ZVJlc3BvbnNlIgaKtRgCCARCOlo4Z2l0aHViLmNvbS9haXZpYXJpdW0vcm9va2VyeS9nZW4vZ28vcm9va2VyeS92MTtyb29rZXJ5djFiBnByb3RvMw", [file_google_protobuf_timestamp, file_rookery_v1_access]);
+  fileDesc("Chdyb29rZXJ5L3YxL3BsdWdpbi5wcm90bxIKcm9va2VyeS52MSLxAQoGUGx1Z2luEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDwoHdmVyc2lvbhgDIAEoCRIOCgZzaGEyNTYYBCABKAkSDwoHZW5hYmxlZBgFIAEoCBIQCghtYW5pZmVzdBgGIAEoDBIYChBjb250cmlidXRlc19qc29uGAcgASgMEg0KBXNoZWxsGAggASgIEjAKDGluc3RhbGxlZF9hdBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgKIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiGgoYUGx1Z2luU2VydmljZUxpc3RSZXF1ZXN0IkAKGVBsdWdpblNlcnZpY2VMaXN0UmVzcG9uc2USIwoHcGx1Z2lucxgBIAMoCzISLnJvb2tlcnkudjEuUGx1Z2luIiUKF1BsdWdpblNlcnZpY2VHZXRSZXF1ZXN0EgoKAmlkGAEgASgJIj4KGFBsdWdpblNlcnZpY2VHZXRSZXNwb25zZRIiCgZwbHVnaW4YASABKAsyEi5yb29rZXJ5LnYxLlBsdWdpbiIsChtQbHVnaW5TZXJ2aWNlSW5zdGFsbFJlcXVlc3QSDQoFY2h1bmsYASABKAwiQgocUGx1Z2luU2VydmljZUluc3RhbGxSZXNwb25zZRIiCgZwbHVnaW4YASABKAsyEi5yb29rZXJ5LnYxLlBsdWdpbiI3ChpQbHVnaW5TZXJ2aWNlUmVtb3ZlUmVxdWVzdBIKCgJpZBgBIAEoCRINCgVwdXJnZRgCIAEoCCIdChtQbHVnaW5TZXJ2aWNlUmVtb3ZlUmVzcG9uc2UiPQoeUGx1Z2luU2VydmljZVNldEVuYWJsZWRSZXF1ZXN0EgoKAmlkGAEgASgJEg8KB2VuYWJsZWQYAiABKAgiRQofUGx1Z2luU2VydmljZVNldEVuYWJsZWRSZXNwb25zZRIiCgZwbHVnaW4YASABKAsyEi5yb29rZXJ5LnYxLlBsdWdpbiJDChpQbHVnaW5TZXJ2aWNlVXBkYXRlUmVxdWVzdBIRCglyZWZlcmVuY2UYASABKAkSEgoKcmVzZXRfZGF0YRgCIAEoCCJBChtQbHVnaW5TZXJ2aWNlVXBkYXRlUmVzcG9uc2USIgoGcGx1Z2luGAEgASgLMhIucm9va2VyeS52MS5QbHVnaW4iIwohUGx1Z2luU2VydmljZUNvbnRyaWJ1dGlvbnNSZXF1ZXN0IlsKIlBsdWdpblNlcnZpY2VDb250cmlidXRpb25zUmVzcG9uc2USNQoNY29udHJpYnV0aW9ucxgBIAMoCzIeLnJvb2tlcnkudjEuUGx1Z2luQ29udHJpYnV0aW9uIlsKElBsdWdpbkNvbnRyaWJ1dGlvbhIOCgZwbHVnaW4YASABKAkSDAoEaGFzaBgCIAEoCRINCgVzaGVsbBgDIAEoCBIYChBjb250cmlidXRlc19qc29uGAQgASgMIjUKIlBsdWdpblNlcnZpY2VJbnN0YWxsUGFja2FnZVJlcXVlc3QSDwoHcGFja2FnZRgBIAEoDCJJCiNQbHVnaW5TZXJ2aWNlSW5zdGFsbFBhY2thZ2VSZXNwb25zZRIiCgZwbHVnaW4YASABKAsyEi5yb29rZXJ5LnYxLlBsdWdpbiI8CidQbHVnaW5TZXJ2aWNlSW5zdGFsbEZyb21SZWdpc3RyeVJlcXVlc3QSEQoJcmVmZXJlbmNlGAEgASgJIk4KKFBsdWdpblNlcnZpY2VJbnN0YWxsRnJvbVJlZ2lzdHJ5UmVzcG9uc2USIgoGcGx1Z2luGAEgASgLMhIucm9va2VyeS52MS5QbHVnaW4iOQoIUmVnaXN0cnkSDAoEbmFtZRgBIAEoCRILCgN1cmwYAiABKAkSEgoKcHVibGljX2tleRgDIAEoDCJDChlSZWdpc3RyeVNlcnZpY2VBZGRSZXF1ZXN0EiYKCHJlZ2lzdHJ5GAEgASgLMhQucm9va2VyeS52MS5SZWdpc3RyeSIcChpSZWdpc3RyeVNlcnZpY2VBZGRSZXNwb25zZSIcChpSZWdpc3RyeVNlcnZpY2VMaXN0UmVxdWVzdCJHChtSZWdpc3RyeVNlcnZpY2VMaXN0UmVzcG9uc2USKAoKcmVnaXN0cmllcxgBIAMoCzIULnJvb2tlcnkudjEuUmVnaXN0cnkiLAocUmVnaXN0cnlTZXJ2aWNlUmVtb3ZlUmVxdWVzdBIMCgRuYW1lGAEgASgJIh8KHVJlZ2lzdHJ5U2VydmljZVJlbW92ZVJlc3BvbnNlMuUHCg1QbHVnaW5TZXJ2aWNlElsKBExpc3QSJC5yb29rZXJ5LnYxLlBsdWdpblNlcnZpY2VMaXN0UmVxdWVzdBolLnJvb2tlcnkudjEuUGx1Z2luU2VydmljZUxpc3RSZXNwb25zZSIGirUYAggBElwKA0dldBIjLnJvb2tlcnkudjEuUGx1Z2luU2VydmljZUdldFJlcXVlc3QaJC5yb29rZXJ5LnYxLlBsdWdpblNlcnZpY2VHZXRSZXNwb25zZSIKirUYBggBEgJpZBJmCgdJbnN0YWxsEicucm9va2VyeS52MS5QbHVnaW5TZXJ2aWNlSW5zdGFsbFJlcXVlc3QaKC5yb29rZXJ5LnYxLlBsdWdpblNlcnZpY2VJbnN0YWxsUmVzcG9uc2UiBoq1GAIIBCgBEogBChNJbnN0YWxsRnJvbVJlZ2lzdHJ5EjMucm9va2VyeS52MS5QbHVnaW5TZXJ2aWNlSW5zdGFsbEZyb21SZWdpc3RyeVJlcXVlc3QaNC5yb29rZXJ5LnYxLlBsdWdpblNlcnZpY2VJbnN0YWxsRnJvbVJlZ2lzdHJ5UmVzcG9uc2UiBoq1GAIIBBJ5Cg5JbnN0YWxsUGFja2FnZRIuLnJvb2tlcnkudjEuUGx1Z2luU2VydmljZUluc3RhbGxQYWNrYWdlUmVxdWVzdBovLnJvb2tlcnkudjEuUGx1Z2luU2VydmljZUluc3RhbGxQYWNrYWdlUmVzcG9uc2UiBoq1GAIIBBJhCgZVcGRhdGUSJi5yb29rZXJ5LnYxLlBsdWdpblNlcnZpY2VVcGRhdGVSZXF1ZXN0Gicucm9va2VyeS52MS5QbHVnaW5TZXJ2aWNlVXBkYXRlUmVzcG9uc2UiBoq1GAIIBBJ2Cg1Db250cmlidXRpb25zEi0ucm9va2VyeS52MS5QbHVnaW5TZXJ2aWNlQ29udHJpYnV0aW9uc1JlcXVlc3QaLi5yb29rZXJ5LnYxLlBsdWdpblNlcnZpY2VDb250cmlidXRpb25zUmVzcG9uc2UiBoq1GAIIARJhCgZSZW1vdmUSJi5yb29rZXJ5LnYxLlBsdWdpblNlcnZpY2VSZW1vdmVSZXF1ZXN0Gicucm9va2VyeS52MS5QbHVnaW5TZXJ2aWNlUmVtb3ZlUmVzcG9uc2UiBoq1GAIIBBJtCgpTZXRFbmFibGVkEioucm9va2VyeS52MS5QbHVnaW5TZXJ2aWNlU2V0RW5hYmxlZFJlcXVlc3QaKy5yb29rZXJ5LnYxLlBsdWdpblNlcnZpY2VTZXRFbmFibGVkUmVzcG9uc2UiBoq1GAIIBDK3AgoPUmVnaXN0cnlTZXJ2aWNlElwKA0FkZBIlLnJvb2tlcnkudjEuUmVnaXN0cnlTZXJ2aWNlQWRkUmVxdWVzdBomLnJvb2tlcnkudjEuUmVnaXN0cnlTZXJ2aWNlQWRkUmVzcG9uc2UiBoq1GAIIBBJfCgRMaXN0EiYucm9va2VyeS52MS5SZWdpc3RyeVNlcnZpY2VMaXN0UmVxdWVzdBonLnJvb2tlcnkudjEuUmVnaXN0cnlTZXJ2aWNlTGlzdFJlc3BvbnNlIgaKtRgCCAQSZQoGUmVtb3ZlEigucm9va2VyeS52MS5SZWdpc3RyeVNlcnZpY2VSZW1vdmVSZXF1ZXN0Gikucm9va2VyeS52MS5SZWdpc3RyeVNlcnZpY2VSZW1vdmVSZXNwb25zZSIGirUYAggEQjpaOGdpdGh1Yi5jb20vYWl2aWFyaXVtL3Jvb2tlcnkvZ2VuL2dvL3Jvb2tlcnkvdjE7cm9va2VyeXYxYgZwcm90bzM", [file_google_protobuf_timestamp, file_rookery_v1_access]);
 
 /**
  * Plugin is an installed package.
@@ -378,6 +378,42 @@ export const PluginContributionSchema: GenMessage<PluginContribution> = /*@__PUR
   messageDesc(file_rookery_v1_plugin, 15);
 
 /**
+ * @generated from message rookery.v1.PluginServiceInstallPackageRequest
+ */
+export type PluginServiceInstallPackageRequest = Message<"rookery.v1.PluginServiceInstallPackageRequest"> & {
+  /**
+   * Package is the whole package: a .tar.gz with plugin.yaml at its root.
+   *
+   * @generated from field: bytes package = 1;
+   */
+  package: Uint8Array;
+};
+
+/**
+ * Describes the message rookery.v1.PluginServiceInstallPackageRequest.
+ * Use `create(PluginServiceInstallPackageRequestSchema)` to create a new message.
+ */
+export const PluginServiceInstallPackageRequestSchema: GenMessage<PluginServiceInstallPackageRequest> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_plugin, 16);
+
+/**
+ * @generated from message rookery.v1.PluginServiceInstallPackageResponse
+ */
+export type PluginServiceInstallPackageResponse = Message<"rookery.v1.PluginServiceInstallPackageResponse"> & {
+  /**
+   * @generated from field: rookery.v1.Plugin plugin = 1;
+   */
+  plugin?: Plugin | undefined;
+};
+
+/**
+ * Describes the message rookery.v1.PluginServiceInstallPackageResponse.
+ * Use `create(PluginServiceInstallPackageResponseSchema)` to create a new message.
+ */
+export const PluginServiceInstallPackageResponseSchema: GenMessage<PluginServiceInstallPackageResponse> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_plugin, 17);
+
+/**
  * @generated from message rookery.v1.PluginServiceInstallFromRegistryRequest
  */
 export type PluginServiceInstallFromRegistryRequest = Message<"rookery.v1.PluginServiceInstallFromRegistryRequest"> & {
@@ -392,7 +428,7 @@ export type PluginServiceInstallFromRegistryRequest = Message<"rookery.v1.Plugin
  * Use `create(PluginServiceInstallFromRegistryRequestSchema)` to create a new message.
  */
 export const PluginServiceInstallFromRegistryRequestSchema: GenMessage<PluginServiceInstallFromRegistryRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_plugin, 16);
+  messageDesc(file_rookery_v1_plugin, 18);
 
 /**
  * @generated from message rookery.v1.PluginServiceInstallFromRegistryResponse
@@ -409,7 +445,7 @@ export type PluginServiceInstallFromRegistryResponse = Message<"rookery.v1.Plugi
  * Use `create(PluginServiceInstallFromRegistryResponseSchema)` to create a new message.
  */
 export const PluginServiceInstallFromRegistryResponseSchema: GenMessage<PluginServiceInstallFromRegistryResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_plugin, 17);
+  messageDesc(file_rookery_v1_plugin, 19);
 
 /**
  * @generated from message rookery.v1.Registry
@@ -436,7 +472,7 @@ export type Registry = Message<"rookery.v1.Registry"> & {
  * Use `create(RegistrySchema)` to create a new message.
  */
 export const RegistrySchema: GenMessage<Registry> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_plugin, 18);
+  messageDesc(file_rookery_v1_plugin, 20);
 
 /**
  * @generated from message rookery.v1.RegistryServiceAddRequest
@@ -453,7 +489,7 @@ export type RegistryServiceAddRequest = Message<"rookery.v1.RegistryServiceAddRe
  * Use `create(RegistryServiceAddRequestSchema)` to create a new message.
  */
 export const RegistryServiceAddRequestSchema: GenMessage<RegistryServiceAddRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_plugin, 19);
+  messageDesc(file_rookery_v1_plugin, 21);
 
 /**
  * @generated from message rookery.v1.RegistryServiceAddResponse
@@ -466,7 +502,7 @@ export type RegistryServiceAddResponse = Message<"rookery.v1.RegistryServiceAddR
  * Use `create(RegistryServiceAddResponseSchema)` to create a new message.
  */
 export const RegistryServiceAddResponseSchema: GenMessage<RegistryServiceAddResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_plugin, 20);
+  messageDesc(file_rookery_v1_plugin, 22);
 
 /**
  * @generated from message rookery.v1.RegistryServiceListRequest
@@ -479,7 +515,7 @@ export type RegistryServiceListRequest = Message<"rookery.v1.RegistryServiceList
  * Use `create(RegistryServiceListRequestSchema)` to create a new message.
  */
 export const RegistryServiceListRequestSchema: GenMessage<RegistryServiceListRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_plugin, 21);
+  messageDesc(file_rookery_v1_plugin, 23);
 
 /**
  * @generated from message rookery.v1.RegistryServiceListResponse
@@ -496,7 +532,7 @@ export type RegistryServiceListResponse = Message<"rookery.v1.RegistryServiceLis
  * Use `create(RegistryServiceListResponseSchema)` to create a new message.
  */
 export const RegistryServiceListResponseSchema: GenMessage<RegistryServiceListResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_plugin, 22);
+  messageDesc(file_rookery_v1_plugin, 24);
 
 /**
  * @generated from message rookery.v1.RegistryServiceRemoveRequest
@@ -513,7 +549,7 @@ export type RegistryServiceRemoveRequest = Message<"rookery.v1.RegistryServiceRe
  * Use `create(RegistryServiceRemoveRequestSchema)` to create a new message.
  */
 export const RegistryServiceRemoveRequestSchema: GenMessage<RegistryServiceRemoveRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_plugin, 23);
+  messageDesc(file_rookery_v1_plugin, 25);
 
 /**
  * @generated from message rookery.v1.RegistryServiceRemoveResponse
@@ -526,7 +562,7 @@ export type RegistryServiceRemoveResponse = Message<"rookery.v1.RegistryServiceR
  * Use `create(RegistryServiceRemoveResponseSchema)` to create a new message.
  */
 export const RegistryServiceRemoveResponseSchema: GenMessage<RegistryServiceRemoveResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_v1_plugin, 24);
+  messageDesc(file_rookery_v1_plugin, 26);
 
 /**
  * PluginService installs plugins, lists them and takes them away. Install
@@ -566,6 +602,17 @@ export const PluginService: GenService<{
     methodKind: "unary";
     input: typeof PluginServiceInstallFromRegistryRequestSchema;
     output: typeof PluginServiceInstallFromRegistryResponseSchema;
+  },
+  /**
+   * InstallPackage installs a whole package in one call, for a browser, which
+   * cannot stream a request body. It is bounded by the same size a stream is.
+   *
+   * @generated from rpc rookery.v1.PluginService.InstallPackage
+   */
+  installPackage: {
+    methodKind: "unary";
+    input: typeof PluginServiceInstallPackageRequestSchema;
+    output: typeof PluginServiceInstallPackageResponseSchema;
   },
   /**
    * @generated from rpc rookery.v1.PluginService.Update

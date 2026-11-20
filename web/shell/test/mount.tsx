@@ -20,6 +20,8 @@ export interface Mounted {
   clickElement(element: HTMLElement): Promise<void>;
   /** type writes into the first input that matches, and settles. */
   type(selector: string, value: string): Promise<void>;
+  /** select chooses an option of the first select that matches, and settles. */
+  select(selector: string, value: string): Promise<void>;
   /** unmount takes the shell down. */
   unmount(): void;
 }
@@ -63,6 +65,13 @@ export async function mount(
     },
     clickElement: async (element) => {
       element.click();
+      await settle();
+    },
+    select: async (selector, value) => {
+      const element = find(selector);
+      if (!(element instanceof HTMLSelectElement)) throw new Error(`no select matches ${selector}`);
+      element.value = value;
+      element.dispatchEvent(new Event("change", { bubbles: true }));
       await settle();
     },
     type: async (selector, value) => {

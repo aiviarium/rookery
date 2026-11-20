@@ -30,7 +30,6 @@ function notesHalf(): LoadedClientHalf {
 
 describe("a plugin's page", () => {
   test("appears in the navigation and draws into the outlet", async () => {
-    history.pushState({}, "", "/notes");
     const view = await mount(
       fakeClient(
         {
@@ -39,15 +38,14 @@ describe("a plugin's page", () => {
         },
         [notesHalf()],
       ),
+      { identityProvider: false },
+      "/notes",
     );
     try {
-      // The shell's own areas have groups of their own, so the plugin's is one
-      // heading among several.
       expect(view.findAll(".nc-section-heading").some((heading) => heading.textContent?.includes("Workspace"))).toBe(true);
       const link = view.find("a[href='/notes']");
       expect(link?.textContent).toContain("Notes");
       expect(view.text()).toContain("notes from the plugin");
-      history.pushState({}, "", "/");
     } finally {
       view.unmount();
     }

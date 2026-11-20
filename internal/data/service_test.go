@@ -215,6 +215,47 @@ func TestServiceRoundTrip(t *testing.T) {
 }
 
 // TestServiceBatch checks a batch writes all or nothing.
+// TestListCollections checks that a caller sees the collections it may browse:
+// its own user-scoped ones, a global one it has view on, and a space-scoped one
+// only while it holds view on the space.
+func TestListCollections(t *testing.T) {
+	d := newDatastore(t)
+	client := newClient(t, user, d)
+
+	answer, err := client.ListCollections(t.Context(), connect.NewRequest(&rookeryv1.ListCollectionsRequest{Space: space}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(answer.Msg.GetCollections()) != 0 {
+		t.Fatalf("collections without a grant: %v", answer.Msg.GetCollections())
+	}
+
+	d.grant(user, "space://"+space, rookeryv1.Level_LEVEL_VIEW)
+	d.grant(user, "plugin://example", rookeryv1.Level_LEVEL_VIEW)
+	// A real deployment gives a user manage on their own resource, which is what
+	// their user-scoped collections hang from.
+	d.grant(user, "user://"+user.ID, rookeryv1.Level_LEVEL_MANAGE)
+	answer, err = client.ListCollections(t.Context(), connect.NewRequest(&rookeryv1.ListCollectionsRequest{Space: space}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	browsable := map[string]*rookeryv1.Collection{}
+	for _, collection := range answer.Msg.GetCollections() {
+		browsable[collection.GetPlugin()+"/"+collection.GetName()] = collection
+	}
+	for _, key := range []string{"example/notes", "example/boards", "example/kinds", "example/drafts"} {
+		if browsable[key] == nil {
+			t.Fatalf("%s is not listed: %v", key, browsable)
+		}
+	}
+	if !browsable["example/notes"].GetHistory() {
+		t.Fatal("the notes collection does not say it keeps history")
+	}
+	if len(browsable["example/notes"].GetFields()) == 0 {
+		t.Fatal("the notes collection lists no fields")
+	}
+}
+
 func TestServiceBatch(t *testing.T) {
 	t.Parallel()
 

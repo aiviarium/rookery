@@ -8,6 +8,14 @@ SELECT *
 FROM rookery.documents
 WHERE id = $1 AND deleted_at IS NULL;
 
+-- name: ListDocuments :many
+SELECT *
+FROM rookery.documents
+WHERE deleted_at IS NULL
+  AND (sqlc.narg('parent')::text IS NULL OR parent = sqlc.narg('parent'))
+ORDER BY updated_at DESC
+LIMIT sqlc.arg('row_limit');
+
 -- name: DeleteDocument :execrows
 UPDATE rookery.documents
 SET deleted_at = now(), updated_at = now()

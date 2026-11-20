@@ -90,6 +90,42 @@ func TestCreateGetDelete(t *testing.T) {
 	}
 }
 
+// TestListShowsWhatTheCallerMayRead checks that a list leaves out a document a
+// stranger may not read, and keeps the ones the caller may.
+func TestListShowsWhatTheCallerMayRead(t *testing.T) {
+	t.Parallel()
+
+	d := newDocuments(t)
+	ctx := t.Context()
+	first := d.created(t, "yjs")
+	second := d.created(t, "markdown")
+
+	documents, err := d.List(ctx, d.user, "", 0)
+	if err != nil {
+		t.Fatalf("listing: %v", err)
+	}
+	if len(documents) != 2 {
+		t.Fatalf("the caller sees %d documents, want 2", len(documents))
+	}
+
+	stranger := data.Principal{Kind: data.PrincipalUser, ID: "02USER"}
+	documents, err = d.List(ctx, stranger, "", 0)
+	if err != nil {
+		t.Fatalf("listing as a stranger: %v", err)
+	}
+	if len(documents) != 0 {
+		t.Fatalf("a stranger sees %d documents, want none", len(documents))
+	}
+
+	documents, err = d.List(ctx, d.user, d.space, 1)
+	if err != nil || len(documents) != 1 {
+		t.Fatalf("listing one under the parent = %v, %v", documents, err)
+	}
+	if documents[0].ID != first.ID && documents[0].ID != second.ID {
+		t.Fatalf("the listed document is %s, which is neither", documents[0].ID)
+	}
+}
+
 // TestSnapshotsAndPrune checks the snapshot, the history and the cleanup that
 // follows a snapshot.
 func TestSnapshotsAndPrune(t *testing.T) {
