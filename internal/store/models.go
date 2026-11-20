@@ -111,3 +111,9 @@ type RookeryUsers struct {
 	Disabled  bool
 	CreatedAt time.Time
 }
+
+type RookeryTailnetState struct {
+	Key       string
+	Value     []byte
+	UpdatedAt pgtype.Timestamptz
+}
