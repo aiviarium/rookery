@@ -6,6 +6,13 @@ Rookery runs a team's machines, their desktops, and the tools built on them. [PL
 
 One Go workspace. `cmd/` holds only `main` packages, `internal/` the packages that do the work, `proto/` the contract and `gen/go/` buf's output for it. Plugins are their own modules under `plugins/`. Packages are named for what they do; none is `util`, `common` or `types`.
 
+The foundations everything else builds on:
+
+- `internal/cborx` is the only way a dynamic value becomes bytes: CBOR in Core Deterministic mode.
+- `internal/seal` is the only way a secret becomes a `bytea`, and `seal.Ring` reseals rows after a rekey.
+- `internal/store` owns the schema and the pool, and `internal/store/storetest` gives a test a database of its own.
+- `internal/pipeconn` puts gRPC on an SSH session's stdio. It speaks HTTP/2 with prior knowledge through `net/http`'s `Protocols`, and hands connect clients an HTTP client that dials the one connection.
+
 ## Libraries
 
 Add only what [PLAN.md](PLAN.md) lists under "Libraries". Anything else needs a yes in the pull request.
@@ -21,7 +28,7 @@ Add only what [PLAN.md](PLAN.md) lists under "Libraries". Anything else needs a 
 - Configuration is `ROOKERY_*` variables and flags, read once into a config struct per program.
 - Generated code is checked in, never edited. CI fails while it is stale.
 - Tests are table-driven where cases differ in data, call `t.Parallel()`, use `t.TempDir()`, and put Unix sockets in a short directory on disk under `TMPDIR` (such as `~/.tmp`), never `/tmp`.
-- Tests that need Postgres use `internal/store/storetest` and `ROOKERY_TEST_POSTGRES`. They skip when it is unset, and fail when `CI` is set.
+- Tests that need Postgres use `internal/store/storetest` and `ROOKERY_TEST_POSTGRES`. They skip when it is unset, and fail when `CI` is set. `make db` prints the line that sets it.
 - Queries live in sqlc except the datastore's, which builds them with parameters only.
 - Before the first tagged release the core schema is one file, `internal/store/schema.sql`, with its digest in `rookery.meta`. There are no migrations: a change edits the file, and a database with another digest is reset with `rookery server reset`.
 
@@ -30,8 +37,8 @@ Add only what [PLAN.md](PLAN.md) lists under "Libraries". Anything else needs a 
 ```bash
 make tools    # install the pinned buf, sqlc, protoc plugins and golangci-lint
 make gen      # buf generate, sqlc generate
-make db       # Postgres with pgvector on 127.0.0.1:55432, fsync off
-make reset    # drop and recreate the dev database's schemas
+make db       # Postgres with pgvector on 127.0.0.1:55432, fsync off; prints its URL
+make reset    # drop and recreate ROOKERY_DATABASE_URL's schemas, after a confirmation
 make test     # go test -race in every module
 make lint     # gofmt, go vet, golangci-lint, buf lint, ansible-lint
 make ts       # bun install, typecheck and test in sdk/ts
