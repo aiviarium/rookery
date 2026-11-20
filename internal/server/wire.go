@@ -13,6 +13,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	pluginv1connect "github.com/aiviarium/rookery/gen/go/rookery/plugin/v1/pluginv1connect"
 	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
 	"github.com/aiviarium/rookery/gen/go/rookery/v1/rookeryv1connect"
 	"github.com/aiviarium/rookery/internal/access"
@@ -101,7 +102,8 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	bus := messaging.NewBus()
 	events := messaging.NewEventsService(bus, checker)
 	topics := messaging.NewTopicsService(messaging.NewTopics(opened))
-	notifications := messaging.NewNotificationsService(messaging.NewNotifications(opened))
+	notificationStore := messaging.NewNotifications(opened)
+	notifications := messaging.NewNotificationsService(notificationStore)
 
 	registry := jobs.NewRegistry()
 	if err := registry.RegisterKinds(jobs.CoreKinds()...); err != nil {
@@ -173,12 +175,15 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		Plugins:      installer,
 		Services:     supervisor,
 		Procedures:   installer,
+		PluginTokens: supervisor,
 		RegisterServices: func(mux *http.ServeMux, options []connect.HandlerOption) {
 			service.register(mux, options)
 		},
 		Blobs: blobStore.Handler(),
 		RegisterLocal: func(mux *http.ServeMux, options []connect.HandlerOption) {
 			path, handler := rookeryv1connect.NewLocalServiceHandler(service.local, options...)
+			mux.Handle(path, handler)
+			path, handler = pluginv1connect.NewServerServiceHandler(NewPluginServer(bus, notificationStore), options...)
 			mux.Handle(path, handler)
 		},
 	})

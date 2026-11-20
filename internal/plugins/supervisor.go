@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -558,3 +559,19 @@ func (w *logWriter) Write(data []byte) (int, error) {
 }
 
 var _ io.Writer = (*logWriter)(nil)
+
+// PluginByToken is the plugin whose running service holds a token. It is how the
+// server's socket tells a plugin from the local admin.
+func (s *Supervisor) PluginByToken(token string) (string, bool) {
+	if token == "" {
+		return "", false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, service := range s.running {
+		if subtle.ConstantTimeCompare([]byte(service.token), []byte(token)) == 1 {
+			return id, true
+		}
+	}
+	return "", false
+}

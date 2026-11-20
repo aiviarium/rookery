@@ -150,3 +150,8 @@ func writePluginError(w http.ResponseWriter, err error) {
 		http.Error(w, "The plugin cannot be called.", http.StatusInternalServerError)
 	}
 }
+
+// PluginTokens is the plugin whose service holds a token.
+type PluginTokens interface {
+	PluginByToken(token string) (string, bool)
+}
