@@ -92,6 +92,12 @@ type RookerySpaces struct {
 	UpdatedAt time.Time
 }
 
+type RookeryTailnetState struct {
+	Key       string
+	Value     []byte
+	UpdatedAt time.Time
+}
+
 // Access tokens, rkpat_ ones, held by their SHA-256.
 type RookeryTokens struct {
 	ID         string
