@@ -257,11 +257,17 @@ func listByKind(ctx context.Context, opened *client.Client, kind, entry string) 
 	for _, summary := range found.Items {
 		name := summary.Labels[LabelName]
 		entry := summary.Labels[LabelEntry]
-		address := ""
 		networkName := summary.HostConfig.NetworkMode
+		address := ""
 		if summary.NetworkSettings != nil {
-			if settings, ok := summary.NetworkSettings.Networks[networkName]; ok && settings.IPAddress.IsValid() {
-				address = settings.IPAddress.String()
+			address = networksAddress(summary.NetworkSettings.Networks, networkName)
+		}
+		if address == "" {
+			// Not every engine reports an address in the list: ask it once more
+			// for the container itself rather than list a machine without one.
+			address, err = containerAddress(ctx, opened, summary.ID, networkName)
+			if err != nil {
+				return nil, err
 			}
 		}
 		state, err := sdk.Marshal(machineState{Entry: entry, Container: summary.ID, Network: networkName, Address: address})
@@ -336,12 +342,12 @@ func ensureNetwork(ctx context.Context, opened *client.Client, name string) erro
 // addressOf is a container's address on a network, once it is up.
 func addressOf(ctx context.Context, opened *client.Client, containerID, networkName string) (string, error) {
 	for attempt := 0; ; attempt++ {
-		inspected, err := opened.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
+		address, err := containerAddress(ctx, opened, containerID, networkName)
 		if err != nil {
-			return "", fmt.Errorf("reading the machine's address: %w", err)
+			return "", err
 		}
-		if settings, ok := inspected.Container.NetworkSettings.Networks[networkName]; ok && settings.IPAddress.IsValid() {
-			return settings.IPAddress.String(), nil
+		if address != "" {
+			return address, nil
 		}
 		if attempt >= 50 {
 			return "", fmt.Errorf("the machine has no address on %s", networkName)
@@ -352,6 +358,30 @@ func addressOf(ctx context.Context, opened *client.Client, containerID, networkN
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
+}
+
+// containerAddress is the address one container has on a network, empty when it
+// has none yet.
+func containerAddress(ctx context.Context, opened *client.Client, containerID, networkName string) (string, error) {
+	inspected, err := opened.ContainerInspect(ctx, containerID, client.ContainerInspectOptions{})
+	if err != nil {
+		return "", fmt.Errorf("reading the machine's address: %w", err)
+	}
+	return networksAddress(inspected.Container.NetworkSettings.Networks, networkName), nil
+}
+
+// networksAddress is a container's address on the named network, or on the one
+// it has, which is what an engine that names it differently reports.
+func networksAddress(networks map[string]*network.EndpointSettings, networkName string) string {
+	if settings, ok := networks[networkName]; ok && settings.IPAddress.IsValid() {
+		return settings.IPAddress.String()
+	}
+	for _, settings := range networks {
+		if settings.IPAddress.IsValid() {
+			return settings.IPAddress.String()
+		}
+	}
+	return ""
 }
 
 // discardContainer removes a container a failed create left half made, and says
