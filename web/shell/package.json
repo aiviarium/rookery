@@ -1,0 +1,37 @@
+{
+  "name": "@rookery/shell",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@aiviarium/nocturne": "github:aiviarium/nocturne#c3b072f088b33d37717d6e8ae41c0096dfc14a3d",
+    "@rookery/client": "workspace:*",
+    "@rookery/proto": "workspace:*",
+    "@rookery/sdk": "workspace:*",
+    "@solidjs/router": "^2.0.1",
+    "@solidjs/web": "^2.0.3",
+    "solid-js": "^2.0.3"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "^21.0.4",
+    "@solidjs/vite-plugin": "^3.0.1",
+    "@types/bun": "^1.3.0",
+    "happy-dom": "^21.0.4",
+    "typescript": "^5.9.0",
+    "vite": "^8.3.8",
+    "@connectrpc/connect": "^2.3.0",
+    "@babel/core": "^7.29.13",
+    "@babel/preset-typescript": "^7.29.7",
+    "@solidjs/babel-plugin": "^2.0.2",
+    "@types/babel__core": "^7.20.5",
+    "@bufbuild/protobuf": "^2.17.0",
+    "@playwright/test": "^1.65.1"
+  }
+}

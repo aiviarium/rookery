@@ -72,18 +72,15 @@ describe("loadClientHalves", () => {
   });
 
   test("asks the edge when it was given no contributions", async () => {
-    const asked: string[] = [];
+    let asked = 0;
     const halves = await loadClientHalves(client(), {
-      fetch: (async (input: RequestInfo | URL) => {
-        asked.push(String(input));
-        return new Response(JSON.stringify({ plugins: [{ plugin: "a", hash: "1" }] }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }) as typeof fetch,
+      source: async () => {
+        asked += 1;
+        return [{ plugin: "a", hash: "1" }];
+      },
       importModule: async () => ({ default: {} }),
     });
-    expect(asked).toEqual(["https://rookery.test/rookery.v1.PluginService/Contributions"]);
+    expect(asked).toBe(1);
     expect(halves.map((half) => half.plugin)).toEqual(["a"]);
   });
 

@@ -5,11 +5,7 @@
 // The route is immutable and cacheable — the hash is part of it — so a plugin
 // update is a new URL and a normal module cache does the rest.
 import type { ClientContext, ClientHalf } from "./contract.ts";
-import {
-  type Contributions,
-  type PluginContributions,
-  fetchContributions,
-} from "./contributions.ts";
+import type { Contributions, PluginContributions } from "./contributions.ts";
 import type { RookeryEndpoints } from "./endpoints.ts";
 import type { Rookery } from "./transport.ts";
 
@@ -38,8 +34,6 @@ export interface LoadedClientHalf {
 
 /** LoaderOptions configures the loader. */
 export interface LoaderOptions {
-  /** fetch overrides the platform's fetch. */
-  fetch?: typeof fetch;
   /**
    * importModule imports a client half's module. It defaults to the platform's
    * dynamic import, which a browser needs and a test replaces.
@@ -47,6 +41,8 @@ export interface LoaderOptions {
   importModule?: (url: string) => Promise<unknown>;
   /** contributions overrides the contributions call, as a shell already given them does. */
   contributions?: readonly PluginContributions[];
+  /** source asks the edge what the plugins add, when contributions are not given. */
+  source?: () => Promise<readonly PluginContributions[]>;
   /** enabled skips a plugin, such as one the user turned off. */
   enabled?: (entry: PluginContributions) => boolean;
   /** onError hears a client half that failed to load, and it is left out. */
@@ -62,8 +58,7 @@ export async function loadClientHalves(
   endpoints: RookeryEndpoints,
   options: LoaderOptions = {},
 ): Promise<readonly LoadedClientHalf[]> {
-  const entries =
-    options.contributions ?? (await fetchContributions(endpoints, { fetch: options.fetch }));
+  const entries = options.contributions ?? (await options.source?.()) ?? [];
   const importModule: (url: string) => Promise<unknown> =
     options.importModule ?? ((url) => import(/* @vite-ignore */ url) as Promise<unknown>);
 

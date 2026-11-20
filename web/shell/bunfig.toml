@@ -1,0 +1,4 @@
+[test]
+# The shell's tests draw into a DOM, and Solid 2's JSX has no runtime: its
+# compiler has to transform each .tsx a test imports.
+preload = ["./test/setup.ts"]

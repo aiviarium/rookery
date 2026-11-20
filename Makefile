@@ -27,12 +27,12 @@ TEST_POSTGRES ?= postgres://$(PG_USER):$(PG_PASSWORD)@127.0.0.1:$(PG_PORT)/postg
 # Every plugin module in the workspace.
 PLUGIN_MODULES := $(patsubst %/go.mod,%,$(wildcard plugins/*/go.mod))
 
-# The TypeScript SDK's workspace.
-TS_DIR ?= sdk/ts
+# The TypeScript workspace: the SDK and the shell, one lockfile.
+WEB_DIR ?= web/shell
 
-.PHONY: all tools tools-go lint-go test-shard tools-ts gen gen-proto gen-sql gen-schema db reset test test-plugins lint fmt ts e2e dev build cross clean ansible
+.PHONY: all tools tools-go lint-go test-shard tools-ts gen gen-proto gen-sql gen-schema db reset test test-plugins lint fmt ts web web-test e2e dev build cross clean ansible
 
-all: gen lint test
+all: gen lint test ts web
 
 tools: tools-go
 	$(MAKE) tools-ts
@@ -48,14 +48,14 @@ tools-go:
 # The TypeScript tools: protoc-gen-es, which buf generate runs, and the type
 # checker and test runner from the workspace's dependencies.
 tools-ts:
-	@if [ -f $(TS_DIR)/package.json ]; then \
-		cd $(TS_DIR) && bun install --frozen-lockfile; \
-	else echo "ts: no $(TS_DIR) yet, skipped"; fi
+	@if [ -f package.json ]; then \
+		bun install --frozen-lockfile; \
+	else echo "ts: no workspace yet, skipped"; fi
 
 gen: gen-proto gen-sql gen-schema
 
 gen-proto:
-	@if [ -f $(TS_DIR)/package.json ] && [ ! -x $(TS_DIR)/node_modules/.bin/protoc-gen-es ]; then \
+	@if [ -f package.json ] && [ ! -x node_modules/.bin/protoc-gen-es ]; then \
 		$(MAKE) tools-ts; fi
 	buf generate
 
@@ -134,25 +134,37 @@ ansible:
 	ansible-playbook --syntax-check -i localhost, ansible/base.yml
 	ansible-playbook --syntax-check -i localhost, ansible/desktop.yml
 
-# The TypeScript SDK: its dependencies as the lockfile has them, the workspace
-# type-checked under tsc's strict settings, and the unit tests. The fixture
-# plugins are workspace members, so their halves are type-checked too, and their
-# bundles are built the way an install builds them.
+# The TypeScript workspace: its dependencies as the lockfile has them, every
+# package type-checked under tsc's strict settings, and the unit tests. The
+# fixture plugins are workspace members, so their halves are type-checked too,
+# and their bundles are built the way an install builds them.
 ts:
-	@if [ -f $(TS_DIR)/package.json ]; then \
-		cd $(TS_DIR) && bun install --frozen-lockfile && bun run typecheck && bun test; \
-	else echo "ts: no $(TS_DIR) yet, skipped"; fi
+	@if [ -f package.json ]; then \
+		bun install --frozen-lockfile && bun run typecheck && bun run test; \
+	else echo "ts: no workspace yet, skipped"; fi
 	@for plugin in testdata/plugins/example-ts testdata/plugins/shell; do \
 		if [ -f $$plugin/package.json ]; then cd $$plugin && bun run build || exit 1; cd $(CURDIR); fi; \
 	done
 
-e2e:
+# The default shell, built into internal/webshell/dist for go:embed. A checkout
+# without this build embeds the placeholder page instead.
+web:
+	@if [ -f $(WEB_DIR)/package.json ]; then bun run web; else echo "web: no $(WEB_DIR) yet, skipped"; fi
+
+# The shell's unit tests alone, without the SDK's.
+web-test:
+	@if [ -f $(WEB_DIR)/package.json ]; then \
+		cd $(WEB_DIR) && bun install --frozen-lockfile && bun run typecheck && bun test; fi
+
+# The browser test starts a real server, so it runs after the shell is built.
+e2e: web
 	$(GO) test -race -count=1 -tags e2e ./e2e/...
 
 dev: db
 	ROOKERY_DATABASE_URL=$(DATABASE_URL) $(GO) run ./cmd/rookery serve
 
-build:
+# The release build ships the shell, so it is built first.
+build: web
 	$(GO) build -o bin/ ./cmd/...
 
 # The binaries the release ships: rookery for every OS, rookeryd and box for the
@@ -164,7 +176,7 @@ cross:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build -o /dev/null ./cmd/rookeryd ./cmd/box
 
 clean:
-	rm -rf bin
+	rm -rf bin web/shell/dist web/shell/test-results web/shell/playwright-report
 
 # Stage the Linux executables and package the first-party plugin bundles next
 # to the server binary for release.
