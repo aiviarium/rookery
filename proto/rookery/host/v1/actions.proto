@@ -1,0 +1,114 @@
+// ActionService runs the user actions of a host's features.
+//
+// A feature declares actions in its manifest; the apply writes the ones marked
+// onHost into /etc/rookery/actions.json, together with the accounts they run as
+// and the arguments they take. A user on the host runs one with `box run`, and
+// the server runs them through the same service. Arguments reach the command as
+// ROOKERY_ARG_<NAME> variables, never interpolated into a shell string.
+
+syntax = "proto3";
+
+package rookery.host.v1;
+
+import "rookery/host/v1/common.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/host/v1;hostv1";
+
+service ActionService {
+  // List returns the actions a user on the host may run.
+  rpc List(ActionServiceListRequest) returns (ActionServiceListResponse);
+
+  // Run runs an action and streams what it writes, then how it ended.
+  rpc Run(ActionServiceRunRequest) returns (stream ActionServiceRunResponse);
+}
+
+// ActionUser is which account an action belongs to.
+enum ActionUser {
+  ACTION_USER_UNSPECIFIED = 0;
+
+  // The operator account, which applies hosts.
+  ACTION_USER_OPERATOR = 1;
+
+  // Root.
+  ACTION_USER_ROOT = 2;
+
+  // The desktop's account.
+  ACTION_USER_DESKTOP = 3;
+}
+
+// Action is one action a feature declares.
+message Action {
+  // The name the feature gave it, such as "wave".
+  string name = 1;
+
+  // A line for people.
+  string label = 2;
+
+  // The group it is listed under, by convention the feature's id.
+  string group = 3;
+
+  // The account it belongs to.
+  ActionUser user = 4;
+
+  // Whether users on the host may run it with `box run`.
+  bool on_host = 5;
+
+  // Whether it wants a terminal rather than streamed output.
+  bool terminal = 6;
+
+  // What it does, for listings.
+  string command = 7;
+
+  // A sentence for people.
+  string description = 8;
+
+  // The arguments it takes.
+  repeated ActionArgument arguments = 9;
+}
+
+// ActionArgument is one argument of an action.
+message ActionArgument {
+  // The name, which becomes ROOKERY_ARG_<NAME> upper-cased in the command's
+  // environment.
+  string name = 1;
+
+  // A line for people.
+  string label = 2;
+
+  // Whether the action fails without it.
+  bool required = 3;
+
+  // The value used when it is not given.
+  string default_value = 4;
+}
+
+message ActionServiceListRequest {}
+
+message ActionServiceListResponse {
+  repeated Action actions = 1;
+}
+
+message ActionServiceRunRequest {
+  string name = 1;
+
+  // The arguments, CBOR in core deterministic mode: a map of argument name to
+  // value. A missing or empty payload is no arguments.
+  bytes args_cbor = 2;
+
+  // Who to run it as. Empty is the account the action belongs to, or the
+  // caller on the socket for local programs.
+  User user = 3;
+}
+
+message ActionServiceRunResponse {
+  oneof event {
+    // Bytes the action wrote to standard output.
+    bytes stdout = 1;
+
+    // Bytes it wrote to standard error.
+    bytes stderr = 2;
+
+    // How it ended. The last message.
+    Exit exit = 3;
+  }
+}

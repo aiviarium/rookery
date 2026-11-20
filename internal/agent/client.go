@@ -23,11 +23,14 @@ type Client struct {
 	http      *http.Client
 	transport *http.Transport
 
-	Agent    hostv1connect.AgentServiceClient
-	Sessions hostv1connect.SessionServiceClient
-	Exec     hostv1connect.ExecServiceClient
-	Files    hostv1connect.FileServiceClient
-	Ports    hostv1connect.PortServiceClient
+	Agent     hostv1connect.AgentServiceClient
+	Sessions  hostv1connect.SessionServiceClient
+	Exec      hostv1connect.ExecServiceClient
+	Files     hostv1connect.FileServiceClient
+	Ports     hostv1connect.PortServiceClient
+	Channel   hostv1connect.ChannelServiceClient
+	HostCalls hostv1connect.HostCallServiceClient
+	Actions   hostv1connect.ActionServiceClient
 }
 
 // Dial makes a client for a socket. It checks that the socket is there, so a
@@ -64,6 +67,9 @@ func Dial(socket string) (*Client, error) {
 		Exec:      hostv1connect.NewExecServiceClient(client, baseURL, options...),
 		Files:     hostv1connect.NewFileServiceClient(client, baseURL, options...),
 		Ports:     hostv1connect.NewPortServiceClient(client, baseURL, options...),
+		Channel:   hostv1connect.NewChannelServiceClient(client, baseURL, options...),
+		HostCalls: hostv1connect.NewHostCallServiceClient(client, baseURL, options...),
+		Actions:   hostv1connect.NewActionServiceClient(client, baseURL, options...),
 	}, nil
 }
 

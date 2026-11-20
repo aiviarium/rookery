@@ -34,6 +34,8 @@ func startDaemon(t *testing.T, configure func(*agent.Config)) *daemon {
 		Version:        "test",
 		RootSocket:     filepath.Join(dir, "root.sock"),
 		UserSocket:     filepath.Join(dir, "user.sock"),
+		ChannelDB:      filepath.Join(dir, "channel.db"),
+		ActionsPath:    filepath.Join(dir, "actions.json"),
 		DesktopEnvPath: filepath.Join(dir, "desktop.env"),
 		Log:            slog.New(slog.DiscardHandler),
 	}
