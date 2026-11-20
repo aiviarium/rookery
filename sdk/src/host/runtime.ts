@@ -845,8 +845,7 @@ function createApi(rt: HostRuntime): Rookery {
           contentType: opts.contentType ?? "application/octet-stream",
           ...(opts.filename !== undefined ? { name: opts.filename } : {}),
         }) as Promise<BlobInfo>,
-      get: (ctx, id) =>
-        invocationCall(rt, asInvocation(ctx))("blobs.get", { id }) as Promise<BlobInfo>,
+      get: (ctx, id) => invocationCall(rt, asInvocation(ctx))("blobs.get", { id }) as Promise<BlobInfo>,
       // A host half has no session to send, so it reads a blob over a short-lived signed address.
       url: async (ctx, id, opts = {}) =>
         (

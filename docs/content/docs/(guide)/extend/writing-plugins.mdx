@@ -283,6 +283,8 @@ Two handles stay the plugin's own, whoever the handler serves: `sql.query`, `sql
 
 A handler's call is checked as the person it serves, and a person's own schedules, blobs and terminals are theirs alone. A plugin cannot name a user: the server binds the call to the invocation, refuses a call whose invocation has ended, and ends the change feeds the handler started when the call does.
 
+`blobs.url` is the one handle that outlives its call: the address stays good for as long as it says, up to an hour, whoever held it. Mint one only for a reader you mean to have it. The server serves a blob as a download unless its type cannot run script, and every answer is sandboxed.
+
 #### Host services
 
 List each service name in `provides.services` and point the manifest's `interface` field at the module that declares its methods. Use the same declaration when registering the service:

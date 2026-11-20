@@ -43,7 +43,8 @@ pub fn verify(kernel: &Kernel, id: &str, expires: i64, sig: &str, now: i64) -> b
     let Ok(id) = Uuid::parse_str(id) else {
         return false;
     };
-    if expires < now {
+    // Never longer than a signed address may last, whatever minted it.
+    if expires < now || expires - now > MAX_URL {
         return false;
     }
     let Ok(key) = kernel.store.key() else {

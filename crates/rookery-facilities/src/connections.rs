@@ -146,12 +146,77 @@ impl PluginKind {
     }
 }
 
+/// Checks a config and the credential a type's fields are sealed in: a bare string for one secret,
+/// and a JSON object holding every required secret when a type names several.
+fn check_credential(kind: &PluginKind, credential: Option<&str>) -> Result<(), RpcError> {
+    let Some(credential) = credential.filter(|value| !value.is_empty()) else {
+        if kind.required_secrets.is_empty() {
+            return Ok(());
+        }
+        return Err(RpcError::invalid(
+            "this type of connection needs a credential",
+        ));
+    };
+    if kind.wire.secrets.is_empty() {
+        return Err(RpcError::invalid(
+            "this type of connection has no credential",
+        ));
+    }
+    if kind.wire.secrets.len() == 1 {
+        // One secret is its value, or an object of its one name.
+        if let Ok(Value::Object(values)) = serde_json::from_str::<Value>(credential) {
+            let name = &kind.wire.secrets[0];
+            if values.len() != 1 || !values.contains_key(name.as_str()) {
+                return Err(RpcError::invalid(format!(
+                    "the credential of {} holds {name}",
+                    kind.wire.id
+                )));
+            }
+        }
+        return Ok(());
+    }
+    let Value::Object(values) = serde_json::from_str::<Value>(credential).map_err(|_| {
+        RpcError::invalid(format!(
+            "the credential of {} is a JSON object",
+            kind.wire.id
+        ))
+    })?
+    else {
+        return Err(RpcError::invalid(format!(
+            "the credential of {} is a JSON object of its secrets",
+            kind.wire.id
+        )));
+    };
+    if let Some(unknown) = values
+        .keys()
+        .find(|name| !kind.wire.secrets.iter().any(|secret| secret == *name))
+    {
+        return Err(RpcError::invalid(format!(
+            "{} is not a secret of {}",
+            unknown, kind.wire.id
+        )));
+    }
+    if let Some(missing) = kind.required_secrets.iter().find(|name| {
+        values
+            .get(name.as_str())
+            .and_then(Value::as_str)
+            .is_none_or(str::is_empty)
+    }) {
+        return Err(RpcError::invalid(format!(
+            "the credential of {} needs {missing}",
+            kind.wire.id
+        )));
+    }
+    Ok(())
+}
+
 fn check_connection(
     call: &Call,
     id: &str,
     scope: WireScope,
     config: &Value,
-    has_credential: bool,
+    credential: Option<&str>,
+    keep_credential: bool,
 ) -> Result<(), RpcError> {
     if let Some(builtin) = kind(id) {
         return check_config(builtin, config);
@@ -186,17 +251,10 @@ fn check_connection(
             "the configuration does not match the schema of {id}"
         )));
     }
-    if !kind.required_secrets.is_empty() && !has_credential {
-        return Err(RpcError::invalid(
-            "this type of connection needs a credential",
-        ));
+    if keep_credential {
+        return Ok(());
     }
-    if kind.wire.secrets.is_empty() && has_credential {
-        return Err(RpcError::invalid(
-            "this type of connection has no credential",
-        ));
-    }
-    Ok(())
+    check_credential(kind, credential)
 }
 
 /// Host halves can see and resolve only the types declared by the plugin on the pipe.
@@ -472,7 +530,7 @@ pub fn register(methods: &mut Methods) {
                 if kind(&p.kind).is_none() {
                     credential = credential.filter(|s| !s.is_empty());
                 }
-                check_connection(&call, &p.kind, p.scope, &p.config, credential.is_some())?;
+                check_connection(&call, &p.kind, p.scope, &p.config, credential, false)?;
                 let scope = match p.scope {
                     WireScope::Global => {
                         call.require_admin()?;
@@ -518,17 +576,21 @@ pub fn register(methods: &mut Methods) {
                         Some(c.as_bytes())
                     }
                 });
-                if p.config.is_some() || (credential.is_some() && kind(&found.kind).is_none()) {
+                if p.config.is_some() || credential.is_some() {
+                    // The type's own scope, so a space connection keeps the scope it was made in.
+                    let scope = match (found.user_id.is_some(), found.space_id.is_some()) {
+                        (true, _) => WireScope::User,
+                        (_, true) => WireScope::Space,
+                        _ => WireScope::Global,
+                    };
+                    let held = p.credential.as_deref().filter(|c| !c.is_empty());
                     check_connection(
                         &call,
                         &found.kind,
-                        if found.user_id.is_some() {
-                            WireScope::User
-                        } else {
-                            WireScope::Global
-                        },
+                        scope,
                         p.config.as_ref().unwrap_or(&found.config),
-                        credential.map_or(found.sealed, |value| value.is_some()),
+                        held,
+                        found.sealed && held.is_none(),
                     )?;
                 }
                 let change = Change {

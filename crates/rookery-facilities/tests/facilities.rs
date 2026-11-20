@@ -992,6 +992,23 @@ async fn a_connection_type_with_two_secret_fields_seals_both() {
         "INVALID"
     );
     params["config"] = json!({"appId": "1234"});
+    // One secret is one value; several are an object of their names, with every required one.
+    params["credential"] = json!("pem");
+    assert_eq!(
+        code(k.call(&admin, "connections.create", params.clone()).await),
+        "INVALID"
+    );
+    params["credential"] = json!("{\"privateKey\":\"pem\"}");
+    assert_eq!(
+        code(k.call(&admin, "connections.create", params.clone()).await),
+        "INVALID"
+    );
+    params["credential"] = json!("{\"privateKey\":\"pem\",\"other\":\"x\"}");
+    assert_eq!(
+        code(k.call(&admin, "connections.create", params.clone()).await),
+        "INVALID"
+    );
+    params["credential"] = json!("{\"privateKey\":\"pem\",\"webhookSecret\":\"hook\"}");
     let made = k.call(&admin, "connections.create", params).await.unwrap();
     assert_eq!(made["config"], json!({"appId": "1234"}));
     assert_eq!(made["hasCredential"], true);
@@ -1010,6 +1027,65 @@ async fn a_connection_type_with_two_secret_fields_seals_both() {
         json!({"privateKey": "pem", "webhookSecret": "hook"})
     );
     k.close().await;
+}
+
+#[tokio::test]
+async fn a_signed_blob_address_lasts_at_most_an_hour() {
+    let k: TestKernel = test_kernel!(methods());
+    let ops = k.person("Ops", false).await;
+    let put = k
+        .call(
+            &ops,
+            "blobs.put",
+            json!({"contentType": "text/plain", "data": "aGVsbG8="}),
+        )
+        .await
+        .unwrap();
+    let id = uuid::Uuid::parse_str(put["id"].as_str().unwrap()).unwrap();
+    let now = chrono::Utc::now().timestamp();
+    let good = rookery_facilities::blobs::url(&k.kernel, id, now + 60).unwrap();
+    let (expires, sig) = signature(&good);
+    assert!(rookery_facilities::blobs::verify(
+        &k.kernel,
+        &id.to_string(),
+        expires,
+        &sig,
+        now
+    ));
+    // A signature for longer than an address may last is refused, whoever minted it.
+    let far = rookery_facilities::blobs::url(&k.kernel, id, now + 7200).unwrap();
+    let (expires, sig) = signature(&far);
+    assert!(!rookery_facilities::blobs::verify(
+        &k.kernel,
+        &id.to_string(),
+        expires,
+        &sig,
+        now
+    ));
+    // And one that has passed is too.
+    assert!(!rookery_facilities::blobs::verify(
+        &k.kernel,
+        &id.to_string(),
+        now - 1,
+        "0".repeat(64).as_str(),
+        now
+    ));
+    k.close().await;
+}
+
+/// The expiry and signature of a signed blob address.
+fn signature(url: &str) -> (i64, String) {
+    let query = url.split_once('?').unwrap().1;
+    let mut expires = 0;
+    let mut sig = String::new();
+    for part in query.split('&') {
+        match part.split_once('=').unwrap() {
+            ("expires", value) => expires = value.parse().unwrap(),
+            ("sig", value) => sig = value.to_owned(),
+            _ => {}
+        }
+    }
+    (expires, sig)
 }
 
 #[tokio::test]
@@ -1277,6 +1353,17 @@ async fn settings_storage_and_connections_have_a_space_scope_for_its_members() {
         (made["scope"].clone(), made["spaceId"].clone()),
         (json!("space"), json!(space))
     );
+    // A space's connection keeps its scope when its config changes.
+    let changed = k
+        .call(
+            &ada,
+            "connections.update",
+            json!({"id": made["id"], "config": {"url": "https://wiki.example.test/v2"}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(changed["config"]["url"], "https://wiki.example.test/v2");
+    assert_eq!(changed["scope"], "space");
     let listed = k
         .call(&bob, "connections.list", json!({ "space": space }))
         .await

@@ -202,15 +202,74 @@ async fn blob(
         )
             .into_response();
     };
-    (
-        [
-            (header::CONTENT_TYPE, blob.content_type),
-            (header::CACHE_CONTROL, "private, max-age=60".to_owned()),
-            (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
-        ],
-        bytes,
-    )
-        .into_response()
+    // A blob's content type is the uploader's. From the server's own origin, only a type that cannot
+    // run script is shown in place; everything else downloads, and every answer is sandboxed.
+    let mut response_headers = vec![
+        (header::CONTENT_TYPE, blob.content_type.clone()),
+        (header::CACHE_CONTROL, "private, max-age=60".to_owned()),
+        (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
+        (
+            header::CONTENT_SECURITY_POLICY,
+            "sandbox; default-src 'none'".to_owned(),
+        ),
+        (
+            header::HeaderName::from_static("cross-origin-resource-policy"),
+            "same-site".to_owned(),
+        ),
+    ];
+    // A blob's content type is the uploader's, and this is the server's own origin: only a type that
+    // cannot run script is shown in place, and everything else is an attachment.
+    if !inline_type(&blob.content_type) {
+        response_headers.push((
+            header::CONTENT_DISPOSITION,
+            format!(
+                "attachment; filename=\"{}\"",
+                filename(&blob.name, &blob.id.to_string())
+            ),
+        ));
+    }
+    let mut response = bytes.into_response();
+    for (name, value) in response_headers {
+        if let Ok(value) = axum::http::HeaderValue::from_str(&value) {
+            response.headers_mut().insert(name, value);
+        }
+    }
+    response
+}
+
+/// Types a blob may be shown as in place: they cannot run script, and svg is not one of them.
+fn inline_type(content_type: &str) -> bool {
+    const INLINE: &[&str] = &[
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+        "image/avif",
+        "application/pdf",
+        "text/plain",
+    ];
+    let base = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    INLINE.contains(&base.as_str()) || base.starts_with("audio/") || base.starts_with("video/")
+}
+
+/// A name safe to put in `Content-Disposition`: no quotes, separators or control characters.
+fn filename(name: &Option<String>, id: &str) -> String {
+    let chosen = name.as_deref().unwrap_or(id);
+    let clean: String = chosen
+        .chars()
+        .filter(|c| !c.is_control() && !matches!(c, '"' | '\\' | '/' | '\r' | '\n'))
+        .take(120)
+        .collect();
+    if clean.is_empty() {
+        "blob".to_owned()
+    } else {
+        clean
+    }
 }
 
 #[derive(serde::Deserialize)]

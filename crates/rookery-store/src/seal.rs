@@ -13,6 +13,9 @@ use uuid::Uuid;
 
 use crate::error::{Error, Result};
 
+/// What the URL-signing key is derived under, so it is not the key the AEAD uses.
+const SIGNING_LABEL: &[u8] = b"rookery/url-signing/v1";
+
 #[derive(Clone)]
 pub struct Key {
     bytes: [u8; 32],
@@ -94,8 +97,11 @@ impl Key {
     /// A signature over `data` under this key, for a short-lived address the server hands out.
     pub fn sign(&self, data: &[u8]) -> String {
         use hmac::{Hmac, KeyInit, Mac};
-        let mut mac =
+        let mut derive =
             <Hmac<Sha256> as KeyInit>::new_from_slice(&self.bytes).expect("any key length");
+        derive.update(SIGNING_LABEL);
+        let subkey = derive.finalize().into_bytes();
+        let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(&subkey).expect("any key length");
         mac.update(data);
         hex::encode(mac.finalize().into_bytes())
     }

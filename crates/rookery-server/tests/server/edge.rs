@@ -719,12 +719,63 @@ async fn a_blob_reads_from_a_short_lived_signed_address() {
     );
     let (status, body, headers) = http("GET", address, &[], None).await;
     assert_eq!((status, body.as_str()), (200, "hello"));
+    assert_eq!(header(&headers, "content-type"), Some("text/plain"));
+    assert_eq!(header(&headers, "x-content-type-options"), Some("nosniff"));
     assert_eq!(
-        headers
-            .iter()
-            .find(|(name, _)| name == "content-type")
-            .map(|(_, value)| value.as_str()),
-        Some("text/plain")
+        header(&headers, "content-security-policy"),
+        Some("sandbox; default-src 'none'")
+    );
+    // Plain text is shown in place; nothing that can run script is.
+    assert_eq!(header(&headers, "content-disposition"), None);
+
+    // An uploader's type is theirs: html and svg download, sandboxed, from the server's origin.
+    use base64::Engine;
+    let script = base64::engine::general_purpose::STANDARD.encode("<script>alert(1)</script>");
+    for (content_type, name) in [("text/html", "page.html"), ("image/svg+xml", "logo.svg")] {
+        let put = served
+            .rpc(
+                &admin,
+                "blobs.put",
+                json!({"contentType": content_type, "name": name, "data": script}),
+            )
+            .await
+            .unwrap();
+        let signed = served
+            .rpc(&admin, "blobs.url", json!({"id": put["id"]}))
+            .await
+            .unwrap();
+        let (status, _, headers) = http("GET", signed["url"].as_str().unwrap(), &[], None).await;
+        assert_eq!(status, 200, "{content_type}");
+        assert_eq!(header(&headers, "content-type"), Some(content_type));
+        assert_eq!(header(&headers, "x-content-type-options"), Some("nosniff"));
+        assert_eq!(
+            header(&headers, "content-security-policy"),
+            Some("sandbox; default-src 'none'")
+        );
+        assert_eq!(
+            header(&headers, "content-disposition"),
+            Some(format!("attachment; filename=\"{name}\"").as_str())
+        );
+    }
+    // A picture is shown in place, and is still sandboxed.
+    let put = served
+        .rpc(
+            &admin,
+            "blobs.put",
+            json!({"contentType": "image/png", "name": "shot.png", "data": "aGVsbG8="}),
+        )
+        .await
+        .unwrap();
+    let signed = served
+        .rpc(&admin, "blobs.url", json!({"id": put["id"]}))
+        .await
+        .unwrap();
+    let (status, _, headers) = http("GET", signed["url"].as_str().unwrap(), &[], None).await;
+    assert_eq!(status, 200);
+    assert_eq!(header(&headers, "content-disposition"), None);
+    assert_eq!(
+        header(&headers, "content-security-policy"),
+        Some("sandbox; default-src 'none'")
     );
 
     // Without a signature and without a session, it is nobody's.
@@ -761,4 +812,12 @@ async fn a_blob_reads_from_a_short_lived_signed_address() {
     .await;
     assert_eq!(status, 401);
     served.stop().await;
+}
+
+/// One response header, by its lower-case name.
+fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    headers
+        .iter()
+        .find(|(key, _)| key == name)
+        .map(|(_, value)| value.as_str())
 }
