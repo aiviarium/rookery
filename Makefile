@@ -27,7 +27,10 @@ TEST_POSTGRES ?= postgres://$(PG_USER):$(PG_PASSWORD)@127.0.0.1:$(PG_PORT)/postg
 # Every plugin module in the workspace.
 PLUGIN_MODULES := $(patsubst %/go.mod,%,$(wildcard plugins/*/go.mod))
 
-.PHONY: all tools gen gen-proto gen-sql db reset test lint fmt ts e2e dev build cross clean ansible
+# The TypeScript SDK's workspace.
+TS_DIR ?= sdk/ts
+
+.PHONY: all tools tools-ts gen gen-proto gen-sql gen-schema db reset test lint fmt ts e2e dev build cross clean ansible
 
 all: gen lint test
 
@@ -37,10 +40,20 @@ tools:
 	$(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
 	$(GO) install connectrpc.com/connect/cmd/protoc-gen-connect-go@$(PROTOC_GEN_CONNECT_GO_VERSION)
 	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	$(MAKE) tools-ts
+
+# The TypeScript tools: protoc-gen-es, which buf generate runs, and the type
+# checker and test runner from the workspace's dependencies.
+tools-ts:
+	@if [ -f $(TS_DIR)/package.json ]; then \
+		cd $(TS_DIR) && bun install --frozen-lockfile; \
+	else echo "ts: no $(TS_DIR) yet, skipped"; fi
 
 gen: gen-proto gen-sql gen-schema
 
 gen-proto:
+	@if [ -f $(TS_DIR)/package.json ] && [ ! -x $(TS_DIR)/node_modules/.bin/protoc-gen-es ]; then \
+		$(MAKE) tools-ts; fi
 	buf generate
 
 gen-sql:
@@ -101,10 +114,12 @@ ansible:
 	ansible-lint ansible
 	ansible-playbook --syntax-check -i localhost, ansible/base.yml
 
-# The TypeScript SDK arrives with item 17.
+# The TypeScript SDK: its dependencies as the lockfile has them, the workspace
+# type-checked under tsc's strict settings, and the unit tests.
 ts:
-	@if [ -f sdk/ts/package.json ]; then cd sdk/ts && bun install && bun run typecheck && bun test; \
-		else echo "ts: no sdk/ts yet, skipped"; fi
+	@if [ -f $(TS_DIR)/package.json ]; then \
+		cd $(TS_DIR) && bun install --frozen-lockfile && bun run typecheck && bun test; \
+	else echo "ts: no $(TS_DIR) yet, skipped"; fi
 
 # The end-to-end test arrives with item 7.
 e2e:

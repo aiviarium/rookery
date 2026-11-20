@@ -1,0 +1,38 @@
+{
+  "name": "@rookery/client",
+  "version": "0.1.0",
+  "description": "Rookery's browser contract: the edge's typed API, sign-in, live queries, documents, terminals, the desktop stream and the client-half loader.",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./solid": {
+      "types": "./src/solid/index.ts",
+      "default": "./src/solid/index.ts"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.17.0",
+    "@connectrpc/connect": "^2.3.0",
+    "@connectrpc/connect-web": "^2.3.0",
+    "@rookery/proto": "workspace:*",
+    "cbor-x": "^1.6.9"
+  },
+  "peerDependencies": {
+    "solid-js": "^2.0.3"
+  },
+  "peerDependenciesMeta": {
+    "solid-js": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "solid-js": "^2.0.3"
+  }
+}
