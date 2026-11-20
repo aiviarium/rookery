@@ -22,6 +22,7 @@ func TestEveryProcedureDeclaresAccess(t *testing.T) {
 		rookeryv1.File_rookery_v1_access_service_proto,
 		rookeryv1.File_rookery_v1_audit_proto,
 		rookeryv1.File_rookery_v1_auth_proto,
+		rookeryv1.File_rookery_v1_desktop_proto,
 		rookeryv1.File_rookery_v1_group_proto,
 		rookeryv1.File_rookery_v1_local_proto,
 		rookeryv1.File_rookery_v1_space_proto,

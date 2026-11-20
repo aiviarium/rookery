@@ -9,6 +9,7 @@ import {
   AuditService,
   AuthService,
   DataService,
+  DesktopService,
   EventService,
   GroupService,
   JobService,
@@ -108,7 +109,7 @@ export type Rookery = Clients &
       attach(id: string, options?: TerminalOptions): TerminalSession;
     };
     /** desktop is a host's RFB stream over `/ws/hosts/{name}/desktop`. */
-    readonly desktop: {
+    readonly desktop: Omit<Client<typeof DesktopService>, "connect"> & {
       url(host: string): string;
       open(host: string, options?: DesktopOptions): DesktopStream;
     };
@@ -150,6 +151,7 @@ export function createRookery(options: RookeryOptions = {}): Rookery {
     made[name as ServiceName] = createClient(service, transport) as Client<never>;
   }
 
+  const { screenshot, input, getClipboard, setClipboard, pause, resume } = createClient(DesktopService, transport);
   const rookery: Rookery = {
     ...(clients as unknown as Clients),
     baseUrl,
@@ -199,6 +201,12 @@ export function createRookery(options: RookeryOptions = {}): Rookery {
         new TerminalSession(rookery, id, terminalOptions as TerminalOptions | undefined),
     },
     desktop: {
+      screenshot,
+      input,
+      getClipboard,
+      setClipboard,
+      pause,
+      resume,
       url: (host) => desktopUrl(rookery, host),
       open: (host, desktopOptions) =>
         new DesktopStream(rookery, host, desktopOptions as DesktopOptions | undefined).open(),

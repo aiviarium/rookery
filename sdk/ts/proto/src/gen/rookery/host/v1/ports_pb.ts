@@ -16,7 +16,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file rookery/host/v1/ports.proto.
  */
 export const file_rookery_host_v1_ports: GenFile = /*@__PURE__*/
-  fileDesc("Chtyb29rZXJ5L2hvc3QvdjEvcG9ydHMucHJvdG8SD3Jvb2tlcnkuaG9zdC52MSJZChZQb3J0U2VydmljZURpYWxSZXF1ZXN0EhIKCHRjcF9wb3J0GAEgASgNSAASEwoJdW5peF9wYXRoGAIgASgJSAASDAoEZGF0YRgDIAEoDEIICgZ0YXJnZXQiJwoXUG9ydFNlcnZpY2VEaWFsUmVzcG9uc2USDAoEZGF0YRgBIAEoDDJsCgtQb3J0U2VydmljZRJdCgREaWFsEicucm9va2VyeS5ob3N0LnYxLlBvcnRTZXJ2aWNlRGlhbFJlcXVlc3QaKC5yb29rZXJ5Lmhvc3QudjEuUG9ydFNlcnZpY2VEaWFsUmVzcG9uc2UoATABQjxaOmdpdGh1Yi5jb20vYWl2aWFyaXVtL3Jvb2tlcnkvZ2VuL2dvL3Jvb2tlcnkvaG9zdC92MTtob3N0djFiBnByb3RvMw");
+  fileDesc("Chtyb29rZXJ5L2hvc3QvdjEvcG9ydHMucHJvdG8SD3Jvb2tlcnkuaG9zdC52MSJsChZQb3J0U2VydmljZURpYWxSZXF1ZXN0EhIKCHRjcF9wb3J0GAEgASgNSAASEwoJdW5peF9wYXRoGAIgASgJSAASEQoHZGVza3RvcBgEIAEoCEgAEgwKBGRhdGEYAyABKAxCCAoGdGFyZ2V0IjoKF1BvcnRTZXJ2aWNlRGlhbFJlc3BvbnNlEhEKCWNvbm5lY3RlZBgCIAEoCBIMCgRkYXRhGAEgASgMMmwKC1BvcnRTZXJ2aWNlEl0KBERpYWwSJy5yb29rZXJ5Lmhvc3QudjEuUG9ydFNlcnZpY2VEaWFsUmVxdWVzdBooLnJvb2tlcnkuaG9zdC52MS5Qb3J0U2VydmljZURpYWxSZXNwb25zZSgBMAFCPFo6Z2l0aHViLmNvbS9haXZpYXJpdW0vcm9va2VyeS9nZW4vZ28vcm9va2VyeS9ob3N0L3YxO2hvc3R2MWIGcHJvdG8z");
 
 /**
  * @generated from message rookery.host.v1.PortServiceDialRequest
@@ -44,6 +44,14 @@ export type PortServiceDialRequest = Message<"rookery.host.v1.PortServiceDialReq
      */
     value: string;
     case: "unixPath";
+  } | {
+    /**
+     * The configured desktop user's RFB Unix socket.
+     *
+     * @generated from field: bool desktop = 4;
+     */
+    value: boolean;
+    case: "desktop";
   } | { case: undefined; value?: undefined };
 
   /**
@@ -65,6 +73,13 @@ export const PortServiceDialRequestSchema: GenMessage<PortServiceDialRequest> = 
  * @generated from message rookery.host.v1.PortServiceDialResponse
  */
 export type PortServiceDialResponse = Message<"rookery.host.v1.PortServiceDialResponse"> & {
+  /**
+   * The first response acknowledges that the connection was opened.
+   *
+   * @generated from field: bool connected = 2;
+   */
+  connected: boolean;
+
   /**
    * @generated from field: bytes data = 1;
    */

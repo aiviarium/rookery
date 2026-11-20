@@ -3,6 +3,7 @@ package agent_test
 import (
 	"context"
 	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -198,6 +199,14 @@ func TestHostServiceRepeatable(t *testing.T) {
 		t.Fatalf("closing: %v", err)
 	}
 
+	select {
+	case err := <-first.failed:
+		if !errors.Is(err, io.EOF) {
+			t.Fatalf("the first registration ended with %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the first registration did not close")
+	}
 	second := serveHostService(t, client, "example/repeat")
 	second.registered(t, client, "example/repeat")
 }

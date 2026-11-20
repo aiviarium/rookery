@@ -43,6 +43,8 @@ type Deps struct {
 	// Plugins serves the client halves and the shell of the installed plugins,
 	// when the servers has any.
 	Plugins Plugins
+	// Desktop serves the RFB WebSocket when it is set.
+	Desktop http.Handler
 	// Blobs serves /blobs/{id} when it is set.
 	Blobs http.Handler
 	// Documents serves /ws/documents/{id} when configured.
@@ -83,6 +85,9 @@ func (e *Edge) Handler() http.Handler {
 	}
 	if e.deps.Documents != nil {
 		mux.Handle("/ws/documents/", e.deps.Documents)
+	}
+	if e.deps.Desktop != nil {
+		mux.Handle("GET /ws/hosts/{name}/desktop", e.deps.Desktop)
 	}
 	e.registerAuth(mux)
 	e.registerPlugins(mux)

@@ -21,7 +21,7 @@ func serveDesktop(t *testing.T, client *agent.Client, answer func(method string,
 	stream := client.HostCalls.Register(context.Background())
 	if err := stream.Send(&hostv1.HostCallServiceRegisterRequest{
 		Message: &hostv1.HostCallServiceRegisterRequest_Service{Service: &hostv1.HostService{
-			Name: agent.DesktopProvider, Methods: agent.DesktopMethods,
+			Name: agent.DesktopProvider, Methods: agent.DesktopMethods(),
 		}},
 	}); err != nil {
 		t.Fatalf("registering the desktop: %v", err)
@@ -232,7 +232,7 @@ func TestDesktopInputShape(t *testing.T) {
 
 	daemon := startDaemon(t, nil)
 	client := daemon.dialRoot(t)
-	serveDesktop(t, client, func(string, []byte) ([]byte, error) { return nil, nil })
+	serveDesktop(t, client, func(string, []byte) ([]byte, error) { return cborx.Marshal(&agent.DesktopStateResult{}) })
 	waitDesktop(t, client)
 
 	_, err := client.Desktop.Input(context.Background(), connect.NewRequest(&hostv1.DesktopServiceInputRequest{}))

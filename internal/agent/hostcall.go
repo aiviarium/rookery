@@ -11,8 +11,10 @@ import (
 	"sync"
 
 	"connectrpc.com/connect"
+	"golang.org/x/sync/errgroup"
 
 	hostv1 "github.com/aiviarium/rookery/gen/go/rookery/host/v1"
+	"github.com/aiviarium/rookery/internal/streamio"
 )
 
 // hostCallRegistry is the host services registered on the daemon: a program's
@@ -110,22 +112,16 @@ func (r *hostCallRegistry) unregister(service *hostService) {
 }
 
 // deliver hands a provider's answer to the call waiting for it.
-func (r *hostCallRegistry) deliver(result *hostv1.HostCallResult) {
+func (r *hostCallRegistry) deliver(service *hostService, result *hostv1.HostCallResult) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	for _, service := range r.services {
-		waiting, ok := service.waiting[result.GetId()]
-		if !ok {
-			continue
-		}
-		delete(service.waiting, result.GetId())
-		select {
-		case waiting <- result:
-		default:
-		}
+	waiting, ok := service.waiting[result.GetId()]
+	if !ok {
 		return
 	}
+	delete(service.waiting, result.GetId())
+	waiting <- result
 }
 
 // call runs one method of a registered service and returns its answer.
@@ -190,6 +186,9 @@ type hostCallService struct {
 }
 
 func (h *hostCallService) Register(ctx context.Context, stream *connect.BidiStream[hostv1.HostCallServiceRegisterRequest, hostv1.HostCallServiceRegisterResponse]) error {
+	if _, err := callerOf(ctx); err != nil {
+		return err
+	}
 	first, err := stream.Receive()
 	if errors.Is(err, io.EOF) {
 		return nil
@@ -201,6 +200,11 @@ func (h *hostCallService) Register(ctx context.Context, stream *connect.BidiStre
 		return invalid("agent: a register stream's first message is its service")
 	}
 
+	if first.GetService().GetName() == DesktopProvider {
+		if err := h.server.authorizeDesktop(ctx); err != nil {
+			return err
+		}
+	}
 	service, err := h.server.registry.register(first.GetService())
 	if err != nil {
 		return toConnect(err)
@@ -209,22 +213,18 @@ func (h *hostCallService) Register(ctx context.Context, stream *connect.BidiStre
 	h.server.log.InfoContext(ctx, "a host service registered",
 		"service", service.info.GetName(), "methods", service.info.GetMethods())
 
-	// One goroutine sends calls and one receives answers, as a stream is one way
-	// at each end. The sender is stopped and waited for before the handler
-	// returns: a message after a handler has finished is a panic in net/http.
-	ended := make(chan error, 2)
-	stop := make(chan struct{})
-	sent := make(chan struct{})
-	go func() {
-		defer close(sent)
-		ended <- sendHostCalls(stream, service, stop)
-	}()
-	go func() { ended <- receiveHostResults(stream, h.server.registry) }()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	group, groupCtx := errgroup.WithContext(ctx)
+	stop := context.AfterFunc(groupCtx, func() { streamio.InterruptReads(groupCtx) })
+	defer stop()
 
-	err = <-ended
-	close(stop)
-	<-sent
-	return err
+	group.Go(func() error { return sendHostCalls(stream, service, groupCtx.Done()) })
+	group.Go(func() error {
+		defer cancel()
+		return receiveHostResults(groupCtx, stream, h.server.registry, service)
+	})
+	return group.Wait()
 }
 
 // sendHostCalls passes the registry's calls to the provider.
@@ -247,17 +247,17 @@ func sendHostCalls(stream *connect.BidiStream[hostv1.HostCallServiceRegisterRequ
 
 // receiveHostResults takes the provider's answers and hands them to the calls
 // waiting for them.
-func receiveHostResults(stream *connect.BidiStream[hostv1.HostCallServiceRegisterRequest, hostv1.HostCallServiceRegisterResponse], registry *hostCallRegistry) error {
+func receiveHostResults(ctx context.Context, stream *connect.BidiStream[hostv1.HostCallServiceRegisterRequest, hostv1.HostCallServiceRegisterResponse], registry *hostCallRegistry, service *hostService) error {
 	for {
 		message, err := stream.Receive()
-		if errors.Is(err, io.EOF) {
+		if errors.Is(err, io.EOF) || ctx.Err() != nil {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
 		if result := message.GetResult(); result != nil {
-			registry.deliver(result)
+			registry.deliver(service, result)
 		}
 	}
 }
@@ -272,6 +272,11 @@ func (h *hostCallService) List(ctx context.Context, _ *connect.Request[hostv1.Ho
 func (h *hostCallService) Call(ctx context.Context, request *connect.Request[hostv1.HostCallServiceCallRequest]) (*connect.Response[hostv1.HostCallServiceCallResponse], error) {
 	if _, err := callerOf(ctx); err != nil {
 		return nil, err
+	}
+	if request.Msg.GetService() == DesktopProvider {
+		if err := h.server.authorizeDesktop(ctx); err != nil {
+			return nil, err
+		}
 	}
 	result, err := h.server.registry.call(ctx, request.Msg.GetService(), request.Msg.GetMethod(), request.Msg.GetArgsCbor())
 	if err != nil {

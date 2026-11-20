@@ -28,15 +28,17 @@ const (
 	DesktopMethodState        = "state"
 )
 
-// DesktopMethods are the methods the provider registers.
-var DesktopMethods = []string{
-	DesktopMethodScreenshot,
-	DesktopMethodInput,
-	DesktopMethodClipboardGet,
-	DesktopMethodClipboardSet,
-	DesktopMethodPause,
-	DesktopMethodResume,
-	DesktopMethodState,
+// DesktopMethods returns the methods the provider registers.
+func DesktopMethods() []string {
+	return []string{
+		DesktopMethodScreenshot,
+		DesktopMethodInput,
+		DesktopMethodClipboardGet,
+		DesktopMethodClipboardSet,
+		DesktopMethodPause,
+		DesktopMethodResume,
+		DesktopMethodState,
+	}
 }
 
 // DesktopScreenshotArgs is a screenshot's arguments: the size to scale to, zero
@@ -97,18 +99,17 @@ type desktopService struct {
 	server *Server
 }
 
-// caller checks that a caller may use the desktop: the server's socket may, and
-// a local program only as the desktop's own account.
-func (h *desktopService) caller(ctx context.Context) (*caller, error) {
+// authorizeDesktop allows the server and the account that owns the desktop.
+func (s *Server) authorizeDesktop(ctx context.Context) error {
 	caller, err := callerOf(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if caller.role == roleUser && caller.account.Name != h.server.config.DesktopUser {
-		return nil, denied("agent: the desktop belongs to %s, and this socket is %s",
-			h.server.config.DesktopUser, caller.account.Name)
+	if caller.role == roleUser && caller.account.Name != s.config.DesktopUser {
+		return denied("agent: the desktop belongs to %s, and this socket is %s",
+			s.config.DesktopUser, caller.account.Name)
 	}
-	return caller, nil
+	return nil
 }
 
 // call passes one call to the desktop provider.
@@ -120,21 +121,21 @@ func (h *desktopService) call(ctx context.Context, method string, args, result a
 	answer, err := h.server.registry.call(ctx, DesktopProvider, method, encoded)
 	if err != nil {
 		if errors.Is(err, ErrUnavailable) {
-			return fmt.Errorf("%w: no desktop provider is registered on this host", ErrUnavailable)
+			return ErrNoDesktop
 		}
 		return err
 	}
 	if result == nil {
 		return nil
 	}
-	if len(answer) == 0 {
-		return nil
+	if err := cborx.Unmarshal(answer, result); err != nil {
+		return fmt.Errorf("agent: decoding the desktop provider result: %w", err)
 	}
-	return cborx.Unmarshal(answer, result)
+	return nil
 }
 
 func (h *desktopService) Screenshot(ctx context.Context, request *connect.Request[hostv1.DesktopServiceScreenshotRequest]) (*connect.Response[hostv1.DesktopServiceScreenshotResponse], error) {
-	if _, err := h.caller(ctx); err != nil {
+	if err := h.server.authorizeDesktop(ctx); err != nil {
 		return nil, err
 	}
 
@@ -154,7 +155,7 @@ func (h *desktopService) Screenshot(ctx context.Context, request *connect.Reques
 }
 
 func (h *desktopService) Input(ctx context.Context, request *connect.Request[hostv1.DesktopServiceInputRequest]) (*connect.Response[hostv1.DesktopServiceInputResponse], error) {
-	if _, err := h.caller(ctx); err != nil {
+	if err := h.server.authorizeDesktop(ctx); err != nil {
 		return nil, err
 	}
 
@@ -206,7 +207,7 @@ func desktopInput(request *hostv1.DesktopServiceInputRequest) (*DesktopInput, er
 }
 
 func (h *desktopService) GetClipboard(ctx context.Context, _ *connect.Request[hostv1.DesktopServiceGetClipboardRequest]) (*connect.Response[hostv1.DesktopServiceGetClipboardResponse], error) {
-	if _, err := h.caller(ctx); err != nil {
+	if err := h.server.authorizeDesktop(ctx); err != nil {
 		return nil, err
 	}
 
@@ -218,7 +219,7 @@ func (h *desktopService) GetClipboard(ctx context.Context, _ *connect.Request[ho
 }
 
 func (h *desktopService) SetClipboard(ctx context.Context, request *connect.Request[hostv1.DesktopServiceSetClipboardRequest]) (*connect.Response[hostv1.DesktopServiceSetClipboardResponse], error) {
-	if _, err := h.caller(ctx); err != nil {
+	if err := h.server.authorizeDesktop(ctx); err != nil {
 		return nil, err
 	}
 
@@ -229,7 +230,7 @@ func (h *desktopService) SetClipboard(ctx context.Context, request *connect.Requ
 }
 
 func (h *desktopService) Pause(ctx context.Context, _ *connect.Request[hostv1.DesktopServicePauseRequest]) (*connect.Response[hostv1.DesktopServicePauseResponse], error) {
-	if _, err := h.caller(ctx); err != nil {
+	if err := h.server.authorizeDesktop(ctx); err != nil {
 		return nil, err
 	}
 	if err := h.call(ctx, DesktopMethodPause, struct{}{}, nil); err != nil {
@@ -239,7 +240,7 @@ func (h *desktopService) Pause(ctx context.Context, _ *connect.Request[hostv1.De
 }
 
 func (h *desktopService) Resume(ctx context.Context, _ *connect.Request[hostv1.DesktopServiceResumeRequest]) (*connect.Response[hostv1.DesktopServiceResumeResponse], error) {
-	if _, err := h.caller(ctx); err != nil {
+	if err := h.server.authorizeDesktop(ctx); err != nil {
 		return nil, err
 	}
 	if err := h.call(ctx, DesktopMethodResume, struct{}{}, nil); err != nil {
@@ -252,7 +253,7 @@ func (h *desktopService) Resume(ctx context.Context, _ *connect.Request[hostv1.D
 // has none rather than failing: a screen with no desktop is a state, not an
 // error.
 func (h *desktopService) State(ctx context.Context, _ *connect.Request[hostv1.DesktopServiceStateRequest]) (*connect.Response[hostv1.DesktopServiceStateResponse], error) {
-	if _, err := h.caller(ctx); err != nil {
+	if err := h.server.authorizeDesktop(ctx); err != nil {
 		return nil, err
 	}
 

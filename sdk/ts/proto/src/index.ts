@@ -6,6 +6,7 @@ export * from "./gen/rookery/v1/access_service_pb.js";
 export * from "./gen/rookery/v1/audit_pb.js";
 export * from "./gen/rookery/v1/auth_pb.js";
 export * from "./gen/rookery/v1/data_pb.js";
+export * from "./gen/rookery/v1/desktop_pb.js";
 export * from "./gen/rookery/v1/event_pb.js";
 export * from "./gen/rookery/v1/group_pb.js";
 export * from "./gen/rookery/v1/job_pb.js";
