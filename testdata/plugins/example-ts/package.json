@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "start": "bun run service/main.ts",
-    "build": "bun build web/main.ts --outfile=web/index.js --format=esm --target=browser"
+    "build": "bun build web/main.ts --outfile=web/index.js --format=esm --target=browser && bun build service/main.ts --outfile=service/index.js --target=bun"
   },
   "dependencies": {
     "@rookery/client": "workspace:*",
     "@rookery/proto": "workspace:*",
-    "@rookery/sdk": "workspace:*"
+    "@rookery/sdk": "workspace:*",
+    "@connectrpc/connect": "^2.3.0"
   }
 }

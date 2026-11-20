@@ -9,10 +9,10 @@ requires: ">=0.1.0"
 
 service:
   runtime: bun
-  entry: service/main.ts
+  entry: service/index.js
   start: lazy
   rpc:
-    - procedure: examplets.v1.NoteService/Summarize
+    - procedure: example.v1.NoteService/Summarize
       access: { level: view, resource: space }
 
 collections:

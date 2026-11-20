@@ -2,14 +2,9 @@ id: example
 version: 0.1.0
 name: Example
 requires: ">=0.1.0"
-dependencies: { other: "^1.0" }
-
-# The manifest alone, for now: the fixture's service, its feature's tasks and its
-# provisioner arrive with the code that runs them.
 
 service:
-  runtime: bun
-  entry: service/main.ts
+  command: { linux/amd64: bin/service-amd64, linux/arm64: bin/service-arm64 }
   start: lazy
   rpc:
     - procedure: example.v1.NoteService/Summarize

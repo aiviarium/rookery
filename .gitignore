@@ -5,3 +5,5 @@
 # The TypeScript SDK's dependencies and the fixture plugins' bundles.
 node_modules/
 /testdata/plugins/*/web/index.js
+!/testdata/plugins/example/web/index.js
+/testdata/plugins/example-ts/service/index.js
