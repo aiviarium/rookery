@@ -1,9 +1,9 @@
 // The page a person meets before they are signed in.
 import { Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
+import { Button, Callout, Card, Icon } from "@aiviarium/nocturne";
 
 import { useShell } from "./shell.tsx";
-import { Button, Callout, Card, Glyph } from "./ui.tsx";
 
 /** SignIn asks how to sign in, and says what to do about it. */
 export function SignIn(): JSX.Element {
@@ -19,19 +19,17 @@ export function SignIn(): JSX.Element {
   };
 
   return (
-    <div class="nc-shell" style={{ "grid-template-columns": "minmax(0, 1fr)", "place-items": "center" }}>
-      <div style={{ "max-width": "440px", width: "100%", padding: "var(--space-6)" }} class="nc-stack">
-        <div class="nc-row" style={{ gap: "var(--space-2)" }}>
-          <Glyph name="server" size={24} />
+    <div class="shell-centered">
+      <div class="shell-signin nc-stack">
+        <div class="nc-row nc-row--tight">
+          <Icon name="server" size="lg" />
           <h1 class="nc-type-title" style={{ margin: "0" }}>Rookery</h1>
         </div>
         <p class="nc-muted">Sign in to this server.</p>
 
         <Show when={status() === "error"}>
           <Callout tone="danger">
-            <div class="nc-callout__body">
-              The server could not be asked who you are. Check that it is running, then try again.
-            </div>
+            The server could not be asked who you are. Check that it is running, then try again.
           </Callout>
         </Show>
 
@@ -51,9 +49,9 @@ export function SignIn(): JSX.Element {
                 </>
               }
             >
-              <a class="nc-btn nc-btn--primary" href={startOIDC()}>
+              <Button variant="primary" href={startOIDC()}>
                 Sign in with your identity provider
-              </a>
+              </Button>
             </Show>
             <Button
               variant="ghost"

@@ -1,11 +1,21 @@
 // Secrets: the deployment's sealed values, by name and scope. A value is never
 // read back, so the page shows names only.
-import { For, Show, createSignal } from "solid-js";
+import { Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { createQuery } from "@rookery/client/solid";
+import type { Secret } from "@rookery/proto";
+import {
+  Badge,
+  Button,
+  Callout,
+  Card,
+  DataTable,
+  type DataColumn,
+  Select,
+  TextField,
+} from "@aiviarium/nocturne";
 
 import { useShell } from "../../shell.tsx";
-import { Badge, Button, Callout, Card, Empty, Field, Input, Select, Spinner, Table } from "../../ui.tsx";
 
 /** SCOPES are the places a secret can belong to. */
 const SCOPES = [
@@ -47,24 +57,69 @@ export function SecretsSection(): JSX.Element {
     }
   };
 
+  const columns = (): DataColumn<Secret>[] => [
+    { id: "name", header: "Name", type: "mono", accessor: secret => secret.name },
+    {
+      id: "scope",
+      header: "Scope",
+      accessor: secret => secret.scope,
+      cell: secret => <Badge tone="outline">{secret.scope}</Badge>,
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: secret => (
+        <div class="nc-row nc-row--tight">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              const next = window.prompt("New name", secret.name);
+              if (next === null || next.trim() === "") return;
+              void shell.rookery.secrets
+                .rename({ name: secret.name, scope: secret.scope, newName: next.trim() })
+                .then(() => secrets.refresh());
+            }}
+          >
+            Rename
+          </Button>
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={() => {
+              void shell.rookery.secrets.delete({ name: secret.name, scope: secret.scope }).then(() => secrets.refresh());
+            }}
+          >
+            Remove
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
   return (
-    <Card title="Secrets">
-      <div class="nc-stack">
+    <Card title="Secrets" padding="none">
+      <div class="shell-pad nc-stack">
         <div class="nc-row">
-          <Field label="Name">
-            <Input id="secret-name" value={name()} placeholder="github_token" onInput={setName} />
-          </Field>
-          <Field label="Scope">
-            <Select value={scope()} options={SCOPES} onChange={setScope} />
-          </Field>
+          <TextField label="Name" id="secret-name" value={name()} placeholder="github_token" onInput={event => setName(event.currentTarget.value)} />
+          <Select label="Scope" value={scope()} options={SCOPES} onChange={setScope} />
           <Show when={scope() !== "global"}>
-            <Field label={scope() === "host" ? "Host" : scope() === "plugin" ? "Plugin" : "Provisioner"}>
-              <Input id="secret-subject" value={subject()} placeholder="studio" onInput={setSubject} />
-            </Field>
+            <TextField
+              label={scope() === "host" ? "Host" : scope() === "plugin" ? "Plugin" : "Provisioner"}
+              id="secret-subject"
+              value={subject()}
+              placeholder="studio"
+              onInput={event => setSubject(event.currentTarget.value)}
+            />
           </Show>
-          <Field label="Value">
-            <Input id="secret-value" type="password" value={value()} autocomplete="new-password" onInput={setValue} />
-          </Field>
+          <TextField
+            label="Value"
+            id="secret-value"
+            type="password"
+            autocomplete="new-password"
+            value={value()}
+            onInput={event => setValue(event.currentTarget.value)}
+          />
           <Button variant="primary" size="sm" onClick={() => void set()}>
             Set
           </Button>
@@ -75,53 +130,19 @@ export function SecretsSection(): JSX.Element {
         <Show when={error() !== ""}>
           <Callout tone="danger">{error()}</Callout>
         </Show>
-
-        <Show when={secrets() !== undefined} fallback={<Spinner />}>
-          <Show
-            when={(secrets()?.secrets.length ?? 0) > 0}
-            fallback={<Empty title="No secrets" description="A secret reaches only what its scope names: a plugin, a provisioner, a host or the deployment." />}
-          >
-            <Table columns={["Name", "Scope", ""]}>
-              <For each={secrets()?.secrets ?? []}>
-                {secret => (
-                  <tr>
-                    <td class="nc-mono">{secret.name}</td>
-                    <td>
-                      <Badge tone="outline">{secret.scope}</Badge>
-                    </td>
-                    <td>
-                      <div class="nc-row nc-row--tight">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            const next = window.prompt("New name", secret.name);
-                            if (next === null || next.trim() === "") return;
-                            void shell.rookery.secrets
-                              .rename({ name: secret.name, scope: secret.scope, newName: next.trim() })
-                              .then(() => secrets.refresh());
-                          }}
-                        >
-                          Rename
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          onClick={() => {
-                            void shell.rookery.secrets.delete({ name: secret.name, scope: secret.scope }).then(() => secrets.refresh());
-                          }}
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </For>
-            </Table>
-          </Show>
-        </Show>
       </div>
+      <DataTable
+        bare
+        label="Secrets"
+        rows={secrets()?.secrets ?? []}
+        columns={columns()}
+        getRowId={secret => `${secret.scope}/${secret.name}`}
+        loading={secrets.pending() && secrets() === undefined}
+        empty={{
+          title: "No secrets",
+          description: "A secret reaches only what its scope names: a plugin, a provisioner, a host or the deployment.",
+        }}
+      />
     </Card>
   );
 }

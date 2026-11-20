@@ -6,11 +6,22 @@ import { Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { cbor } from "@rookery/client";
 import type { RolloutHost } from "@rookery/proto";
+import {
+  Button,
+  Callout,
+  DataTable,
+  type DataColumn,
+  Dialog,
+  EmptyState,
+  SectionHeading,
+  Select,
+  State,
+  Switch,
+  TextField,
+} from "@aiviarium/nocturne";
 
 import { useShell } from "../../../shell.tsx";
-import { Button, Callout, Empty, Field, Input, Select, Switch } from "../../../ui.tsx";
 import { errorMessage, rolloutHostState } from "../format.ts";
-import { Dialog, StateText, Table, type Column } from "../parts.tsx";
 
 export function NewRollout(props: { onClose: () => void; onStarted: (id: string) => void }): JSX.Element {
   const shell = useShell();
@@ -100,19 +111,19 @@ export function NewRollout(props: { onClose: () => void; onStarted: (id: string)
     }
   };
 
-  const columns: Column<RolloutHost>[] = [
-    { id: "host", header: "Host", mono: true, value: host => host.host },
+  const columns = (): DataColumn<RolloutHost>[] => [
+    { id: "host", header: "Host", type: "mono", accessor: host => host.host },
     {
       id: "state",
       header: "Would",
-      value: host => rolloutHostState(host.state).label,
+      accessor: host => rolloutHostState(host.state).label,
       cell: host => {
         const shown = rolloutHostState(host.state);
-        return <StateText tone={shown.tone}>{shown.label}</StateText>;
+        return <State status={shown.tone}>{shown.label}</State>;
       },
     },
-    { id: "batch", header: "Batch", num: true, value: host => `${host.batch}` },
-    { id: "why", header: "Why", value: host => host.reason },
+    { id: "batch", header: "Batch", type: "num", accessor: host => `${host.batch}` },
+    { id: "why", header: "Why", accessor: host => host.reason },
   ];
 
   return (
@@ -136,8 +147,9 @@ export function NewRollout(props: { onClose: () => void; onStarted: (id: string)
         </>
       }
     >
-      <Field label="Runs">
+      <div class="nc-stack">
         <Select
+          label="Runs"
           value={kind()}
           options={[
             { value: "host.apply", label: "Apply the host profiles" },
@@ -145,79 +157,94 @@ export function NewRollout(props: { onClose: () => void; onStarted: (id: string)
           ]}
           onChange={chosen => setKind(chosen as "host.apply" | "host.action")}
         />
-      </Field>
-      <Show when={kind() === "host.action"}>
-        <Field label="Action" hint="A core action such as status, update or reboot, or one a feature declares.">
-          <Input value={action()} placeholder="update" onInput={setAction} />
-        </Field>
-      </Show>
-      <h3 class="nc-section-heading">Selection</h3>
-      <Field label="Hosts">
-        <Input value={hosts()} placeholder="studio, forge" onInput={setHosts} />
-      </Field>
-      <Field label="Label selector" hint="Every criterion is set, so a host must meet all of them.">
-        <Input value={labels()} placeholder="role=desk,site!=lab" onInput={setLabels} />
-      </Field>
-      <Switch label="Only hosts behind their profile" checked={behind()} onChange={setBehind} />
-      <h3 class="nc-section-heading">Batches</h3>
-      <div class="nc-row">
-        <Field label="Batch size">
-          <Input value={size()} onInput={setSize} />
-        </Field>
-        <Field label="Or percent">
-          <Input value={percent()} placeholder="25" onInput={setPercent} />
-        </Field>
-        <Field label="Failures allowed">
-          <Input value={failures()} onInput={setFailures} />
-        </Field>
-      </div>
-      <div class="nc-row">
-        <Field label="Canary" hint="Hosts that run first, then wait for Resume.">
-          <Input value={canary()} onInput={setCanary} />
-        </Field>
-        <Field label="Pause between batches, seconds">
-          <Input value={pause()} onInput={setPause} />
-        </Field>
-      </div>
-      <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
-      <Show when={plan()}>
-        {planned => (
-          <>
-            <h3 class="nc-section-heading">The plan</h3>
-            <Show
-              when={planned().hosts.length > 0}
-              fallback={<Callout tone="warning">The selection names no host that can take it.</Callout>}
-            >
-              <p class="nc-meta">
-                {planned().hosts.length} {planned().hosts.length === 1 ? "host" : "hosts"} would run.
-              </p>
-            </Show>
-            <Table
-              label="Hosts the roll-out would work"
-              rows={planned().hosts}
-              columns={columns}
-              rowKey={host => host.host}
-            />
-            <Show when={planned().skipped.length > 0}>
-              <Callout tone="info">
-                {planned().skipped.length} {planned().skipped.length === 1 ? "host" : "hosts"} would be skipped.
-              </Callout>
-              <Table
-                label="Hosts the roll-out would skip"
-                rows={planned().skipped}
-                columns={columns}
-                rowKey={host => host.host}
-              />
-            </Show>
-          </>
-        )}
-      </Show>
-      <Show when={plan() === undefined}>
-        <Empty
-          title="Plan before starting"
-          description="The plan says which hosts it would work, in which batch, and why it would skip the others."
+        <Show when={kind() === "host.action"}>
+          <TextField
+            label="Action"
+            help="A core action such as status, update or reboot, or one a feature declares."
+            value={action()}
+            placeholder="update"
+            onInput={event => setAction(event.currentTarget.value)}
+          />
+        </Show>
+        <SectionHeading title="Selection" level={3} />
+        <TextField
+          label="Hosts"
+          value={hosts()}
+          placeholder="studio, forge"
+          onInput={event => setHosts(event.currentTarget.value)}
         />
-      </Show>
+        <TextField
+          label="Label selector"
+          help="Every criterion is set, so a host must meet all of them."
+          value={labels()}
+          placeholder="role=desk,site!=lab"
+          onInput={event => setLabels(event.currentTarget.value)}
+        />
+        <Switch label="Only hosts behind their profile" checked={behind()} onChange={setBehind} />
+        <SectionHeading title="Batches" level={3} />
+        <div class="nc-row">
+          <TextField label="Batch size" value={size()} onInput={event => setSize(event.currentTarget.value)} />
+          <TextField label="Or percent" value={percent()} placeholder="25" onInput={event => setPercent(event.currentTarget.value)} />
+          <TextField label="Failures allowed" value={failures()} onInput={event => setFailures(event.currentTarget.value)} />
+        </div>
+        <div class="nc-row">
+          <TextField
+            label="Canary"
+            help="Hosts that run first, then wait for Resume."
+            value={canary()}
+            onInput={event => setCanary(event.currentTarget.value)}
+          />
+          <TextField
+            label="Pause between batches, seconds"
+            value={pause()}
+            onInput={event => setPause(event.currentTarget.value)}
+          />
+        </div>
+        <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
+        <Show when={plan()}>
+          {planned => (
+            <>
+              <SectionHeading title="The plan" level={3} />
+              <Show
+                when={planned().hosts.length > 0}
+                fallback={<Callout tone="warning">The selection names no host that can take it.</Callout>}
+              >
+                <p class="nc-meta">
+                  {planned().hosts.length} {planned().hosts.length === 1 ? "host" : "hosts"} would run.
+                </p>
+              </Show>
+              <DataTable
+                bare
+                label="Hosts the roll-out would work"
+                rows={planned().hosts}
+                columns={columns()}
+                getRowId={host => host.host}
+                empty={{ title: "No host would run" }}
+              />
+              <Show when={planned().skipped.length > 0}>
+                <Callout tone="info">
+                  {planned().skipped.length} {planned().skipped.length === 1 ? "host" : "hosts"} would be skipped.
+                </Callout>
+                <DataTable
+                  bare
+                  label="Hosts the roll-out would skip"
+                  rows={planned().skipped}
+                  columns={columns()}
+                  getRowId={host => host.host}
+                  empty={{ title: "No host would be skipped" }}
+                />
+              </Show>
+            </>
+          )}
+        </Show>
+        <Show when={plan() === undefined}>
+          <EmptyState
+            size="sm"
+            title="Plan before starting"
+            description="The plan says which hosts it would work, in which batch, and why it would skip the others."
+          />
+        </Show>
+      </div>
     </Dialog>
   );
 }

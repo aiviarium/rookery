@@ -1,16 +1,16 @@
 // The bottom line: whether the shell is talking to the server, and where it is.
-import { Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
+import { MetaLine, State, type DotStatus } from "@aiviarium/nocturne";
 
 import { useShell } from "../shell.tsx";
-import { Glyph } from "../ui.tsx";
 
-/** StatusBar is the connection, the server and the space. */
+/** StatusBar is the link to the server and what this shell is showing. */
 export function StatusBar(): JSX.Element {
   const shell = useShell();
 
-  const status = shell.connection.status;
-  const label = () => {
+  const status = () => shell.connection.status();
+
+  const label = (): string => {
     switch (status()) {
       case "online":
         return "Connected";
@@ -20,38 +20,33 @@ export function StatusBar(): JSX.Element {
         return "Offline";
     }
   };
-  const dot = () => {
+
+  const dot = (): DotStatus => {
     switch (status()) {
       case "online":
-        return "nc-dot nc-dot--live";
+        return "live";
       case "connecting":
-        return "nc-dot nc-dot--warn";
+        return "warn";
       default:
-        return "nc-dot nc-dot--error";
+        return "error";
     }
   };
 
+  const halves = () => shell.plugins.halves().length;
+
   return (
-    <footer class="nc-shell__status">
-      <span class="nc-row" style={{ gap: "var(--space-1)" }} title="The shell's stream to the server">
-        <span class={dot()} />
-        <span class="nc-meta">{label()}</span>
+    <>
+      <span title="The shell's stream to the server">
+        <State status={dot()}>{label()}</State>
       </span>
-      <span class="nc-row nc-meta" style={{ gap: "var(--space-1)" }}>
-        <Glyph name="server" size={12} />
-        {shell.rookery.baseUrl}
-      </span>
-      <Show when={shell.spaces.currentSpace()}>
-        {space => (
-          <span class="nc-row nc-meta" style={{ gap: "var(--space-1)" }}>
-            <Glyph name="space" size={12} />
-            {space().name}
-          </span>
-        )}
-      </Show>
-      <span class="nc-meta" style={{ "margin-left": "auto" }}>
-        {shell.plugins.halves().length} plugin{shell.plugins.halves().length === 1 ? "" : "s"}
-      </span>
-    </footer>
+      <MetaLine
+        class="shell-status__where"
+        items={[
+          { label: shell.rookery.baseUrl, icon: "server", mono: true },
+          shell.spaces.currentSpace()?.name ?? false,
+          `${halves()} plugin${halves() === 1 ? "" : "s"}`,
+        ]}
+      />
+    </>
   );
 }

@@ -1,9 +1,9 @@
 // The deployment's knobs: settings, secrets and connections.
-import { Match, Show, Switch, createSignal } from "solid-js";
+import { Match, Switch, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
+import { Tabs } from "@aiviarium/nocturne";
 
-import { useShell } from "../../shell.tsx";
-import { Page, Tabs } from "../../ui.tsx";
+import { Page } from "../../parts/page.tsx";
 import { ConnectionsSection } from "./connections.tsx";
 import { SecretsSection } from "./secrets.tsx";
 import { SettingsSection } from "./settings-section.tsx";
@@ -17,13 +17,11 @@ const TABS = [
 
 /** SettingsPage is settings, secrets and connections, one tab each. */
 export function SettingsPage(): JSX.Element {
-  const shell = useShell();
   const [tab, setTab] = createSignal("settings");
-  void shell;
 
   return (
     <Page title="Settings" description="What this deployment is configured with.">
-      <Tabs active={tab()} tabs={TABS} onSelect={setTab} />
+      <Tabs label="Settings sections" idPrefix="settings-tabs" items={TABS} value={tab()} onChange={setTab} />
       <Switch>
         <Match when={tab() === "settings"}>
           <SettingsSection />
@@ -35,7 +33,6 @@ export function SettingsPage(): JSX.Element {
           <ConnectionsSection />
         </Match>
       </Switch>
-      <Show when={false}>{null}</Show>
     </Page>
   );
 }

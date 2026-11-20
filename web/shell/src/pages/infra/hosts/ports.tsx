@@ -7,8 +7,16 @@
 // origin, so it sits beside the shell rather than inside it.
 import { For, Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
-
-import { Button, Callout, Card, Empty, Field, IconButton, Input } from "../../../ui.tsx";
+import {
+  Button,
+  Callout,
+  Card,
+  EmptyState,
+  IconButton,
+  ListRow,
+  RowList,
+  TextField,
+} from "@aiviarium/nocturne";
 
 /** PortForward is one saved port on a host. */
 interface PortForward {
@@ -84,12 +92,13 @@ export function HostPorts(props: { host: string }): JSX.Element {
           add();
         }}
       >
-        <Field label="Port">
-          <Input value={port()} placeholder="5173" onInput={setPort} />
-        </Field>
-        <Field label="What runs there">
-          <Input value={label()} placeholder="dev server" onInput={setLabel} />
-        </Field>
+        <TextField label="Port" value={port()} placeholder="5173" onInput={event => setPort(event.currentTarget.value)} />
+        <TextField
+          label="What runs there"
+          value={label()}
+          placeholder="dev server"
+          onInput={event => setLabel(event.currentTarget.value)}
+        />
         <Button type="submit" disabled={port() === ""}>
           Add forward
         </Button>
@@ -98,29 +107,40 @@ export function HostPorts(props: { host: string }): JSX.Element {
       <Show
         when={saved().length > 0}
         fallback={
-          <Empty
+          <EmptyState
+            size="sm"
             title="No forwards yet"
             description={`A port a program on ${props.host} listens on, such as a dev server, opened through the server.`}
           />
         }
       >
-        <ul class="nc-list">
+        <RowList label="Port forwards" variant="inline">
           <For each={saved()}>
             {forward => (
-              <li class="nc-list__row" data-port={forward.port}>
-                <span class="nc-code">{forward.port}</span>
-                <span class="infra-grow">{forward.label ?? ""}</span>
-                <Button
-                  size="sm"
-                  onClick={() => window.open(portPath(props.host, forward.port), "_blank", "noopener,noreferrer")}
-                >
-                  Open
-                </Button>
-                <IconButton label={`Forget the port ${forward.port}`} glyph="close" onClick={() => forget(forward.port)} />
-              </li>
+              <ListRow
+                data-port={forward.port}
+                title={<span class="nc-code">{forward.port}</span>}
+                secondary={forward.label ?? ""}
+                persistentActions={
+                  <Button
+                    size="sm"
+                    onClick={() => window.open(portPath(props.host, forward.port), "_blank", "noopener,noreferrer")}
+                  >
+                    Open
+                  </Button>
+                }
+                actions={
+                  <IconButton
+                    size="sm"
+                    label={`Forget the port ${forward.port}`}
+                    icon="close"
+                    onClick={() => forget(forward.port)}
+                  />
+                }
+              />
             )}
           </For>
-        </ul>
+        </RowList>
       </Show>
       <p class="nc-muted">
         A forward opens in a tab of its own. The server reaches only ports on {props.host}'s loopback.

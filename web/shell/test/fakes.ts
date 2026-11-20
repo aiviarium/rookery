@@ -243,6 +243,31 @@ export function fakeTransport(site: FakeSite): Transport {
     router.service(HostService, {
       list: () => ({ hosts: site.hosts ?? [], nextCursor: "" }),
       get: (request) => ({ host: (site.hosts ?? []).find((host) => host.name === request.name) }),
+      add(request) {
+        const host = {
+          name: request.name,
+          type: request.type,
+          address: request.address,
+          profile: {
+            $typeName: "rookery.v1.HostProfile",
+            type: request.type,
+            address: request.address,
+            port: request.port,
+            sshUser: request.user,
+            operator: "ops",
+            tailnet: false,
+            registries: [],
+            features: [],
+            varsCbor: new Uint8Array(),
+            desktop: undefined,
+          },
+          labels: {},
+          appliedDigest: "",
+          digest: "",
+        } as unknown as Host;
+        site.hosts = [...(site.hosts ?? []), host];
+        return { host, firstContact: "" };
+      },
       listActions: () => ({ actions: site.actions ?? [] }),
       apply: () => ({ job: "01hjob" }),
       rename: () => ({ host: site.hosts?.[0] }),

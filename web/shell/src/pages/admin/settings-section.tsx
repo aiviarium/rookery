@@ -1,13 +1,13 @@
 // One setting at a time: what it is, what it is now, and where its value comes
 // from.
-import { For, Show, createSignal } from "solid-js";
+import { Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { cbor } from "@rookery/client";
 import { createQuery } from "@rookery/client/solid";
 import type { Setting } from "@rookery/proto";
+import { Badge, Button, Callout, Card, DataTable, type DataColumn, Select, TextField } from "@aiviarium/nocturne";
 
 import { useShell } from "../../shell.tsx";
-import { Badge, Button, Callout, Card, Empty, Input, Select, Spinner, Table } from "../../ui.tsx";
 
 /** SettingsSection is the settings the core and the plugins declare. */
 export function SettingsSection(): JSX.Element {
@@ -37,88 +37,111 @@ export function SettingsSection(): JSX.Element {
     }
   };
 
-  return (
-    <Card
-      title="Settings"
-      actions={
-        <Select
-          value={scope()}
-          options={[
-            { value: "global", label: "Deployment-wide" },
-            { value: "space", label: "This space" },
-            { value: "user", label: "Only me" },
-          ]}
-          onChange={setScope}
-        />
-      }
-    >
-      <Show when={settings() !== undefined} fallback={<Spinner />}>
+  const columns = (): DataColumn<Setting>[] => [
+    { id: "key", header: "Setting", type: "mono", accessor: setting => setting.key },
+    {
+      id: "type",
+      header: "Type",
+      accessor: setting => setting.type,
+      cell: setting => <Badge tone="outline">{setting.type}</Badge>,
+    },
+    {
+      id: "value",
+      header: "Value",
+      cell: setting => (
         <Show
-          when={(settings()?.settings.length ?? 0) > 0}
-          fallback={<Empty title="No settings" description="The core and each installed plugin declare the settings they take." />}
+          when={setting.type === "bool"}
+          fallback={
+            <TextField
+              id={`setting-${setting.key.replaceAll("/", "-")}`}
+              aria-label={setting.key}
+              value={draft(setting)}
+              onInput={event => setDraft(setting.key, event.currentTarget.value)}
+            />
+          }
         >
-          <Table columns={["Setting", "Type", "Value", "From", ""]}>
-            <For each={settings()?.settings ?? []}>
-              {setting => (
-                <tr>
-                  <td class="nc-mono">{setting.key}</td>
-                  <td>
-                    <Badge tone="outline">{setting.type}</Badge>
-                  </td>
-                  <td>
-                    <Show
-                      when={setting.type === "bool"}
-                      fallback={
-                        <Input
-                          id={`setting-${setting.key.replaceAll("/", "-")}`}
-                          class="nc-input"
-                          value={draft(setting)}
-                          onInput={(value) => setDraft(setting.key, value)}
-                        />
-                      }
-                    >
-                      <Select
-                        value={draft(setting) === "true" ? "true" : "false"}
-                        options={[
-                          { value: "true", label: "on" },
-                          { value: "false", label: "off" },
-                        ]}
-                        onChange={(value) => setDraft(setting.key, value)}
-                      />
-                    </Show>
-                  </td>
-                  <td>
-                    <Badge tone={setting.scope === "default" ? "outline" : "info"}>{setting.scope}</Badge>
-                  </td>
-                  <td>
-                    <div class="nc-row nc-row--tight">
-                      <Button size="sm" onClick={() => void save(setting)}>
-                        Save
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          void shell.rookery.settings
-                            .reset({ key: setting.key, scope: scope(), space: scope() === "space" ? shell.spaces.current() : "" })
-                            .then(() => settings.refresh());
-                        }}
-                      >
-                        Reset
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </For>
-          </Table>
+          <Select
+            aria-label={setting.key}
+            value={draft(setting) === "true" ? "true" : "false"}
+            options={[
+              { value: "true", label: "on" },
+              { value: "false", label: "off" },
+            ]}
+            onChange={value => setDraft(setting.key, value)}
+          />
         </Show>
-      </Show>
+      ),
+    },
+    {
+      id: "from",
+      header: "From",
+      accessor: setting => setting.scope,
+      cell: setting => <Badge tone={setting.scope === "default" ? "outline" : "info"}>{setting.scope}</Badge>,
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: setting => (
+        <div class="nc-row nc-row--tight">
+          <Button size="sm" onClick={() => void save(setting)}>
+            Save
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              void shell.rookery.settings
+                .reset({ key: setting.key, scope: scope(), space: scope() === "space" ? shell.spaces.current() : "" })
+                .then(() => settings.refresh());
+            }}
+          >
+            Reset
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <>
+      <Card
+        title="Settings"
+        padding="none"
+        action={
+          <Select
+            aria-label="The scope a value is saved in"
+            value={scope()}
+            options={[
+              { value: "global", label: "Deployment-wide" },
+              { value: "space", label: "This space" },
+              { value: "user", label: "Only me" },
+            ]}
+            onChange={setScope}
+          />
+        }
+      >
+        <DataTable
+          bare
+          label="Settings"
+          rows={settings()?.settings ?? []}
+          columns={columns()}
+          getRowId={setting => setting.key}
+          loading={settings.pending() && settings() === undefined}
+          empty={{
+            title: "No settings",
+            description: "The core and each installed plugin declare the settings they take.",
+          }}
+          error={
+            settings.error() === undefined
+              ? undefined
+              : { message: "The settings could not be read.", detail: settings.error()?.message }
+          }
+        />
+      </Card>
       <Show when={error() !== ""}>
         <Callout tone="danger">{error()}</Callout>
       </Show>
-
-    </Card>
+    </>
   );
 }
 

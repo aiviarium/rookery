@@ -5,11 +5,21 @@ import { Show, createSignal, onSettled } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { createQuery } from "@rookery/client/solid";
 import type { Rollout } from "@rookery/proto";
+import {
+  Badge,
+  Callout,
+  Card,
+  DataTable,
+  type DataColumn,
+  FilterBar,
+  FilterCount,
+  Select,
+  State,
+} from "@aiviarium/nocturne";
 
 import { useShell } from "../../../shell.tsx";
-import { Badge, Button, Callout, Card, Field, IconButton, Page, Select, Spinner } from "../../../ui.tsx";
+import { Page } from "../../../parts/page.tsx";
 import { relativeTime, rolloutState, dateOf } from "../format.ts";
-import { StateText, Table, type Column } from "../parts.tsx";
 import { NewRollout } from "./new.tsx";
 
 const STATES = ["", "running", "paused", "succeeded", "failed", "cancelled"] as const;
@@ -31,78 +41,74 @@ export function RolloutsPage(): JSX.Element {
     }),
   );
 
-  const columns: Column<Rollout>[] = [
+  const rows = () => rollouts()?.rollouts ?? [];
+
+  const columns = (): DataColumn<Rollout>[] => [
     {
       id: "runs",
       header: "Runs",
-      value: rollout => rollout.kind,
-      cell: rollout => (
-        <Badge tone="outline">{rollout.kind === "host.action" ? "action" : "apply"}</Badge>
-      ),
+      accessor: rollout => rollout.kind,
+      cell: rollout => <Badge tone="outline">{rollout.kind === "host.action" ? "action" : "apply"}</Badge>,
     },
     {
       id: "state",
       header: "State",
-      value: rollout => rolloutState(rollout.pausedBecause === "" ? rollout.state : "paused").label,
+      accessor: rollout => rolloutState(rollout.pausedBecause === "" ? rollout.state : "paused").label,
       cell: rollout => {
         const shown = rolloutState(rollout.pausedBecause === "" ? rollout.state : "paused");
-        return <StateText tone={shown.tone}>{shown.label}</StateText>;
+        return <State status={shown.tone}>{shown.label}</State>;
       },
     },
     {
       id: "hosts",
       header: "Hosts",
-      num: true,
-      value: rollout =>
-        `${rollout.succeeded}/${rollout.succeeded + rollout.failed + rollout.pending + rollout.running}`,
+      type: "num",
+      accessor: rollout => `${rollout.succeeded}/${rollout.succeeded + rollout.failed + rollout.pending + rollout.running}`,
     },
-    { id: "failed", header: "Failed", num: true, value: rollout => `${rollout.failed}` },
-    { id: "started", header: "Started", value: rollout => relativeTime(dateOf(rollout.createdAt)) },
+    { id: "failed", header: "Failed", type: "num", accessor: rollout => `${rollout.failed}` },
+    { id: "started", header: "Started", type: "time", accessor: rollout => relativeTime(dateOf(rollout.createdAt)) },
   ];
-
-  const rows = () => rollouts()?.rollouts ?? [];
 
   return (
     <Page
       title="Roll-outs"
       description="An apply, or one action, on the hosts a selection names, in batches."
-      actions={
-        <>
-          <IconButton label="Read the roll-outs again" glyph="jobs" onClick={() => void rollouts.refresh()} />
-          <Button variant="primary" onClick={() => setStarting(true)}>
-            New roll-out
-          </Button>
-        </>
-      }
+      actions={() => [
+        { id: "refresh", label: "Read the roll-outs again", icon: "refresh-cw", onClick: () => void rollouts.refresh() },
+        { id: "new", label: "New roll-out", primary: true, onClick: () => setStarting(true) },
+      ]}
     >
       <Show when={rollouts.error()}>{error => <Callout tone="danger">{error().message}</Callout>}</Show>
-      <Card title="Roll-outs">
-        <div class="nc-stack">
-          <p class="nc-meta">{rows().length} {rows().length === 1 ? "roll-out" : "roll-outs"}</p>
-          <Field label="State">
+      <Card title="Roll-outs" count={rows().length} padding="none">
+        <div class="shell-pad">
+          <FilterBar
+            label="Roll-out filters"
+            end={<FilterCount value={rows().length} unit="Roll-outs" icon="git-pull-request" />}
+          >
             <Select
+              aria-label="State"
               value={state()}
               options={STATES.map(value => ({
                 value,
                 label: value === "" ? "Every state" : rolloutState(value).label,
               }))}
-              onChange={chosen => {
-                setState(chosen);
-                void rollouts.refresh().catch(() => undefined);
-              }}
+              onChange={setState}
             />
-          </Field>
-          <Show when={!rollouts.pending() || rollouts() !== undefined} fallback={<Spinner />}>
-            <Table
-              label="Roll-outs"
-              rows={rows()}
-              columns={columns}
-              rowKey={rollout => rollout.id}
-              onRowClick={rollout => shell.navigate(rolloutPath(rollout.id))}
-              empty="No roll-out yet. One applies a profile, or runs one action, in batches."
-            />
-          </Show>
+          </FilterBar>
         </div>
+        <DataTable
+          bare
+          label="Roll-outs"
+          rows={rows()}
+          columns={columns()}
+          getRowId={rollout => rollout.id}
+          loading={rollouts.pending() && rollouts() === undefined}
+          onRowClick={rollout => shell.navigate(rolloutPath(rollout.id))}
+          empty={{
+            title: "No roll-out yet",
+            description: "One applies a profile, or runs one action, in batches.",
+          }}
+        />
       </Card>
       <Show when={starting()}>
         <NewRollout

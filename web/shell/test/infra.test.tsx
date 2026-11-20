@@ -1,7 +1,15 @@
-// The infrastructure pages: the hosts and their page, a job's log, and the
-// machines a provisioner made.
+// The infrastructure pages: the hosts and their page, a job's log, the machines a
+// provisioner made, and the terminals a host opens.
 import { describe, expect, test } from "bun:test";
-import type { Action, Host, Job, JobLine, ProvisionerEntry, ProvisionerResource, ProvisionerType } from "@rookery/proto";
+import type {
+  Action,
+  Host,
+  Job,
+  JobLine,
+  ProvisionerEntry,
+  ProvisionerResource,
+  ProvisionerType,
+} from "@rookery/proto";
 import { HostType } from "@rookery/proto";
 
 import { STATIC_USER, fakeClient } from "./fakes.ts";
@@ -38,17 +46,37 @@ describe("the hosts page", () => {
       "/hosts",
     );
     try {
+      expect(view.find("[data-part='data-table']")).not.toBeNull();
       expect(view.text()).toContain("studio");
       expect(view.text()).toContain("Current");
       expect(view.text()).toContain("Never applied");
       expect(view.text()).toContain("role=desk");
 
-      await view.click("tr[data-row='studio']");
+      await view.click("[data-row-id='studio']");
+      expect(view.find("[data-part='view-header']")?.textContent).toContain("studio");
       expect(view.text()).toContain("Profile");
       expect(view.text()).toContain("ops@192.0.2.10");
       // The actions tab lists what the host's type and features declare.
-      await view.click("[data-tab='actions']");
+      await view.click("#host-tabs-tab-actions");
       expect(view.text()).toContain("Update packages");
+    } finally {
+      view.unmount();
+    }
+  });
+
+  test("adds a host from the dialog and opens its page", async () => {
+    const site = { user: STATIC_USER, hosts: [] as Host[] };
+    const view = await mount(fakeClient(site), undefined, "/hosts");
+    try {
+      await view.click("button[aria-label='Add host']");
+      expect(view.find("[data-part='dialog']")).not.toBeNull();
+
+      await view.type("input[placeholder='studio']", "builder");
+      await view.type("input[placeholder='192.0.2.10']", "192.0.2.30");
+      await view.click("[data-part='add-host-submit']");
+
+      expect(site.hosts.map((host) => host.name)).toEqual(["builder"]);
+      expect(view.find("[data-part='view-header']")?.textContent).toContain("builder");
     } finally {
       view.unmount();
     }
@@ -73,6 +101,7 @@ describe("a job's page", () => {
       "/jobs/01hjob",
     );
     try {
+      expect(view.find("[data-part='log-viewer']")).not.toBeNull();
       expect(view.text()).toContain("Job log");
       expect(view.text()).toContain("Installing rookeryd");
       expect(view.text()).toContain("Joining the tailnet");
@@ -162,8 +191,22 @@ describe("the machines page", () => {
       "/machines",
     );
     try {
-      await view.click("tr[data-row='01hmachine'] button");
+      await view.click("[data-row-id='01hmachine'] button");
       expect(calls).toContain("remove desk-3");
+    } finally {
+      view.unmount();
+    }
+  });
+});
+
+describe("the terminals page", () => {
+  test("offers the first host's shell", async () => {
+    const view = await mount(fakeClient({ user: STATIC_USER, hosts: [STUDIO] }), undefined, "/terminals");
+    try {
+      expect(view.text()).toContain("A new terminal");
+      expect(view.text()).toContain("No terminal is open");
+      // The host the page opens on is the first one the server lists.
+      expect(view.find("[data-part='select'] button")?.textContent).toContain("studio");
     } finally {
       view.unmount();
     }

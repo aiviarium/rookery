@@ -2,118 +2,8 @@
    themselves. Every colour is a token; no literal ones. */
 
 @layer app {
-  .infra-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: var(--space-3);
-  }
-
-  .infra-grow {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .infra-group {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .infra-action {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-1) 0;
-    border-bottom: 1px solid var(--line-subtle);
-  }
-
-  .infra-action:last-child {
-    border-bottom: 0;
-  }
-
-  .infra-action__text {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    flex: 1;
-    min-width: 0;
-  }
-
-  .infra-feature {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-2);
-    border: 1px solid var(--line-soft);
-    border-radius: var(--radius-md);
-    background: var(--bg-2);
-  }
-
-  .infra-feature > * {
-    min-width: 0;
-  }
-
-  .infra-link {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    flex: 1;
-    min-height: 28px;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-  }
-
-  .infra-link:hover {
-    color: var(--text-1);
-    text-decoration: underline;
-  }
-
-  .infra-table-wrap {
-    overflow-x: auto;
-    border: 1px solid var(--line-soft);
-    border-radius: var(--radius-md);
-  }
-
-  .infra-table {
-    min-width: 100%;
-  }
-
-  .infra-table__actions {
-    width: 1%;
-    white-space: nowrap;
-    text-align: right;
-  }
-
-  .infra-properties {
-    display: grid;
-    grid-template-columns: 120px minmax(0, 1fr);
-    gap: var(--space-1) var(--space-3);
-    margin: 0;
-    font-size: 12.5px;
-  }
-
-  .infra-properties dt {
-    line-height: 24px;
-  }
-
-  .infra-properties dd {
-    margin: 0;
-    min-height: 24px;
-    line-height: 24px;
-    color: var(--text-1);
-    overflow-wrap: anywhere;
-  }
-
-  /* Terminals: the host column, then the tabs over the panes. */
-  .infra-terminals-layout {
+  /* A host's terminals: the host column, then the tabs over the panes. */
+  .shell-terminals-layout {
     display: grid;
     grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
     gap: var(--space-3);
@@ -121,7 +11,7 @@
     min-height: 0;
   }
 
-  .infra-terminals {
+  .shell-terminals {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
@@ -130,13 +20,19 @@
     min-width: 0;
   }
 
-  .infra-terminals__panes {
+  /* The empty state takes the room the tabs and the panes would. */
+  .shell-terminals > .nc-card {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .shell-terminals__panes {
     position: relative;
     flex: 1;
     min-height: 0;
   }
 
-  .infra-terminals__pane {
+  .shell-terminals__pane {
     position: absolute;
     inset: 0;
   }
@@ -169,7 +65,7 @@
   }
 
   /* A desktop: the RFB screen, with the state over it while it is not live. */
-  .infra-desktop {
+  .shell-desktop {
     position: relative;
     min-height: 480px;
     height: min(75vh, 960px);
@@ -179,11 +75,11 @@
     background: var(--bg-0);
   }
 
-  .infra-desktop__screen {
+  .shell-desktop__screen {
     height: 100%;
   }
 
-  .infra-desktop__overlay {
+  .shell-desktop__overlay {
     position: absolute;
     inset: 0;
     display: flex;
@@ -192,34 +88,11 @@
     background: var(--bg-0);
   }
 
-  .infra-shot {
+  .shell-shot {
     display: block;
     max-width: 100%;
     margin: 0 auto;
     border: 1px solid var(--line-soft);
     border-radius: var(--radius-sm);
-  }
-
-  /* A job's log: the card fills, and the lines scroll inside it. */
-  .infra-log {
-    display: flex;
-    flex-direction: column;
-    min-height: 320px;
-    height: min(60vh, 760px);
-  }
-
-  .infra-log__body {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
-    margin: 0;
-  }
-
-  .infra-log__time {
-    display: inline-block;
-    width: 76px;
-    margin-right: var(--space-2);
-    color: var(--text-4);
-    user-select: none;
   }
 }

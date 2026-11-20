@@ -8,11 +8,20 @@ import { Show, createSignal, onCleanup, onSettled } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { useParams } from "@solidjs/router";
 import type { Job, JobServiceFollowResponse } from "@rookery/proto";
+import {
+  Button,
+  Callout,
+  Card,
+  LogViewer,
+  PropertyList,
+  State,
+  type LogEntry,
+  type StreamStatus,
+} from "@aiviarium/nocturne";
 
 import { useShell } from "../../../shell.tsx";
-import { Button, Callout, Card, IconButton, Page, Spinner } from "../../../ui.tsx";
+import { Page } from "../../../parts/page.tsx";
 import { errorMessage, jobActive, jobState, relativeTime, dateOf } from "../format.ts";
-import { Log, StateText, type LogEntry } from "../parts.tsx";
 
 /** wait pauses between two attempts to follow a job. */
 function wait(milliseconds: number): Promise<void> {
@@ -27,7 +36,7 @@ export function JobPage(): JSX.Element {
   const [job, setJob] = createSignal<Job>();
   const [entries, setEntries] = createSignal<LogEntry[]>([]);
   const [from, setFrom] = createSignal(0n);
-  const [streamState, setStreamState] = createSignal("Connecting");
+  const [stream, setStream] = createSignal<StreamStatus>("connecting");
   const [failure, setFailure] = createSignal<string>();
   const [busy, setBusy] = createSignal<"cancel" | "retry">();
 
@@ -55,7 +64,7 @@ export function JobPage(): JSX.Element {
     }
     if (event.case === "job") {
       setJob(event.value);
-      if (!jobActive(event.value)) setStreamState(jobState(event.value.state).label);
+      if (!jobActive(event.value)) setStream(event.value.state === "failed" ? "error" : "ended");
     }
   };
 
@@ -63,22 +72,22 @@ export function JobPage(): JSX.Element {
     controller?.abort();
     const mine = new AbortController();
     controller = mine;
-    setStreamState(from() === 0n ? "Connecting" : "Resuming");
+    setStream(from() === 0n ? "connecting" : "resuming");
     while (!mine.signal.aborted) {
       try {
         const stream = shell.rookery.jobs.follow({ job: id(), from: from() }, { signal: mine.signal });
         for await (const message of stream) {
           if (mine.signal.aborted) return;
-          setStreamState("Live");
+          setStream("live");
           apply(message);
         }
         if (mine.signal.aborted) return;
         if (jobActive(job())) {
-          setStreamState("Resuming");
+          setStream("resuming");
           await wait(1000);
           continue;
         }
-        setStreamState(jobState(job()?.state ?? "").label);
+        setStream(job()?.state === "failed" ? "error" : "ended");
         void read();
         return;
       } catch (error) {
@@ -86,7 +95,7 @@ export function JobPage(): JSX.Element {
         setFailure(errorMessage(error));
         await wait(1000);
         if (mine.signal.aborted) return;
-        setStreamState("Resuming");
+        setStream("resuming");
       }
     }
   };
@@ -129,64 +138,79 @@ export function JobPage(): JSX.Element {
 
   return (
     <Page
-      title={job()?.kind === undefined || job()?.kind === "" ? `Job ${id().slice(0, 10)}` : (job()!.kind)}
+      title={job()?.kind === undefined || job()?.kind === "" ? `Job ${id().slice(0, 10)}` : job()!.kind}
       description={`Job ${id()}`}
-      actions={
-        <>
-          <Show when={job()}>
-            {shown => <StateText tone={jobState(shown().state).tone}>{jobState(shown().state).label}</StateText>}
-          </Show>
-          <IconButton label="Read the job again" glyph="jobs" onClick={() => void read()} />
-          <Show when={jobActive(job())}>
-            <Button variant="danger" onClick={() => void cancel()} disabled={busy() !== undefined}>
-              {busy() === "cancel" ? "Cancelling…" : "Cancel"}
-            </Button>
-          </Show>
-          <Show when={job()?.state === "failed" || job()?.state === "cancelled"}>
-            <Button variant="primary" onClick={() => void retry()} disabled={busy() !== undefined}>
-              {busy() === "retry" ? "Retrying…" : "Retry"}
-            </Button>
-          </Show>
-        </>
+      context={
+        <Show when={job()}>
+          {shown => <State status={jobState(shown().state).tone}>{jobState(shown().state).label}</State>}
+        </Show>
       }
+      actions={() => [
+        { id: "refresh", label: "Read the job again", icon: "refresh-cw", onClick: () => void read() },
+        ...(jobActive(job())
+          ? [
+              {
+                id: "cancel",
+                label: busy() === "cancel" ? "Cancelling…" : "Cancel",
+                disabled: busy() !== undefined,
+                onClick: () => void cancel(),
+              },
+            ]
+          : []),
+        ...(job()?.state === "failed" || job()?.state === "cancelled"
+          ? [
+              {
+                id: "retry",
+                label: busy() === "retry" ? "Retrying…" : "Retry",
+                primary: true,
+                disabled: busy() !== undefined,
+                onClick: () => void retry(),
+              },
+            ]
+          : []),
+      ]}
     >
       <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
-      <Show when={job()} fallback={<Spinner />}>
+      <Show when={job()}>
         {shown => (
           <Card title="The job">
-            <dl class="infra-properties">
-              <dt class="nc-muted">Resource</dt>
-              <dd class="nc-code">{shown().resource === "" ? "—" : shown().resource}</dd>
-              <dt class="nc-muted">Created</dt>
-              <dd>{relativeTime(dateOf(shown().createdAt))}</dd>
-              <dt class="nc-muted">Attempt</dt>
-              <dd>
-                {shown().attempts} of {shown().maxAttempts}
-              </dd>
-              <dt class="nc-muted">Finished</dt>
-              <dd>{relativeTime(dateOf(shown().finishedAt)) || "Not yet"}</dd>
-            </dl>
+            <PropertyList
+              items={[
+                {
+                  label: "Resource",
+                  value: <span class="nc-code">{shown().resource === "" ? "—" : shown().resource}</span>,
+                },
+                { label: "Created", value: relativeTime(dateOf(shown().createdAt)) },
+                { label: "Attempt", value: `${shown().attempts} of ${shown().maxAttempts}` },
+                { label: "Finished", value: relativeTime(dateOf(shown().finishedAt)) || "Not yet" },
+              ]}
+            />
           </Card>
         )}
       </Show>
       <Show when={job()?.error}>
         {message => (
-          <Callout tone="danger">
-            <div class="nc-stack">
-              <span>{message()}</span>
+          <Callout
+            tone="danger"
+            action={
               <Show when={job()?.state === "failed" || job()?.state === "cancelled"}>
                 <Button size="sm" onClick={() => void retry()}>
                   Retry
                 </Button>
               </Show>
-            </div>
+            }
+          >
+            {message()}
           </Callout>
         )}
       </Show>
-      <Log
+      <LogViewer
         title="Job log"
-        state={streamState()}
+        label="Job log"
         entries={entries()}
+        streamState={stream()}
+        showTimestamps
+        maxHeight="60vh"
         empty={jobActive(job()) ? "Waiting for the first line…" : "The job wrote nothing."}
       />
     </Page>

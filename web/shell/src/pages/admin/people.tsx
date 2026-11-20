@@ -4,23 +4,24 @@ import { For, Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { createQuery } from "@rookery/client/solid";
 import { Level } from "@rookery/proto";
-import type { Grant } from "@rookery/proto";
-
-import { useShell } from "../../shell.tsx";
+import type { Grant, Group, User } from "@rookery/proto";
 import {
   Badge,
   Button,
   Callout,
   Card,
-  Code,
-  Empty,
-  Field,
-  Input,
-  Page,
+  DataTable,
+  type DataColumn,
+  EmptyState,
+  IconButton,
+  ListRow,
+  RowList,
   Select,
-  Spinner,
-  Table,
-} from "../../ui.tsx";
+  TextField,
+} from "@aiviarium/nocturne";
+
+import { useShell } from "../../shell.tsx";
+import { Page } from "../../parts/page.tsx";
 
 /** LEVELS are the levels a grant gives, in order. */
 const LEVELS = [
@@ -111,23 +112,115 @@ export function PeoplePage(): JSX.Element {
   const userOptions = () => (users()?.users ?? []).map((user) => ({ value: user.id, label: user.email || user.name || user.id }));
   const groupOptions = () => (groups()?.groups ?? []).map((group) => ({ value: group.id, label: group.name }));
 
+  const userColumns = (): DataColumn<User>[] => [
+    { id: "email", header: "Email", accessor: user => user.email },
+    { id: "name", header: "Name", accessor: user => user.name },
+    {
+      id: "admin",
+      header: "Admin",
+      accessor: user => (user.admin ? "admin" : "no"),
+      cell: user => (
+        <Show when={user.admin} fallback={<span class="nc-meta">no</span>}>
+          <Badge tone="accent">admin</Badge>
+        </Show>
+      ),
+    },
+    {
+      id: "signs-in",
+      header: "Signs in",
+      accessor: user => (user.disabled ? "disabled" : "yes"),
+      cell: user => (
+        <Show when={!user.disabled} fallback={<Badge tone="danger">disabled</Badge>}>
+          <Badge tone="success">yes</Badge>
+        </Show>
+      ),
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: user => (
+        <div class="nc-row nc-row--tight">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              void shell.rookery.users.setAdmin({ user: user.id, admin: !user.admin }).then(refreshAll);
+            }}
+          >
+            {user.admin ? "Remove admin" : "Make admin"}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              void shell.rookery.users.setDisabled({ user: user.id, disabled: !user.disabled }).then(refreshAll);
+            }}
+          >
+            {user.disabled ? "Let in" : "Disable"}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              void makeLink(user.email);
+            }}
+          >
+            Link
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
+  const grantColumns = (): DataColumn<Grant>[] => [
+    { id: "resource", header: "Resource", type: "mono", accessor: grant => grant.resource },
+    {
+      id: "who",
+      header: "Who",
+      accessor: grant => granteeName(grant, users()?.users ?? [], groups()?.groups ?? []),
+    },
+    {
+      id: "level",
+      header: "Level",
+      accessor: grant => levelName(grant.level),
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: grant => (
+        <Button
+          size="sm"
+          variant="danger"
+          onClick={() => {
+            void shell.rookery.access
+              .revoke({ resource: grant.resource, grantee: grant.grantee })
+              .then(() => grants.refresh());
+          }}
+        >
+          Revoke
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <Page title="People" description="Who may sign in, what gathers them, and what they hold.">
       <Show when={link() !== ""}>
-        <Callout tone="info">
-          <div class="nc-callout__body nc-stack">
-            <span>A one-time sign-in link. It works once and lasts a day.</span>
-            <Code>{link()}</Code>
+        <Callout
+          tone="info"
+          action={
             <Button variant="ghost" size="sm" onClick={() => setLink("")}>
               Done
             </Button>
-          </div>
+          }
+        >
+          A one-time sign-in link. It works once and lasts a day. <code class="nc-code">{link()}</code>
         </Callout>
       </Show>
 
       <Card
         title="Sign-in link"
-        actions={
+        action={
           <Button
             variant="primary"
             size="sm"
@@ -140,134 +233,117 @@ export function PeoplePage(): JSX.Element {
         }
       >
         <div class="nc-stack">
-          <Field label="Email" hint="A person without a user gets one when the link is used.">
-            <Input id="link-email" type="email" value={linkEmail()} onInput={setLinkEmail} placeholder="ada@example.test" />
-          </Field>
+          <TextField
+            label="Email"
+            help="A person without a user gets one when the link is used."
+            id="link-email"
+            type="email"
+            value={linkEmail()}
+            placeholder="ada@example.test"
+            onInput={event => setLinkEmail(event.currentTarget.value)}
+          />
           <Show when={linkError() !== ""}>
             <Callout tone="danger">{linkError()}</Callout>
           </Show>
         </div>
       </Card>
 
-      <Card title="Users">
-        <Show when={users() !== undefined} fallback={<Spinner />}>
-          <Table columns={["Email", "Name", "Admin", "Signs in", ""]}>
-            <For each={users()?.users ?? []}>
-              {person => (
-                <tr>
-                  <td>{person.email}</td>
-                  <td>{person.name}</td>
-                  <td>
-                    <Show when={person.admin} fallback={<span class="nc-meta">no</span>}>
-                      <Badge tone="accent">admin</Badge>
-                    </Show>
-                  </td>
-                  <td>
-                    <Show when={!person.disabled} fallback={<Badge tone="danger">disabled</Badge>}>
-                      <Badge tone="success">yes</Badge>
-                    </Show>
-                  </td>
-                  <td>
-                    <div class="nc-row nc-row--tight">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          void shell.rookery.users.setAdmin({ user: person.id, admin: !person.admin }).then(refreshAll);
-                        }}
-                      >
-                        {person.admin ? "Remove admin" : "Make admin"}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          void shell.rookery.users.setDisabled({ user: person.id, disabled: !person.disabled }).then(refreshAll);
-                        }}
-                      >
-                        {person.disabled ? "Let in" : "Disable"}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          void makeLink(person.email);
-                        }}
-                      >
-                        Link
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </For>
-          </Table>
-        </Show>
+      <Card title="Users" count={users()?.users.length} padding="none">
+        <DataTable
+          bare
+          label="Users"
+          rows={users()?.users ?? []}
+          columns={userColumns()}
+          getRowId={user => user.id}
+          loading={users.pending() && users() === undefined}
+          empty={{ title: "No users", description: "A person gets a user when they use a sign-in link." }}
+        />
       </Card>
 
       <Card
         title="Groups"
-        actions={
+        action={
           <div class="nc-row nc-row--tight">
-            <Input id="new-group" value={newGroup()} placeholder="Team name" onInput={setNewGroup} />
+            <TextField
+              aria-label="A new group's name"
+              id="new-group"
+              value={newGroup()}
+              placeholder="Team name"
+              onInput={event => setNewGroup(event.currentTarget.value)}
+            />
             <Button size="sm" onClick={() => void addGroup()}>
               Create
             </Button>
           </div>
         }
       >
-        <Show when={groups() !== undefined} fallback={<Spinner />}>
-          <Show
-            when={(groups()?.groups.length ?? 0) > 0}
-            fallback={<Empty title="No groups" description="A group is what a grant names, so people can be added and removed in one place." />}
-          >
-            <div class="nc-stack">
-              <For each={groups()?.groups ?? []}>
-                {group => (
-                  <div class="nc-card nc-pad nc-stack">
-                    <div class="nc-row" style={{ "justify-content": "space-between" }}>
-                      <strong>{group.name}</strong>
-                      <div class="nc-row nc-row--tight">
-                        <Badge tone="outline">{group.members.length} members</Badge>
-                        <For each={group.claims}>{(bound) => <Badge tone="info">{bound.claim}={bound.value}</Badge>}</For>
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          onClick={() => {
-                            void shell.rookery.groups.delete({ group: group.id }).then(refreshAll);
-                          }}
-                        >
-                          Delete
-                        </Button>
-                      </div>
-                    </div>
-                    <div class="nc-row nc-wrap" style={{ gap: "var(--space-2)" }}>
-                      <For each={group.members}>{(member) => <Badge tone="outline">{member.email || member.name}</Badge>}</For>
-                      <Show when={group.members.length === 0}>
-                        <span class="nc-meta">No members yet.</span>
-                      </Show>
-                    </div>
-                  </div>
-                )}
-              </For>
-            </div>
-          </Show>
+        <Show
+          when={(groups()?.groups.length ?? 0) > 0}
+          fallback={
+            <EmptyState
+              size="sm"
+              title="No groups"
+              description="A group is what a grant names, so people can be added and removed in one place."
+            />
+          }
+        >
+          <RowList label="Groups" variant="inline">
+            <For each={groups()?.groups ?? []}>
+              {(group: Group) => (
+                <ListRow
+                  title={group.name}
+                  secondary={`${group.members.length} member${group.members.length === 1 ? "" : "s"}`}
+                  meta={
+                    <span class="nc-row nc-row--tight">
+                      <For each={group.claims}>
+                        {(bound) => <Badge tone="info">{bound.claim}={bound.value}</Badge>}
+                      </For>
+                    </span>
+                  }
+                  actions={
+                    <IconButton
+                      size="sm"
+                      label={`Delete ${group.name}`}
+                      icon="trash"
+                      onClick={() => {
+                        void shell.rookery.groups.delete({ group: group.id }).then(refreshAll);
+                      }}
+                    />
+                  }
+                />
+              )}
+            </For>
+          </RowList>
         </Show>
         <div class="nc-stack" style={{ "margin-top": "var(--space-3)" }}>
           <div class="nc-row">
             <Select
+              aria-label="The group"
               value={groupID()}
               options={[{ value: "", label: "Choose a group" }, ...groupOptions()]}
               onChange={setGroupID}
             />
-            <Input id="member-email" type="email" value={memberEmail()} placeholder="ada@example.test" onInput={setMemberEmail} />
+            <TextField
+              aria-label="A person's email"
+              id="member-email"
+              type="email"
+              value={memberEmail()}
+              placeholder="ada@example.test"
+              onInput={event => setMemberEmail(event.currentTarget.value)}
+            />
             <Button size="sm" onClick={() => void addMember()}>
               Add member
             </Button>
           </div>
           <div class="nc-row">
-            <Input id="claim" value={claim()} placeholder="Claim" onInput={setClaim} />
-            <Input id="claim-value" value={claimValue()} placeholder="Value" onInput={setClaimValue} />
+            <TextField aria-label="The claim" id="claim" value={claim()} placeholder="Claim" onInput={event => setClaim(event.currentTarget.value)} />
+            <TextField
+              aria-label="The claim's value"
+              id="claim-value"
+              value={claimValue()}
+              placeholder="Value"
+              onInput={event => setClaimValue(event.currentTarget.value)}
+            />
             <Button size="sm" onClick={() => void bindClaim()}>
               Bind claim
             </Button>
@@ -277,10 +353,11 @@ export function PeoplePage(): JSX.Element {
 
       <Card
         title="Grants"
-        actions={
+        action={
           <Button
             size="sm"
             variant="ghost"
+            icon="refresh-cw"
             onClick={() => {
               void grants.refresh();
             }}
@@ -288,13 +365,20 @@ export function PeoplePage(): JSX.Element {
             Refresh
           </Button>
         }
+        padding="none"
       >
-        <div class="nc-stack">
-          <Field label="Resource" hint="For example space://01h…, host://forge, plugin://example.">
-            <Input id="grant-resource" value={resource()} placeholder="space://…" onInput={setResource} />
-          </Field>
+        <div class="shell-pad nc-stack">
+          <TextField
+            label="Resource"
+            help="For example space://01h…, host://forge, plugin://example."
+            id="grant-resource"
+            value={resource()}
+            placeholder="space://…"
+            onInput={event => setResource(event.currentTarget.value)}
+          />
           <div class="nc-row">
             <Select
+              aria-label="Who the grant is for"
               value={grantee()}
               options={[
                 { value: "user", label: "A user" },
@@ -304,12 +388,12 @@ export function PeoplePage(): JSX.Element {
               onChange={(value) => setGrantee(value as "user" | "group" | "everyone")}
             />
             <Show when={grantee() === "user"}>
-              <Select value={userID()} options={[{ value: "", label: "Choose a user" }, ...userOptions()]} onChange={setUserID} />
+              <Select aria-label="The user" value={userID()} options={[{ value: "", label: "Choose a user" }, ...userOptions()]} onChange={setUserID} />
             </Show>
             <Show when={grantee() === "group"}>
-              <Select value={groupID()} options={[{ value: "", label: "Choose a group" }, ...groupOptions()]} onChange={setGroupID} />
+              <Select aria-label="The group" value={groupID()} options={[{ value: "", label: "Choose a group" }, ...groupOptions()]} onChange={setGroupID} />
             </Show>
-            <Select value={level()} options={LEVELS} onChange={setLevel} />
+            <Select aria-label="The level" value={level()} options={LEVELS} onChange={setLevel} />
             <Button size="sm" variant="primary" onClick={() => void grant()}>
               Grant
             </Button>
@@ -317,39 +401,16 @@ export function PeoplePage(): JSX.Element {
           <Show when={grantError() !== ""}>
             <Callout tone="danger">{grantError()}</Callout>
           </Show>
-
-          <Show when={grants() !== undefined} fallback={<Spinner />}>
-            <Show
-              when={(grants()?.grants.length ?? 0) > 0}
-              fallback={<Empty title="No grants here" description="An admin holds every level everywhere and needs none." />}
-            >
-              <Table columns={["Resource", "Who", "Level", ""]}>
-                <For each={grants()?.grants ?? []}>
-                  {(grant: Grant) => (
-                    <tr>
-                      <td class="nc-mono">{grant.resource}</td>
-                      <td>{granteeName(grant, users()?.users ?? [], groups()?.groups ?? [])}</td>
-                      <td>{levelName(grant.level)}</td>
-                      <td>
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          onClick={() => {
-                            void shell.rookery.access
-                              .revoke({ resource: grant.resource, grantee: grant.grantee })
-                              .then(() => grants.refresh());
-                          }}
-                        >
-                          Revoke
-                        </Button>
-                      </td>
-                    </tr>
-                  )}
-                </For>
-              </Table>
-            </Show>
-          </Show>
         </div>
+        <DataTable
+          bare
+          label="Grants"
+          rows={grants()?.grants ?? []}
+          columns={grantColumns()}
+          getRowId={grant => `${grant.resource}/${granteeName(grant, users()?.users ?? [], groups()?.groups ?? [])}`}
+          loading={grants.pending() && grants() === undefined}
+          empty={{ title: "No grants here", description: "An admin holds every level everywhere and needs none." }}
+        />
       </Card>
     </Page>
   );

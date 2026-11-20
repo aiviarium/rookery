@@ -13,7 +13,96 @@
     font: 400 13px/20px var(--font-sans);
   }
 
-  .nc-section-heading {
-    padding: var(--space-2) var(--space-2) var(--space-1);
+  /* The frame that holds a page fills the content area beside the sidebar. */
+  .shell-frame {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* A page: the view header, one line about it, then its content. */
+  .shell-page {
+    gap: var(--space-3);
+    min-width: 0;
+  }
+
+  .shell-page__description {
+    margin: 0;
+  }
+
+  /* The app's header row: the product at one end, the person's things at the other. */
+  .shell-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    width: 100%;
+    min-width: 0;
+  }
+
+  .shell-bell {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .shell-bell__count {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    pointer-events: none;
+  }
+
+  .shell-notifications {
+    width: min(420px, 90vw);
+  }
+
+  .shell-status__where {
+    min-width: 0;
+  }
+
+  /* A row of figures. */
+  .shell-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: var(--space-2);
+  }
+
+  /* Two columns of cards that stack when narrow. */
+  .shell-columns {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--space-3);
+    align-items: start;
+  }
+
+  /* A card that holds its own padding: a form or a block above a flush table. */
+  .shell-pad {
+    padding: var(--nc-pad, 12px);
+  }
+
+  /* A run of rows under a section heading. */
+  .shell-group {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* One feature of a host's profile, edited in the dialog. */
+  .shell-feature {
+    padding: var(--space-2);
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius-md);
+    background: var(--bg-2);
+  }
+
+  /* A page that asks something before there is a shell around it. */
+  .shell-centered {
+    display: grid;
+    place-items: center;
+    min-height: 100%;
+    padding: var(--space-6);
+  }
+
+  .shell-signin {
+    width: 100%;
+    max-width: 440px;
   }
 }

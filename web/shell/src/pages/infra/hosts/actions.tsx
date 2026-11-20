@@ -5,11 +5,20 @@ import { For, Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import type { Action, ActionArgument } from "@rookery/proto";
 import { cbor } from "@rookery/client";
+import {
+  Button,
+  Callout,
+  Card,
+  Dialog,
+  EmptyState,
+  ListRow,
+  RowList,
+  SectionHeading,
+  TextField,
+} from "@aiviarium/nocturne";
 
 import { useShell } from "../../../shell.tsx";
-import { Button, Callout, Card, Field, Input, SectionHeading } from "../../../ui.tsx";
 import { errorMessage } from "../format.ts";
-import { Dialog } from "../parts.tsx";
 
 /** accountLabel is which account an action runs as. */
 export function accountLabel(action: Action): string {
@@ -81,34 +90,32 @@ export function HostActions(props: { host: string; actions: readonly Action[] })
   };
 
   return (
-    <Card
-      title="Actions"
-    >
+    <Card title="Actions">
       <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
       <Show
         when={groups().length > 0}
-        fallback={<p class="nc-empty__desc">This host's type and features declare no actions.</p>}
+        fallback={<EmptyState size="sm" title="No actions" description="This host's type and features declare no actions." />}
       >
         <For each={groups()}>
           {([group, actions]) => (
-            <div class="infra-group" data-action-group={group}>
-              <SectionHeading>{group}</SectionHeading>
-              <For each={actions}>
-                {action => (
-                  <div class="infra-action" data-host-action={action.name}>
-                    <div class="infra-action__text">
-                      <span>{action.label === "" ? action.name : action.label}</span>
-                      <span class="nc-meta">
-                        Runs as {accountLabel(action)}
-                        {action.terminal ? " in a terminal" : ""}
-                      </span>
-                    </div>
-                    <Button size="sm" disabled={busy() !== undefined} onClick={() => run(action)}>
-                      {busy() === action.name ? "Starting…" : "Run"}
-                    </Button>
-                  </div>
-                )}
-              </For>
+            <div class="shell-group" data-action-group={group}>
+              <SectionHeading title={group} />
+              <RowList label={group} variant="inline">
+                <For each={actions}>
+                  {action => (
+                    <ListRow
+                      data-host-action={action.name}
+                      title={action.label === "" ? action.name : action.label}
+                      secondary={`Runs as ${accountLabel(action)}${action.terminal ? " in a terminal" : ""}`}
+                      persistentActions={
+                        <Button size="sm" disabled={busy() !== undefined} onClick={() => run(action)}>
+                          {busy() === action.name ? "Starting…" : "Run"}
+                        </Button>
+                      }
+                    />
+                  )}
+                </For>
+              </RowList>
             </div>
           )}
         </For>
@@ -168,20 +175,23 @@ function RunActionDialog(props: {
         </>
       }
     >
+      <div class="nc-stack">
       <For each={props.action.arguments}>
         {(argument: ActionArgument) => (
-          <Field label={argument.label === "" ? argument.name : argument.label}>
-            <Input
-              value={values()[argument.name] ?? argument.defaultValue}
-              onInput={value => setValues(previous => ({ ...previous, [argument.name]: value }))}
-            />
-          </Field>
+          <TextField
+            label={argument.label === "" ? argument.name : argument.label}
+            value={values()[argument.name] ?? argument.defaultValue}
+            onInput={event =>
+              setValues(previous => ({ ...previous, [argument.name]: event.currentTarget.value }))
+            }
+          />
         )}
       </For>
       <Show when={props.action.arguments.length === 0}>
         <p class="nc-muted">It takes no arguments.</p>
       </Show>
       <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
+      </div>
     </Dialog>
   );
 }

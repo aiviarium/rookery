@@ -5,9 +5,22 @@ import type { JSX } from "@solidjs/web";
 import { cbor } from "@rookery/client";
 import { createQuery, useLiveQuery } from "@rookery/client/solid";
 import type { Collection } from "@rookery/proto";
+import {
+  Badge,
+  Button,
+  Callout,
+  Card,
+  CodeBlock,
+  DataTable,
+  type DataColumn,
+  EmptyState,
+  MetaLine,
+  Select,
+  Skeleton,
+} from "@aiviarium/nocturne";
 
 import { useShell } from "../../shell.tsx";
-import { Badge, Button, Callout, Card, Code, Empty, Page, Select, Spinner, Table } from "../../ui.tsx";
+import { Page } from "../../parts/page.tsx";
 
 /** DataPage browses the collections the caller may read. */
 export function DataPage(): JSX.Element {
@@ -24,8 +37,9 @@ export function DataPage(): JSX.Element {
     <Page title="Datastore" description="The records of every collection this account may read.">
       <Card
         title="Collections"
-        actions={
+        action={
           <Select
+            aria-label="The collection"
             value={selected()}
             options={[
               { value: "", label: "Choose a collection" },
@@ -38,11 +52,12 @@ export function DataPage(): JSX.Element {
           />
         }
       >
-        <Show when={collections() !== undefined} fallback={<Spinner />}>
+        <Show when={collections() !== undefined} fallback={<Skeleton width="30%" />}>
           <Show
             when={(collections()?.collections.length ?? 0) > 0}
             fallback={
-              <Empty
+              <EmptyState
+                size="sm"
                 title="No collections to read"
                 description="A collection is declared by a plugin's manifest, and its records are checked against the space or plugin they belong to."
               />
@@ -55,7 +70,7 @@ export function DataPage(): JSX.Element {
                   <Show when={candidate().history}>
                     <Badge tone="info">keeps history</Badge>
                   </Show>
-                  <span class="nc-meta">{candidate().fields.join(", ")}</span>
+                  <MetaLine items={[{ label: candidate().fields.join(", "), mono: true }]} />
                 </div>
               )}
             </Show>
@@ -93,75 +108,75 @@ function Records(props: { collection: Collection }): JSX.Element {
     },
   );
 
-  const columns = createMemo(() => props.collection.fields.slice(0, 6));
+  const fields = createMemo(() => props.collection.fields.slice(0, 6));
+
+  const columns = (): DataColumn<Record<string, unknown>>[] => [
+    { id: "id", header: "id", type: "mono", accessor: row => recordID(row) },
+    ...fields().map(field => ({
+      id: field,
+      header: field,
+      accessor: (row: Record<string, unknown>) => formatValue(row[field]),
+    })),
+  ];
 
   return (
-    <div class="nc-split" style={{ gap: "var(--space-2)", "align-items": "flex-start" }}>
-      <Card title={`${key}`} class="nc-split__pane nc-split__pane--fill">
-        <Show when={live.status() !== "loading"} fallback={<Spinner />}>
-          <Show
-            when={live.records().length > 0}
-            fallback={
-              <Empty
-                title="No records"
-                description="Nothing in this collection matches, or the rows are in a space you are not in."
-                actions={
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      live.restart();
-                    }}
-                  >
-                    Ask again
-                  </Button>
-                }
-              />
+    <div class="shell-columns">
+      <Card title={key} padding="none" action={<MetaLine items={[`${live.records().length} records, live: ${live.status()}`]} />}>
+        <Show
+          when={live.status() !== "loading"}
+          fallback={<Skeleton width="40%" />}
+        >
+          <DataTable
+            bare
+            label={`Records in ${key}`}
+            rows={live.records().map(row => row.record ?? {})}
+            columns={columns()}
+            getRowId={row => recordID(row)}
+            onRowClick={row => setOpen(recordID(row))}
+            empty={{
+              title: "No records",
+              description: "Nothing in this collection matches, or the rows are in a space you are not in.",
+            }}
+            footer={
+              <Button
+                size="sm"
+                onClick={() => {
+                  live.restart();
+                }}
+              >
+                Ask again
+              </Button>
             }
-          >
-            <Table columns={["id", ...columns()]}>
-              <For each={live.records()}>
-                {row => (
-                  <tr
-                    aria-selected={open() === recordID(row.record) ? "true" : "false"}
-                    style={{ cursor: "pointer" }}
-                    onClick={() => setOpen(recordID(row.record))}
-                  >
-                    <td class="nc-mono">{recordID(row.record)}</td>
-                    <For each={columns()}>
-                      {field => <td>{formatValue(row.record[field])}</td>}
-                    </For>
-                  </tr>
-                )}
-              </For>
-            </Table>
-            <p class="nc-meta">
-              {live.records().length} records, live: {live.status()}
-            </p>
-          </Show>
+          />
         </Show>
       </Card>
 
-      <Card title="History" class="nc-split__pane nc-split__pane--sized" >
+      <Card title="History">
         <Show when={open() !== ""} fallback={<p class="nc-meta">Choose a record to see its revisions.</p>}>
-          <Show when={history() !== undefined} fallback={<Spinner />}>
-            <Show
-              when={(history()?.entriesCbor.length ?? 0) > 0}
-              fallback={<Callout tone="info">This collection keeps no history, or the record has one revision.</Callout>}
-            >
-              <div class="nc-stack">
-                <For each={history()?.entriesCbor ?? []}>
-                  {entry => (
-                    <div class="nc-stack">
-                      <div class="nc-row nc-row--tight">
-                        <Badge tone="outline">rev {revisionOf(entry)}</Badge>
-                        <span class="nc-meta">{principalOf(entry)}</span>
-                      </div>
-                      <Code>{JSON.stringify(cbor.decode<Record<string, unknown>>(entry)?.["record"] ?? {}, null, 2)}</Code>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Show>
+          <Show
+            when={(history()?.entriesCbor.length ?? 0) > 0}
+            fallback={<Callout tone="info">This collection keeps no history, or the record has one revision.</Callout>}
+          >
+            <div class="nc-stack">
+              <For each={history()?.entriesCbor ?? []}>
+                {entry => (
+                  <div class="nc-stack">
+                    <MetaLine
+                      items={[
+                        { label: `rev ${revisionOf(entry)}` },
+                        { label: principalOf(entry), mono: true },
+                      ]}
+                    />
+                    <CodeBlock
+                      language="json"
+                      title="record"
+                      lineNumbers={false}
+                      code={JSON.stringify(cbor.decode<Record<string, unknown>>(entry)?.["record"] ?? {}, null, 2)}
+                    />
+                  </div>
+                )}
+              </For>
+            </div>
           </Show>
         </Show>
       </Card>

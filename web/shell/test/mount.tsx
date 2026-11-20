@@ -8,7 +8,7 @@ import { App } from "../src/app.tsx";
 /** Mounted is a rendered shell, and what a test asks it. */
 export interface Mounted {
   readonly container: HTMLElement;
-  /** text is everything the shell draws. */
+  /** text is everything the shell draws, including what it puts in an overlay. */
   text(): string;
   /** find is the first element that matches a selector. */
   find(selector: string): HTMLElement | null;
@@ -20,8 +20,10 @@ export interface Mounted {
   clickElement(element: HTMLElement): Promise<void>;
   /** type writes into the first input that matches, and settles. */
   type(selector: string, value: string): Promise<void>;
-  /** select chooses an option of the first select that matches, and settles. */
-  select(selector: string, value: string): Promise<void>;
+  /** choose opens the first Select that matches, and picks the option with this label. */
+  choose(selector: string, label: string): Promise<void>;
+  /** pick picks the option with this label of an open menu. */
+  pick(label: string): Promise<void>;
   /** unmount takes the shell down. */
   unmount(): void;
 }
@@ -51,12 +53,22 @@ export async function mount(
   const dispose = render(() => <App client={client} config={config} />, container);
   await settle();
 
-  const find = (selector: string) => container.querySelector<HTMLElement>(selector);
+  // Popovers, dialogs and menus mount in an overlay beside the app root, so a
+  // test looks at the document, not only at the container.
+  const find = (selector: string) => document.querySelector<HTMLElement>(selector);
+  const pick = async (label: string) => {
+    const item = [...document.querySelectorAll<HTMLElement>(".nc-menu__item")].find((candidate) =>
+      candidate.textContent?.includes(label),
+    );
+    if (item === undefined) throw new Error(`no menu item says ${label}`);
+    item.click();
+    await settle();
+  };
   return {
     container,
-    text: () => container.textContent ?? "",
+    text: () => document.body.textContent ?? "",
     find,
-    findAll: (selector) => [...container.querySelectorAll<HTMLElement>(selector)],
+    findAll: (selector) => [...document.querySelectorAll<HTMLElement>(selector)],
     click: async (selector) => {
       const element = find(selector);
       if (element === null) throw new Error(`no element matches ${selector}`);
@@ -67,13 +79,14 @@ export async function mount(
       element.click();
       await settle();
     },
-    select: async (selector, value) => {
+    choose: async (selector, label) => {
       const element = find(selector);
-      if (!(element instanceof HTMLSelectElement)) throw new Error(`no select matches ${selector}`);
-      element.value = value;
-      element.dispatchEvent(new Event("change", { bubbles: true }));
+      if (element === null) throw new Error(`no element matches ${selector}`);
+      element.click();
       await settle();
+      await pick(label);
     },
+    pick,
     type: async (selector, value) => {
       const element = find(selector);
       if (!(element instanceof HTMLInputElement)) throw new Error(`no input matches ${selector}`);

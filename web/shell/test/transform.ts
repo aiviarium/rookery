@@ -1,13 +1,11 @@
 // The Solid JSX transform for the tests.
 //
 // Solid 2 has no JSX runtime: its compiler turns JSX into DOM work, and Bun's
-// own transform does not know it. This loads the compiler for every .tsx a test
-// imports, and serves the browser build of Solid's runtime where Bun would
+// own transform does not know it. This loads Solid's compiler for every .tsx a
+// test imports, and serves the browser build of Solid's runtime where Bun would
 // resolve the server one, so the tests have one DOM-capable copy.
 import { readFileSync } from "node:fs";
-import { transformAsync } from "@babel/core";
-import typescript from "@babel/preset-typescript";
-import solid from "@solidjs/babel-plugin";
+import { transform } from "@solidjs/compiler";
 import { plugin } from "bun";
 
 // Bun resolves Solid's packages under the "node" condition, whose build has no
@@ -25,19 +23,16 @@ plugin({
     build.onLoad({ filter: /solid-js[\\/]dist[\\/]server(\.dev)?\.js$|web[\\/]dist[\\/]server(\.dev)?\.js$/ }, (args) => {
       const hit = SERVER_TO_BROWSER.find(([pattern]) => pattern.test(args.path));
       if (hit === undefined) return undefined;
-      return { contents: readFileSync(args.path.replace(/server(\.dev)?\.js$/, hit[1]), "utf8"), loader: "js" };
+      return { contents: readFileSync(args.path.replace(/server(\.dev)?\.js$/, hit[1] ?? "solid.js"), "utf8"), loader: "js" };
     });
 
-    build.onLoad({ filter: /\.tsx$/ }, async (args) => {
-      const source = readFileSync(args.path, "utf8");
-      const result = await transformAsync(source, {
+    build.onLoad({ filter: /\.tsx$/ }, (args) => {
+      const result = transform(readFileSync(args.path, "utf8"), {
         filename: args.path,
-        plugins: [[solid, { generate: "dom", hydratable: false }]],
-        presets: [typescript],
-        babelrc: false,
-        configFile: false,
+        generate: "dom",
+        hydratable: false,
       });
-      return { contents: result?.code ?? "", loader: "js" };
+      return { contents: result.code, loader: "ts" };
     });
   },
 });

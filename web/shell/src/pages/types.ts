@@ -5,8 +5,7 @@
 // `nav`. The seam in pages/index.ts lists the areas, so a new area never changes
 // another area's files.
 import type { RouteDefinition } from "@solidjs/router";
-
-import type { GlyphName } from "../ui.tsx";
+import type { IconName } from "@aiviarium/nocturne";
 
 /** NavEntry is one entry an area adds to the shell's navigation. */
 export interface NavEntry {
@@ -16,8 +15,8 @@ export interface NavEntry {
   readonly href: string;
   /** group is the section it sits in; empty for the first section. */
   readonly group?: string;
-  /** icon is the glyph before the label. */
-  readonly icon?: GlyphName;
+  /** icon is Nocturne's glyph before the label. */
+  readonly icon?: IconName;
 }
 
 /** Area is one part of the shell's own pages. */
