@@ -1,6 +1,6 @@
-//! The params and results of `plugins.*`, and the notification `plugins.changed`. The client's
-//! `PluginInfo`, `PluginList`, `ClientInfo` and `PluginChanged` in `client/src/generated/` have the same
-//! shape.
+//! The params and results of `plugins.*`, and the notifications `plugins.changed` and
+//! `plugins.reloaded`. The client's `PluginInfo`, `PluginList`, `ClientInfo`, `PluginChanged` and
+//! `PluginReloaded` in `client/src/generated/` have the same shape.
 
 use rookery_proto::ErrorBody;
 use schemars::JsonSchema;
@@ -188,4 +188,14 @@ pub struct PluginChanged {
     pub id: String,
     /// `null` when it was removed.
     pub plugin: Option<PluginInfo>,
+}
+
+/// Notification `plugins.reloaded`: the plugin folder was read again, and this is what the plugin is
+/// now. A shell re-imports the client half when `hash` changed and remounts the plugin's views.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct PluginReloaded {
+    pub id: String,
+    /// The SHA-256 of the client half the server serves now, when it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hash: Option<String>,
 }

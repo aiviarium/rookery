@@ -187,6 +187,7 @@ pub fn register(methods: &mut Methods) {
         .add("plugins.reload", |call: Call, _: Empty| async move {
             let plugins = plugins(&call.kernel)?;
             plugins.reload(&call.kernel).await?;
+            plugins.reloaded(&call.kernel);
             rookery_hosts::plugins_changed(&call.kernel).await;
             Ok(PluginList {
                 plugins: plugins.infos(),
