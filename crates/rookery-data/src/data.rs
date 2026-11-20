@@ -664,11 +664,10 @@ async fn mentioned(
             })
             .await;
         match sent {
-            Ok(Some(n)) => call.kernel.conns.notify_user(
-                &m.user.to_string(),
-                "notify.new",
-                rookery_jobs::notify::info(n),
-            ),
+            Ok(Some(n)) => {
+                rookery_jobs::notify::announce(&call.kernel, m.user, rookery_jobs::notify::info(n))
+                    .await;
+            }
             Ok(None) => {}
             Err(e) => tracing::warn!(plugin, error = %e, "a mention's notification failed"),
         }

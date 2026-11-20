@@ -157,7 +157,7 @@ The command line has these as `rookery job list`, `show`, `logs -f`, `wait` and 
 
 A changed job is an event of the server's own plugin id, `rookery/jobs.changed`, with the job in `job`. A host that changes tells `rookery/hosts.changed` and `rookery/env.changed`. Terminals tell `rookery/terminals.changed`, and a resource tells `rookery/resources.changed`. A shell subscribes to them with `events.subscribe`, and a client half with `rookery.events.subscribe("rookery/hosts.changed", …)` ([Server events](/docs/extend/plugins#server-events)).
 
-A message a host keeps on its channel reaches its owner and managers as a notification of the kind `rookery/host.message`, and their connections hear `notify.new`. A plugin sends notifications of its own with `notify.send`. A job sends no notification when it ends: follow `rookery/jobs.changed`, or the job's stream.
+A message a host keeps on its channel reaches its owner and managers as a notification of the kind `rookery/host.message`, and their connections hear `notify.new` with the notification and the unread count. A notification read or answered on one device reaches the person's other connections as `notify.changed`, with `notifications` and `unread`, and `allRead` when they read them all. A plugin sends notifications of its own with `notify.send`. A job sends no notification when it ends: follow `rookery/jobs.changed`, or the job's stream.
 
 ## Ports and desktops in a browser
 

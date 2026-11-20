@@ -2,10 +2,10 @@
 import type { NotificationInfo } from "./NotificationInfo";
 
 /**
- * Notification `notify.new`.
+ * Notification `notify.new`: one of a person's notifications, on their connections.
  */
 export type NotifyNew = { notification: NotificationInfo, unread: number, 
 /**
- * Whether the user wants this kind as a native notification (the desktop app shows one).
+ * Whether the user wants this kind as a native notification.
  */
 native: boolean, };

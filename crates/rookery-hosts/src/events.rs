@@ -209,11 +209,7 @@ async fn notify_managers(kernel: &Kernel, host: &str, message: &rookery_api::Mes
             })
             .await;
         if let Ok(Some(sent)) = sent {
-            kernel.conns.notify_user(
-                &user.to_string(),
-                "notify.new",
-                rookery_jobs::notify::info(sent),
-            );
+            rookery_jobs::notify::announce(kernel, user, rookery_jobs::notify::info(sent)).await;
         }
     }
 }

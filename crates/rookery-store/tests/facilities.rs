@@ -762,7 +762,7 @@ async fn notifications_mute_and_answer() {
     notify.set_pref(user, "digest", true).await.unwrap();
     assert!(notify.send(new("digest")).await.unwrap().is_none());
     notify.send(new("apply")).await.unwrap().unwrap();
-    assert_eq!(notify.read(user, None).await.unwrap(), 1);
+    assert_eq!(notify.read(user, None).await.unwrap().len(), 1);
     assert_eq!(notify.list(user, true, None, 10).await.unwrap().len(), 0);
     assert_eq!(notify.list(user, false, None, 10).await.unwrap().len(), 2);
     db.close().await;

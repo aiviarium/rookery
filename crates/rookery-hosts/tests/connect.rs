@@ -2530,3 +2530,88 @@ async fn terminal_resume_ready_slow_viewer_and_silent_controller() {
     drop(old_inbox);
     server.close().await;
 }
+
+/// `rookery/env.changed` and `rookery/terminals.changed` reach a connection with a level on the host
+/// or the terminal, and no other.
+#[tokio::test(flavor = "multi_thread")]
+async fn env_and_terminal_changes_reach_those_with_a_level() {
+    let Some(host) = Rookeryd::start().await else {
+        return;
+    };
+    let Some(server) = Server::start().await else {
+        return;
+    };
+    let (admin, _) = server.person("Ada", true).await;
+    let (ann, ann_id) = server.person("Ann", false).await;
+    let (bob, _) = server.person("Bob", false).await;
+    server
+        .call(
+            &Caller::Local,
+            "hosts.save",
+            json!({"host": "studio", "profile": host.profile()}),
+        )
+        .await
+        .unwrap();
+    server.grant(&admin, &ann_id, "use").await;
+
+    let mut watching = server.connect(&ann);
+    let mut outsider = server.connect(&bob);
+    for inbox in [&mut watching, &mut outsider] {
+        server
+            .call_on(
+                inbox,
+                "events.subscribe",
+                json!({"names": ["rookery/env.changed", "rookery/terminals.changed"]}),
+            )
+            .await
+            .unwrap();
+    }
+    // A terminal opened on the host tells those with a level on it.
+    let opened = server
+        .call(
+            &ann,
+            "terminals.open",
+            json!({"env": "studio", "command": ["sh", "-c", "echo ready; exec cat"]}),
+        )
+        .await
+        .unwrap();
+    let id = opened["id"].as_str().unwrap().to_owned();
+    let changed = tokio::time::timeout(
+        Duration::from_secs(5),
+        watching.notification("events.event"),
+    )
+    .await
+    .expect("the terminal's owner hears of it");
+    assert_eq!(changed["name"], "rookery/terminals.changed");
+    assert_eq!(changed["payload"]["terminal"]["id"], id);
+
+    // Changing the host tells them the environment changed.
+    let mut changed = host.profile();
+    changed["ansible_vars"] = json!({"rookery_example": "changed"});
+    server
+        .call(
+            &Caller::Local,
+            "hosts.save",
+            json!({"host": "studio", "profile": changed}),
+        )
+        .await
+        .unwrap();
+    let env = tokio::time::timeout(
+        Duration::from_secs(5),
+        watching.notification("events.event"),
+    )
+    .await
+    .expect("the host's user hears of it");
+    assert_eq!(env["name"], "rookery/env.changed");
+    assert_eq!(env["payload"]["env"], "env://studio");
+    assert_ne!(env["payload"]["removed"], true);
+
+    // Someone without a level on the host hears neither.
+    let quiet = tokio::time::timeout(
+        Duration::from_millis(500),
+        outsider.notification("events.event"),
+    )
+    .await;
+    assert!(quiet.is_err(), "{:?}", quiet.unwrap());
+    server.close().await;
+}
