@@ -43,6 +43,8 @@ type Deps struct {
 	// Plugins serves the client halves and the shell of the installed plugins,
 	// when the servers has any.
 	Plugins Plugins
+	// Blobs serves /blobs/{id} when it is set.
+	Blobs http.Handler
 
 	// RegisterServices adds the core services to a mux, both listeners.
 	RegisterServices func(mux *http.ServeMux, options []connect.HandlerOption)
@@ -67,6 +69,9 @@ func New(deps Deps) *Edge {
 func (e *Edge) Handler() http.Handler {
 	mux := http.NewServeMux()
 	e.deps.RegisterServices(mux, e.handlerOptions())
+	if e.deps.Blobs != nil {
+		mux.Handle("/blobs/", e.deps.Blobs)
+	}
 	e.registerAuth(mux)
 	e.registerPlugins(mux)
 	mux.HandleFunc("/", e.fallback)

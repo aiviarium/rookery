@@ -39,7 +39,13 @@ func start(t *testing.T, config server.Config) (health func() (int, string), sto
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	built := server.New(config, slog.New(slog.DiscardHandler))
-	go func() { done <- built.Run(ctx) }()
+	go func() {
+		err := built.Run(ctx)
+		if err != nil {
+			t.Logf("the server stopped: %v", err)
+		}
+		done <- err
+	}()
 
 	health = func() (int, string) {
 		client := &http.Client{Timeout: time.Second}

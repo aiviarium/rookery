@@ -8,6 +8,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/proto"
 
 	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
 )
@@ -37,10 +38,16 @@ func jobCommand() *cobra.Command {
 				return err
 			}
 			rows := make([][]string, 0, len(listed.Msg.GetJobs()))
+			messages := make([]proto.Message, 0, len(listed.Msg.GetJobs()))
 			for _, job := range listed.Msg.GetJobs() {
-				rows = append(rows, []string{job.GetId(), job.GetKind(), job.GetState(), job.GetResource(), job.GetCreatedAt().AsTime().Format(time.RFC3339)})
+				created := ""
+				if job.GetCreatedAt() != nil {
+					created = job.GetCreatedAt().AsTime().Format(time.RFC3339)
+				}
+				rows = append(rows, []string{job.GetId(), job.GetKind(), job.GetState(), job.GetResource(), created})
+				messages = append(messages, job)
 			}
-			return session.printer.table([]string{"ID", "KIND", "STATE", "RESOURCE", "CREATED"}, rows)
+			return session.printer.list(messages, []string{"ID", "KIND", "STATE", "RESOURCE", "CREATED"}, rows)
 		},
 	}
 	list.Flags().String("kind", "", "only jobs of this kind")
@@ -171,14 +178,16 @@ func scheduleCommand() *cobra.Command {
 					return err
 				}
 				rows := make([][]string, 0, len(listed.Msg.GetSchedules()))
+				messages := make([]proto.Message, 0, len(listed.Msg.GetSchedules()))
 				for _, schedule := range listed.Msg.GetSchedules() {
 					next := ""
 					if schedule.GetNextRunAt() != nil {
 						next = schedule.GetNextRunAt().AsTime().Format(time.RFC3339)
 					}
 					rows = append(rows, []string{schedule.GetId(), schedule.GetName(), schedule.GetKind(), schedule.GetCron(), schedule.GetTimezone(), next})
+					messages = append(messages, schedule)
 				}
-				return session.printer.table([]string{"ID", "NAME", "KIND", "CRON", "TZ", "NEXT"}, rows)
+				return session.printer.list(messages, []string{"ID", "NAME", "KIND", "CRON", "TZ", "NEXT"}, rows)
 			},
 		},
 		&cobra.Command{

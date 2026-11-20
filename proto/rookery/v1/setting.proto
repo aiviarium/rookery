@@ -1,0 +1,89 @@
+// Settings: declared by the core and by plugins, with a type, a default and
+// scopes, resolved user, then space, then global, then default.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// Setting is one setting as a caller sees it.
+message Setting {
+  // Key is the setting's name, such as rookery/instance_name or example/greeting.
+  string key = 1;
+  // Type is string, int, float, bool, time or cbor.
+  string type = 2;
+  // DefaultCbor is the value when nobody set one, CBOR.
+  bytes default_cbor = 3;
+  // Scopes are the scopes the setting has: global, space and user.
+  repeated string scopes = 4;
+  // ValueCbor is what resolved for the caller, CBOR.
+  bytes value_cbor = 5;
+  // Scope is where the value came from: global, space, user or default.
+  string scope = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message SettingServiceListRequest {
+}
+
+message SettingServiceListResponse {
+  repeated Setting settings = 1;
+}
+
+message SettingServiceGetRequest {
+  // Key is the setting's name.
+  string key = 1;
+  // Space resolves the space scope; empty uses the Rookery-Space header.
+  string space = 2;
+}
+
+message SettingServiceGetResponse {
+  Setting setting = 1;
+}
+
+message SettingServiceSetRequest {
+  string key = 1;
+  // Scope is global, space or user.
+  string scope = 2;
+  // Space is the space a space-scoped value is for.
+  string space = 3;
+  // ValueCbor is the value, CBOR.
+  bytes value_cbor = 4;
+}
+
+message SettingServiceSetResponse {
+  Setting setting = 1;
+}
+
+message SettingServiceResetRequest {
+  string key = 1;
+  string scope = 2;
+  string space = 3;
+}
+
+message SettingServiceResetResponse {
+}
+
+// SettingService reads and writes settings. A global value is an admin's, a
+// space's is for whoever manages the space, and a user's is the caller's own.
+service SettingService {
+  rpc List(SettingServiceListRequest) returns (SettingServiceListResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+
+  rpc Get(SettingServiceGetRequest) returns (SettingServiceGetResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+
+  rpc Set(SettingServiceSetRequest) returns (SettingServiceSetResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+
+  rpc Reset(SettingServiceResetRequest) returns (SettingServiceResetResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+}

@@ -1,0 +1,82 @@
+// Blobs: content-addressed by SHA-256, with a row for size, type, owner and the
+// resource they belong to.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// Blob is a blob's metadata, never its bytes.
+message Blob {
+  // Id is the SHA-256 of the content, in hex.
+  string id = 1;
+  int64 size = 2;
+  string content_type = 3;
+  // Owner is who put it there, such as user:01h….
+  string owner = 4;
+  // Resource is the resource URI the blob belongs to, for access.
+  string resource = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message BlobServicePutRequest {
+  oneof part {
+    // Info comes first: what the blob is and what it belongs to.
+    BlobPutInfo info = 1;
+    // Chunk is a piece of the blob.
+    bytes chunk = 2;
+  }
+}
+
+// BlobPutInfo is a blob's first message.
+message BlobPutInfo {
+  string content_type = 1;
+  // Resource is the resource URI the blob belongs to.
+  string resource = 2;
+}
+
+message BlobServicePutResponse {
+  Blob blob = 1;
+}
+
+message BlobServiceGetRequest {
+  // Blob is the blob's id.
+  string blob = 1;
+}
+
+message BlobServiceGetResponse {
+  oneof part {
+    // Blob is its metadata, first.
+    Blob blob = 1;
+    // Chunk is a piece of it.
+    bytes chunk = 2;
+  }
+}
+
+message BlobServiceDeleteRequest {
+  // Blob is the blob's id.
+  string blob = 1;
+}
+
+message BlobServiceDeleteResponse {
+}
+
+// BlobService stores and reads blobs. A blob's access is the resource it belongs
+// to; its owner may always read it.
+service BlobService {
+  rpc Put(stream BlobServicePutRequest) returns (BlobServicePutResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE, resource: "resource" };
+  }
+
+  rpc Get(BlobServiceGetRequest) returns (stream BlobServiceGetResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+
+  rpc Delete(BlobServiceDeleteRequest) returns (BlobServiceDeleteResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+}

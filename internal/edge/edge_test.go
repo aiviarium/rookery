@@ -18,7 +18,9 @@ import (
 	"github.com/aiviarium/rookery/internal/access"
 	"github.com/aiviarium/rookery/internal/audit"
 	"github.com/aiviarium/rookery/internal/authn"
+	"github.com/aiviarium/rookery/internal/config"
 	"github.com/aiviarium/rookery/internal/edge"
+	"github.com/aiviarium/rookery/internal/seal"
 	"github.com/aiviarium/rookery/internal/server"
 	"github.com/aiviarium/rookery/internal/spaces"
 	"github.com/aiviarium/rookery/internal/store"
@@ -50,7 +52,15 @@ func start(t *testing.T) (*store.Store, *site) {
 	links := authn.NewLinks(opened, "https://rookery.example.test")
 	groups := authn.NewGroups(opened)
 	spaceService := spaces.NewService(spaces.New(opened, checker), nil)
-	localService := server.NewLocalService(opened, users, links, "https://rookery.example.test")
+	secrets, err := seal.New()
+	if err != nil {
+		t.Fatalf("making a sealing key: %v", err)
+	}
+	ring, err := seal.NewRing(secrets.ID(), secrets)
+	if err != nil {
+		t.Fatalf("making the sealing ring: %v", err)
+	}
+	localService := server.NewLocalService(opened, users, links, config.NewSecrets(opened, ring), "https://rookery.example.test")
 
 	built := edge.New(edge.Deps{
 		Logger:       testLogger(),

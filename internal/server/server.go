@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/aiviarium/rookery/internal/blobs"
 	"github.com/aiviarium/rookery/internal/jobs"
 	"github.com/aiviarium/rookery/internal/store"
 )
@@ -111,6 +112,7 @@ type handlers struct {
 
 	log       *slog.Logger
 	store     *store.Store
+	blobs     *blobs.Blobs
 	runner    *jobs.Runner
 	scheduler *jobs.Scheduler
 	retention time.Duration

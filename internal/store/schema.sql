@@ -433,3 +433,59 @@ COMMENT ON COLUMN rookery.plugins.manifest IS 'The plugin.yaml the package was i
 COMMENT ON COLUMN rookery.plugins.sha256 IS 'The package hash, which is also the folder its files are in.';
 
 CREATE INDEX plugins_enabled ON rookery.plugins (enabled, id);
+
+
+-- ---------------------------------------------------------------------------
+-- Settings, secrets, connections and blobs
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE rookery.settings (
+	key        text        NOT NULL,
+	-- scope is global, space or user.
+	scope      text        NOT NULL CHECK (scope IN ('global', 'space', 'user')),
+	-- scope_id is '' for global, the space's id, or the user's id.
+	scope_id   text        NOT NULL DEFAULT '',
+	value      bytea       NOT NULL,
+	updated_at timestamptz NOT NULL DEFAULT now(),
+	PRIMARY KEY (key, scope, scope_id)
+);
+
+COMMENT ON TABLE rookery.settings IS 'Setting values per scope; the definition and its default are the server''s.';
+
+CREATE TABLE rookery.secrets (
+	name       text        NOT NULL,
+	-- scope is global, plugin/<id>, provisioner/<name> or host/<name>.
+	scope      text        NOT NULL,
+	value      bytea       NOT NULL,
+	key_id     text        NOT NULL,
+	created_at timestamptz NOT NULL DEFAULT now(),
+	updated_at timestamptz NOT NULL DEFAULT now(),
+	PRIMARY KEY (name, scope)
+);
+
+COMMENT ON TABLE rookery.secrets IS 'Sealed secrets, by name and scope, with the key that sealed each one.';
+
+CREATE TABLE rookery.connections (
+	id         text        PRIMARY KEY,
+	type       text        NOT NULL,
+	name       text        NOT NULL UNIQUE,
+	values     bytea       NOT NULL,
+	key_id     text        NOT NULL,
+	created_at timestamptz NOT NULL DEFAULT now(),
+	updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE rookery.connections IS 'External credentials of a declared type, sealed as one value.';
+
+CREATE TABLE rookery.blobs (
+	id           text        PRIMARY KEY,
+	size         bigint      NOT NULL,
+	content_type text        NOT NULL DEFAULT '',
+	owner        text        NOT NULL DEFAULT '',
+	resource     text        NOT NULL DEFAULT '',
+	pinned       boolean     NOT NULL DEFAULT false,
+	created_at   timestamptz NOT NULL DEFAULT now(),
+	referenced_at timestamptz
+);
+
+COMMENT ON TABLE rookery.blobs IS 'Blob metadata: size, type, owner and the resource the blob belongs to.';

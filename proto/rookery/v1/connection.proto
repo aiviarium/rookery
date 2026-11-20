@@ -1,0 +1,135 @@
+// Connections: external credentials of a type the core or a plugin declares.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// ConnectionField is one field of a connection type.
+message ConnectionField {
+  string name = 1;
+  string label = 2;
+  // Secret is set for a field that is sealed and never read back.
+  bool secret = 3;
+  bool required = 4;
+}
+
+// ConnectionType is a kind of connection, declared by the core or a plugin.
+message ConnectionType {
+  string id = 1;
+  string label = 2;
+  repeated ConnectionField fields = 3;
+  // Test is set when the plugin can test a connection of this type.
+  bool test = 4;
+  // Plugin is the plugin that declares the type, empty for the core's.
+  string plugin = 5;
+}
+
+// Connection is a deployment's credentials of a type.
+message Connection {
+  string id = 1;
+  string type = 2;
+  string name = 3;
+  // ValuesCbor has the connection's fields, CBOR. A secret field holds nothing:
+  // it is sealed in the database and never read back.
+  bytes values_cbor = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message ConnectionServiceListTypesRequest {
+}
+
+message ConnectionServiceListTypesResponse {
+  repeated ConnectionType types = 1;
+}
+
+message ConnectionServiceListRequest {
+  string type = 1;
+}
+
+message ConnectionServiceListResponse {
+  repeated Connection connections = 1;
+}
+
+message ConnectionServiceGetRequest {
+  // Connection is the connection's id.
+  string connection = 1;
+}
+
+message ConnectionServiceGetResponse {
+  Connection connection = 1;
+}
+
+message ConnectionServiceCreateRequest {
+  string type = 1;
+  string name = 2;
+  bytes values_cbor = 3;
+}
+
+message ConnectionServiceCreateResponse {
+  Connection connection = 1;
+}
+
+message ConnectionServiceUpdateRequest {
+  string connection = 1;
+  // Name and ValuesCbor change when they are set.
+  optional string name = 2;
+  optional bytes values_cbor = 3;
+}
+
+message ConnectionServiceUpdateResponse {
+  Connection connection = 1;
+}
+
+message ConnectionServiceDeleteRequest {
+  string connection = 1;
+}
+
+message ConnectionServiceDeleteResponse {
+}
+
+message ConnectionServiceTestRequest {
+  string connection = 1;
+}
+
+message ConnectionServiceTestResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
+// ConnectionService manages the deployment's connections. The core declares
+// `registry`, a container or package registry login.
+service ConnectionService {
+  rpc ListTypes(ConnectionServiceListTypesRequest) returns (ConnectionServiceListTypesResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+
+  rpc List(ConnectionServiceListRequest) returns (ConnectionServiceListResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+
+  rpc Get(ConnectionServiceGetRequest) returns (ConnectionServiceGetResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc Create(ConnectionServiceCreateRequest) returns (ConnectionServiceCreateResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc Update(ConnectionServiceUpdateRequest) returns (ConnectionServiceUpdateResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc Delete(ConnectionServiceDeleteRequest) returns (ConnectionServiceDeleteResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc Test(ConnectionServiceTestRequest) returns (ConnectionServiceTestResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+}

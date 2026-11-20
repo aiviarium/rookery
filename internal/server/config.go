@@ -53,6 +53,14 @@ type Config struct {
 	StateDir string
 	// Blobs is ROOKERY_BLOBS: a directory, or s3://bucket/prefix.
 	Blobs string
+	// S3Endpoint, S3AccessKey, S3SecretKey and S3Region reach the bucket, and
+	// S3Secure and S3PathStyle say how.
+	S3Endpoint  string
+	S3AccessKey string
+	S3SecretKey string
+	S3Region    string
+	S3Secure    bool
+	S3PathStyle bool
 
 	// Admins is ROOKERY_ADMINS: emails that start as admins on first sign-in.
 	Admins []string
@@ -100,6 +108,11 @@ func LoadFrom(get func(string) string) (Config, error) {
 		SecretKey:        get("ROOKERY_SECRET_KEY"),
 		SecretKeyFile:    get("ROOKERY_SECRET_KEY_FILE"),
 		StateDir:         valueOr(get("ROOKERY_STATE_DIR"), DefaultStateDir),
+		Blobs:            get("ROOKERY_BLOBS"),
+		S3Endpoint:       get("ROOKERY_S3_ENDPOINT"),
+		S3AccessKey:      get("ROOKERY_S3_ACCESS_KEY"),
+		S3SecretKey:      get("ROOKERY_S3_SECRET_KEY"),
+		S3Region:         get("ROOKERY_S3_REGION"),
 		Admins:           splitList(get("ROOKERY_ADMINS")),
 		OIDCIssuer:       get("ROOKERY_OIDC_ISSUER"),
 		OIDCClientID:     get("ROOKERY_OIDC_CLIENT_ID"),
@@ -131,6 +144,20 @@ func LoadFrom(get func(string) string) (Config, error) {
 			return Config{}, fmt.Errorf("server: ROOKERY_RETENTION_DAYS is %q, not a number of days", raw)
 		}
 		config.RetentionDays = days
+	}
+	if raw := get("ROOKERY_S3_SECURE"); raw != "" {
+		secure, err := strconv.ParseBool(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("server: ROOKERY_S3_SECURE is %q, not true or false", raw)
+		}
+		config.S3Secure = secure
+	}
+	if raw := get("ROOKERY_S3_PATH_STYLE"); raw != "" {
+		pathStyle, err := strconv.ParseBool(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("server: ROOKERY_S3_PATH_STYLE is %q, not true or false", raw)
+		}
+		config.S3PathStyle = pathStyle
 	}
 	if raw := get("ROOKERY_COOKIE_SECURE"); raw != "" {
 		secure, err := strconv.ParseBool(raw)
