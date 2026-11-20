@@ -468,14 +468,14 @@ wire! {
     pub struct NotifyNew {
         pub notification: NotificationInfo,
         pub unread: i64,
-        /// Whether the user wants this kind as a native notification.
+        /// Whether the person asked for this kind natively, from `notify.setPref`.
         pub native: bool,
     }
 }
 
 wire! {
-    /// Notification `notify.changed`: notifications changed on another device. `allRead` means every
-    /// notification is read now.
+    /// Notification `notify.changed`: notifications changed on every connection of the person,
+    /// including the one that made the change. `allRead` means every notification is read now.
     pub struct NotifyChanged {
         pub notifications: Vec<NotificationInfo>,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -532,9 +532,13 @@ wire! {
 }
 
 wire! {
-    /// `notify.setPref`: mute a kind, or hear it again.
+    /// `notify.setPref`: mute a kind, or hear it again, and whether it comes as a native notification.
     pub struct NotifyPref {
         pub kind: String,
         pub muted: bool,
+        /// Whether the person wants this kind natively. Left out, it stays as it is.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional, type = "boolean"))]
+        pub native: Option<bool>,
     }
 }

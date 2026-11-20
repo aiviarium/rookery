@@ -394,9 +394,7 @@ export function wireCall<M extends WireMethod>(
 }
 
 /**
- * The notifications of `rookery serve`, with the generated types of their params.
- *
- * `notify.changed` is the prototype's; no code in `rookery serve` sends it yet. What changed among
+ * The notifications of `rookery serve`, with the generated types of their params. What changed among
  * hosts, resources and jobs comes as events of the server instead: see [`ServerEvents`].
  */
 export interface WireNotifications {
@@ -436,8 +434,9 @@ export interface ServerEvents {
 export type ServerEventName = keyof ServerEvents
 
 /**
- * The notifications the client listens for, for a test that checks the names it listens to. The last
- * four are what the prototype sent and no code in `rookery serve` sends yet, but `plugins.changed`.
+ * The notifications the client listens for, for a test that checks the names it listens to. All but
+ * `plugins.reloaded` are sent by `rookery serve`; that one is declared for a shell that hears of a
+ * reload without a change of the plugin's files.
  */
 export const NOTIFICATIONS = [
   "data.changed",

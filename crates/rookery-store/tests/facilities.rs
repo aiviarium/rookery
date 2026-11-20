@@ -759,7 +759,15 @@ async fn notifications_mute_and_answer() {
     let answered = notify.answer(user, sent.id, "approve").await.unwrap();
     assert!(answered.read_at.is_some());
     assert!(notify.answer(user, sent.id, "deny").await.is_err(), "once");
-    notify.set_pref(user, "digest", true).await.unwrap();
+    notify.set_pref(user, "digest", true, None).await.unwrap();
+    notify
+        .set_pref(user, "apply", false, Some(true))
+        .await
+        .unwrap();
+    assert_eq!(
+        notify.pref(user, "apply").await.unwrap(),
+        Some((false, true))
+    );
     assert!(notify.send(new("digest")).await.unwrap().is_none());
     notify.send(new("apply")).await.unwrap().unwrap();
     assert_eq!(notify.read(user, None).await.unwrap().len(), 1);

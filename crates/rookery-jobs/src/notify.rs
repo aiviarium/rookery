@@ -41,16 +41,31 @@ fn uuid(what: &str, id: &str) -> Result<Uuid, RpcError> {
     Uuid::parse_str(id).map_err(|_| RpcError::invalid(format!("{id:?} is not the id of a {what}")))
 }
 
-/// Tells each of a person's connections of a new notification, with their unread count.
+/// Tells each of a person's connections of a new notification, with their unread count and whether
+/// they want its kind natively.
 pub async fn announce(kernel: &Kernel, user: Uuid, notification: NotificationInfo) {
-    let unread = kernel.store.notify().unread(user).await.unwrap_or_default();
+    let unread = match kernel.store.notify().unread(user).await {
+        Ok(unread) => unread,
+        Err(e) => {
+            tracing::warn!(user = %user, error = %e, "reading the unread count failed");
+            0
+        }
+    };
+    let native = kernel
+        .store
+        .notify()
+        .pref(user, &notification.kind)
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|(_, native)| native);
     kernel.conns.notify_user(
         &user.to_string(),
         "notify.new",
         NotifyNew {
             notification,
             unread,
-            native: false,
+            native,
         },
     );
 }
@@ -168,10 +183,10 @@ pub fn register(methods: &mut Methods) {
         .add("notify.setPref", |call: Call, p: NotifyPref| async move {
             call.store()
                 .notify()
-                .set_pref(call.user_id()?, &p.kind, p.muted)
+                .set_pref(call.user_id()?, &p.kind, p.muted, p.native)
                 .await?;
             Ok(Empty {})
         })
-        .summary("Mutes a kind of notification for the caller, or hears it again.")
+        .summary("Mutes a kind of notification for the caller, or hears it again, and says whether it comes natively.")
         .level(Level::Own);
 }

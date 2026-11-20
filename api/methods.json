@@ -16084,20 +16084,27 @@
   },
   {
     "name": "notify.setPref",
-    "summary": "Mutes a kind of notification for the caller, or hears it again.",
+    "summary": "Mutes a kind of notification for the caller, or hears it again, and says whether it comes natively.",
     "level": {
       "kind": "self"
     },
     "params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "`notify.setPref`: mute a kind, or hear it again.",
+      "description": "`notify.setPref`: mute a kind, or hear it again, and whether it comes as a native notification.",
       "properties": {
         "kind": {
           "type": "string"
         },
         "muted": {
           "type": "boolean"
+        },
+        "native": {
+          "description": "Whether the person wants this kind natively. Left out, it stays as it is.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [

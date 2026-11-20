@@ -173,22 +173,41 @@ impl Notify<'_> {
         Ok(answered)
     }
 
-    pub async fn set_pref(&self, user: Uuid, kind: &str, muted: bool) -> Result<()> {
+    /// A person's mute and native preferences for a kind; one left out stays as it is.
+    pub async fn set_pref(
+        &self,
+        user: Uuid,
+        kind: &str,
+        muted: bool,
+        native: Option<bool>,
+    ) -> Result<()> {
         sqlx::query(
-            "INSERT INTO rookery.notification_prefs (user_id, kind, muted) VALUES ($1, $2, $3)
-             ON CONFLICT (user_id, kind) DO UPDATE SET muted = EXCLUDED.muted",
+            "INSERT INTO rookery.notification_prefs (user_id, kind, muted, native) VALUES ($1, $2, $3, COALESCE($4, false))
+             ON CONFLICT (user_id, kind) DO UPDATE SET muted = EXCLUDED.muted, native = COALESCE($4, rookery.notification_prefs.native)",
         )
         .bind(user)
         .bind(kind)
         .bind(muted)
+        .bind(native)
         .execute(self.pool)
         .await?;
         Ok(())
     }
 
-    pub async fn prefs(&self, user: Uuid) -> Result<Vec<(String, bool)>> {
+    /// Whether a person mutes a kind and wants it natively, if they said anything of it.
+    pub async fn pref(&self, user: Uuid, kind: &str) -> Result<Option<(bool, bool)>> {
         Ok(sqlx::query_as(
-            "SELECT kind, muted FROM rookery.notification_prefs WHERE user_id = $1 ORDER BY kind",
+            "SELECT muted, native FROM rookery.notification_prefs WHERE user_id = $1 AND kind = $2",
+        )
+        .bind(user)
+        .bind(kind)
+        .fetch_optional(self.pool)
+        .await?)
+    }
+
+    pub async fn prefs(&self, user: Uuid) -> Result<Vec<(String, bool, bool)>> {
+        Ok(sqlx::query_as(
+            "SELECT kind, muted, native FROM rookery.notification_prefs WHERE user_id = $1 ORDER BY kind",
         )
         .bind(user)
         .fetch_all(self.pool)
