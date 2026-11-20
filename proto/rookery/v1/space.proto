@@ -1,0 +1,129 @@
+// Spaces are containers: a kind a plugin or the core declares, a name, and
+// records and documents scoped to them.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// SpaceKind is a kind of space, declared by the core or by a plugin.
+message SpaceKind {
+  string id = 1;
+  string label = 2;
+  // Plugin is the plugin that declares the kind, empty for the core's.
+  string plugin = 3;
+}
+
+// Space is a container.
+message Space {
+  string id = 1;
+  string kind = 2;
+  string name = 3;
+  bool archived = 4;
+  // CreatedBy is the user who made the space, and holds manage on it.
+  string created_by = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message SpaceServiceListKindsRequest {}
+
+message SpaceServiceListKindsResponse {
+  repeated SpaceKind kinds = 1;
+}
+
+message SpaceServiceListRequest {
+  // Kind filters by kind when it is set.
+  string kind = 1;
+  // IncludeArchived also returns the archived spaces.
+  bool include_archived = 2;
+  int32 limit = 3;
+  string cursor = 4;
+}
+
+message SpaceServiceListResponse {
+  repeated Space spaces = 1;
+  string next_cursor = 2;
+}
+
+message SpaceServiceGetRequest {
+  // Space is the space's id.
+  string space = 1;
+}
+
+message SpaceServiceGetResponse {
+  Space space = 1;
+}
+
+message SpaceServiceCreateRequest {
+  string kind = 1;
+  string name = 2;
+}
+
+message SpaceServiceCreateResponse {
+  Space space = 1;
+}
+
+message SpaceServiceRenameRequest {
+  // Space is the space's id.
+  string space = 1;
+  string name = 2;
+}
+
+message SpaceServiceRenameResponse {
+  Space space = 1;
+}
+
+message SpaceServiceArchiveRequest {
+  // Space is the space's id.
+  string space = 1;
+  bool archived = 2;
+}
+
+message SpaceServiceArchiveResponse {
+  Space space = 1;
+}
+
+message SpaceServiceDeleteRequest {
+  // Space is the space's id.
+  string space = 1;
+}
+
+message SpaceServiceDeleteResponse {}
+
+// SpaceService manages spaces. Records and documents are scoped to one, and the
+// caller's current space is the Rookery-Space header.
+service SpaceService {
+  // ListKinds returns the kinds the core and the installed plugins declare.
+  rpc ListKinds(SpaceServiceListKindsRequest) returns (SpaceServiceListKindsResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+
+  rpc List(SpaceServiceListRequest) returns (SpaceServiceListResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+
+  rpc Get(SpaceServiceGetRequest) returns (SpaceServiceGetResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW, resource: "space" };
+  }
+
+  rpc Create(SpaceServiceCreateRequest) returns (SpaceServiceCreateResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE };
+  }
+
+  rpc Rename(SpaceServiceRenameRequest) returns (SpaceServiceRenameResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "space" };
+  }
+
+  rpc Archive(SpaceServiceArchiveRequest) returns (SpaceServiceArchiveResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "space" };
+  }
+
+  rpc Delete(SpaceServiceDeleteRequest) returns (SpaceServiceDeleteResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "space" };
+  }
+}

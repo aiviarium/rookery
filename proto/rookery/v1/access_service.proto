@@ -1,0 +1,111 @@
+// Grants: who holds which level on which resource.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// Grantee is who a grant is for: a user, a group, or everyone.
+message Grantee {
+  oneof who {
+    // UserId is the id of a user.
+    string user_id = 1;
+    // GroupId is the id of a group.
+    string group_id = 2;
+    // Everyone grants to every signed-in caller.
+    bool everyone = 3;
+  }
+}
+
+// Grant is a level held on a resource.
+message Grant {
+  // Resource is the resource's URI, such as space://01h… or host://forge.
+  string resource = 1;
+  Grantee grantee = 2;
+  Level level = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message AccessServiceCheckRequest {
+  // Resource is the resource's URI.
+  string resource = 1;
+  Level level = 2;
+}
+
+message AccessServiceCheckResponse {
+  // Allowed says whether the caller holds the level.
+  bool allowed = 1;
+  // Level is the highest level the caller holds on the resource.
+  Level level = 2;
+}
+
+message AccessServiceLevelRequest {
+  // Resource is the resource's URI.
+  string resource = 1;
+}
+
+message AccessServiceLevelResponse {
+  Level level = 1;
+}
+
+message AccessServiceListGrantsRequest {
+  // Resource is the resource's URI. Empty lists grants on every resource.
+  string resource = 1;
+  int32 limit = 2;
+  string cursor = 3;
+}
+
+message AccessServiceListGrantsResponse {
+  repeated Grant grants = 1;
+  string next_cursor = 2;
+}
+
+message AccessServiceGrantRequest {
+  // Resource is the resource's URI.
+  string resource = 1;
+  Grantee grantee = 2;
+  Level level = 3;
+}
+
+message AccessServiceGrantResponse {
+  Grant grant = 1;
+}
+
+message AccessServiceRevokeRequest {
+  // Resource is the resource's URI.
+  string resource = 1;
+  Grantee grantee = 2;
+}
+
+message AccessServiceRevokeResponse {}
+
+// AccessService reads and changes grants. Levels are view ⊂ use ⊂ manage; a
+// grant on a parent applies to its children.
+service AccessService {
+  // Check says whether the caller holds a level on a resource.
+  rpc Check(AccessServiceCheckRequest) returns (AccessServiceCheckResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+
+  // Level returns the highest level the caller holds on a resource.
+  rpc Level(AccessServiceLevelRequest) returns (AccessServiceLevelResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+
+  // ListGrants lists the grants of a resource, or of every resource.
+  rpc ListGrants(AccessServiceListGrantsRequest) returns (AccessServiceListGrantsResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW, resource: "resource" };
+  }
+
+  rpc Grant(AccessServiceGrantRequest) returns (AccessServiceGrantResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "resource" };
+  }
+
+  rpc Revoke(AccessServiceRevokeRequest) returns (AccessServiceRevokeResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "resource" };
+  }
+}

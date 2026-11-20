@@ -1,0 +1,112 @@
+// People. A user is somebody who can sign in; groups gather users, by hand or
+// from an OIDC claim, and carry grants.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// User is one person.
+message User {
+  // Id is the user's id, which resources name as user:ID.
+  string id = 1;
+  string email = 2;
+  string name = 3;
+  // Admin is set for users who hold every level everywhere.
+  bool admin = 4;
+  // Disabled is set for users who may not sign in or call anything.
+  bool disabled = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+// Link is a one-time sign-in link. It works once, for 24 hours.
+message Link {
+  // Token is the link's secret, which the URL carries.
+  string token = 1;
+  // Url is the link to hand to the person.
+  string url = 2;
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message UserServiceListRequest {
+  int32 limit = 1;
+  string cursor = 2;
+}
+
+message UserServiceListResponse {
+  repeated User users = 1;
+  string next_cursor = 2;
+}
+
+message UserServiceSearchRequest {
+  // Query matches an email or a name, case-insensitively.
+  string query = 1;
+  int32 limit = 2;
+  string cursor = 3;
+}
+
+message UserServiceSearchResponse {
+  repeated User users = 1;
+  string next_cursor = 2;
+}
+
+message UserServiceCreateLinkRequest {
+  // Email is the person the link is for. They get a user on first use.
+  string email = 1;
+}
+
+message UserServiceCreateLinkResponse {
+  Link link = 1;
+}
+
+message UserServiceSetAdminRequest {
+  // User is the user's id.
+  string user = 1;
+  bool admin = 2;
+}
+
+message UserServiceSetAdminResponse {
+  User user = 1;
+}
+
+message UserServiceSetDisabledRequest {
+  // User is the user's id.
+  string user = 1;
+  bool disabled = 2;
+}
+
+message UserServiceSetDisabledResponse {
+  User user = 1;
+}
+
+// UserService lists people and hands out links.
+service UserService {
+  // List returns the people of the deployment.
+  rpc List(UserServiceListRequest) returns (UserServiceListResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+
+  // Search finds people by email or name.
+  rpc Search(UserServiceSearchRequest) returns (UserServiceSearchResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+
+  // CreateLink makes a one-time sign-in link for an email.
+  rpc CreateLink(UserServiceCreateLinkRequest) returns (UserServiceCreateLinkResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  // SetAdmin gives or takes the admin flag.
+  rpc SetAdmin(UserServiceSetAdminRequest) returns (UserServiceSetAdminResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  // SetDisabled stops or lets a person sign in.
+  rpc SetDisabled(UserServiceSetDisabledRequest) returns (UserServiceSetDisabledResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+}
