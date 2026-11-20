@@ -1,0 +1,74 @@
+---
+title: From the Crow prototype
+description: What moved from helightdev/crow into Rookery, the names it has now, and what the first version leaves out.
+icon: ArrowRightLeft
+---
+
+The prototype, `helightdev/crow`, was one repository with a kernel, a shell, plugins, components and
+language SDKs. Rookery takes its server and its framework. Crow, Parrot, Hatchery and Nocturne take the
+rest. The names are Rookery's throughout, because the prototype was never deployed.
+
+| Project | Holds |
+| --- | --- |
+| Rookery | The server, hosts, the plugin system and the frontend framework |
+| [Crow](https://github.com/aiviarium/crow) | The shell and the default plugins |
+| [Parrot](https://parrot.helight.dev/docs) | The agent CLIs, their drivers and terminals |
+| [Hatchery](https://hatchery.helight.dev/docs) | Packages and registries |
+| [Nocturne](https://nocturne.helight.dev/docs) | The components the shell and the plugins are built from |
+
+## Names
+
+| In the prototype | In Rookery |
+| --- | --- |
+| The program `crow`, `crow serve` | `rookery`, `rookery serve` |
+| `crow-kernel`, `crow-kernel-core` | `rookery`, `rookery-server` and `rookery-kernel`: the command, start-up and the edge, and the methods |
+| `crow-kernel-facilities`, `-data`, `-documents`, `-jobs`, `-auth` | `rookery-facilities`, `rookery-data`, `rookery-documents`, `rookery-jobs`, `rookery-auth` |
+| `crow-kernel-env`, `crow-kernel-hosts` | `rookery-hosts` |
+| `crow-store` | `rookery-store` |
+| `crow-proto` | `rookery-proto`, with the generated TypeScript in `client/src/generated/` |
+| `crow-gen` | The bindings test of `rookery-proto` |
+| `crow-filter` | `rookery-filter` |
+| The schema `crow` in Postgres | The schema `rookery` |
+| `CROW_*` variables | `ROOKERY_*` |
+| `@crow/sdk`, `@crow/host` | `@rookery/sdk`, `@rookery/host`. `@crow/shell` stays Crow's |
+| `crow plugin add` and the kernel's plugin registry | `rookery plugin add`, and Hatchery behind it |
+| `/ws`, `/rpc`, `/hooks`, `/healthz` | The same |
+
+Rookery's server has commands the prototype's kernel had no equivalent of. `rookery server setup-key` makes
+the first admin's link, `server import` brings in an older Rookery store, `server token` makes an account's
+token, and `server secrets rekey` changes the sealing key.
+
+## Concepts
+
+| In the prototype | Here |
+| --- | --- |
+| The `Environment` trait, `EnvKind`, and the environment providers (`crow.env.v1.EnvironmentProvider`) | A host is a profile, a link to its `rookeryd`, and `env://NAME` for grants. `host_type.rs` says what each type can do, and a plugin no longer supplies a kind of environment |
+| `crow-kernel-env`: terminals, files, processes, checkouts, ports and desktops on an environment | The `env.*`, `terminals.*` and `hosts.*` methods over a host. Terminals are passed through to `rookeryd`, which keeps each screen, and TUI trees are Parrot's |
+| `crow-kernel-hosts`: users' machines through the connector | A host reached over SSH. The connector is not in this version |
+| The agent drivers, sessions and requests of `crow-kernel-agents` | Parrot: `parrot serve` on the host, and `agents.connect` from a client |
+| A plugin folder, `.crowplugin` and `plugins.lock` | A Hatchery package with a `rookery` target, `plugin.json`, and `eggs.lock` |
+| `appServices.*`, the `/svc` proxy and `crow.v1` over gRPC | App services of a plugin, which an admin places at a URL with `services.setExternal` and the server calls with JSON-RPC over `POST URL/rpc` |
+| The shell served from the kernel's static files | A shell package, which contributes `shell` and is installed like a plugin |
+
+## What is new
+
+- Hosts are Rookery's own, with profiles, keys, apply, provisioning, actions and grants. Every change is a
+  job that the server runs and records ([`rookery serve`](/docs/extend/serve)).
+- The plugin system has one kind of manifest and one install path through Hatchery. A plugin can bring host
+  features, provisioners, app services, extension points, a host half and a client half.
+- The command line and the shell use one API on `/ws`, and the command line also runs on macOS and Windows
+  as a client ([Install](/docs/start/install)).
+- Secrets, credentials and the key ring are sealed in the database under a key file, and
+  `rookery server secrets rekey` changes it ([The database](/docs/use/store#the-secret-key)).
+
+## Left out
+
+| Left out | What instead |
+| --- | --- |
+| The connector, and the gRPC interface with its service SDK | Hosts over SSH, and app services called over JSON-RPC |
+| The MCP server that offered a plugin's tools to agents | `box mcp` on a host, for the desktop, and Parrot's own functions |
+| SDKs for Rust, Python, the JVM and C#, with their conformance suite | `@rookery/client` and `@rookery/sdk` |
+| `crow plugin check-interface` and a plugin's `interface.json` | `rookery plugin check`, against the plugin contract |
+| Read replicas and a standby that serves reads | One leader, sized for every read |
+
+[Not in this version](/docs/reference/not-in-this-version) has the list with what to do instead.
