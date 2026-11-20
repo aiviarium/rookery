@@ -54,6 +54,8 @@ type Config struct {
 	// StateDir is ROOKERY_STATE_DIR: work directories, plugin folders, the
 	// tailnet's state.
 	StateDir string
+	// ReleaseDir is ROOKERY_RELEASE_DIR, the folder of host binaries.
+	ReleaseDir string
 	// Blobs is ROOKERY_BLOBS: a directory, or s3://bucket/prefix.
 	Blobs string
 	// S3Endpoint, S3AccessKey, S3SecretKey and S3Region reach the bucket, and
@@ -111,6 +113,7 @@ func LoadFrom(get func(string) string) (Config, error) {
 		SecretKey:        get("ROOKERY_SECRET_KEY"),
 		SecretKeyFile:    get("ROOKERY_SECRET_KEY_FILE"),
 		StateDir:         valueOr(get("ROOKERY_STATE_DIR"), DefaultStateDir),
+		ReleaseDir:       get("ROOKERY_RELEASE_DIR"),
 		Blobs:            get("ROOKERY_BLOBS"),
 		S3Endpoint:       get("ROOKERY_S3_ENDPOINT"),
 		S3AccessKey:      get("ROOKERY_S3_ACCESS_KEY"),

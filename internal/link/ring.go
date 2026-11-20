@@ -142,6 +142,15 @@ func (r *Ring) Signer(ctx context.Context) (ssh.Signer, error) {
 	return key.signer, nil
 }
 
+// PrivatePEM opens the private key selected for an apply.
+func (r *Ring) PrivatePEM(key *Key) ([]byte, error) {
+	private, err := r.sealed.Open(key.Record.PrivateKey, key.Record.KeyID, []byte(key.ID))
+	if err != nil {
+		return nil, fmt.Errorf("link: opening the private key for apply: %w", err)
+	}
+	return private, nil
+}
+
 // create makes and stores a key.
 func (r *Ring) create(ctx context.Context, name string) (*Key, string, error) {
 	public, private, err := ed25519.GenerateKey(rand.Reader)

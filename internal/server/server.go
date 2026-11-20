@@ -78,6 +78,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	defer wired.links.Close()
 	s.wired.Store(wired)
 	s.healthy.Store(true)
 	s.log.Info("this server is the leader",

@@ -247,13 +247,32 @@ func (c *Connections) Values(ctx context.Context, connectionID string) (map[stri
 	case err != nil:
 		return nil, fmt.Errorf("config: reading the connection %s: %w", connectionID, err)
 	}
+	return c.openValues(record)
+}
+
+// NamedValues opens the values of a connection of the expected type.
+func (c *Connections) NamedValues(ctx context.Context, name, expectedType string) (map[string]string, error) {
+	record, err := c.store.Queries().GetConnectionByName(ctx, name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("%w: no connection %s", access.ErrNotFound, name)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("config: reading connection %s: %w", name, err)
+	}
+	if record.Type != expectedType {
+		return nil, fmt.Errorf("%w: connection %s must have type %s", access.ErrInvalid, name, expectedType)
+	}
+	return c.openValues(record)
+}
+
+func (c *Connections) openValues(record store.RookeryConnections) (map[string]string, error) {
 	plain, err := c.ring.Open(record.Values, record.KeyID, []byte(record.ID))
 	if err != nil {
-		return nil, fmt.Errorf("config: opening the connection %s: %w", connectionID, err)
+		return nil, fmt.Errorf("config: opening the connection %s: %w", record.ID, err)
 	}
 	values := make(map[string]string)
 	if err := cborx.Unmarshal(plain, &values); err != nil {
-		return nil, fmt.Errorf("config: reading the connection %s: %w", connectionID, err)
+		return nil, fmt.Errorf("config: reading the connection %s: %w", record.ID, err)
 	}
 	return values, nil
 }

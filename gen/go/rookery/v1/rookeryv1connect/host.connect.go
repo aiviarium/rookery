@@ -51,6 +51,12 @@ const (
 	HostServiceSetProfileProcedure = "/rookery.v1.HostService/SetProfile"
 	// HostServiceSetLabelsProcedure is the fully-qualified name of the HostService's SetLabels RPC.
 	HostServiceSetLabelsProcedure = "/rookery.v1.HostService/SetLabels"
+	// HostServiceApplyProcedure is the fully-qualified name of the HostService's Apply RPC.
+	HostServiceApplyProcedure = "/rookery.v1.HostService/Apply"
+	// HostServiceListActionsProcedure is the fully-qualified name of the HostService's ListActions RPC.
+	HostServiceListActionsProcedure = "/rookery.v1.HostService/ListActions"
+	// HostServiceRunActionProcedure is the fully-qualified name of the HostService's RunAction RPC.
+	HostServiceRunActionProcedure = "/rookery.v1.HostService/RunAction"
 	// HostServiceCheckProcedure is the fully-qualified name of the HostService's Check RPC.
 	HostServiceCheckProcedure = "/rookery.v1.HostService/Check"
 )
@@ -65,6 +71,9 @@ type HostServiceClient interface {
 	Rename(context.Context, *connect.Request[v1.HostServiceRenameRequest]) (*connect.Response[v1.HostServiceRenameResponse], error)
 	SetProfile(context.Context, *connect.Request[v1.HostServiceSetProfileRequest]) (*connect.Response[v1.HostServiceSetProfileResponse], error)
 	SetLabels(context.Context, *connect.Request[v1.HostServiceSetLabelsRequest]) (*connect.Response[v1.HostServiceSetLabelsResponse], error)
+	Apply(context.Context, *connect.Request[v1.HostServiceApplyRequest]) (*connect.Response[v1.HostServiceApplyResponse], error)
+	ListActions(context.Context, *connect.Request[v1.HostServiceListActionsRequest]) (*connect.Response[v1.HostServiceListActionsResponse], error)
+	RunAction(context.Context, *connect.Request[v1.HostServiceRunActionRequest]) (*connect.Response[v1.HostServiceRunActionResponse], error)
 	Check(context.Context, *connect.Request[v1.HostServiceCheckRequest]) (*connect.Response[v1.HostServiceCheckResponse], error)
 }
 
@@ -127,6 +136,24 @@ func NewHostServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(hostServiceMethods.ByName("SetLabels")),
 			connect.WithClientOptions(opts...),
 		),
+		apply: connect.NewClient[v1.HostServiceApplyRequest, v1.HostServiceApplyResponse](
+			httpClient,
+			baseURL+HostServiceApplyProcedure,
+			connect.WithSchema(hostServiceMethods.ByName("Apply")),
+			connect.WithClientOptions(opts...),
+		),
+		listActions: connect.NewClient[v1.HostServiceListActionsRequest, v1.HostServiceListActionsResponse](
+			httpClient,
+			baseURL+HostServiceListActionsProcedure,
+			connect.WithSchema(hostServiceMethods.ByName("ListActions")),
+			connect.WithClientOptions(opts...),
+		),
+		runAction: connect.NewClient[v1.HostServiceRunActionRequest, v1.HostServiceRunActionResponse](
+			httpClient,
+			baseURL+HostServiceRunActionProcedure,
+			connect.WithSchema(hostServiceMethods.ByName("RunAction")),
+			connect.WithClientOptions(opts...),
+		),
 		check: connect.NewClient[v1.HostServiceCheckRequest, v1.HostServiceCheckResponse](
 			httpClient,
 			baseURL+HostServiceCheckProcedure,
@@ -138,15 +165,18 @@ func NewHostServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 
 // hostServiceClient implements HostServiceClient.
 type hostServiceClient struct {
-	list       *connect.Client[v1.HostServiceListRequest, v1.HostServiceListResponse]
-	get        *connect.Client[v1.HostServiceGetRequest, v1.HostServiceGetResponse]
-	watch      *connect.Client[v1.HostServiceWatchRequest, v1.HostServiceWatchResponse]
-	add        *connect.Client[v1.HostServiceAddRequest, v1.HostServiceAddResponse]
-	remove     *connect.Client[v1.HostServiceRemoveRequest, v1.HostServiceRemoveResponse]
-	rename     *connect.Client[v1.HostServiceRenameRequest, v1.HostServiceRenameResponse]
-	setProfile *connect.Client[v1.HostServiceSetProfileRequest, v1.HostServiceSetProfileResponse]
-	setLabels  *connect.Client[v1.HostServiceSetLabelsRequest, v1.HostServiceSetLabelsResponse]
-	check      *connect.Client[v1.HostServiceCheckRequest, v1.HostServiceCheckResponse]
+	list        *connect.Client[v1.HostServiceListRequest, v1.HostServiceListResponse]
+	get         *connect.Client[v1.HostServiceGetRequest, v1.HostServiceGetResponse]
+	watch       *connect.Client[v1.HostServiceWatchRequest, v1.HostServiceWatchResponse]
+	add         *connect.Client[v1.HostServiceAddRequest, v1.HostServiceAddResponse]
+	remove      *connect.Client[v1.HostServiceRemoveRequest, v1.HostServiceRemoveResponse]
+	rename      *connect.Client[v1.HostServiceRenameRequest, v1.HostServiceRenameResponse]
+	setProfile  *connect.Client[v1.HostServiceSetProfileRequest, v1.HostServiceSetProfileResponse]
+	setLabels   *connect.Client[v1.HostServiceSetLabelsRequest, v1.HostServiceSetLabelsResponse]
+	apply       *connect.Client[v1.HostServiceApplyRequest, v1.HostServiceApplyResponse]
+	listActions *connect.Client[v1.HostServiceListActionsRequest, v1.HostServiceListActionsResponse]
+	runAction   *connect.Client[v1.HostServiceRunActionRequest, v1.HostServiceRunActionResponse]
+	check       *connect.Client[v1.HostServiceCheckRequest, v1.HostServiceCheckResponse]
 }
 
 // List calls rookery.v1.HostService.List.
@@ -189,6 +219,21 @@ func (c *hostServiceClient) SetLabels(ctx context.Context, req *connect.Request[
 	return c.setLabels.CallUnary(ctx, req)
 }
 
+// Apply calls rookery.v1.HostService.Apply.
+func (c *hostServiceClient) Apply(ctx context.Context, req *connect.Request[v1.HostServiceApplyRequest]) (*connect.Response[v1.HostServiceApplyResponse], error) {
+	return c.apply.CallUnary(ctx, req)
+}
+
+// ListActions calls rookery.v1.HostService.ListActions.
+func (c *hostServiceClient) ListActions(ctx context.Context, req *connect.Request[v1.HostServiceListActionsRequest]) (*connect.Response[v1.HostServiceListActionsResponse], error) {
+	return c.listActions.CallUnary(ctx, req)
+}
+
+// RunAction calls rookery.v1.HostService.RunAction.
+func (c *hostServiceClient) RunAction(ctx context.Context, req *connect.Request[v1.HostServiceRunActionRequest]) (*connect.Response[v1.HostServiceRunActionResponse], error) {
+	return c.runAction.CallUnary(ctx, req)
+}
+
 // Check calls rookery.v1.HostService.Check.
 func (c *hostServiceClient) Check(ctx context.Context, req *connect.Request[v1.HostServiceCheckRequest]) (*connect.Response[v1.HostServiceCheckResponse], error) {
 	return c.check.CallUnary(ctx, req)
@@ -204,6 +249,9 @@ type HostServiceHandler interface {
 	Rename(context.Context, *connect.Request[v1.HostServiceRenameRequest]) (*connect.Response[v1.HostServiceRenameResponse], error)
 	SetProfile(context.Context, *connect.Request[v1.HostServiceSetProfileRequest]) (*connect.Response[v1.HostServiceSetProfileResponse], error)
 	SetLabels(context.Context, *connect.Request[v1.HostServiceSetLabelsRequest]) (*connect.Response[v1.HostServiceSetLabelsResponse], error)
+	Apply(context.Context, *connect.Request[v1.HostServiceApplyRequest]) (*connect.Response[v1.HostServiceApplyResponse], error)
+	ListActions(context.Context, *connect.Request[v1.HostServiceListActionsRequest]) (*connect.Response[v1.HostServiceListActionsResponse], error)
+	RunAction(context.Context, *connect.Request[v1.HostServiceRunActionRequest]) (*connect.Response[v1.HostServiceRunActionResponse], error)
 	Check(context.Context, *connect.Request[v1.HostServiceCheckRequest]) (*connect.Response[v1.HostServiceCheckResponse], error)
 }
 
@@ -262,6 +310,24 @@ func NewHostServiceHandler(svc HostServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(hostServiceMethods.ByName("SetLabels")),
 		connect.WithHandlerOptions(opts...),
 	)
+	hostServiceApplyHandler := connect.NewUnaryHandler(
+		HostServiceApplyProcedure,
+		svc.Apply,
+		connect.WithSchema(hostServiceMethods.ByName("Apply")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hostServiceListActionsHandler := connect.NewUnaryHandler(
+		HostServiceListActionsProcedure,
+		svc.ListActions,
+		connect.WithSchema(hostServiceMethods.ByName("ListActions")),
+		connect.WithHandlerOptions(opts...),
+	)
+	hostServiceRunActionHandler := connect.NewUnaryHandler(
+		HostServiceRunActionProcedure,
+		svc.RunAction,
+		connect.WithSchema(hostServiceMethods.ByName("RunAction")),
+		connect.WithHandlerOptions(opts...),
+	)
 	hostServiceCheckHandler := connect.NewUnaryHandler(
 		HostServiceCheckProcedure,
 		svc.Check,
@@ -286,6 +352,12 @@ func NewHostServiceHandler(svc HostServiceHandler, opts ...connect.HandlerOption
 			hostServiceSetProfileHandler.ServeHTTP(w, r)
 		case HostServiceSetLabelsProcedure:
 			hostServiceSetLabelsHandler.ServeHTTP(w, r)
+		case HostServiceApplyProcedure:
+			hostServiceApplyHandler.ServeHTTP(w, r)
+		case HostServiceListActionsProcedure:
+			hostServiceListActionsHandler.ServeHTTP(w, r)
+		case HostServiceRunActionProcedure:
+			hostServiceRunActionHandler.ServeHTTP(w, r)
 		case HostServiceCheckProcedure:
 			hostServiceCheckHandler.ServeHTTP(w, r)
 		default:
@@ -327,6 +399,18 @@ func (UnimplementedHostServiceHandler) SetProfile(context.Context, *connect.Requ
 
 func (UnimplementedHostServiceHandler) SetLabels(context.Context, *connect.Request[v1.HostServiceSetLabelsRequest]) (*connect.Response[v1.HostServiceSetLabelsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.HostService.SetLabels is not implemented"))
+}
+
+func (UnimplementedHostServiceHandler) Apply(context.Context, *connect.Request[v1.HostServiceApplyRequest]) (*connect.Response[v1.HostServiceApplyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.HostService.Apply is not implemented"))
+}
+
+func (UnimplementedHostServiceHandler) ListActions(context.Context, *connect.Request[v1.HostServiceListActionsRequest]) (*connect.Response[v1.HostServiceListActionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.HostService.ListActions is not implemented"))
+}
+
+func (UnimplementedHostServiceHandler) RunAction(context.Context, *connect.Request[v1.HostServiceRunActionRequest]) (*connect.Response[v1.HostServiceRunActionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.HostService.RunAction is not implemented"))
 }
 
 func (UnimplementedHostServiceHandler) Check(context.Context, *connect.Request[v1.HostServiceCheckRequest]) (*connect.Response[v1.HostServiceCheckResponse], error) {

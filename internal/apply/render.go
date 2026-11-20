@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"text/template"
 
 	"github.com/aiviarium/rookery/ansible"
@@ -31,7 +32,8 @@ pipelining = True
 func renderInventory(workDir, rookery string, req Request) ([]byte, error) {
 	address := req.Profile.Address
 	options := []string{
-		"-o UserKnownHostsFile=" + filepath.Join(workDir, "known_hosts"),
+		"-o " + shellQuote("UserKnownHostsFile="+quote(filepath.Join(workDir, "known_hosts"))),
+		"-o GlobalKnownHostsFile=/dev/null",
 		"-o StrictHostKeyChecking=yes",
 		"-o IdentitiesOnly=yes",
 	}
@@ -39,11 +41,8 @@ func renderInventory(workDir, rookery string, req Request) ([]byte, error) {
 		address = req.Host.TailnetAddress
 		// ssh runs the ProxyCommand through a shell, so the path is quoted for
 		// one: a space in it must not become two arguments.
-		command, err := shellQuote(rookery)
-		if err != nil {
-			return nil, err
-		}
-		options = append(options, "-o ProxyCommand="+command+" server dial %h %p")
+		command := shellQuote(strings.ReplaceAll(rookery, "%", "%%")) + " server dial %h %p"
+		options = append(options, "-o "+shellQuote("ProxyCommand="+command))
 	}
 
 	port := req.Profile.Port
@@ -55,13 +54,7 @@ func renderInventory(workDir, rookery string, req Request) ([]byte, error) {
 		user = profile.DefaultSSHUser
 	}
 
-	common := ""
-	for i, option := range options {
-		if i > 0 {
-			common += " "
-		}
-		common += option
-	}
+	common := strings.Join(options, " ")
 
 	return []byte(fmt.Sprintf(`# Written by Rookery for one apply.
 all:
@@ -102,28 +95,7 @@ func (r *Runner) renderPlaybook(req Request) ([]byte, error) {
 	return buffer.Bytes(), nil
 }
 
-// shellQuote quotes a path for the shell that runs an SSH ProxyCommand.
-func shellQuote(path string) (string, error) {
-	if path == "" {
-		return "", fmt.Errorf("%w: no rookery executable for the ProxyCommand", ErrInvalid)
-	}
-	for _, r := range path {
-		if !pathRune(r) {
-			return "", fmt.Errorf("%w: the rookery executable's path %q cannot be quoted for ssh", ErrInvalid, path)
-		}
-	}
-	return path, nil
-}
-
-// pathRune reports whether a rune is one a ProxyCommand's path may hold without
-// quoting: the characters of a plain Unix path.
-func pathRune(r rune) bool {
-	switch {
-	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-		return true
-	case r == '/', r == '.', r == '_', r == '-', r == '+':
-		return true
-	default:
-		return false
-	}
+// shellQuote quotes one word for shlex or the shell in an SSH ProxyCommand.
+func shellQuote(word string) string {
+	return "'" + strings.ReplaceAll(word, "'", "'\"'\"'") + "'"
 }

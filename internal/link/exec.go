@@ -21,9 +21,11 @@ type Command struct {
 	Dir     string
 	Env     map[string]string
 	Root    bool
-	Stdin   io.Reader
-	Stdout  io.Writer
-	Stderr  io.Writer
+	// Key pins an invocation to a selected key, for an apply that reuses it in Ansible.
+	Key    *Key
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
 }
 
 // RunSSH runs a noninteractive command using the host's SSH account.
@@ -38,9 +40,12 @@ func (m *Manager) RunSSH(ctx context.Context, target Target, command Command) (i
 	if command.Root && target.SSHUser != "root" {
 		script = "sudo -n -- /bin/sh -c " + shellWord(script)
 	}
-	key, err := m.ring.Active(ctx)
-	if err != nil {
-		return 0, err
+	key := command.Key
+	if key == nil {
+		key, err = m.ring.Active(ctx)
+		if err != nil {
+			return 0, err
+		}
 	}
 	client, err := m.dialSSH(ctx, target, ssh.PublicKeys(key.signer), m.known.Callback(ctx, target.knownAddress(), target.Name))
 	if err != nil {

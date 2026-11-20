@@ -34,7 +34,7 @@
     owner: root
     group: root
     mode: '0644'
-    content: "{{ base_actions | to_nice_json }}\n"
+    content: "{{ {'actions': base_actions} | to_nice_json }}\n"
   notify: Restart rookeryd
 
 - name: Install the rookeryd unit

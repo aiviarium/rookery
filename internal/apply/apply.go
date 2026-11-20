@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/aiviarium/rookery/ansible"
+	"github.com/aiviarium/rookery/internal/hostaction"
 	"github.com/aiviarium/rookery/internal/profile"
 )
 
@@ -46,22 +47,18 @@ type Registry struct {
 }
 
 // ActionArg is one argument of an action, as /etc/rookery/actions.json names it.
-type ActionArg struct {
-	Name     string `json:"name"`
-	Label    string `json:"label,omitempty"`
-	Required bool   `json:"required,omitempty"`
-	Default  string `json:"default,omitempty"`
-}
+type ActionArg = hostaction.Argument
 
-// Action is one action rookeryd offers on the host, as the base role writes it
-// to /etc/rookery/actions.json.
+// Action is one action offered by a host feature.
 type Action struct {
-	Name   string      `json:"name"`
-	Label  string      `json:"label"`
-	User   string      `json:"user"`
-	OnHost bool        `json:"onHost,omitempty"`
-	Run    string      `json:"run"`
-	Args   []ActionArg `json:"args,omitempty"`
+	Name     string      `json:"name"`
+	Label    string      `json:"label"`
+	Group    string      `json:"group,omitempty"`
+	User     string      `json:"user"`
+	OnHost   bool        `json:"-"`
+	Terminal bool        `json:"terminal,omitempty"`
+	Run      string      `json:"command"`
+	Args     []ActionArg `json:"arguments,omitempty"`
 }
 
 // Host is what an apply knows about a host that its profile does not: its name,
@@ -130,6 +127,8 @@ type Request struct {
 	// AuthKey is a one-use tailnet key for this apply, empty when the profile's
 	// tailnet is off.
 	AuthKey string
+	// LoginServer is the deployment's Headscale URL, if set.
+	LoginServer string
 	// Binaries are the rookeryd and box to install on the host.
 	Binaries Binaries
 	// Actions are the actions rookeryd offers on the host afterwards.
@@ -157,6 +156,8 @@ type Runner struct {
 	// Rookery is the server's own executable, which a tailnet host is reached
 	// through. Empty asks the running executable.
 	Rookery string
+	// Socket is the server socket the SSH ProxyCommand connects to.
+	Socket string
 	// Content holds the roles and the playbook template; the embedded ansible/
 	// when nil.
 	Content fs.FS
@@ -166,6 +167,7 @@ var (
 	// jobIDPattern bounds a job id to what makes a safe directory name.
 	jobIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
 	// roleNamePattern bounds a role name to what Ansible accepts.
+	hostnamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
 	roleNamePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$`)
 )
 
@@ -231,7 +233,7 @@ func (r *Runner) check(req Request) error {
 	if req.Host.Name == "" {
 		return fmt.Errorf("%w: the host has no name", ErrInvalid)
 	}
-	if !roleNamePattern.MatchString(req.Host.Name) {
+	if !hostnamePattern.MatchString(req.Host.Name) {
 		return fmt.Errorf("%w: host name %q is not a host name", ErrInvalid, req.Host.Name)
 	}
 	if err := req.Profile.Validate(); err != nil {
@@ -307,7 +309,10 @@ func (r *Runner) rookery() (string, error) {
 // makeWorkDir makes <state dir>/jobs/<id>, mode 0700, and nothing above it that
 // is readable to another user.
 func (r *Runner) makeWorkDir(jobID string) (string, error) {
-	dir := filepath.Join(r.StateDir, "jobs", jobID)
+	dir, err := filepath.Abs(filepath.Join(r.StateDir, "jobs", jobID))
+	if err != nil {
+		return "", fmt.Errorf("apply: resolving the work directory: %w", err)
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("apply: making the work directory: %w", err)
 	}

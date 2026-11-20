@@ -5,6 +5,8 @@ syntax = "proto3";
 package rookery.v1;
 
 import "google/protobuf/timestamp.proto";
+import "rookery/host/v1/actions.proto";
+import "rookery/v1/terminal.proto";
 import "rookery/v1/access.proto";
 
 option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
@@ -208,6 +210,30 @@ message HostServiceCheckResponse {
   string reason = 3;
 }
 
+message HostServiceApplyRequest {
+  string name = 1;
+}
+message HostServiceApplyResponse {
+  string job = 1;
+}
+message HostServiceListActionsRequest {
+  string name = 1;
+}
+message HostServiceListActionsResponse {
+  repeated rookery.host.v1.Action actions = 1;
+}
+message HostServiceRunActionRequest {
+  string name = 1;
+  string action = 2;
+  bytes args_cbor = 3;
+}
+message HostServiceRunActionResponse {
+  oneof execution {
+    string job = 1;
+    Terminal terminal = 2;
+  }
+}
+
 // HostService is the machines Rookery runs.
 service HostService {
   rpc List(HostServiceListRequest) returns (HostServiceListResponse) {
@@ -232,6 +258,15 @@ service HostService {
     option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "name" };
   }
   rpc SetLabels(HostServiceSetLabelsRequest) returns (HostServiceSetLabelsResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "name" };
+  }
+  rpc Apply(HostServiceApplyRequest) returns (HostServiceApplyResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "name" };
+  }
+  rpc ListActions(HostServiceListActionsRequest) returns (HostServiceListActionsResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW, resource: "name" };
+  }
+  rpc RunAction(HostServiceRunActionRequest) returns (HostServiceRunActionResponse) {
     option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "name" };
   }
   rpc Check(HostServiceCheckRequest) returns (HostServiceCheckResponse) {

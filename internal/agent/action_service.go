@@ -2,12 +2,8 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"math"
 	"os/exec"
-	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -15,7 +11,7 @@ import (
 	"connectrpc.com/connect"
 
 	hostv1 "github.com/aiviarium/rookery/gen/go/rookery/host/v1"
-	"github.com/aiviarium/rookery/internal/cborx"
+	"github.com/aiviarium/rookery/internal/hostaction"
 )
 
 // actionService serves ActionService: the user actions the apply wrote.
@@ -191,84 +187,11 @@ func (h *actionService) runAs(caller *caller, action *action, want string) (*acc
 	}
 }
 
-// environment is the ROOKERY_ARG_* variables an action's arguments become, with
-// the declared defaults for the ones not given.
+// environment is shared with action jobs run at the edge.
 func (a *action) environment(encoded []byte) (map[string]string, error) {
-	values := make(map[string]string, len(a.arguments))
-	for _, argument := range a.arguments {
-		if argument.def != "" {
-			values[argument.name] = argument.def
-		}
-	}
-
-	if len(encoded) > 0 {
-		var given map[string]any
-		if err := cborx.Unmarshal(encoded, &given); err != nil {
-			return nil, fmt.Errorf("%w: the arguments of %s: %w", ErrInvalid, a.name, err)
-		}
-		for name, value := range given {
-			if !a.hasArgument(name) {
-				return nil, fmt.Errorf("%w: %s has no argument %q", ErrInvalid, a.name, name)
-			}
-			formatted, err := formatArgument(value)
-			if err != nil {
-				return nil, fmt.Errorf("%w: %s's argument %s: %w", ErrInvalid, a.name, name, err)
-			}
-			values[name] = formatted
-		}
-	}
-
-	for _, argument := range a.arguments {
-		if argument.required && values[argument.name] == "" {
-			return nil, fmt.Errorf("%w: %s needs %s", ErrInvalid, a.name, argument.name)
-		}
-	}
-
-	environment := make(map[string]string, len(values))
-	for name, value := range values {
-		environment["ROOKERY_ARG_"+strings.ToUpper(name)] = value
+	environment, err := hostaction.Environment(a.arguments, encoded)
+	if err != nil {
+		return nil, fmt.Errorf("%w: the arguments of %s: %w", ErrInvalid, a.name, err)
 	}
 	return environment, nil
-}
-
-// hasArgument says whether an action declares an argument.
-func (a *action) hasArgument(name string) bool {
-	for _, argument := range a.arguments {
-		if argument.name == name {
-			return true
-		}
-	}
-	return false
-}
-
-// formatArgument is an argument's value as an environment variable's: text as
-// it is, numbers and booleans as Go prints them, and anything else as JSON.
-func formatArgument(value any) (string, error) {
-	switch typed := value.(type) {
-	case nil:
-		return "", nil
-	case string:
-		return typed, nil
-	case []byte:
-		return string(typed), nil
-	case time.Time:
-		return typed.UTC().Format(time.RFC3339Nano), nil
-	case bool:
-		return strconv.FormatBool(typed), nil
-	case int64:
-		return strconv.FormatInt(typed, 10), nil
-	case uint64:
-		return strconv.FormatUint(typed, 10), nil
-	case float64:
-		if typed == math.Trunc(typed) && math.Abs(typed) < 1<<53 {
-			return strconv.FormatInt(int64(typed), 10), nil
-		}
-		return strconv.FormatFloat(typed, 'g', -1, 64), nil
-	default:
-		encoded, err := json.Marshal(typed)
-		if err != nil {
-			return "", err
-		}
-		return string(encoded), nil
-	}
 }

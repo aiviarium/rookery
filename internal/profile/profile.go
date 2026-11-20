@@ -6,6 +6,7 @@ package profile
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"regexp"
 	"slices"
 )
@@ -110,8 +111,9 @@ const (
 var ErrInvalid = errors.New("profile: invalid")
 
 var (
-	featureID = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$`)
-	userName  = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
+	featureID   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$`)
+	hostAddress = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+	userName    = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
 )
 
 // Normalize fills in the defaults, so that two profiles that say the same thing
@@ -156,8 +158,10 @@ func (p Profile) Validate() error {
 	if !p.Type.Valid() {
 		return fmt.Errorf("%w: type %q, want ssh, managed or workstation", ErrInvalid, p.Type)
 	}
-	if p.Address == "" {
-		return fmt.Errorf("%w: the profile has no address", ErrInvalid)
+	address, err := netip.ParseAddr(p.Address)
+	if (err != nil && !hostAddress.MatchString(p.Address)) ||
+		(address.Zone() != "" && !hostAddress.MatchString(address.Zone())) {
+		return fmt.Errorf("%w: the profile needs a host name or IP address", ErrInvalid)
 	}
 	if p.Port < 0 || p.Port > 65535 {
 		return fmt.Errorf("%w: port %d is not a port", ErrInvalid, p.Port)
@@ -184,6 +188,9 @@ func (p Profile) Validate() error {
 	if p.Desktop != nil {
 		if !userName.MatchString(p.Desktop.User) {
 			return fmt.Errorf("%w: desktop user %q is not an account name", ErrInvalid, p.Desktop.User)
+		}
+		if p.Desktop.User == "root" || p.Desktop.User == p.Operator || p.Desktop.User == p.SSHUser {
+			return fmt.Errorf("%w: the desktop user must be separate from the root, SSH and operator accounts", ErrInvalid)
 		}
 		if p.Desktop.Width < 0 || p.Desktop.Height < 0 {
 			return fmt.Errorf("%w: the desktop's screen is %dx%d", ErrInvalid, p.Desktop.Width, p.Desktop.Height)

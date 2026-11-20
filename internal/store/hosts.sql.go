@@ -334,20 +334,18 @@ func (q *Queries) SetHostCursor(ctx context.Context, arg SetHostCursorParams) er
 const setHostProfile = `-- name: SetHostProfile :one
 UPDATE rookery.hosts
 SET profile = $1,
-    type = $2,
     updated_at = now()
-WHERE name = $3
+WHERE name = $2
 RETURNING name, type, profile, address, applied_digest, applied_at, last_seen_at, created_by, created_at, updated_at
 `
 
 type SetHostProfileParams struct {
 	Profile []byte
-	Type    string
 	Name    string
 }
 
 func (q *Queries) SetHostProfile(ctx context.Context, arg SetHostProfileParams) (RookeryHosts, error) {
-	row := q.db.QueryRow(ctx, setHostProfile, arg.Profile, arg.Type, arg.Name)
+	row := q.db.QueryRow(ctx, setHostProfile, arg.Profile, arg.Name)
 	var i RookeryHosts
 	err := row.Scan(
 		&i.Name,
@@ -362,6 +360,23 @@ func (q *Queries) SetHostProfile(ctx context.Context, arg SetHostProfileParams) 
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const setHostType = `-- name: SetHostType :exec
+UPDATE rookery.hosts
+SET type = $1,
+    updated_at = now()
+WHERE name = $2
+`
+
+type SetHostTypeParams struct {
+	Type string
+	Name string
+}
+
+func (q *Queries) SetHostType(ctx context.Context, arg SetHostTypeParams) error {
+	_, err := q.db.Exec(ctx, setHostType, arg.Type, arg.Name)
+	return err
 }
 
 const touchHost = `-- name: TouchHost :exec

@@ -91,7 +91,7 @@ func TestListFiltersLabels(t *testing.T) {
 	}
 }
 
-func TestSetProfileGrowsTheType(t *testing.T) {
+func TestSetProfileRecordsTheDesiredType(t *testing.T) {
 	t.Parallel()
 	opened := storetest.New(t)
 	hostStore := hosts.New(opened)
@@ -106,8 +106,11 @@ func TestSetProfileGrowsTheType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetProfile(managed) = %v", err)
 	}
-	if record.Type != profile.TypeManaged {
-		t.Errorf("type = %s, want managed", record.Type)
+	if record.Type != profile.TypeSSH || record.Profile.Type != profile.TypeManaged {
+		t.Errorf("type = %s, desired type = %s, want ssh and managed", record.Type, record.Profile.Type)
+	}
+	if _, err := hostStore.MarkApplied(ctx, "forge", "digest", profile.TypeManaged, ""); err != nil {
+		t.Fatal(err)
 	}
 
 	// A profile that asks for less than the host has does not take the type
