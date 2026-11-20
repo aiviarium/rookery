@@ -1,0 +1,19 @@
+/* The shell's own layout, on Nocturne's tokens. Colour comes from them alone. */
+@layer app {
+  html,
+  body,
+  #shell {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg-0);
+    color: var(--text-1);
+    font: 400 13px/20px var(--font-sans);
+  }
+
+  .nc-section-heading {
+    padding: var(--space-2) var(--space-2) var(--space-1);
+  }
+}

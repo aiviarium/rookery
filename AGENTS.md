@@ -6,6 +6,8 @@ Rookery runs a team's machines, their desktops, and the tools built on them. [PL
 
 One Go workspace. `cmd/` holds only `main` packages, `internal/` the packages that do the work, `proto/` the contract and `gen/go/` buf's output for it. Plugins are their own modules under `plugins/`. Packages are named for what they do; none is `util`, `common` or `types`.
 
+The TypeScript workspace is at the repository root: `sdk/ts/` holds `@rookery/proto`, `@rookery/client` and `@rookery/sdk`, and `web/shell/` holds `@rookery/shell`, the UI the server serves at `/`. One lockfile covers both. `internal/webshell` embeds the shell's build, and a checkout without one embeds a placeholder page.
+
 The foundations everything else builds on:
 
 - `internal/cborx` is the only way a dynamic value becomes bytes: CBOR in Core Deterministic mode.
@@ -41,8 +43,9 @@ make db       # Postgres with pgvector on 127.0.0.1:55432, fsync off; prints its
 make reset    # drop and recreate ROOKERY_DATABASE_URL's schemas, after a confirmation
 make test     # go test -race in every module
 make lint     # gofmt, go vet, golangci-lint, buf lint, ansible-lint
-make ts       # bun install, typecheck and test in sdk/ts
-make e2e      # go test -tags e2e ./e2e/...
+make ts       # bun install, typecheck and test the TypeScript workspace
+make web      # build the default shell into internal/webshell/dist
+make e2e      # go test -tags e2e ./e2e/..., with the shell's browser test
 make dev      # the dev database and rookery serve against it
 ```
 

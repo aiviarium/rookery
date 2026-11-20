@@ -78,7 +78,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('sdk/ts/bun.lock') }}
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
       - name: Cache the generation and lint tools
         uses: actions/cache@v6
@@ -193,8 +193,33 @@ jobs:
             sudo apt-get install -y --no-install-recommends xvfb
           fi
 
+      - uses: oven-sh/setup-bun@v2
+        if: matrix.shard == 0
+        with:
+          bun-version: latest
+
+      - uses: actions/cache@v6
+        if: matrix.shard == 0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      - uses: actions/cache@v6
+        if: matrix.shard == 0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+
+      - name: Install Playwright's browser for the shell's test
+        if: matrix.shard == 0
+        run: |
+          bun install --frozen-lockfile
+          cd web/shell && bun x playwright install --with-deps chromium
+
       - run: make test-shard SHARD=${{ matrix.shard }} SHARDS=2
 
+      # The browser test in e2e/ runs the shell's Playwright spec against the
+      # server this step starts, so the shell is built into it first.
       - name: Fast end-to-end test
         if: matrix.shard == 0
         run: make e2e
@@ -227,12 +252,16 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('sdk/ts/bun.lock') }}
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
 
       # The workspace's dependencies, the type-check, the unit tests and the
-      # fixture plugins' bundles. The fixtures are workspace members, so the
-      # lockfile covers them too.
+      # fixture plugins' bundles. The fixtures and the shell are workspace
+      # members, so the lockfile covers them too.
       - run: make ts
+
+      # The shell's build, which the server embeds. A checkout without it embeds
+      # the placeholder page, so this proves the real app compiles.
+      - run: make web
 
   # The plugins' own modules: the Docker plugin drives the runner's Docker engine
   # with plain containers, and skips its systemd machine tests, which run only

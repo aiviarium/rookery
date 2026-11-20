@@ -43,6 +43,9 @@ type Deps struct {
 	// Plugins serves the client halves and the shell of the installed plugins,
 	// when the servers has any.
 	Plugins Plugins
+	// WebShell is the shell Rookery ships, served for `/` and unmatched paths
+	// until an installed plugin is the shell.
+	WebShell http.Handler
 	// Desktop serves the RFB WebSocket when it is set.
 	Desktop http.Handler
 	// Blobs serves /blobs/{id} when it is set.

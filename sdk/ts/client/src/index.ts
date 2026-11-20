@@ -11,7 +11,6 @@ export type { ClientContext, ClientHalf, HostTabMount, Mount } from "./contract.
 export {
   type AdminPage,
   type Contributions,
-  type ContributionsResponse,
   type HostTab,
   type Nav,
   type PluginContributions,
@@ -54,7 +53,9 @@ export {
   services,
 } from "./transport.ts";
 export {
+  type AuthConfig,
   asError,
+  fetchAuthConfig,
   isPermissionDenied,
   isUnauthenticated,
   type SignIn,

@@ -13,6 +13,31 @@ export type SignInSnapshot =
   | { readonly status: "signed-out" }
   | { readonly status: "error"; readonly error: Error };
 
+/** AuthConfig is what a sign-in page needs before anyone has signed in. */
+export interface AuthConfig {
+  /** identityProvider is whether the deployment signs browsers in through OIDC. */
+  readonly identityProvider: boolean;
+}
+
+/**
+ * fetchAuthConfig asks the edge which ways in this deployment has. It is public:
+ * the sign-in page needs it before there is a session.
+ */
+export async function fetchAuthConfig(
+  baseUrl: string,
+  options: { fetch?: typeof fetch } = {},
+): Promise<AuthConfig> {
+  const response = await (options.fetch ?? globalThis.fetch)(`${baseUrl}/auth/config`, {
+    method: "GET",
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(`reading the sign-in configuration: ${response.status} ${response.statusText}`);
+  }
+  return (await response.json()) as AuthConfig;
+}
+
 /** SignIn is the sign-in state, and the calls that change it. */
 export interface SignIn extends Watchable<SignInSnapshot> {
   /** refresh asks AuthService.Me and returns the state it found. */

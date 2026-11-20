@@ -9,7 +9,7 @@ plugins:
     opt: paths=source_relative
   # The TypeScript SDK's messages and services, for @rookery/proto. The plugin
   # comes from sdk/ts's dependencies: `make tools` installs them.
-  - local: sdk/ts/node_modules/.bin/protoc-gen-es
+  - local: node_modules/.bin/protoc-gen-es
     out: sdk/ts/proto/src/gen
     opt:
       - target=ts

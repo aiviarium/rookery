@@ -82,3 +82,12 @@ func (e *Edge) shellIndex(w http.ResponseWriter, r *http.Request) bool {
 	_, _ = w.Write(contents) //nolint:gosec // the shell is a plugin's own page, which is what a shell is
 	return true
 }
+
+// defaultShell serves the shell Rookery ships, which is what `/` shows until a
+// plugin declares `shell: true`.
+func (e *Edge) defaultShell(w http.ResponseWriter, r *http.Request) {
+	if e.deps.WebShell == nil {
+		return
+	}
+	e.deps.WebShell.ServeHTTP(w, r)
+}

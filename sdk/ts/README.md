@@ -34,15 +34,16 @@ and the current space in `Rookery-Space`.
 
 A new core service drops in by regeneration: its descriptor arrives in
 `@rookery/proto`, and one line in `services` in `src/transport.ts` gives it a typed
-client and a name on `createRookery()`.
+client and a name on `createRookery()`. Every service in `proto/rookery/v1` is
+there, except the services whose calls are streams a browser cannot open.
 
 ### Live queries
 
 `DataService.Live` is a server stream that sends the matching records and then
 each change. A subscriber that falls behind is sent `resync` and then the records
 that match now; `LiveQuery` keeps a keyed snapshot, replaces it on a resync, and
-reconnects with backoff when the stream ends. Until `DataService`'s proto is on
-`go`, the query takes a structural `LiveSource` and `rookery.data` is its adapter.
+reconnects with backoff when the stream ends. The query takes a structural
+`LiveSource`, which `rookery.data` is.
 
 ### The routes that are not Connect
 
@@ -98,13 +99,11 @@ export default defineClient({
 });
 ```
 
-`loadClientHalves()` asks `PluginService.Contributions`, imports each plugin's
-`index.js` from `/plugins/{id}/{hash}/`, and hands the shell the halves with a
-context: the typed API, the plugin's id and contributions, and navigation. That
-proto is not on `go` yet, so the call speaks Connect's JSON encoding against the
-shape in `src/contributions.ts`, which mirrors the manifest's `contributions`
-block; when the proto lands, the generated message replaces the hand-written type
-and nothing else changes.
+`loadClientHalves()` asks `PluginService.Contributions`, decodes each plugin's
+`contributes_json`, imports its `index.js` from `/plugins/{id}/{hash}/`, and
+hands the shell the halves with a context: the typed API, the plugin's id and
+contributions, and navigation. A half that fails to load is reported and left
+out, so one broken plugin does not keep the shell from starting.
 
 ## A plugin's service
 

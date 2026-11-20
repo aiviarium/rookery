@@ -1,0 +1,24 @@
+{
+  "name": "rookery",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "sdk/ts",
+    "sdk/ts/proto",
+    "sdk/ts/client",
+    "sdk/ts/sdk",
+    "testdata/plugins/example-ts",
+    "testdata/plugins/shell",
+    "web/shell"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p sdk/ts/tsconfig.json && tsc --noEmit -p web/shell/tsconfig.json",
+    "test": "bun test sdk/ts && bun run --cwd web/shell test",
+    "web": "bun run --cwd web/shell build"
+  },
+  "devDependencies": {
+    "@bufbuild/protoc-gen-es": "^2.11.0",
+    "@types/bun": "^1.3.0",
+    "typescript": "^5.9.0"
+  }
+}

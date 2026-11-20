@@ -38,6 +38,7 @@ import (
 	"github.com/aiviarium/rookery/internal/store"
 	"github.com/aiviarium/rookery/internal/streamio"
 	"github.com/aiviarium/rookery/internal/tailnet"
+	"github.com/aiviarium/rookery/internal/webshell"
 )
 
 // wire builds every service and both listeners' handlers. Every dependency goes
@@ -310,6 +311,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		OIDCAdmins:   s.config.Admins,
 		Interceptors: interceptors,
 		Plugins:      installer,
+		WebShell:     webshell.New(),
 		Services:     supervisor,
 		Procedures:   installer,
 		PluginTokens: provisionTokens,

@@ -56,10 +56,11 @@ const cliPage = `<!doctype html>
 </form>
 </body></html>`
 
-// fallbackPage is what `/` says until a shell plugin is installed.
+// fallbackPage is what `/` says when the server was built without the default
+// shell and no plugin is one.
 const fallbackPage = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Rookery</title></head>
-<body><h1>Rookery</h1><p>No shell plugin is installed.</p></body></html>`
+<body><h1>Rookery</h1><p>No shell is installed.</p></body></html>`
 
 // registerAuth adds the sign-in routes.
 func (e *Edge) registerAuth(mux *http.ServeMux) {
@@ -68,14 +69,36 @@ func (e *Edge) registerAuth(mux *http.ServeMux) {
 	mux.HandleFunc("/auth/oidc/callback", e.oidcCallback)
 	mux.HandleFunc("/auth/cli", e.cli)
 	mux.HandleFunc("/auth/logout", e.logout)
+	mux.HandleFunc("GET /auth/config", e.config)
+}
+
+// authConfig is what a page needs to draw its sign-in: which ways in this
+// deployment has.
+type authConfig struct {
+	// IdentityProvider says the browser may sign in at /auth/oidc/start.
+	IdentityProvider bool `json:"identityProvider"`
+}
+
+// config answers the sign-in page with the ways in. It is public, because the
+// page needs it before anyone has signed in.
+func (e *Edge) config(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(authConfig{IdentityProvider: e.deps.OIDC != nil})
 }
 
 // fallback answers what no service and no sign-in route took: the shell plugin's
-// page once there is one.
+// page once there is one, and the default shell otherwise.
 func (e *Edge) fallback(w http.ResponseWriter, r *http.Request) {
 	// The shell, when a plugin is one, answers every path no other route does,
 	// so that its router decides what a path is.
 	if e.shellIndex(w, r) {
+		return
+	}
+	// The default shell answers the same paths while no plugin is the shell. It
+	// is a handler rather than an index, because it serves its hashed assets too.
+	if e.deps.WebShell != nil {
+		e.defaultShell(w, r)
 		return
 	}
 	if r.URL.Path != "/" {

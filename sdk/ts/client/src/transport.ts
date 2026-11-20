@@ -8,14 +8,31 @@ import {
   AccessService,
   AuditService,
   AuthService,
+  ChannelService,
+  ConnectionService,
   DataService,
   DesktopService,
+  DocumentService,
+  EntityService,
   EventService,
+  ExecService,
+  FileService,
   GroupService,
+  HostCallService,
+  HostService,
   JobService,
+  KeyService,
   NotificationService,
+  PluginService,
+  ProvisionerService,
+  RegistryService,
+  RolloutService,
   ScheduleService,
+  SecretService,
+  SettingService,
   SpaceService,
+  TailnetService,
+  TerminalService,
   TopicService,
   UserService,
 } from "@rookery/proto";
@@ -47,13 +64,30 @@ export const services = {
   access: AccessService,
   audit: AuditService,
   auth: AuthService,
+  channels: ChannelService,
+  connections: ConnectionService,
   data: DataService,
+  documents: DocumentService,
+  entities: EntityService,
   events: EventService,
+  exec: ExecService,
+  files: FileService,
   groups: GroupService,
+  hostCalls: HostCallService,
+  hosts: HostService,
   jobs: JobService,
+  keys: KeyService,
   notifications: NotificationService,
+  plugins: PluginService,
+  provisioners: ProvisionerService,
+  registries: RegistryService,
+  rollouts: RolloutService,
   schedules: ScheduleService,
+  secrets: SecretService,
+  settings: SettingService,
   spaces: SpaceService,
+  tailnet: TailnetService,
+  terminals: TerminalService,
   topics: TopicService,
   users: UserService,
 } as const;
@@ -100,12 +134,12 @@ export type Rookery = Clients &
     readonly signIn: SignIn;
     /** setSpace changes the space every following call is scoped to. */
     setSpace(space: string): void;
-    /** documents open a live document over `/ws/documents/{id}`. */
-    readonly documents: {
+    /** documents is DocumentService, with the live sync over `/ws/documents/{id}`. */
+    readonly documents: Client<typeof DocumentService> & {
       open(id: string, options?: DocumentOptions): DocumentSync;
     };
-    /** terminals attach to a terminal over `/ws/terminals/{id}`. */
-    readonly terminals: {
+    /** terminals is TerminalService, with the attach over `/ws/terminals/{id}`. */
+    readonly terminals: Client<typeof TerminalService> & {
       attach(id: string, options?: TerminalOptions): TerminalSession;
     };
     /** desktop is a host's RFB stream over `/ws/hosts/{name}/desktop`. */
@@ -114,9 +148,7 @@ export type Rookery = Clients &
       open(host: string, options?: DesktopOptions): DesktopStream;
     };
     /** contributions is what the installed plugins add to the shell. */
-    contributions(options?: { fetch?: typeof fetch; credentials?: RequestCredentials }): Promise<
-      readonly PluginContributions[]
-    >;
+    contributions(): Promise<readonly PluginContributions[]>;
     /** loadClientHalves imports every installed plugin's client half. */
     loadClientHalves(options?: LoaderOptions): Promise<readonly LoadedClientHalf[]>;
   };
@@ -192,14 +224,14 @@ export function createRookery(options: RookeryOptions = {}): Rookery {
       }
       return url.toString();
     },
-    documents: {
-      open: (id, documentOptions) =>
-        new DocumentSync(rookery, id, documentOptions as DocumentOptions | undefined),
-    },
-    terminals: {
-      attach: (id, terminalOptions) =>
-        new TerminalSession(rookery, id, terminalOptions as TerminalOptions | undefined),
-    },
+    documents: Object.assign(clients.documents, {
+      open: (id: string, documentOptions?: DocumentOptions) =>
+        new DocumentSync(rookery, id, documentOptions),
+    }),
+    terminals: Object.assign(clients.terminals, {
+      attach: (id: string, terminalOptions?: TerminalOptions) =>
+        new TerminalSession(rookery, id, terminalOptions),
+    }),
     desktop: {
       screenshot,
       input,
@@ -211,8 +243,9 @@ export function createRookery(options: RookeryOptions = {}): Rookery {
       open: (host, desktopOptions) =>
         new DesktopStream(rookery, host, desktopOptions as DesktopOptions | undefined).open(),
     },
-    contributions: (contributionOptions) => fetchContributions(rookery, contributionOptions),
-    loadClientHalves: (loaderOptions) => loadClientHalves(rookery, loaderOptions),
+    contributions: () => fetchContributions(transport),
+    loadClientHalves: (loaderOptions) =>
+      loadClientHalves(rookery, { source: () => fetchContributions(transport), ...loaderOptions }),
   };
 
   if (options.autoSignIn ?? true) {

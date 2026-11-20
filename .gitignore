@@ -7,3 +7,11 @@ node_modules/
 /testdata/plugins/*/web/index.js
 !/testdata/plugins/example/web/index.js
 /testdata/plugins/example-ts/service/index.js
+
+# The default shell's build. `internal/webshell/dist/index.html` is committed as
+# the placeholder a checkout without Bun embeds; `make web` rewrites it and adds
+# the hashed assets beside it.
+/internal/webshell/dist/assets/
+/web/shell/dist/
+/web/shell/test-results/
+/web/shell/playwright-report/
