@@ -1,0 +1,20 @@
+{
+  "$schema": "https://github.com/aiviarium/rookery/blob/main/schemas/plugin.schema.json",
+  "apiVersion": "1",
+  "name": "Echo agent",
+  "description": "The agent driver rookery's end-to-end tests use: it answers every prompt with its text, and needs no network or API key.",
+  "contributes": {
+    "hostFeatures": [
+      {
+        "id": "echo",
+        "group": "Coding Agents",
+        "label": "Echo agent",
+        "description": "Installs nothing of its own. Selecting it puts this package's Parrot target on the host: a driver that answers each prompt with `echo:` and its text.",
+        "summary": "An agent that echoes (`echo`). It needs no sign-in.",
+        "types": [
+          "workstation"
+        ]
+      }
+    ]
+  }
+}

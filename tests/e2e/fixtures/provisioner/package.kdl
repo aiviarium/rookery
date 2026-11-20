@@ -1,0 +1,22 @@
+format 1
+
+package {
+  group example
+  id fleetbox
+  version "0.1.0"
+}
+
+about {
+  name "e2e machine"
+  summary "A provisioner for rookery's end-to-end tests: it records a machine and renders its seed, with no provider behind it."
+  license MIT
+  license Apache-2.0
+}
+
+targets {
+  rookery {
+    requires {
+      rookery ">=0.6"
+    }
+  }
+}
