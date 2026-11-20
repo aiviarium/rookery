@@ -38,7 +38,12 @@ export async function settle(times = 6): Promise<void> {
 export async function mount(
   client: Rookery,
   config: AuthConfig = { identityProvider: false },
+  path?: string,
 ): Promise<Mounted> {
+  // A test that names a path gets it, and gets the URL back when the shell goes;
+  // one that does not keeps the URL it set itself.
+  const started = `${location.pathname}${location.search}`;
+  if (path !== undefined) history.pushState({}, "", path);
   const container = document.createElement("div");
   document.body.append(container);
   const dispose = render(() => <App client={client} config={config} />, container);
@@ -70,6 +75,7 @@ export async function mount(
     unmount: () => {
       dispose();
       container.remove();
+      if (path !== undefined) history.pushState({}, "", started);
     },
   };
 }

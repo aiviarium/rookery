@@ -34,6 +34,11 @@ export * from "./gen/rookery/v1/tailnet_pb.js";
 export * from "./gen/rookery/v1/terminal_pb.js";
 export * from "./gen/rookery/v1/topic_pb.js";
 export * from "./gen/rookery/v1/user_pb.js";
+// The host daemon's messages a page draws: a host's actions and files. They keep
+// their own names, since the edge has a FileService and a Session of its own.
+export type { Action, ActionArgument } from "./gen/rookery/host/v1/actions_pb.js";
+export type { File as HostFile } from "./gen/rookery/host/v1/files_pb.js";
+export type { Session as HostSession } from "./gen/rookery/host/v1/session_pb.js";
 export * as pluginLifecycle from "./gen/rookery/plugin/v1/plugin_pb.js";
 export * as pluginProvisioner from "./gen/rookery/plugin/v1/provisioner_pb.js";
 export * from "./gen/rookery/plugin/v1/server_pb.js";

@@ -41,7 +41,9 @@ describe("a plugin's page", () => {
       ),
     );
     try {
-      expect(view.find(".nc-section-heading")?.textContent).toContain("Workspace");
+      // The shell's own areas have groups of their own, so the plugin's is one
+      // heading among several.
+      expect(view.findAll(".nc-section-heading").some((heading) => heading.textContent?.includes("Workspace"))).toBe(true);
       const link = view.find("a[href='/notes']");
       expect(link?.textContent).toContain("Notes");
       expect(view.text()).toContain("notes from the plugin");
