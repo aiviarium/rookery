@@ -1,7 +1,7 @@
 // The infrastructure pages: the hosts and their page, a job's log, and the
 // machines a provisioner made.
 import { describe, expect, test } from "bun:test";
-import type { Action, Host, Job, JobLine } from "@rookery/proto";
+import type { Action, Host, Job, JobLine, ProvisionerEntry, ProvisionerResource, ProvisionerType } from "@rookery/proto";
 import { HostType } from "@rookery/proto";
 
 import { STATIC_USER, fakeClient } from "./fakes.ts";
@@ -77,6 +77,40 @@ describe("a job's page", () => {
       expect(view.text()).toContain("Installing rookeryd");
       expect(view.text()).toContain("Joining the tailnet");
       expect(view.text()).toContain("Succeeded");
+    } finally {
+      view.unmount();
+    }
+  });
+});
+
+describe("the machines page", () => {
+  test("lists a provisioner, its health and the machine it made", async () => {
+    const type = {
+      id: "incus/container",
+      label: "Incus container",
+      kinds: [{ id: "machine", label: "Machine", machine: true }],
+      sizes: [{ id: "small", label: "Small", cpus: 2, memoryMb: 2048, diskGb: 20 }],
+      actions: [{ name: "images", label: "List images" }],
+    } as unknown as ProvisionerType;
+    const entry = { name: "lab-incus", type: type.id, node: "studio" } as unknown as ProvisionerEntry;
+    const machine = { id: "01hmachine", kind: "machine", name: "desk-3", provisioner: entry.name, address: "192.0.2.31" } as unknown as ProvisionerResource;
+    const view = await mount(
+      fakeClient({
+        user: STATIC_USER,
+        hosts: [STUDIO],
+        types: [type],
+        provisioners: [entry],
+        machines: [machine],
+      }),
+      undefined,
+      "/machines",
+    );
+    try {
+      expect(view.text()).toContain("lab-incus");
+      expect(view.text()).toContain("incus/container");
+      expect(view.text()).toContain("Up");
+      expect(view.text()).toContain("desk-3");
+      expect(view.text()).toContain("192.0.2.31");
     } finally {
       view.unmount();
     }
