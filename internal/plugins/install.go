@@ -659,3 +659,23 @@ func checkRequirement(version, constraint string) error {
 	}
 	return nil
 }
+
+// Webhook finds a declaration belonging to an enabled plugin.
+func (i *Installer) Webhook(ctx context.Context, pluginID, name string) (Webhook, error) {
+	plugin, err := i.Get(ctx, pluginID)
+	if err != nil {
+		return Webhook{}, err
+	}
+	if plugin.Enabled {
+		manifest, err := pluginManifest(plugin)
+		if err != nil {
+			return Webhook{}, err
+		}
+		for _, webhook := range manifest.Webhooks {
+			if webhook.Name == name {
+				return webhook, nil
+			}
+		}
+	}
+	return Webhook{}, access.ErrNotFound
+}

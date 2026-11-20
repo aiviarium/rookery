@@ -255,6 +255,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		Documents:          docs.NewHandler(collections.docs, dataCaller{}),
 		Desktop:            service.desktop.WebSocket(),
 		RegisterHostRoutes: hostRuntime.RegisterRoutes,
+		Webhooks:           edge.NewWebhooks(installer, secrets, jobRunner),
 		RegisterLocal: func(mux *http.ServeMux, options []connect.HandlerOption) {
 			path, handler := rookeryv1connect.NewLocalServiceHandler(service.local, options...)
 			mux.Handle(path, handler)
