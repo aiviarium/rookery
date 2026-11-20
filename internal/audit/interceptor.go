@@ -107,7 +107,7 @@ func (i *Interceptor) record(ctx context.Context, spec connect.Spec, request any
 		Outcome:   outcome,
 	}
 	if callErr != nil {
-		entry.Detail = callErr.Error()
+		entry.Detail = connect.CodeOf(callErr).String()
 	}
 
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)

@@ -9,6 +9,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
@@ -162,36 +163,58 @@ func (s *Secrets) Rename(ctx context.Context, name, scope, newName string) (Secr
 		return Secret{}, fmt.Errorf("%w: a secret needs a name", access.ErrInvalid)
 	}
 
-	record, err := s.store.Queries().GetSecret(ctx, store.GetSecretParams{Name: name, Scope: scope})
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		return Secret{}, fmt.Errorf("%w: there is no secret %s in %s", access.ErrNotFound, name, scope)
-	case err != nil:
-		return Secret{}, fmt.Errorf("config: reading the secret %s: %w", name, err)
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		return Secret{}, fmt.Errorf("config: opening secret rename: %w", err)
 	}
-
-	// The associated data holds the name, so the value is resealed under the new
-	// one.
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := s.store.Queries().WithTx(tx)
+	record, err := q.LockSecret(ctx, store.LockSecretParams{Name: name, Scope: scope})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Secret{}, fmt.Errorf("%w: there is no secret %s in %s", access.ErrNotFound, name, scope)
+	}
+	if err != nil {
+		return Secret{}, fmt.Errorf("config: locking secret %s: %w", name, err)
+	}
+	if name == newName {
+		return secretOf(record), nil
+	}
 	value, err := s.ring.Open(record.Value, record.KeyID, secretAssociatedData(name, scope))
 	if err != nil {
 		return Secret{}, fmt.Errorf("config: opening the secret %s: %w", name, err)
 	}
-	renamed, err := s.Set(ctx, newName, scope, value)
+	sealed, key, err := s.ring.Seal(value, secretAssociatedData(newName, scope))
 	if err != nil {
-		return Secret{}, err
+		return Secret{}, fmt.Errorf("config: sealing the renamed secret: %w", err)
 	}
-	if err := s.Delete(ctx, name, scope); err != nil {
-		return Secret{}, err
+	renamed, err := q.RenameSealedSecret(ctx, store.RenameSealedSecretParams{
+		OldName: name, NewName: newName, Scope: scope, SealedValue: sealed, NewKeyID: key,
+	})
+	var postgres *pgconn.PgError
+	if errors.As(err, &postgres) && postgres.Code == "23505" {
+		return Secret{}, fmt.Errorf("%w: the secret %s already exists in %s", access.ErrConflict, newName, scope)
 	}
-	return renamed, nil
+	if err != nil {
+		return Secret{}, fmt.Errorf("config: renaming secret %s: %w", name, err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Secret{}, fmt.Errorf("config: committing secret rename: %w", err)
+	}
+	return secretOf(renamed), nil
 }
 
 // Rekey reseals every secret and every connection under the current key, and
 // says how many values it rewrote.
 func (s *Secrets) Rekey(ctx context.Context) (int64, error) {
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("config: beginning rekey: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := s.store.Queries().WithTx(tx)
 	var resealed int64
 
-	secrets, err := s.store.Queries().ListSecretsForRekey(ctx)
+	secrets, err := q.ListSecretsForRekey(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("config: listing secrets for a rekey: %w", err)
 	}
@@ -203,7 +226,7 @@ func (s *Secrets) Rekey(ctx context.Context) (int64, error) {
 		if !changed {
 			continue
 		}
-		if err := s.store.Queries().ResealSecret(ctx, store.ResealSecretParams{
+		if err := q.ResealSecret(ctx, store.ResealSecretParams{
 			Name:  record.Name,
 			Scope: record.Scope,
 			Value: value,
@@ -214,7 +237,7 @@ func (s *Secrets) Rekey(ctx context.Context) (int64, error) {
 		resealed++
 	}
 
-	connections, err := s.store.Queries().ListConnectionsForRekey(ctx)
+	connections, err := q.ListConnectionsForRekey(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("config: listing connections for a rekey: %w", err)
 	}
@@ -226,7 +249,7 @@ func (s *Secrets) Rekey(ctx context.Context) (int64, error) {
 		if !changed {
 			continue
 		}
-		if err := s.store.Queries().ResealConnection(ctx, store.ResealConnectionParams{
+		if err := q.ResealConnection(ctx, store.ResealConnectionParams{
 			ID:     record.ID,
 			Values: value,
 			KeyID:  keyID,
@@ -235,7 +258,14 @@ func (s *Secrets) Rekey(ctx context.Context) (int64, error) {
 		}
 		resealed++
 	}
-	return resealed, nil
+	count, err := s.rekeyInfrastructure(ctx, q)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("config: committing rekey: %w", err)
+	}
+	return resealed + count, nil
 }
 
 // secretAssociatedData binds a sealed secret to its name and scope.

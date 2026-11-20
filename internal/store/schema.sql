@@ -146,6 +146,15 @@ CREATE TABLE rookery.tailnet_state (
 	value      bytea       NOT NULL,
 	updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE TABLE rookery.tailnet_config (
+	singleton   boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+	control_url text    NOT NULL,
+	tag         text    NOT NULL,
+	api_key     bytea   NOT NULL,
+	key_id      text    NOT NULL
+);
+
 -- ---------------------------------------------------------------- data
 --
 -- The datastore's shared tables: the change feed, references between records,

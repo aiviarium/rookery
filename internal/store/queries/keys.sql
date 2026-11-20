@@ -84,3 +84,22 @@ RETURNING *;
 UPDATE rookery.known_hosts
 SET host = $2
 WHERE address = $1;
+
+-- name: ListSSHKeysForRekey :many
+SELECT id, private_key, key_id FROM rookery.keys ORDER BY id FOR UPDATE;
+
+-- name: ResealSSHKey :exec
+UPDATE rookery.keys SET private_key = $2, key_id = $3 WHERE id = $1;
+
+-- name: ListSQLRolesForRekey :many
+SELECT plugin, password, key_id FROM rookery.sql_roles ORDER BY plugin FOR UPDATE;
+
+-- name: ResealSQLRole :exec
+UPDATE rookery.sql_roles SET password = $2, key_id = $3 WHERE plugin = $1;
+
+-- name: HasSealedData :one
+SELECT EXISTS (SELECT 1 FROM rookery.secrets)
+    OR EXISTS (SELECT 1 FROM rookery.connections)
+    OR EXISTS (SELECT 1 FROM rookery.keys)
+    OR EXISTS (SELECT 1 FROM rookery.sql_roles)
+    OR EXISTS (SELECT 1 FROM rookery.tailnet_config) AS present;

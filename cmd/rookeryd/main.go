@@ -32,8 +32,8 @@ func main() {
 	}
 }
 
-func usage() {
-	_, _ = fmt.Fprint(flag.CommandLine.Output(), `usage: rookeryd <command> [flags]
+func usage(flags *flag.FlagSet) {
+	_, _ = fmt.Fprint(flags.Output(), `usage: rookeryd <command> [flags]
 
 rookeryd is the daemon on a managed host. Its commands are:
 
@@ -42,20 +42,27 @@ rookeryd is the daemon on a managed host. Its commands are:
 
 flags:
 `)
-	flag.PrintDefaults()
+	flags.PrintDefaults()
 }
 
 func run(ctx context.Context, args []string) error {
-	showVersion := flag.Bool("version", false, "print the version and exit")
-	flag.Usage = usage
-	flag.Parse()
+	flags := flag.NewFlagSet("rookeryd", flag.ContinueOnError)
+	showVersion := flags.Bool("version", false, "print the version and exit")
+	flags.Usage = func() { usage(flags) }
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	args = flags.Args()
 	if *showVersion {
 		fmt.Println("rookeryd", version)
 		return nil
 	}
 
 	if len(args) == 0 {
-		flag.Usage()
+		flags.Usage()
 		return errors.New("no command given")
 	}
 	switch args[0] {
@@ -101,7 +108,6 @@ func serve(ctx context.Context, args []string) error {
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: parseLevel(*logLevel)})).With("program", "rookeryd")
-	slog.SetDefault(logger)
 
 	daemon, err := agent.New(ctx, agent.Config{
 		Version:        version,

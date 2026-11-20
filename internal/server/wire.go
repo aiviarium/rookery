@@ -35,20 +35,50 @@ import (
 	"github.com/aiviarium/rookery/internal/spaces"
 	"github.com/aiviarium/rookery/internal/store"
 	"github.com/aiviarium/rookery/internal/streamio"
+	"github.com/aiviarium/rookery/internal/tailnet"
 )
 
 // wire builds every service and both listeners' handlers. Every dependency goes
 // in here, in one place, in the order start-up needs it.
 func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, error) {
-	key, err := seal.Load(s.config.SecretKey, s.config.SecretKeyFile, true)
+	sealedData, err := opened.Queries().HasSealedData(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("checking for sealed deployment data: %w", err)
+	}
+	key, err := seal.Load(s.config.SecretKey, s.config.SecretKeyFile, sealedData != nil && !*sealedData)
 	if err != nil {
 		return nil, err
 	}
-	ring, err := seal.NewRing(key.ID(), key)
+	keys := []*seal.Key{key}
+	if s.config.PreviousKeyFile != "" {
+		previous, err := seal.Load("", s.config.PreviousKeyFile, false)
+		if err != nil {
+			return nil, err
+		}
+		if previous.ID() != key.ID() {
+			keys = append(keys, previous)
+		}
+	}
+	ring, err := seal.NewRing(key.ID(), keys...)
 	if err != nil {
 		return nil, err
 	}
 	s.log.Debug("the sealing key is loaded", slog.String("key_id", key.ID()))
+
+	tail := tailnet.NewManager(tailnet.ManagerOptions{
+		Store: opened, Ring: ring, Dir: filepath.Join(s.config.StateDir, "tailnet"),
+		Hostname: s.config.TailnetHostname, Tailnet: s.config.TailnetName,
+		HeadscaleUser: s.config.TailnetHeadscaleUser, Log: s.log,
+	})
+	if err := tail.Load(ctx); err != nil {
+		return nil, err
+	}
+	wired := false
+	defer func() {
+		if !wired {
+			_ = tail.Close()
+		}
+	}()
 
 	checker := access.NewChecker(opened)
 	recorder := audit.NewRecorder(opened)
@@ -178,6 +208,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	})
 	hostLinks := link.NewManager(opened, keyRing, trusted, link.Options{
 		Targets: hostService.Targets(),
+		Tailnet: tail,
 		Log:     s.log,
 	})
 
@@ -248,6 +279,8 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		settings: settings, datastore: collections.data, store: opened, hostLinks: hostLinks,
 	}
 
+	service.local.tailnet = tail
+	tailRPC := tailnetService{manager: tail, hosts: hostStore}
 	build := edge.New(edge.Deps{
 		Logger:       s.log,
 		PublicURL:    s.config.PublicURL,
@@ -271,6 +304,8 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 			collections.register(mux, options)
 			path, handler := rookeryv1connect.NewProvisionerServiceHandler(provisioners, options...)
 			mux.Handle(path, handler)
+			path, handler = rookeryv1connect.NewTailnetServiceHandler(tailRPC, options...)
+			mux.Handle(path, handler)
 		},
 		Blobs:              blobStore.Handler(),
 		Documents:          docs.NewHandler(collections.docs, dataCaller{}),
@@ -279,13 +314,15 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		Webhooks:           edge.NewWebhooks(installer, secrets, jobRunner),
 		RegisterLocal: func(mux *http.ServeMux, options []connect.HandlerOption) {
 			path, handler := rookeryv1connect.NewLocalServiceHandler(service.local, options...)
-			mux.Handle(path, handler)
+			mux.Handle(path, withLocalRequestBody(handler))
 			path, handler = pluginv1connect.NewServerServiceHandler(pluginServer, options...)
 			mux.Handle(path, handler)
 		},
 	})
 
+	wired = true
 	return &handlers{
+		tailnet:     tail,
 		edge:        build.Handler(),
 		socket:      build.SocketHandler(),
 		log:         s.log,
@@ -436,6 +473,7 @@ type LocalService struct {
 	links     *authn.Links
 	secrets   *config.Secrets
 	publicURL string
+	tailnet   tailnet.Dialer
 }
 
 // NewLocalService returns LocalService for a database.
@@ -496,10 +534,4 @@ func (l *LocalService) Reset(ctx context.Context, _ *connect.Request[rookeryv1.L
 		return nil, access.ToConnect(err)
 	}
 	return connect.NewResponse(&rookeryv1.LocalServiceResetResponse{}), nil
-}
-
-// Dial opens a byte stream through the tailnet, for Ansible's SSH. The tailnet
-// arrives with its own item.
-func (l *LocalService) Dial(context.Context, *connect.BidiStream[rookeryv1.LocalServiceDialRequest, rookeryv1.LocalServiceDialResponse]) error {
-	return connect.NewError(connect.CodeUnimplemented, errors.New("server: dial arrives with the tailnet"))
 }

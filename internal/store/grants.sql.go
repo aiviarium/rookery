@@ -69,7 +69,7 @@ WITH RECURSIVE chain AS (
 	SELECT r0.uri, r0.parent
 	FROM rookery.resources r0
 	WHERE r0.uri = $1
-	UNION ALL
+	UNION
 	SELECT r.uri, r.parent
 	FROM rookery.resources r
 	JOIN chain c ON r.uri = c.parent

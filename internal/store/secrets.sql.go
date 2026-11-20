@@ -91,7 +91,7 @@ func (q *Queries) ListSecrets(ctx context.Context, scope *string) ([]RookerySecr
 const listSecretsForRekey = `-- name: ListSecretsForRekey :many
 SELECT name, scope, value, key_id, created_at, updated_at
 FROM rookery.secrets
-ORDER BY name, scope
+ORDER BY name, scope FOR UPDATE
 `
 
 func (q *Queries) ListSecretsForRekey(ctx context.Context) ([]RookerySecrets, error) {
@@ -119,6 +119,65 @@ func (q *Queries) ListSecretsForRekey(ctx context.Context) ([]RookerySecrets, er
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockSecret = `-- name: LockSecret :one
+SELECT name, scope, value, key_id, created_at, updated_at FROM rookery.secrets WHERE name = $1 AND scope = $2 FOR UPDATE
+`
+
+type LockSecretParams struct {
+	Name  string
+	Scope string
+}
+
+func (q *Queries) LockSecret(ctx context.Context, arg LockSecretParams) (RookerySecrets, error) {
+	row := q.db.QueryRow(ctx, lockSecret, arg.Name, arg.Scope)
+	var i RookerySecrets
+	err := row.Scan(
+		&i.Name,
+		&i.Scope,
+		&i.Value,
+		&i.KeyID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const renameSealedSecret = `-- name: RenameSealedSecret :one
+UPDATE rookery.secrets
+SET name = $1, value = $2,
+    key_id = $3, updated_at = now()
+WHERE name = $4 AND scope = $5
+RETURNING name, scope, value, key_id, created_at, updated_at
+`
+
+type RenameSealedSecretParams struct {
+	NewName     string
+	SealedValue []byte
+	NewKeyID    string
+	OldName     string
+	Scope       string
+}
+
+func (q *Queries) RenameSealedSecret(ctx context.Context, arg RenameSealedSecretParams) (RookerySecrets, error) {
+	row := q.db.QueryRow(ctx, renameSealedSecret,
+		arg.NewName,
+		arg.SealedValue,
+		arg.NewKeyID,
+		arg.OldName,
+		arg.Scope,
+	)
+	var i RookerySecrets
+	err := row.Scan(
+		&i.Name,
+		&i.Scope,
+		&i.Value,
+		&i.KeyID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const renameSecret = `-- name: RenameSecret :execrows

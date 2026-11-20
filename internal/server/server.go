@@ -19,6 +19,7 @@ import (
 	"github.com/aiviarium/rookery/internal/plugins"
 	"github.com/aiviarium/rookery/internal/rollouts"
 	"github.com/aiviarium/rookery/internal/store"
+	"github.com/aiviarium/rookery/internal/tailnet"
 )
 
 // shutdownTimeout is how long a stopping server waits for the calls it has.
@@ -61,7 +62,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer s.stop(ctx, servers)
+	defer func() { s.stop(ctx, servers) }()
 
 	leader, err := Acquire(ctx, s.config.DatabaseLockURL, s.log)
 	if err != nil {
@@ -78,6 +79,11 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err := wired.tailnet.Close(); err != nil {
+			s.log.Warn("closing tailnet", slog.Any("error", err))
+		}
+	}()
 	defer wired.links.Close()
 	s.wired.Store(wired)
 	s.healthy.Store(true)
@@ -90,20 +96,34 @@ func (s *Server) Run(ctx context.Context) error {
 	// The leader's other loops: the job runner, the scheduler and retention.
 	loopsCtx, stopLoops := context.WithCancel(ctx)
 	loops := make(chan error, 1)
-	go func() { loops <- wired.start(loopsCtx) }()
+	go func() { loops <- s.runLeaderLoops(loopsCtx, wired) }()
+
+	watchCtx, stopWatch := context.WithCancel(ctx)
+	lost := leader.Watch(watchCtx)
+	defer func() {
+		stopWatch()
+		for range lost {
+		}
+	}()
 
 	var stopped error
+	loopsFinished := false
 	select {
 	case <-ctx.Done():
 		s.log.Info("stopping")
-	case err := <-leader.Watch(ctx):
-		stopped = err
+	case stopped = <-lost:
+	case stopped = <-loops:
+		loopsFinished = true
 	}
-
 	s.healthy.Store(false)
 	stopLoops()
-	if err := <-loops; err != nil {
-		s.log.Debug("a leader loop stopped", slog.String("error", err.Error()))
+	if !loopsFinished {
+		if err := <-loops; err != nil && !errors.Is(err, context.Canceled) && stopped == nil {
+			stopped = err
+		}
+	}
+	if ctx.Err() != nil && errors.Is(stopped, context.Canceled) {
+		return nil
 	}
 	return stopped
 }
@@ -127,6 +147,7 @@ type handlers struct {
 	rollouts    *rollouts.Manager
 	collections *collectionServices
 	hostRuntime *hosts.Runtime
+	tailnet     *tailnet.Manager
 }
 
 // logger is the server's logger, for the loops the handlers own.

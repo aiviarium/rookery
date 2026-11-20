@@ -43,8 +43,11 @@ message LocalServiceResetRequest {}
 message LocalServiceResetResponse {}
 
 message LocalServiceDialRequest {
-  // Data is bytes to send to the far end.
+  // Data is bytes to send after the opening message.
   bytes data = 1;
+  // Host and port appear on the first message only.
+  string host = 2;
+  uint32 port = 3;
 }
 
 message LocalServiceDialResponse {
@@ -78,7 +81,7 @@ service LocalService {
   }
 
   // Dial opens a byte stream to a host's address through the tailnet, for
-  // Ansible's SSH ProxyCommand. It arrives with the tailnet item.
+  // Ansible's SSH ProxyCommand.
   rpc Dial(stream LocalServiceDialRequest) returns (stream LocalServiceDialResponse) {
     option (rookery.v1.access) = { level: LEVEL_LOCAL };
   }

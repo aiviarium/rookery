@@ -144,19 +144,6 @@ func secretsCommand() *cobra.Command {
 	return command
 }
 
-// dialCommand is Ansible's ProxyCommand through the tailnet, once the tailnet
-// arrives.
-func dialCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "dial HOST PORT",
-		Short: "Open a byte stream to a host through the tailnet",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(*cobra.Command, []string) error {
-			return fmt.Errorf("cli: dial arrives with the tailnet")
-		},
-	}
-}
-
 // resetCommand drops and recreates the database's schemas.
 func resetCommand() *cobra.Command {
 	command := &cobra.Command{
