@@ -12,9 +12,9 @@ export type EnvInfo = { name: string,
  */
 uri: string, 
 /**
- * The host's type: `ssh`, `managed`, `node`, `workstation` or `local`.
+ * The host's type: `ssh`, `managed`, `node` or `workstation`.
  */
-kind: "ssh" | "managed" | "node" | "workstation" | "local" | "connector" | (string & {}), state: EnvState, 
+kind: "ssh" | "managed" | "node" | "workstation" | (string & {}), state: EnvState, 
 /**
  * The owner's user id.
  */

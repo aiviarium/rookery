@@ -1792,7 +1792,7 @@
           }
         },
         "tools": {
-          "description": "Tools for agents, served by the kernel's MCP server. The host half registers each with rookery.agents.tool(id, { params, run }), or a handler names an app service method.",
+          "description": "Tools for agents, declared so that a shell can list them before the plugin runs. The host half registers the handler of each, or a handler names an app service method.",
           "type": "array",
           "items": {
             "type": "object",

@@ -1,5 +1,16 @@
 {
   "title": "Reference",
   "icon": "Library",
-  "pages": ["cli", "tools", "graphics", "box", "on-the-host", "profile", "ids", "validation", "building"]
+  "pages": [
+    "cli",
+    "tools",
+    "graphics",
+    "box",
+    "on-the-host",
+    "profile",
+    "ids",
+    "not-in-this-version",
+    "validation",
+    "building"
+  ]
 }
