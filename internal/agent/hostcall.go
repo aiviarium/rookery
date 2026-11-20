@@ -31,9 +31,10 @@ type hostCallRegistry struct {
 type hostService struct {
 	info  *hostv1.HostService
 	calls chan *hostv1.HostCallRequest
-	// done ends the service's stream. It is closed when the provider goes
+	// done ends the service's stream. It is closed once when the provider goes
 	// away, and a call selects on it rather than send on a closed channel.
 	done    chan struct{}
+	once    sync.Once
 	waiting map[string]chan *hostv1.HostCallResult
 }
 
@@ -97,10 +98,14 @@ func (r *hostCallRegistry) unregister(service *hostService) {
 	if r.services[service.info.GetName()] == service {
 		delete(r.services, service.info.GetName())
 	}
-	close(service.done)
+	service.once.Do(func() { close(service.done) })
 	for id, waiting := range service.waiting {
 		delete(service.waiting, id)
-		waiting <- &hostv1.HostCallResult{Id: id, Error: "the provider went away"}
+		// The waiter may already have given up; its channel holds one answer.
+		select {
+		case waiting <- &hostv1.HostCallResult{Id: id, Error: "the provider went away"}:
+		default:
+		}
 	}
 }
 
@@ -115,7 +120,10 @@ func (r *hostCallRegistry) deliver(result *hostv1.HostCallResult) {
 			continue
 		}
 		delete(service.waiting, result.GetId())
-		waiting <- result
+		select {
+		case waiting <- result:
+		default:
+		}
 		return
 	}
 }
