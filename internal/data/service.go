@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
 	"github.com/aiviarium/rookery/internal/cborx"
@@ -38,11 +39,11 @@ func (s *Service) Get(ctx context.Context, request *connect.Request[rookeryv1.Ge
 	}
 	record, err := s.data.Get(ctx, principal, request.Msg.GetCollection(), request.Msg.GetId())
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	encoded, err := encodeRecord(record)
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	return connect.NewResponse(&rookeryv1.GetResponse{RecordCbor: encoded}), nil
 }
@@ -55,11 +56,11 @@ func (s *Service) Find(ctx context.Context, request *connect.Request[rookeryv1.F
 	}
 	collection, err := s.data.Collection(request.Msg.GetCollection())
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	parsed, err := filter.Parse(request.Msg.GetFilterCbor(), collection.FilterFields())
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 
 	sorts := make([]Sort, len(request.Msg.GetSorts()))
@@ -74,12 +75,12 @@ func (s *Service) Find(ctx context.Context, request *connect.Request[rookeryv1.F
 		Space:  request.Msg.GetSpace(),
 	})
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 
 	records, err := encodeRecords(page.Records)
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	return connect.NewResponse(&rookeryv1.FindResponse{RecordsCbor: records, Cursor: page.Cursor}), nil
 }
@@ -92,15 +93,15 @@ func (s *Service) Count(ctx context.Context, request *connect.Request[rookeryv1.
 	}
 	collection, err := s.data.Collection(request.Msg.GetCollection())
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	parsed, err := filter.Parse(request.Msg.GetFilterCbor(), collection.FilterFields())
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	count, err := s.data.Count(ctx, principal, collection.Key(), Query{Filter: parsed, Space: request.Msg.GetSpace()})
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	return connect.NewResponse(&rookeryv1.CountResponse{Count: count}), nil
 }
@@ -113,16 +114,16 @@ func (s *Service) Aggregate(ctx context.Context, request *connect.Request[rooker
 	}
 	collection, err := s.data.Collection(request.Msg.GetCollection())
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	parsed, err := filter.Parse(request.Msg.GetFilterCbor(), collection.FilterFields())
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 
 	operation, err := aggregateOperation(request.Msg.GetOperation())
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	rows, err := s.data.Aggregate(ctx, principal, collection.Key(), Aggregate{
 		Op:      operation,
@@ -132,14 +133,14 @@ func (s *Service) Aggregate(ctx context.Context, request *connect.Request[rooker
 		Space:   request.Msg.GetSpace(),
 	})
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 
 	groups := make([][]byte, len(rows))
 	for i, row := range rows {
 		encoded, err := encodeRecord(map[string]any{"group": row.Group, "value": row.Value})
 		if err != nil {
-			return nil, connectError(err)
+			return nil, ConnectError(err)
 		}
 		groups[i] = encoded
 	}
@@ -154,15 +155,15 @@ func (s *Service) Insert(ctx context.Context, request *connect.Request[rookeryv1
 	}
 	record, err := decodeRecord(request.Msg.GetRecordCbor())
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	written, err := s.data.Insert(ctx, principal, request.Msg.GetCollection(), record)
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	encoded, err := encodeRecord(written)
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	return connect.NewResponse(&rookeryv1.InsertResponse{RecordCbor: encoded}), nil
 }
@@ -175,16 +176,16 @@ func (s *Service) Update(ctx context.Context, request *connect.Request[rookeryv1
 	}
 	patch, err := decodeRecord(request.Msg.GetRecordCbor())
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	written, err := s.data.Update(ctx, principal, request.Msg.GetCollection(),
 		request.Msg.GetId(), patch, request.Msg.GetRevision())
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	encoded, err := encodeRecord(written)
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	return connect.NewResponse(&rookeryv1.UpdateResponse{RecordCbor: encoded}), nil
 }
@@ -197,15 +198,15 @@ func (s *Service) Upsert(ctx context.Context, request *connect.Request[rookeryv1
 	}
 	record, err := decodeRecord(request.Msg.GetRecordCbor())
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	written, err := s.data.Upsert(ctx, principal, request.Msg.GetCollection(), record, request.Msg.GetRevision())
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	encoded, err := encodeRecord(written)
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	return connect.NewResponse(&rookeryv1.UpsertResponse{RecordCbor: encoded}), nil
 }
@@ -218,7 +219,7 @@ func (s *Service) Delete(ctx context.Context, request *connect.Request[rookeryv1
 	}
 	err = s.data.Delete(ctx, principal, request.Msg.GetCollection(), request.Msg.GetId(), request.Msg.GetRevision())
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	return connect.NewResponse(&rookeryv1.DeleteResponse{}), nil
 }
@@ -231,11 +232,11 @@ func (s *Service) Restore(ctx context.Context, request *connect.Request[rookeryv
 	}
 	written, err := s.data.Restore(ctx, principal, request.Msg.GetCollection(), request.Msg.GetId(), request.Msg.GetRevision())
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	encoded, err := encodeRecord(written)
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	return connect.NewResponse(&rookeryv1.RestoreResponse{RecordCbor: encoded}), nil
 }
@@ -251,13 +252,13 @@ func (s *Service) Batch(ctx context.Context, request *connect.Request[rookeryv1.
 	for i, operation := range request.Msg.GetOperations() {
 		kind, err := batchKind(operation.GetKind())
 		if err != nil {
-			return nil, connectError(err)
+			return nil, ConnectError(err)
 		}
 		var record map[string]any
 		if len(operation.GetRecordCbor()) > 0 {
 			record, err = decodeRecord(operation.GetRecordCbor())
 			if err != nil {
-				return nil, connectError(err)
+				return nil, ConnectError(err)
 			}
 		}
 		operations[i] = BatchOp{
@@ -270,11 +271,11 @@ func (s *Service) Batch(ctx context.Context, request *connect.Request[rookeryv1.
 
 	written, err := s.data.Batch(ctx, principal, request.Msg.GetCollection(), operations)
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	records, err := encodeRecords(written)
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	return connect.NewResponse(&rookeryv1.BatchResponse{RecordsCbor: records}), nil
 }
@@ -288,11 +289,11 @@ func (s *Service) History(ctx context.Context, request *connect.Request[rookeryv
 	entries, err := s.data.History(ctx, principal, request.Msg.GetCollection(),
 		request.Msg.GetId(), request.Msg.GetFromRevision(), int(request.Msg.GetLimit()))
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	records, err := encodeRecords(entries)
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	return connect.NewResponse(&rookeryv1.HistoryResponse{EntriesCbor: records}), nil
 }
@@ -305,7 +306,7 @@ func (s *Service) RefsTo(ctx context.Context, request *connect.Request[rookeryv1
 	}
 	refs, err := s.data.RefsTo(ctx, principal, request.Msg.GetTarget())
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	return connect.NewResponse(&rookeryv1.RefsToResponse{References: references(refs)}), nil
 }
@@ -318,9 +319,89 @@ func (s *Service) RefsFrom(ctx context.Context, request *connect.Request[rookery
 	}
 	refs, err := s.data.RefsFrom(ctx, principal, request.Msg.GetSource())
 	if err != nil {
-		return nil, connectError(err)
+		return nil, ConnectError(err)
 	}
 	return connect.NewResponse(&rookeryv1.RefsFromResponse{References: references(refs)}), nil
+}
+
+// Live follows a query until the caller goes away: the records that match now,
+// then each change.
+func (s *Service) Live(ctx context.Context, request *connect.Request[rookeryv1.LiveRequest], stream *connect.ServerStream[rookeryv1.LiveResponse]) error {
+	principal, err := s.principal(ctx)
+	if err != nil {
+		return err
+	}
+	collection, err := s.data.Collection(request.Msg.GetCollection())
+	if err != nil {
+		return ConnectError(err)
+	}
+	parsed, err := filter.Parse(request.Msg.GetFilterCbor(), collection.FilterFields())
+	if err != nil {
+		return ConnectError(err)
+	}
+
+	sorts := make([]Sort, len(request.Msg.GetSorts()))
+	for i, sort := range request.Msg.GetSorts() {
+		sorts[i] = Sort{Field: sort.GetField(), Desc: sort.GetDesc()}
+	}
+
+	err = s.data.Live(ctx, principal, LiveOptions{
+		Collection: collection.Key(),
+		Filter:     parsed,
+		Sorts:      sorts,
+		Limit:      int(request.Msg.GetLimit()),
+		Space:      request.Msg.GetSpace(),
+	}, func(event LiveEvent) error {
+		response := &rookeryv1.LiveResponse{
+			Kind:     liveEventKind(event.Kind),
+			Resource: event.Resource,
+		}
+		if event.Record != nil {
+			encoded, err := encodeRecord(event.Record)
+			if err != nil {
+				return ConnectError(err)
+			}
+			response.RecordCbor = encoded
+		}
+		return stream.Send(response)
+	})
+	if err != nil {
+		return ConnectError(err)
+	}
+	return nil
+}
+
+// Changes streams the change feed from a sequence until the caller goes away.
+func (s *Service) Changes(ctx context.Context, request *connect.Request[rookeryv1.ChangesRequest], stream *connect.ServerStream[rookeryv1.ChangesResponse]) error {
+	if _, err := s.principal(ctx); err != nil {
+		return err
+	}
+
+	err := s.data.Changes(ctx, request.Msg.GetFromSequence(), request.Msg.GetCollections(), func(change Change) error {
+		response := &rookeryv1.ChangesResponse{
+			Sequence:   change.Seq,
+			Collection: change.Collection,
+			Resource:   change.Resource,
+			Kind:       changeKind(change.Kind),
+			Revision:   change.Rev,
+			Space:      change.SpaceID,
+			Owner:      change.OwnerID,
+			Principal:  change.Principal,
+			At:         timestamppb.New(change.At),
+		}
+		if change.Record != nil {
+			encoded, err := encodeRecord(change.Record)
+			if err != nil {
+				return ConnectError(err)
+			}
+			response.RecordCbor = encoded
+		}
+		return stream.Send(response)
+	})
+	if err != nil {
+		return ConnectError(err)
+	}
+	return nil
 }
 
 // principal reads the caller from the context.
@@ -330,7 +411,7 @@ func (s *Service) principal(ctx context.Context) (Principal, error) {
 	}
 	principal, err := s.caller.Principal(ctx)
 	if err != nil {
-		return Principal{}, connectError(err)
+		return Principal{}, ConnectError(err)
 	}
 	return principal, nil
 }
@@ -383,6 +464,36 @@ func references(refs []Ref) []*rookeryv1.Reference {
 	return references
 }
 
+// liveEventKind maps a live event to the wire's.
+func liveEventKind(kind LiveKind) rookeryv1.LiveEventKind {
+	switch kind {
+	case LiveInsert:
+		return rookeryv1.LiveEventKind_LIVE_EVENT_KIND_INSERT
+	case LiveUpdate:
+		return rookeryv1.LiveEventKind_LIVE_EVENT_KIND_UPDATE
+	case LiveRemove:
+		return rookeryv1.LiveEventKind_LIVE_EVENT_KIND_REMOVE
+	default:
+		return rookeryv1.LiveEventKind_LIVE_EVENT_KIND_RESYNC
+	}
+}
+
+// changeKind maps a change to the wire's.
+func changeKind(kind ChangeKind) rookeryv1.ChangeKind {
+	switch kind {
+	case ChangeInsert:
+		return rookeryv1.ChangeKind_CHANGE_KIND_INSERT
+	case ChangeUpdate:
+		return rookeryv1.ChangeKind_CHANGE_KIND_UPDATE
+	case ChangeDelete:
+		return rookeryv1.ChangeKind_CHANGE_KIND_DELETE
+	case ChangeUndelete:
+		return rookeryv1.ChangeKind_CHANGE_KIND_UNDELETE
+	default:
+		return rookeryv1.ChangeKind_CHANGE_KIND_UNSPECIFIED
+	}
+}
+
 // aggregateOperation maps the wire's operation to the datastore's.
 func aggregateOperation(operation rookeryv1.AggregateOperation) (AggregateOp, error) {
 	switch operation {
@@ -419,10 +530,11 @@ func batchKind(kind rookeryv1.BatchOperationKind) (BatchKind, error) {
 	}
 }
 
-// connectError maps a datastore error to a connect code. The access package's
+// ConnectError maps a datastore error to a connect code. The access package's
 // ToConnect takes this over when it lands, and this is the same mapping for the
-// errors the datastore reports.
-func connectError(err error) error {
+// errors the datastore reports. The entity registry wraps the same sentinels,
+// which is why it uses this mapping too.
+func ConnectError(err error) error {
 	if err == nil {
 		return nil
 	}

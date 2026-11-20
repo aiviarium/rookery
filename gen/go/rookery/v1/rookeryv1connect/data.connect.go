@@ -67,6 +67,10 @@ const (
 	DataServiceRefsToProcedure = "/rookery.v1.DataService/RefsTo"
 	// DataServiceRefsFromProcedure is the fully-qualified name of the DataService's RefsFrom RPC.
 	DataServiceRefsFromProcedure = "/rookery.v1.DataService/RefsFrom"
+	// DataServiceLiveProcedure is the fully-qualified name of the DataService's Live RPC.
+	DataServiceLiveProcedure = "/rookery.v1.DataService/Live"
+	// DataServiceChangesProcedure is the fully-qualified name of the DataService's Changes RPC.
+	DataServiceChangesProcedure = "/rookery.v1.DataService/Changes"
 )
 
 // DataServiceClient is a client for the rookery.v1.DataService service.
@@ -97,6 +101,11 @@ type DataServiceClient interface {
 	RefsTo(context.Context, *connect.Request[v1.RefsToRequest]) (*connect.Response[v1.RefsToResponse], error)
 	// RefsFrom lists the references a record holds.
 	RefsFrom(context.Context, *connect.Request[v1.RefsFromRequest]) (*connect.Response[v1.RefsFromResponse], error)
+	// Live follows a query: the records that match now, then each change that
+	// makes one match or stop matching.
+	Live(context.Context, *connect.Request[v1.LiveRequest]) (*connect.ServerStreamForClient[v1.LiveResponse], error)
+	// Changes streams the change feed from a sequence.
+	Changes(context.Context, *connect.Request[v1.ChangesRequest]) (*connect.ServerStreamForClient[v1.ChangesResponse], error)
 }
 
 // NewDataServiceClient constructs a client for the rookery.v1.DataService service. By default, it
@@ -188,6 +197,18 @@ func NewDataServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(dataServiceMethods.ByName("RefsFrom")),
 			connect.WithClientOptions(opts...),
 		),
+		live: connect.NewClient[v1.LiveRequest, v1.LiveResponse](
+			httpClient,
+			baseURL+DataServiceLiveProcedure,
+			connect.WithSchema(dataServiceMethods.ByName("Live")),
+			connect.WithClientOptions(opts...),
+		),
+		changes: connect.NewClient[v1.ChangesRequest, v1.ChangesResponse](
+			httpClient,
+			baseURL+DataServiceChangesProcedure,
+			connect.WithSchema(dataServiceMethods.ByName("Changes")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -206,6 +227,8 @@ type dataServiceClient struct {
 	history   *connect.Client[v1.HistoryRequest, v1.HistoryResponse]
 	refsTo    *connect.Client[v1.RefsToRequest, v1.RefsToResponse]
 	refsFrom  *connect.Client[v1.RefsFromRequest, v1.RefsFromResponse]
+	live      *connect.Client[v1.LiveRequest, v1.LiveResponse]
+	changes   *connect.Client[v1.ChangesRequest, v1.ChangesResponse]
 }
 
 // Get calls rookery.v1.DataService.Get.
@@ -273,6 +296,16 @@ func (c *dataServiceClient) RefsFrom(ctx context.Context, req *connect.Request[v
 	return c.refsFrom.CallUnary(ctx, req)
 }
 
+// Live calls rookery.v1.DataService.Live.
+func (c *dataServiceClient) Live(ctx context.Context, req *connect.Request[v1.LiveRequest]) (*connect.ServerStreamForClient[v1.LiveResponse], error) {
+	return c.live.CallServerStream(ctx, req)
+}
+
+// Changes calls rookery.v1.DataService.Changes.
+func (c *dataServiceClient) Changes(ctx context.Context, req *connect.Request[v1.ChangesRequest]) (*connect.ServerStreamForClient[v1.ChangesResponse], error) {
+	return c.changes.CallServerStream(ctx, req)
+}
+
 // DataServiceHandler is an implementation of the rookery.v1.DataService service.
 type DataServiceHandler interface {
 	// Get reads one record.
@@ -301,6 +334,11 @@ type DataServiceHandler interface {
 	RefsTo(context.Context, *connect.Request[v1.RefsToRequest]) (*connect.Response[v1.RefsToResponse], error)
 	// RefsFrom lists the references a record holds.
 	RefsFrom(context.Context, *connect.Request[v1.RefsFromRequest]) (*connect.Response[v1.RefsFromResponse], error)
+	// Live follows a query: the records that match now, then each change that
+	// makes one match or stop matching.
+	Live(context.Context, *connect.Request[v1.LiveRequest], *connect.ServerStream[v1.LiveResponse]) error
+	// Changes streams the change feed from a sequence.
+	Changes(context.Context, *connect.Request[v1.ChangesRequest], *connect.ServerStream[v1.ChangesResponse]) error
 }
 
 // NewDataServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -388,6 +426,18 @@ func NewDataServiceHandler(svc DataServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(dataServiceMethods.ByName("RefsFrom")),
 		connect.WithHandlerOptions(opts...),
 	)
+	dataServiceLiveHandler := connect.NewServerStreamHandler(
+		DataServiceLiveProcedure,
+		svc.Live,
+		connect.WithSchema(dataServiceMethods.ByName("Live")),
+		connect.WithHandlerOptions(opts...),
+	)
+	dataServiceChangesHandler := connect.NewServerStreamHandler(
+		DataServiceChangesProcedure,
+		svc.Changes,
+		connect.WithSchema(dataServiceMethods.ByName("Changes")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/rookery.v1.DataService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DataServiceGetProcedure:
@@ -416,6 +466,10 @@ func NewDataServiceHandler(svc DataServiceHandler, opts ...connect.HandlerOption
 			dataServiceRefsToHandler.ServeHTTP(w, r)
 		case DataServiceRefsFromProcedure:
 			dataServiceRefsFromHandler.ServeHTTP(w, r)
+		case DataServiceLiveProcedure:
+			dataServiceLiveHandler.ServeHTTP(w, r)
+		case DataServiceChangesProcedure:
+			dataServiceChangesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -475,4 +529,12 @@ func (UnimplementedDataServiceHandler) RefsTo(context.Context, *connect.Request[
 
 func (UnimplementedDataServiceHandler) RefsFrom(context.Context, *connect.Request[v1.RefsFromRequest]) (*connect.Response[v1.RefsFromResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.DataService.RefsFrom is not implemented"))
+}
+
+func (UnimplementedDataServiceHandler) Live(context.Context, *connect.Request[v1.LiveRequest], *connect.ServerStream[v1.LiveResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.DataService.Live is not implemented"))
+}
+
+func (UnimplementedDataServiceHandler) Changes(context.Context, *connect.Request[v1.ChangesRequest], *connect.ServerStream[v1.ChangesResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.DataService.Changes is not implemented"))
 }

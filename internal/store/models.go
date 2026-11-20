@@ -60,6 +60,40 @@ type RookeryConnections struct {
 	UpdatedAt time.Time
 }
 
+// Compacted document states, each with the sequence it covers; the ones marked as versions are the document history.
+type RookeryDocumentSnapshots struct {
+	DocumentID string
+	// The last update the snapshot covers; the updates up to it go a day after it was written.
+	Seq       int64
+	Data      []byte
+	Version   bool
+	Label     *string
+	CreatedBy string
+	CreatedAt time.Time
+}
+
+// The append-only log of updates to documents, in the order they were appended.
+type RookeryDocumentUpdates struct {
+	DocumentID string
+	Seq        int64
+	// The CRDT update, which the core relays without reading.
+	Data      []byte
+	CreatedAt time.Time
+}
+
+// Live documents: a CRDT type and a parent resource whose grants decide access.
+type RookeryDocuments struct {
+	ID string
+	// The CRDT a client opens it with, such as yjs.
+	Type string
+	// The resource URI the document hangs under, as document://<id> is its own resource.
+	Parent    string
+	OwnerID   string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt *time.Time
+}
+
 // What search resolves: a record or document by URI, with its title, its searchable text and its access parent.
 type RookeryEntities struct {
 	Uri       string
@@ -284,6 +318,16 @@ type RookerySpaces struct {
 	Name      string
 	Archived  bool
 	CreatedBy *string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// The raw SQL role of each plugin that declares database: sql, with its sealed password.
+type RookerySqlRoles struct {
+	Plugin    string
+	Role      string
+	Password  []byte
+	KeyID     string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

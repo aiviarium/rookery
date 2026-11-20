@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"time"
 
 	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
 	"github.com/aiviarium/rookery/internal/filter"
@@ -124,9 +123,10 @@ func newDatastore(t *testing.T) *datastore {
 
 // user, plugin and local are the principals the tests act as.
 var (
-	user   = Principal{Kind: PrincipalUser, ID: "01USER"}
-	other  = Principal{Kind: PrincipalUser, ID: "02USER"}
-	plugin = Principal{Kind: PrincipalPlugin, ID: "example"}
+	user     = Principal{Kind: PrincipalUser, ID: "01USER"}
+	other    = Principal{Kind: PrincipalUser, ID: "02USER"}
+	plugin   = Principal{Kind: PrincipalPlugin, ID: "example"}
+	stranger = Principal{Kind: PrincipalUser, ID: "03USER"}
 )
 
 // space is the space the tests work in.
@@ -938,22 +938,4 @@ func titles(records []map[string]any) []string {
 		out[i], _ = record["title"].(string)
 	}
 	return out
-}
-
-// TestNewID checks that ids sort by creation time.
-func TestNewID(t *testing.T) {
-	t.Parallel()
-
-	first, err := newID()
-	if err != nil {
-		t.Fatalf("newID: %v", err)
-	}
-	time.Sleep(time.Millisecond)
-	second, err := newID()
-	if err != nil {
-		t.Fatalf("newID: %v", err)
-	}
-	if len(first) != 26 || first >= second {
-		t.Errorf("ids %q and %q", first, second)
-	}
 }

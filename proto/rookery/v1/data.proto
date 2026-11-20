@@ -10,6 +10,7 @@ syntax = "proto3";
 
 package rookery.v1;
 
+import "google/protobuf/timestamp.proto";
 import "rookery/v1/access.proto";
 
 option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
@@ -78,6 +79,17 @@ service DataService {
 
   // RefsFrom lists the references a record holds.
   rpc RefsFrom(RefsFromRequest) returns (RefsFromResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // Live follows a query: the records that match now, then each change that
+  // makes one match or stop matching.
+  rpc Live(LiveRequest) returns (stream LiveResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // Changes streams the change feed from a sequence.
+  rpc Changes(ChangesRequest) returns (stream ChangesResponse) {
     option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
   }
 }
@@ -390,4 +402,106 @@ message RefsToResponse {
 // RefsFromResponse carries the references a record holds.
 message RefsFromResponse {
   repeated Reference references = 1;
+}
+
+// LiveEventKind is what a live query's event did.
+enum LiveEventKind {
+  LIVE_EVENT_KIND_UNSPECIFIED = 0;
+
+  // A record that now matches.
+  LIVE_EVENT_KIND_INSERT = 1;
+
+  // A record that matched and still does.
+  LIVE_EVENT_KIND_UPDATE = 2;
+
+  // A record that no longer matches, was deleted, or may no longer be read.
+  LIVE_EVENT_KIND_REMOVE = 3;
+
+  // The subscriber fell behind: what follows are the records that match now.
+  LIVE_EVENT_KIND_RESYNC = 4;
+}
+
+// LiveRequest subscribes to a query.
+message LiveRequest {
+  // Collection is "plugin/collection".
+  string collection = 1;
+
+  // FilterCbor is the filter as a CBOR structure.
+  bytes filter_cbor = 2;
+
+  // Sorts order the snapshot; changes after it arrive in the feed's order.
+  repeated Sort sorts = 3;
+
+  // Limit bounds the snapshot: 100 when zero, 1000 at most.
+  int32 limit = 4;
+
+  // Space is the caller's current space.
+  string space = 5;
+}
+
+// LiveResponse is one event of a live query.
+message LiveResponse {
+  // Kind is what happened.
+  LiveEventKind kind = 1;
+
+  // Resource is the record's URI.
+  string resource = 2;
+
+  // RecordCbor is the record as a CBOR map, for an insert or an update.
+  bytes record_cbor = 3;
+}
+
+// ChangeKind is what a write did, as the change feed records it.
+enum ChangeKind {
+  CHANGE_KIND_UNSPECIFIED = 0;
+
+  CHANGE_KIND_INSERT = 1;
+
+  CHANGE_KIND_UPDATE = 2;
+
+  CHANGE_KIND_DELETE = 3;
+
+  CHANGE_KIND_UNDELETE = 4;
+}
+
+// ChangesRequest subscribes to the change feed.
+message ChangesRequest {
+  // FromSequence is the last sequence the caller saw; the stream starts after
+  // it, and 0 starts from the oldest the database holds.
+  int64 from_sequence = 1;
+
+  // Collections limits the stream to those collections, and an empty list
+  // follows every one.
+  repeated string collections = 2;
+}
+
+// ChangesResponse is one change.
+message ChangesResponse {
+  // Sequence is the change's place in the feed.
+  int64 sequence = 1;
+
+  // Collection is the record's collection.
+  string collection = 2;
+
+  // Resource is the record's URI.
+  string resource = 3;
+
+  // Kind is what the write did.
+  ChangeKind kind = 4;
+
+  // Revision is the record's revision after the write.
+  int64 revision = 5;
+
+  // Space and Owner are the record's scope, when it has one.
+  string space = 6;
+  string owner = 7;
+
+  // Principal is who wrote, as access writes it.
+  string principal = 8;
+
+  // RecordCbor is the record after the write, and empty for a delete.
+  bytes record_cbor = 9;
+
+  // At is when the write committed.
+  google.protobuf.Timestamp at = 10;
 }

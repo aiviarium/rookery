@@ -12,6 +12,8 @@
 
 import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import { file_rookery_v1_access } from "./access_pb.js";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -19,7 +21,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file rookery/v1/data.proto.
  */
 export const file_rookery_v1_data: GenFile = /*@__PURE__*/
-  fileDesc("ChVyb29rZXJ5L3YxL2RhdGEucHJvdG8SCnJvb2tlcnkudjEiLAoKR2V0UmVxdWVzdBISCgpjb2xsZWN0aW9uGAEgASgJEgoKAmlkGAIgASgJIiIKC0dldFJlc3BvbnNlEhMKC3JlY29yZF9jYm9yGAEgASgMIiMKBFNvcnQSDQoFZmllbGQYASABKAkSDAoEZGVzYxgCIAEoCCKFAQoLRmluZFJlcXVlc3QSEgoKY29sbGVjdGlvbhgBIAEoCRITCgtmaWx0ZXJfY2JvchgCIAEoDBIfCgVzb3J0cxgDIAMoCzIQLnJvb2tlcnkudjEuU29ydBINCgVsaW1pdBgEIAEoBRIOCgZjdXJzb3IYBSABKAkSDQoFc3BhY2UYBiABKAkiNAoMRmluZFJlc3BvbnNlEhQKDHJlY29yZHNfY2JvchgBIAMoDBIOCgZjdXJzb3IYAiABKAkiRgoMQ291bnRSZXF1ZXN0EhIKCmNvbGxlY3Rpb24YASABKAkSEwoLZmlsdGVyX2Nib3IYAiABKAwSDQoFc3BhY2UYAyABKAkiHgoNQ291bnRSZXNwb25zZRINCgVjb3VudBgBIAEoAyKeAQoQQWdncmVnYXRlUmVxdWVzdBISCgpjb2xsZWN0aW9uGAEgASgJEhMKC2ZpbHRlcl9jYm9yGAIgASgMEg0KBXNwYWNlGAMgASgJEjEKCW9wZXJhdGlvbhgEIAEoDjIeLnJvb2tlcnkudjEuQWdncmVnYXRlT3BlcmF0aW9uEg0KBWZpZWxkGAUgASgJEhAKCGdyb3VwX2J5GAYgAygJIigKEUFnZ3JlZ2F0ZVJlc3BvbnNlEhMKC2dyb3Vwc19jYm9yGAEgAygMIjgKDUluc2VydFJlcXVlc3QSEgoKY29sbGVjdGlvbhgBIAEoCRITCgtyZWNvcmRfY2JvchgCIAEoDCIlCg5JbnNlcnRSZXNwb25zZRITCgtyZWNvcmRfY2JvchgBIAEoDCJWCg1VcGRhdGVSZXF1ZXN0EhIKCmNvbGxlY3Rpb24YASABKAkSCgoCaWQYAiABKAkSEwoLcmVjb3JkX2Nib3IYAyABKAwSEAoIcmV2aXNpb24YBCABKAMiJQoOVXBkYXRlUmVzcG9uc2USEwoLcmVjb3JkX2Nib3IYASABKAwiSgoNVXBzZXJ0UmVxdWVzdBISCgpjb2xsZWN0aW9uGAEgASgJEhMKC3JlY29yZF9jYm9yGAIgASgMEhAKCHJldmlzaW9uGAMgASgDIiUKDlVwc2VydFJlc3BvbnNlEhMKC3JlY29yZF9jYm9yGAEgASgMIkEKDURlbGV0ZVJlcXVlc3QSEgoKY29sbGVjdGlvbhgBIAEoCRIKCgJpZBgCIAEoCRIQCghyZXZpc2lvbhgDIAEoAyIQCg5EZWxldGVSZXNwb25zZSJCCg5SZXN0b3JlUmVxdWVzdBISCgpjb2xsZWN0aW9uGAEgASgJEgoKAmlkGAIgASgJEhAKCHJldmlzaW9uGAMgASgDIiYKD1Jlc3RvcmVSZXNwb25zZRITCgtyZWNvcmRfY2JvchgBIAEoDCJxCg5CYXRjaE9wZXJhdGlvbhIsCgRraW5kGAEgASgOMh4ucm9va2VyeS52MS5CYXRjaE9wZXJhdGlvbktpbmQSCgoCaWQYAiABKAkSEwoLcmVjb3JkX2Nib3IYAyABKAwSEAoIcmV2aXNpb24YBCABKAMiUgoMQmF0Y2hSZXF1ZXN0EhIKCmNvbGxlY3Rpb24YASABKAkSLgoKb3BlcmF0aW9ucxgCIAMoCzIaLnJvb2tlcnkudjEuQmF0Y2hPcGVyYXRpb24iJQoNQmF0Y2hSZXNwb25zZRIUCgxyZWNvcmRzX2Nib3IYASADKAwiVgoOSGlzdG9yeVJlcXVlc3QSEgoKY29sbGVjdGlvbhgBIAEoCRIKCgJpZBgCIAEoCRIVCg1mcm9tX3JldmlzaW9uGAMgASgDEg0KBWxpbWl0GAQgASgFIicKD0hpc3RvcnlSZXNwb25zZRIUCgxlbnRyaWVzX2Nib3IYASADKAwiHwoNUmVmc1RvUmVxdWVzdBIOCgZ0YXJnZXQYASABKAkiIQoPUmVmc0Zyb21SZXF1ZXN0Eg4KBnNvdXJjZRgBIAEoCSJNCglSZWZlcmVuY2USDgoGc291cmNlGAEgASgJEg0KBWZpZWxkGAIgASgJEg4KBnRhcmdldBgDIAEoCRIRCglvbl9kZWxldGUYBCABKAkiOwoOUmVmc1RvUmVzcG9uc2USKQoKcmVmZXJlbmNlcxgBIAMoCzIVLnJvb2tlcnkudjEuUmVmZXJlbmNlIj0KEFJlZnNGcm9tUmVzcG9uc2USKQoKcmVmZXJlbmNlcxgBIAMoCzIVLnJvb2tlcnkudjEuUmVmZXJlbmNlKswBChJBZ2dyZWdhdGVPcGVyYXRpb24SIwofQUdHUkVHQVRFX09QRVJBVElPTl9VTlNQRUNJRklFRBAAEh0KGUFHR1JFR0FURV9PUEVSQVRJT05fQ09VTlQQARIbChdBR0dSRUdBVEVfT1BFUkFUSU9OX1NVTRACEhsKF0FHR1JFR0FURV9PUEVSQVRJT05fTUlOEAMSGwoXQUdHUkVHQVRFX09QRVJBVElPTl9NQVgQBBIbChdBR0dSRUdBVEVfT1BFUkFUSU9OX0FWRxAFKuABChJCYXRjaE9wZXJhdGlvbktpbmQSJAogQkFUQ0hfT1BFUkFUSU9OX0tJTkRfVU5TUEVDSUZJRUQQABIfChtCQVRDSF9PUEVSQVRJT05fS0lORF9JTlNFUlQQARIfChtCQVRDSF9PUEVSQVRJT05fS0lORF9VUERBVEUQAhIfChtCQVRDSF9PUEVSQVRJT05fS0lORF9VUFNFUlQQAxIfChtCQVRDSF9PUEVSQVRJT05fS0lORF9ERUxFVEUQBBIgChxCQVRDSF9PUEVSQVRJT05fS0lORF9SRVNUT1JFEAUyqAcKC0RhdGFTZXJ2aWNlEjwKA0dldBIWLnJvb2tlcnkudjEuR2V0UmVxdWVzdBoXLnJvb2tlcnkudjEuR2V0UmVzcG9uc2UiBIq1GAASPwoERmluZBIXLnJvb2tlcnkudjEuRmluZFJlcXVlc3QaGC5yb29rZXJ5LnYxLkZpbmRSZXNwb25zZSIEirUYABJCCgVDb3VudBIYLnJvb2tlcnkudjEuQ291bnRSZXF1ZXN0Ghkucm9va2VyeS52MS5Db3VudFJlc3BvbnNlIgSKtRgAEk4KCUFnZ3JlZ2F0ZRIcLnJvb2tlcnkudjEuQWdncmVnYXRlUmVxdWVzdBodLnJvb2tlcnkudjEuQWdncmVnYXRlUmVzcG9uc2UiBIq1GAASRQoGSW5zZXJ0Ehkucm9va2VyeS52MS5JbnNlcnRSZXF1ZXN0Ghoucm9va2VyeS52MS5JbnNlcnRSZXNwb25zZSIEirUYABJFCgZVcGRhdGUSGS5yb29rZXJ5LnYxLlVwZGF0ZVJlcXVlc3QaGi5yb29rZXJ5LnYxLlVwZGF0ZVJlc3BvbnNlIgSKtRgAEkUKBlVwc2VydBIZLnJvb2tlcnkudjEuVXBzZXJ0UmVxdWVzdBoaLnJvb2tlcnkudjEuVXBzZXJ0UmVzcG9uc2UiBIq1GAASRQoGRGVsZXRlEhkucm9va2VyeS52MS5EZWxldGVSZXF1ZXN0Ghoucm9va2VyeS52MS5EZWxldGVSZXNwb25zZSIEirUYABJICgdSZXN0b3JlEhoucm9va2VyeS52MS5SZXN0b3JlUmVxdWVzdBobLnJvb2tlcnkudjEuUmVzdG9yZVJlc3BvbnNlIgSKtRgAEkIKBUJhdGNoEhgucm9va2VyeS52MS5CYXRjaFJlcXVlc3QaGS5yb29rZXJ5LnYxLkJhdGNoUmVzcG9uc2UiBIq1GAASSAoHSGlzdG9yeRIaLnJvb2tlcnkudjEuSGlzdG9yeVJlcXVlc3QaGy5yb29rZXJ5LnYxLkhpc3RvcnlSZXNwb25zZSIEirUYABJFCgZSZWZzVG8SGS5yb29rZXJ5LnYxLlJlZnNUb1JlcXVlc3QaGi5yb29rZXJ5LnYxLlJlZnNUb1Jlc3BvbnNlIgSKtRgAEksKCFJlZnNGcm9tEhsucm9va2VyeS52MS5SZWZzRnJvbVJlcXVlc3QaHC5yb29rZXJ5LnYxLlJlZnNGcm9tUmVzcG9uc2UiBIq1GABCOlo4Z2l0aHViLmNvbS9haXZpYXJpdW0vcm9va2VyeS9nZW4vZ28vcm9va2VyeS92MTtyb29rZXJ5djFiBnByb3RvMw", [file_rookery_v1_access]);
+  fileDesc("ChVyb29rZXJ5L3YxL2RhdGEucHJvdG8SCnJvb2tlcnkudjEiLAoKR2V0UmVxdWVzdBISCgpjb2xsZWN0aW9uGAEgASgJEgoKAmlkGAIgASgJIiIKC0dldFJlc3BvbnNlEhMKC3JlY29yZF9jYm9yGAEgASgMIiMKBFNvcnQSDQoFZmllbGQYASABKAkSDAoEZGVzYxgCIAEoCCKFAQoLRmluZFJlcXVlc3QSEgoKY29sbGVjdGlvbhgBIAEoCRITCgtmaWx0ZXJfY2JvchgCIAEoDBIfCgVzb3J0cxgDIAMoCzIQLnJvb2tlcnkudjEuU29ydBINCgVsaW1pdBgEIAEoBRIOCgZjdXJzb3IYBSABKAkSDQoFc3BhY2UYBiABKAkiNAoMRmluZFJlc3BvbnNlEhQKDHJlY29yZHNfY2JvchgBIAMoDBIOCgZjdXJzb3IYAiABKAkiRgoMQ291bnRSZXF1ZXN0EhIKCmNvbGxlY3Rpb24YASABKAkSEwoLZmlsdGVyX2Nib3IYAiABKAwSDQoFc3BhY2UYAyABKAkiHgoNQ291bnRSZXNwb25zZRINCgVjb3VudBgBIAEoAyKeAQoQQWdncmVnYXRlUmVxdWVzdBISCgpjb2xsZWN0aW9uGAEgASgJEhMKC2ZpbHRlcl9jYm9yGAIgASgMEg0KBXNwYWNlGAMgASgJEjEKCW9wZXJhdGlvbhgEIAEoDjIeLnJvb2tlcnkudjEuQWdncmVnYXRlT3BlcmF0aW9uEg0KBWZpZWxkGAUgASgJEhAKCGdyb3VwX2J5GAYgAygJIigKEUFnZ3JlZ2F0ZVJlc3BvbnNlEhMKC2dyb3Vwc19jYm9yGAEgAygMIjgKDUluc2VydFJlcXVlc3QSEgoKY29sbGVjdGlvbhgBIAEoCRITCgtyZWNvcmRfY2JvchgCIAEoDCIlCg5JbnNlcnRSZXNwb25zZRITCgtyZWNvcmRfY2JvchgBIAEoDCJWCg1VcGRhdGVSZXF1ZXN0EhIKCmNvbGxlY3Rpb24YASABKAkSCgoCaWQYAiABKAkSEwoLcmVjb3JkX2Nib3IYAyABKAwSEAoIcmV2aXNpb24YBCABKAMiJQoOVXBkYXRlUmVzcG9uc2USEwoLcmVjb3JkX2Nib3IYASABKAwiSgoNVXBzZXJ0UmVxdWVzdBISCgpjb2xsZWN0aW9uGAEgASgJEhMKC3JlY29yZF9jYm9yGAIgASgMEhAKCHJldmlzaW9uGAMgASgDIiUKDlVwc2VydFJlc3BvbnNlEhMKC3JlY29yZF9jYm9yGAEgASgMIkEKDURlbGV0ZVJlcXVlc3QSEgoKY29sbGVjdGlvbhgBIAEoCRIKCgJpZBgCIAEoCRIQCghyZXZpc2lvbhgDIAEoAyIQCg5EZWxldGVSZXNwb25zZSJCCg5SZXN0b3JlUmVxdWVzdBISCgpjb2xsZWN0aW9uGAEgASgJEgoKAmlkGAIgASgJEhAKCHJldmlzaW9uGAMgASgDIiYKD1Jlc3RvcmVSZXNwb25zZRITCgtyZWNvcmRfY2JvchgBIAEoDCJxCg5CYXRjaE9wZXJhdGlvbhIsCgRraW5kGAEgASgOMh4ucm9va2VyeS52MS5CYXRjaE9wZXJhdGlvbktpbmQSCgoCaWQYAiABKAkSEwoLcmVjb3JkX2Nib3IYAyABKAwSEAoIcmV2aXNpb24YBCABKAMiUgoMQmF0Y2hSZXF1ZXN0EhIKCmNvbGxlY3Rpb24YASABKAkSLgoKb3BlcmF0aW9ucxgCIAMoCzIaLnJvb2tlcnkudjEuQmF0Y2hPcGVyYXRpb24iJQoNQmF0Y2hSZXNwb25zZRIUCgxyZWNvcmRzX2Nib3IYASADKAwiVgoOSGlzdG9yeVJlcXVlc3QSEgoKY29sbGVjdGlvbhgBIAEoCRIKCgJpZBgCIAEoCRIVCg1mcm9tX3JldmlzaW9uGAMgASgDEg0KBWxpbWl0GAQgASgFIicKD0hpc3RvcnlSZXNwb25zZRIUCgxlbnRyaWVzX2Nib3IYASADKAwiHwoNUmVmc1RvUmVxdWVzdBIOCgZ0YXJnZXQYASABKAkiIQoPUmVmc0Zyb21SZXF1ZXN0Eg4KBnNvdXJjZRgBIAEoCSJNCglSZWZlcmVuY2USDgoGc291cmNlGAEgASgJEg0KBWZpZWxkGAIgASgJEg4KBnRhcmdldBgDIAEoCRIRCglvbl9kZWxldGUYBCABKAkiOwoOUmVmc1RvUmVzcG9uc2USKQoKcmVmZXJlbmNlcxgBIAMoCzIVLnJvb2tlcnkudjEuUmVmZXJlbmNlIj0KEFJlZnNGcm9tUmVzcG9uc2USKQoKcmVmZXJlbmNlcxgBIAMoCzIVLnJvb2tlcnkudjEuUmVmZXJlbmNlInUKC0xpdmVSZXF1ZXN0EhIKCmNvbGxlY3Rpb24YASABKAkSEwoLZmlsdGVyX2Nib3IYAiABKAwSHwoFc29ydHMYAyADKAsyEC5yb29rZXJ5LnYxLlNvcnQSDQoFbGltaXQYBCABKAUSDQoFc3BhY2UYBSABKAkiXgoMTGl2ZVJlc3BvbnNlEicKBGtpbmQYASABKA4yGS5yb29rZXJ5LnYxLkxpdmVFdmVudEtpbmQSEAoIcmVzb3VyY2UYAiABKAkSEwoLcmVjb3JkX2Nib3IYAyABKAwiPAoOQ2hhbmdlc1JlcXVlc3QSFQoNZnJvbV9zZXF1ZW5jZRgBIAEoAxITCgtjb2xsZWN0aW9ucxgCIAMoCSLvAQoPQ2hhbmdlc1Jlc3BvbnNlEhAKCHNlcXVlbmNlGAEgASgDEhIKCmNvbGxlY3Rpb24YAiABKAkSEAoIcmVzb3VyY2UYAyABKAkSJAoEa2luZBgEIAEoDjIWLnJvb2tlcnkudjEuQ2hhbmdlS2luZBIQCghyZXZpc2lvbhgFIAEoAxINCgVzcGFjZRgGIAEoCRINCgVvd25lchgHIAEoCRIRCglwcmluY2lwYWwYCCABKAkSEwoLcmVjb3JkX2Nib3IYCSABKAwSJgoCYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wKswBChJBZ2dyZWdhdGVPcGVyYXRpb24SIwofQUdHUkVHQVRFX09QRVJBVElPTl9VTlNQRUNJRklFRBAAEh0KGUFHR1JFR0FURV9PUEVSQVRJT05fQ09VTlQQARIbChdBR0dSRUdBVEVfT1BFUkFUSU9OX1NVTRACEhsKF0FHR1JFR0FURV9PUEVSQVRJT05fTUlOEAMSGwoXQUdHUkVHQVRFX09QRVJBVElPTl9NQVgQBBIbChdBR0dSRUdBVEVfT1BFUkFUSU9OX0FWRxAFKuABChJCYXRjaE9wZXJhdGlvbktpbmQSJAogQkFUQ0hfT1BFUkFUSU9OX0tJTkRfVU5TUEVDSUZJRUQQABIfChtCQVRDSF9PUEVSQVRJT05fS0lORF9JTlNFUlQQARIfChtCQVRDSF9PUEVSQVRJT05fS0lORF9VUERBVEUQAhIfChtCQVRDSF9PUEVSQVRJT05fS0lORF9VUFNFUlQQAxIfChtCQVRDSF9PUEVSQVRJT05fS0lORF9ERUxFVEUQBBIgChxCQVRDSF9PUEVSQVRJT05fS0lORF9SRVNUT1JFEAUqoAEKDUxpdmVFdmVudEtpbmQSHwobTElWRV9FVkVOVF9LSU5EX1VOU1BFQ0lGSUVEEAASGgoWTElWRV9FVkVOVF9LSU5EX0lOU0VSVBABEhoKFkxJVkVfRVZFTlRfS0lORF9VUERBVEUQAhIaChZMSVZFX0VWRU5UX0tJTkRfUkVNT1ZFEAMSGgoWTElWRV9FVkVOVF9LSU5EX1JFU1lOQxAEKosBCgpDaGFuZ2VLaW5kEhsKF0NIQU5HRV9LSU5EX1VOU1BFQ0lGSUVEEAASFgoSQ0hBTkdFX0tJTkRfSU5TRVJUEAESFgoSQ0hBTkdFX0tJTkRfVVBEQVRFEAISFgoSQ0hBTkdFX0tJTkRfREVMRVRFEAMSGAoUQ0hBTkdFX0tJTkRfVU5ERUxFVEUQBDK3CAoLRGF0YVNlcnZpY2USPAoDR2V0EhYucm9va2VyeS52MS5HZXRSZXF1ZXN0Ghcucm9va2VyeS52MS5HZXRSZXNwb25zZSIEirUYABI/CgRGaW5kEhcucm9va2VyeS52MS5GaW5kUmVxdWVzdBoYLnJvb2tlcnkudjEuRmluZFJlc3BvbnNlIgSKtRgAEkIKBUNvdW50Ehgucm9va2VyeS52MS5Db3VudFJlcXVlc3QaGS5yb29rZXJ5LnYxLkNvdW50UmVzcG9uc2UiBIq1GAASTgoJQWdncmVnYXRlEhwucm9va2VyeS52MS5BZ2dyZWdhdGVSZXF1ZXN0Gh0ucm9va2VyeS52MS5BZ2dyZWdhdGVSZXNwb25zZSIEirUYABJFCgZJbnNlcnQSGS5yb29rZXJ5LnYxLkluc2VydFJlcXVlc3QaGi5yb29rZXJ5LnYxLkluc2VydFJlc3BvbnNlIgSKtRgAEkUKBlVwZGF0ZRIZLnJvb2tlcnkudjEuVXBkYXRlUmVxdWVzdBoaLnJvb2tlcnkudjEuVXBkYXRlUmVzcG9uc2UiBIq1GAASRQoGVXBzZXJ0Ehkucm9va2VyeS52MS5VcHNlcnRSZXF1ZXN0Ghoucm9va2VyeS52MS5VcHNlcnRSZXNwb25zZSIEirUYABJFCgZEZWxldGUSGS5yb29rZXJ5LnYxLkRlbGV0ZVJlcXVlc3QaGi5yb29rZXJ5LnYxLkRlbGV0ZVJlc3BvbnNlIgSKtRgAEkgKB1Jlc3RvcmUSGi5yb29rZXJ5LnYxLlJlc3RvcmVSZXF1ZXN0Ghsucm9va2VyeS52MS5SZXN0b3JlUmVzcG9uc2UiBIq1GAASQgoFQmF0Y2gSGC5yb29rZXJ5LnYxLkJhdGNoUmVxdWVzdBoZLnJvb2tlcnkudjEuQmF0Y2hSZXNwb25zZSIEirUYABJICgdIaXN0b3J5Ehoucm9va2VyeS52MS5IaXN0b3J5UmVxdWVzdBobLnJvb2tlcnkudjEuSGlzdG9yeVJlc3BvbnNlIgSKtRgAEkUKBlJlZnNUbxIZLnJvb2tlcnkudjEuUmVmc1RvUmVxdWVzdBoaLnJvb2tlcnkudjEuUmVmc1RvUmVzcG9uc2UiBIq1GAASSwoIUmVmc0Zyb20SGy5yb29rZXJ5LnYxLlJlZnNGcm9tUmVxdWVzdBocLnJvb2tlcnkudjEuUmVmc0Zyb21SZXNwb25zZSIEirUYABJBCgRMaXZlEhcucm9va2VyeS52MS5MaXZlUmVxdWVzdBoYLnJvb2tlcnkudjEuTGl2ZVJlc3BvbnNlIgSKtRgAMAESSgoHQ2hhbmdlcxIaLnJvb2tlcnkudjEuQ2hhbmdlc1JlcXVlc3QaGy5yb29rZXJ5LnYxLkNoYW5nZXNSZXNwb25zZSIEirUYADABQjpaOGdpdGh1Yi5jb20vYWl2aWFyaXVtL3Jvb2tlcnkvZ2VuL2dvL3Jvb2tlcnkvdjE7cm9va2VyeXYxYgZwcm90bzM", [file_google_protobuf_timestamp, file_rookery_v1_access]);
 
 /**
  * GetRequest names one record.
@@ -861,6 +863,202 @@ export const RefsFromResponseSchema: GenMessage<RefsFromResponse> = /*@__PURE__*
   messageDesc(file_rookery_v1_data, 28);
 
 /**
+ * LiveRequest subscribes to a query.
+ *
+ * @generated from message rookery.v1.LiveRequest
+ */
+export type LiveRequest = Message<"rookery.v1.LiveRequest"> & {
+  /**
+   * Collection is "plugin/collection".
+   *
+   * @generated from field: string collection = 1;
+   */
+  collection: string;
+
+  /**
+   * FilterCbor is the filter as a CBOR structure.
+   *
+   * @generated from field: bytes filter_cbor = 2;
+   */
+  filterCbor: Uint8Array;
+
+  /**
+   * Sorts order the snapshot; changes after it arrive in the feed's order.
+   *
+   * @generated from field: repeated rookery.v1.Sort sorts = 3;
+   */
+  sorts: Sort[];
+
+  /**
+   * Limit bounds the snapshot: 100 when zero, 1000 at most.
+   *
+   * @generated from field: int32 limit = 4;
+   */
+  limit: number;
+
+  /**
+   * Space is the caller's current space.
+   *
+   * @generated from field: string space = 5;
+   */
+  space: string;
+};
+
+/**
+ * Describes the message rookery.v1.LiveRequest.
+ * Use `create(LiveRequestSchema)` to create a new message.
+ */
+export const LiveRequestSchema: GenMessage<LiveRequest> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_data, 29);
+
+/**
+ * LiveResponse is one event of a live query.
+ *
+ * @generated from message rookery.v1.LiveResponse
+ */
+export type LiveResponse = Message<"rookery.v1.LiveResponse"> & {
+  /**
+   * Kind is what happened.
+   *
+   * @generated from field: rookery.v1.LiveEventKind kind = 1;
+   */
+  kind: LiveEventKind;
+
+  /**
+   * Resource is the record's URI.
+   *
+   * @generated from field: string resource = 2;
+   */
+  resource: string;
+
+  /**
+   * RecordCbor is the record as a CBOR map, for an insert or an update.
+   *
+   * @generated from field: bytes record_cbor = 3;
+   */
+  recordCbor: Uint8Array;
+};
+
+/**
+ * Describes the message rookery.v1.LiveResponse.
+ * Use `create(LiveResponseSchema)` to create a new message.
+ */
+export const LiveResponseSchema: GenMessage<LiveResponse> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_data, 30);
+
+/**
+ * ChangesRequest subscribes to the change feed.
+ *
+ * @generated from message rookery.v1.ChangesRequest
+ */
+export type ChangesRequest = Message<"rookery.v1.ChangesRequest"> & {
+  /**
+   * FromSequence is the last sequence the caller saw; the stream starts after
+   * it, and 0 starts from the oldest the database holds.
+   *
+   * @generated from field: int64 from_sequence = 1;
+   */
+  fromSequence: bigint;
+
+  /**
+   * Collections limits the stream to those collections, and an empty list
+   * follows every one.
+   *
+   * @generated from field: repeated string collections = 2;
+   */
+  collections: string[];
+};
+
+/**
+ * Describes the message rookery.v1.ChangesRequest.
+ * Use `create(ChangesRequestSchema)` to create a new message.
+ */
+export const ChangesRequestSchema: GenMessage<ChangesRequest> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_data, 31);
+
+/**
+ * ChangesResponse is one change.
+ *
+ * @generated from message rookery.v1.ChangesResponse
+ */
+export type ChangesResponse = Message<"rookery.v1.ChangesResponse"> & {
+  /**
+   * Sequence is the change's place in the feed.
+   *
+   * @generated from field: int64 sequence = 1;
+   */
+  sequence: bigint;
+
+  /**
+   * Collection is the record's collection.
+   *
+   * @generated from field: string collection = 2;
+   */
+  collection: string;
+
+  /**
+   * Resource is the record's URI.
+   *
+   * @generated from field: string resource = 3;
+   */
+  resource: string;
+
+  /**
+   * Kind is what the write did.
+   *
+   * @generated from field: rookery.v1.ChangeKind kind = 4;
+   */
+  kind: ChangeKind;
+
+  /**
+   * Revision is the record's revision after the write.
+   *
+   * @generated from field: int64 revision = 5;
+   */
+  revision: bigint;
+
+  /**
+   * Space and Owner are the record's scope, when it has one.
+   *
+   * @generated from field: string space = 6;
+   */
+  space: string;
+
+  /**
+   * @generated from field: string owner = 7;
+   */
+  owner: string;
+
+  /**
+   * Principal is who wrote, as access writes it.
+   *
+   * @generated from field: string principal = 8;
+   */
+  principal: string;
+
+  /**
+   * RecordCbor is the record after the write, and empty for a delete.
+   *
+   * @generated from field: bytes record_cbor = 9;
+   */
+  recordCbor: Uint8Array;
+
+  /**
+   * At is when the write committed.
+   *
+   * @generated from field: google.protobuf.Timestamp at = 10;
+   */
+  at?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message rookery.v1.ChangesResponse.
+ * Use `create(ChangesResponseSchema)` to create a new message.
+ */
+export const ChangesResponseSchema: GenMessage<ChangesResponse> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_data, 32);
+
+/**
  * AggregateOperation is what an aggregate computes.
  *
  * @generated from enum rookery.v1.AggregateOperation
@@ -955,6 +1153,90 @@ export enum BatchOperationKind {
  */
 export const BatchOperationKindSchema: GenEnum<BatchOperationKind> = /*@__PURE__*/
   enumDesc(file_rookery_v1_data, 1);
+
+/**
+ * LiveEventKind is what a live query's event did.
+ *
+ * @generated from enum rookery.v1.LiveEventKind
+ */
+export enum LiveEventKind {
+  /**
+   * @generated from enum value: LIVE_EVENT_KIND_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * A record that now matches.
+   *
+   * @generated from enum value: LIVE_EVENT_KIND_INSERT = 1;
+   */
+  INSERT = 1,
+
+  /**
+   * A record that matched and still does.
+   *
+   * @generated from enum value: LIVE_EVENT_KIND_UPDATE = 2;
+   */
+  UPDATE = 2,
+
+  /**
+   * A record that no longer matches, was deleted, or may no longer be read.
+   *
+   * @generated from enum value: LIVE_EVENT_KIND_REMOVE = 3;
+   */
+  REMOVE = 3,
+
+  /**
+   * The subscriber fell behind: what follows are the records that match now.
+   *
+   * @generated from enum value: LIVE_EVENT_KIND_RESYNC = 4;
+   */
+  RESYNC = 4,
+}
+
+/**
+ * Describes the enum rookery.v1.LiveEventKind.
+ */
+export const LiveEventKindSchema: GenEnum<LiveEventKind> = /*@__PURE__*/
+  enumDesc(file_rookery_v1_data, 2);
+
+/**
+ * ChangeKind is what a write did, as the change feed records it.
+ *
+ * @generated from enum rookery.v1.ChangeKind
+ */
+export enum ChangeKind {
+  /**
+   * @generated from enum value: CHANGE_KIND_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: CHANGE_KIND_INSERT = 1;
+   */
+  INSERT = 1,
+
+  /**
+   * @generated from enum value: CHANGE_KIND_UPDATE = 2;
+   */
+  UPDATE = 2,
+
+  /**
+   * @generated from enum value: CHANGE_KIND_DELETE = 3;
+   */
+  DELETE = 3,
+
+  /**
+   * @generated from enum value: CHANGE_KIND_UNDELETE = 4;
+   */
+  UNDELETE = 4,
+}
+
+/**
+ * Describes the enum rookery.v1.ChangeKind.
+ */
+export const ChangeKindSchema: GenEnum<ChangeKind> = /*@__PURE__*/
+  enumDesc(file_rookery_v1_data, 3);
 
 /**
  * DataService reads and writes the records of the collections plugins declare.
@@ -1091,6 +1373,27 @@ export const DataService: GenService<{
     methodKind: "unary";
     input: typeof RefsFromRequestSchema;
     output: typeof RefsFromResponseSchema;
+  },
+  /**
+   * Live follows a query: the records that match now, then each change that
+   * makes one match or stop matching.
+   *
+   * @generated from rpc rookery.v1.DataService.Live
+   */
+  live: {
+    methodKind: "server_streaming";
+    input: typeof LiveRequestSchema;
+    output: typeof LiveResponseSchema;
+  },
+  /**
+   * Changes streams the change feed from a sequence.
+   *
+   * @generated from rpc rookery.v1.DataService.Changes
+   */
+  changes: {
+    methodKind: "server_streaming";
+    input: typeof ChangesRequestSchema;
+    output: typeof ChangesResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_rookery_v1_data, 0);
