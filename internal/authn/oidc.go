@@ -76,7 +76,7 @@ func Discover(ctx context.Context, config OIDCConfig) (*OIDC, error) {
 // verifier it will come back with.
 func (o *OIDC) StartURL(state, verifier string) string {
 	return o.oauth.AuthCodeURL(state,
-		oauth2.SetAuthURLParam("code_challenge", challenge(verifier)),
+		oauth2.SetAuthURLParam("code_challenge", Challenge(verifier)),
 		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
 	)
 }
@@ -156,15 +156,15 @@ func NewState() string { return id.Secret(24) }
 // NewVerifier is a PKCE verifier; Challenge is the S256 challenge made from it.
 func NewVerifier() string { return id.Secret(32) }
 
-// challenge is base64url(SHA-256(verifier)), without padding.
-func challenge(verifier string) string {
+// Challenge is base64url(SHA-256(verifier)), without padding.
+func Challenge(verifier string) string {
 	sum := sha256.Sum256([]byte(verifier))
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
 // VerifyChallenge reports whether a verifier belongs to a challenge.
 func VerifyChallenge(verifier, wanted string) bool {
-	return challenge(verifier) == wanted
+	return Challenge(verifier) == wanted
 }
 
 // CallbackURL is the provider's redirect for a public address.

@@ -72,6 +72,7 @@ type Store struct {
 	pool    *pgxpool.Pool
 	queries *Queries
 	digest  [sha256.Size]byte
+	url     string
 }
 
 // Open opens a pool to the database. It does not read or change the schema:
@@ -98,8 +99,13 @@ func Open(ctx context.Context, config Config) (*Store, error) {
 		pool:    pool,
 		queries: New(pool),
 		digest:  sha256.Sum256([]byte(schemaSQL)),
+		url:     config.URL,
 	}, nil
 }
+
+// URL is the connection string the store was opened with, for a program that
+// starts another process on the same database.
+func (s *Store) URL() string { return s.url }
 
 // Pool is the connection pool, for queries that have no place in sqlc.
 func (s *Store) Pool() *pgxpool.Pool { return s.pool }
