@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,6 +25,7 @@ import (
 	"github.com/aiviarium/rookery/internal/config"
 	"github.com/aiviarium/rookery/internal/data"
 	"github.com/aiviarium/rookery/internal/jobs"
+	"github.com/aiviarium/rookery/internal/profile"
 	"github.com/aiviarium/rookery/internal/spaces"
 	"github.com/aiviarium/rookery/internal/store"
 )
@@ -43,9 +45,10 @@ type Options struct {
 	// Data is the datastore, whose declaration a plugin's collections are, and
 	// whose schema a purge drops. Without it a plugin's collections are not
 	// declared, which is the case until the datastore's service is wired.
-	Data     *data.Data
-	SQL      *data.Data
-	Settings *config.Settings
+	Data        *data.Data
+	SQL         *data.Data
+	Settings    *config.Settings
+	Connections *config.Connections
 	// Jobs is the job kinds, which a plugin adds to.
 	Jobs *jobs.Registry
 	// Schedules makes the schedules a plugin starts with.
@@ -61,18 +64,19 @@ type Options struct {
 // Installer installs, updates and removes plugin packages: it records the
 // package, unpacks its files, and registers what it declares.
 type Installer struct {
-	mu        sync.Mutex
-	version   string
-	store     *store.Store
-	stateDir  string
-	data      *data.Data
-	sql       *data.Data
-	settings  *config.Settings
-	jobs      *jobs.Registry
-	schedules *jobs.Schedules
-	spaces    *spaces.Registry
-	services  *Supervisor
-	logger    *slog.Logger
+	mu          sync.Mutex
+	version     string
+	store       *store.Store
+	stateDir    string
+	data        *data.Data
+	sql         *data.Data
+	settings    *config.Settings
+	connections *config.Connections
+	jobs        *jobs.Registry
+	schedules   *jobs.Schedules
+	spaces      *spaces.Registry
+	services    *Supervisor
+	logger      *slog.Logger
 }
 
 // NewInstaller returns an installer.
@@ -82,17 +86,18 @@ func NewInstaller(options Options) *Installer {
 		logger = slog.New(slog.DiscardHandler)
 	}
 	return &Installer{
-		store:     options.Store,
-		version:   options.Version,
-		stateDir:  options.StateDir,
-		data:      options.Data,
-		sql:       options.SQL,
-		settings:  options.Settings,
-		jobs:      options.Jobs,
-		schedules: options.Schedules,
-		spaces:    options.Spaces,
-		services:  options.Services,
-		logger:    logger,
+		store:       options.Store,
+		version:     options.Version,
+		stateDir:    options.StateDir,
+		data:        options.Data,
+		sql:         options.SQL,
+		settings:    options.Settings,
+		connections: options.Connections,
+		jobs:        options.Jobs,
+		schedules:   options.Schedules,
+		spaces:      options.Spaces,
+		services:    options.Services,
+		logger:      logger,
 	}
 }
 
@@ -144,152 +149,234 @@ func (i *Installer) Dir(id, sha string) string {
 	return filepath.Join(i.stateDir, "plugins", id, sha)
 }
 
-// Install reads a package, records it and registers what it declares. A package
-// whose id is installed already replaces it, as long as its collection
-// declarations are the same.
+// Install records a package, replacing a compatible older version if present.
 func (i *Installer) Install(ctx context.Context, packageReader io.Reader) (Plugin, error) {
-	return i.install(ctx, packageReader, false)
+	return i.install(ctx, packageReader, installOptions{})
 }
 
-func (i *Installer) install(ctx context.Context, packageReader io.Reader, requireNew bool) (Plugin, error) {
+type installOptions struct {
+	requireNew      bool
+	requireExisting bool
+	expectedID      string
+	resetData       bool
+}
+
+func (i *Installer) install(ctx context.Context, packageReader io.Reader, opts installOptions) (Plugin, error) {
 	staging, err := os.MkdirTemp(i.stagingDir(), "install-")
 	if err != nil {
-		return Plugin{}, fmt.Errorf("plugins: making a place for the package: %w", err)
+		return Plugin{}, fmt.Errorf("plugins: staging package: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(staging) }()
-
 	unpacked, err := Unpack(ctx, packageReader, staging)
 	if err != nil {
 		return Plugin{}, err
 	}
 	manifest := unpacked.Manifest
+	if opts.expectedID != "" && manifest.ID != opts.expectedID {
+		return Plugin{}, fmt.Errorf("%w: package id is %s, expected %s", access.ErrInvalid, manifest.ID, opts.expectedID)
+	}
+	contents, err := os.ReadFile(filepath.Join(staging, FileName)) //nolint:gosec // installed manifest
+	if err != nil {
+		return Plugin{}, err
+	}
 
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	if err := i.checkRequirements(ctx, manifest); err != nil {
 		return Plugin{}, err
 	}
-
 	previous, err := i.Get(ctx, manifest.ID)
-	switch {
-	case errors.Is(err, access.ErrNotFound):
-		// A plugin that is not there yet declares its collections, job kinds
-		// and kinds of space before anything is made.
-		if err := i.declare(ctx, manifest); err != nil {
-			return Plugin{}, err
-		}
-	case err != nil:
+	if err != nil && !errors.Is(err, access.ErrNotFound) {
 		return Plugin{}, err
-	default:
-		if requireNew {
-			return Plugin{}, fmt.Errorf("%w: %s is installed", access.ErrConflict, manifest.ID)
-		}
-		if err := sameCollections(previous, manifest); err != nil {
+	}
+	if previous.ID != "" && opts.requireNew {
+		return Plugin{}, fmt.Errorf("%w: %s is installed", access.ErrConflict, manifest.ID)
+	}
+	if previous.ID == "" && opts.requireExisting {
+		return Plugin{}, fmt.Errorf("%w: %s is not installed", access.ErrNotFound, manifest.ID)
+	}
+	if err := i.checkReverseDependencies(ctx, manifest); err != nil {
+		return Plugin{}, err
+	}
+
+	prepared, err := i.prepare(manifest)
+	if err != nil {
+		return Plugin{}, err
+	}
+	tx, err := i.store.Pool().Begin(ctx)
+	if err != nil {
+		return Plugin{}, fmt.Errorf("plugins: beginning install: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := i.store.Queries().WithTx(tx)
+	retained, err := q.GetPluginDeclaration(ctx, manifest.ID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return Plugin{}, err
+	}
+	if retained != nil && !opts.resetData {
+		if err := sameCollections(Plugin{ID: manifest.ID, Manifest: retained}, manifest); err != nil {
 			return Plugin{}, err
 		}
 	}
-
-	// The package's files go where its hash says.
-	destination := i.Dir(manifest.ID, unpacked.SHA256)
-	if err := os.MkdirAll(filepath.Dir(destination), 0o750); err != nil {
-		return Plugin{}, fmt.Errorf("plugins: making the plugins folder: %w", err)
+	if i.data != nil {
+		if opts.resetData {
+			if err := data.DropIn(ctx, tx, manifest.ID); err != nil {
+				return Plugin{}, err
+			}
+		}
+		if retained == nil || opts.resetData {
+			if err := data.CreateIn(ctx, tx, manifest.ID, prepared.collections); err != nil {
+				return Plugin{}, err
+			}
+		}
 	}
-	if err := os.RemoveAll(destination); err != nil {
-		return Plugin{}, fmt.Errorf("plugins: clearing %s: %w", destination, err)
+	if manifest.Database == DatabaseSQL && i.sql != nil {
+		if err := i.sql.EnsureSQLRoleIn(ctx, tx, manifest.ID); err != nil {
+			return Plugin{}, err
+		}
 	}
-	if err := os.Rename(staging, destination); err != nil {
-		return Plugin{}, fmt.Errorf("plugins: moving the package into place: %w", err)
-	}
-	// The old version's files go once the new ones are in.
-	if previous.ID != "" && previous.SHA256 != unpacked.SHA256 {
-		_ = os.RemoveAll(i.Dir(previous.ID, previous.SHA256))
-	}
-
-	manifestBytes, err := os.ReadFile(filepath.Join(destination, "plugin.yaml")) //nolint:gosec // the path is the package the installer just unpacked
-	if err != nil {
-		return Plugin{}, fmt.Errorf("plugins: reading the installed manifest: %w", err)
-	}
-	record, err := i.store.Queries().UpsertPlugin(ctx, store.UpsertPluginParams{
-		ID:       manifest.ID,
-		Name:     manifest.Name,
-		Version:  manifest.Version,
-		Sha256:   unpacked.SHA256,
-		Manifest: manifestBytes,
-		Enabled:  true,
+	enabled := previous.ID == "" || previous.Enabled
+	record, err := q.UpsertPlugin(ctx, store.UpsertPluginParams{
+		ID: manifest.ID, Name: manifest.Name, Version: manifest.Version, Sha256: unpacked.SHA256,
+		Manifest: contents, Enabled: enabled,
 	})
 	if err != nil {
 		return Plugin{}, fmt.Errorf("plugins: recording %s: %w", manifest.ID, err)
 	}
-
-	// The plugin is a resource of its own, so grants can be made on it.
-	if err := i.store.Queries().UpsertResource(ctx, store.UpsertResourceParams{Uri: access.PluginURI(manifest.ID)}); err != nil {
-		return Plugin{}, fmt.Errorf("plugins: recording the plugin's resource: %w", err)
+	if err := q.PutPluginArchive(ctx, store.PutPluginArchiveParams{Plugin: manifest.ID, Archive: unpacked.archive}); err != nil {
+		return Plugin{}, err
+	}
+	if err := q.PutPluginDeclaration(ctx, store.PutPluginDeclarationParams{Plugin: manifest.ID, Manifest: contents}); err != nil {
+		return Plugin{}, err
+	}
+	if err := q.UpsertResource(ctx, store.UpsertResourceParams{Uri: access.PluginURI(manifest.ID)}); err != nil {
+		return Plugin{}, err
+	}
+	destination := i.Dir(manifest.ID, unpacked.SHA256)
+	added, err := movePackage(staging, destination)
+	if err != nil {
+		return Plugin{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		if added {
+			_ = os.RemoveAll(destination)
+		}
+		return Plugin{}, fmt.Errorf("plugins: committing install: %w", err)
 	}
 
-	i.applySettings(manifest.ID, manifest)
-	i.declareAtRuntime(ctx, manifest)
-	i.logger.Info("installed a plugin", slog.String("plugin", manifest.ID), slog.String("version", manifest.Version))
 	plugin, err := pluginOf(record)
 	if err != nil {
 		return Plugin{}, err
 	}
-	if i.services != nil && manifest.Service != nil && manifest.Service.Start != StartLazy {
-		if err := i.services.Start(context.WithoutCancel(ctx), plugin); err != nil {
-			i.logger.Error("starting a plugin's service", slog.String("plugin", plugin.ID), slog.String("error", err.Error()))
+	if err := i.activate(manifest, prepared, enabled); err != nil {
+		return Plugin{}, err
+	}
+	if enabled {
+		i.declareAtRuntime(ctx, manifest)
+	}
+	if i.services != nil {
+		i.services.Stop(plugin.ID)
+		if enabled && manifest.Service != nil && manifest.Service.Start != StartLazy {
+			if err := i.services.Start(context.WithoutCancel(ctx), plugin); err != nil {
+				i.logger.Error("starting plugin service", "plugin", plugin.ID, "error", err.Error())
+			}
 		}
+	}
+	if previous.ID != "" && previous.SHA256 != plugin.SHA256 {
+		_ = os.RemoveAll(i.Dir(previous.ID, previous.SHA256))
 	}
 	return plugin, nil
 }
 
-// declare adds a plugin's declarations to the packages that own them, and makes
-// its tables: a declaration that is refused leaves no table behind.
-func (i *Installer) declare(ctx context.Context, manifest *Manifest) error {
-	if i.data != nil {
-		collections := make([]*data.Collection, 0, len(manifest.Collections))
-		for name, declaration := range manifest.Collections {
-			collection, err := collectionOf(manifest.ID, name, declaration)
-			if err != nil {
-				return err
-			}
-			collections = append(collections, collection)
+func movePackage(staging, destination string) (bool, error) {
+	_, err := os.Stat(destination)
+	if err == nil {
+		return false, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o750); err != nil {
+		return false, err
+	}
+	if err := os.Rename(staging, destination); err != nil {
+		return false, fmt.Errorf("plugins: moving package into place: %w", err)
+	}
+	return true, nil
+}
+
+type declarations struct {
+	collections []*data.Collection
+	kinds       []jobs.Kind
+	spaces      []spaces.Kind
+}
+
+func (i *Installer) prepare(manifest *Manifest) (declarations, error) {
+	var out declarations
+	for name, declaration := range manifest.Collections {
+		collection, err := collectionOf(manifest.ID, name, declaration)
+		if err != nil {
+			return declarations{}, err
 		}
-		if err := i.data.Declare(collections...); err != nil {
-			return fmt.Errorf("plugins: declaring the collections of %s: %w", manifest.ID, err)
+		if err := collection.Validate(); err != nil {
+			return declarations{}, err
 		}
-		if err := i.data.Create(ctx, manifest.ID); err != nil {
-			return err
+		out.collections = append(out.collections, collection)
+	}
+	for _, declared := range manifest.Jobs {
+		kind, err := kindOf(manifest.ID, declared)
+		if err != nil {
+			return declarations{}, err
+		}
+		out.kinds = append(out.kinds, kind)
+	}
+	for _, kind := range manifest.SpaceKinds {
+		out.spaces = append(out.spaces, spaceKindOf(manifest.ID, kind))
+	}
+	if i.spaces != nil {
+		if err := i.spaces.CheckReplace(manifest.ID, out.spaces...); err != nil {
+			return declarations{}, err
 		}
 	}
+	return out, nil
+}
 
-	if manifest.Database == "sql" && i.sql != nil {
-		if _, err := i.sql.EnsureSQLRole(ctx, manifest.ID); err != nil {
+func (i *Installer) activate(manifest *Manifest, prepared declarations, enabled bool) error {
+	if !enabled {
+		i.clearDeclarations(manifest.ID)
+		return nil
+	}
+	if i.data != nil {
+		i.data.Forget(manifest.ID)
+		if err := i.data.Declare(prepared.collections...); err != nil {
 			return err
 		}
 	}
 	if i.jobs != nil {
-		kinds := make([]jobs.Kind, 0, len(manifest.Jobs))
-		for _, declared := range manifest.Jobs {
-			kind, err := kindOf(manifest.ID, declared)
-			if err != nil {
-				return err
-			}
-			kinds = append(kinds, kind)
-		}
-		if err := i.jobs.RegisterKinds(kinds...); err != nil {
-			return fmt.Errorf("plugins: registering the jobs of %s: %w", manifest.ID, err)
+		i.jobs.ReplacePluginKinds(manifest.ID, prepared.kinds)
+	}
+	if i.spaces != nil {
+		if err := i.spaces.Replace(manifest.ID, prepared.spaces...); err != nil {
+			return err
 		}
 	}
-
-	if i.spaces != nil && len(manifest.SpaceKinds) > 0 {
-		kinds := make([]spaces.Kind, 0, len(manifest.SpaceKinds))
-		for _, declared := range manifest.SpaceKinds {
-			kinds = append(kinds, spaceKindOf(manifest.ID, declared))
-		}
-		if err := i.spaces.Declare(kinds...); err != nil {
-			return fmt.Errorf("plugins: declaring the kinds of space of %s: %w", manifest.ID, err)
-		}
-	}
+	i.applySettings(manifest.ID, manifest)
+	i.applyConnections(manifest.ID, manifest)
 	return nil
+}
+
+func (i *Installer) clearDeclarations(plugin string) {
+	if i.data != nil {
+		i.data.Forget(plugin)
+	}
+	if i.jobs != nil {
+		i.jobs.ReplacePluginKinds(plugin, nil)
+	}
+	if i.spaces != nil {
+		_ = i.spaces.Replace(plugin)
+	}
+	i.applySettings(plugin, nil)
+	i.applyConnections(plugin, nil)
 }
 
 // declareAtRuntime adds what an install starts besides the declarations: the
@@ -307,11 +394,12 @@ func (i *Installer) declareAtRuntime(ctx context.Context, manifest *Manifest) {
 		if err != nil {
 			continue
 		}
-		if _, err := i.schedules.Create(context.WithoutCancel(ctx), jobs.ScheduleRequest{
-			Name: name,
-			Kind: kind.Name,
-			Cron: declared.Cron,
-		}); err != nil {
+		if _, err := i.schedules.Create(ctx, jobs.ScheduleRequest{
+			Name:     name,
+			Kind:     kind.Name,
+			Resource: access.PluginURI(manifest.ID),
+			Cron:     declared.Cron,
+		}); err != nil && !errors.Is(err, access.ErrConflict) {
 			// An update keeps the schedule it made the first time.
 			i.logger.Warn("making a plugin's schedule",
 				slog.String("plugin", manifest.ID), slog.String("schedule", name), slog.String("error", err.Error()))
@@ -353,8 +441,10 @@ func (i *Installer) List(ctx context.Context) ([]Plugin, error) {
 func (i *Installer) Remove(ctx context.Context, id string, purge bool) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	plugin, err := i.Get(ctx, id)
-	if err != nil {
+	if _, err := i.Get(ctx, id); err != nil {
+		return err
+	}
+	if err := i.checkInUse(ctx, id); err != nil {
 		return err
 	}
 	plugins, err := i.List(ctx)
@@ -379,6 +469,9 @@ func (i *Installer) Remove(ctx context.Context, id string, purge bool) error {
 		i.services.Stop(id)
 	}
 	if purge {
+		if err := i.store.Queries().DeletePluginDeclaration(ctx, id); err != nil {
+			return err
+		}
 		if err := i.store.Queries().DeletePluginKV(ctx, id); err != nil {
 			return fmt.Errorf("plugins: dropping private state: %w", err)
 		}
@@ -391,7 +484,6 @@ func (i *Installer) Remove(ctx context.Context, id string, purge bool) error {
 			}
 		}
 	}
-	i.applySettings(id, nil)
 	if purge && i.data != nil {
 		if err := i.data.Drop(ctx, id); err != nil {
 			return err
@@ -406,7 +498,7 @@ func (i *Installer) Remove(ctx context.Context, id string, purge bool) error {
 	if err := os.RemoveAll(filepath.Join(i.stateDir, "plugins", id)); err != nil {
 		return fmt.Errorf("plugins: removing the files of %s: %w", id, err)
 	}
-	_ = plugin
+	i.clearDeclarations(id)
 	return nil
 }
 
@@ -414,34 +506,44 @@ func (i *Installer) Remove(ctx context.Context, id string, purge bool) error {
 func (i *Installer) SetEnabled(ctx context.Context, id string, enabled bool) (Plugin, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	if i.services != nil && !enabled {
-		i.services.Stop(id)
-	}
-	record, err := i.store.Queries().SetPluginEnabled(ctx, store.SetPluginEnabledParams{ID: id, Enabled: enabled})
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		return Plugin{}, fmt.Errorf("%w: no plugin %s", access.ErrNotFound, id)
-	case err != nil:
-		return Plugin{}, fmt.Errorf("plugins: changing %s: %w", id, err)
-	}
-	plugin, err := pluginOf(record)
+	plugin, err := i.Get(ctx, id)
 	if err != nil {
 		return Plugin{}, err
 	}
+	if plugin.Enabled == enabled {
+		return plugin, nil
+	}
+	manifest, err := pluginManifest(plugin)
+	if err != nil {
+		return Plugin{}, err
+	}
+	var prepared declarations
 	if enabled {
-		manifest, err := pluginManifest(plugin)
+		if err := i.checkRequirements(ctx, manifest); err != nil {
+			return Plugin{}, err
+		}
+		prepared, err = i.prepare(manifest)
 		if err != nil {
 			return Plugin{}, err
 		}
-		i.applySettings(id, manifest)
-	} else {
-		i.applySettings(id, nil)
 	}
-
-	if i.services != nil && enabled {
-		if manifest, err := pluginManifest(plugin); err == nil && manifest.Service != nil && manifest.Service.Start != StartLazy {
+	record, err := i.store.Queries().SetPluginEnabled(ctx, store.SetPluginEnabledParams{ID: id, Enabled: enabled})
+	if err != nil {
+		return Plugin{}, fmt.Errorf("plugins: changing %s: %w", id, err)
+	}
+	plugin, err = pluginOf(record)
+	if err != nil {
+		return Plugin{}, err
+	}
+	if err := i.activate(manifest, prepared, enabled); err != nil {
+		return Plugin{}, err
+	}
+	if i.services != nil {
+		if !enabled {
+			i.services.Stop(id)
+		} else if manifest.Service != nil && manifest.Service.Start != StartLazy {
 			if err := i.services.Start(context.WithoutCancel(ctx), plugin); err != nil {
-				i.logger.Error("starting a plugin's service", slog.String("plugin", id), slog.String("error", err.Error()))
+				i.logger.Error("starting plugin service", "plugin", id, "error", err.Error())
 			}
 		}
 	}
@@ -775,4 +877,191 @@ func (i *Installer) InitSettings(ctx context.Context, plugin string) ([]byte, er
 		values[name] = decoded
 	}
 	return cborx.Marshal(values)
+}
+
+func (i *Installer) checkReverseDependencies(ctx context.Context, incoming *Manifest) error {
+	installed, err := i.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, dependent := range installed {
+		manifest, err := pluginManifest(dependent)
+		if err != nil {
+			return err
+		}
+		if requirement, ok := manifest.Dependencies[incoming.ID]; ok {
+			if err := checkRequirement(incoming.Version, requirement); err != nil {
+				return fmt.Errorf("plugin %s requires %s %s: %w", manifest.ID, incoming.ID, requirement, err)
+			}
+		}
+	}
+	return nil
+}
+
+func (i *Installer) checkInUse(ctx context.Context, plugin string) error {
+	entry, err := i.store.Queries().PluginProvisionerUser(ctx, plugin)
+	if err == nil {
+		return fmt.Errorf("%w: provisioner %s uses plugin %s", access.ErrConflict, entry, plugin)
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	hosts, err := i.store.Queries().PluginHostProfiles(ctx)
+	if err != nil {
+		return err
+	}
+	for _, host := range hosts {
+		var hostProfile profile.Profile
+		if err := cborx.Unmarshal(host.Profile, &hostProfile); err != nil {
+			return fmt.Errorf("plugins: reading profile of %s: %w", host.Name, err)
+		}
+		for _, feature := range hostProfile.Features {
+			if feature.Plugin == plugin {
+				return fmt.Errorf("%w: profile of %s uses plugin %s", access.ErrConflict, host.Name, plugin)
+			}
+		}
+	}
+	return nil
+}
+
+// Restore reconstructs installed files and in-memory declarations on startup.
+func (i *Installer) Restore(ctx context.Context) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	installed, err := i.List(ctx)
+	if err != nil {
+		return err
+	}
+	if i.data != nil {
+		for _, collection := range i.data.Collections("") {
+			if collection.Plugin != "rookery" {
+				i.data.Forget(collection.Plugin)
+			}
+		}
+	}
+	for _, plugin := range installed {
+		if err := i.restorePackage(ctx, plugin); err != nil {
+			return fmt.Errorf("plugins: restoring %s: %w", plugin.ID, err)
+		}
+		if !plugin.Enabled {
+			continue
+		}
+		manifest, err := pluginManifest(plugin)
+		if err != nil {
+			return err
+		}
+		prepared, err := i.prepare(manifest)
+		if err != nil {
+			return err
+		}
+		if err := i.activate(manifest, prepared, true); err != nil {
+			return err
+		}
+		i.declareAtRuntime(ctx, manifest)
+	}
+	return nil
+}
+
+func (i *Installer) restorePackage(ctx context.Context, plugin Plugin) error {
+	destination := i.Dir(plugin.ID, plugin.SHA256)
+	if _, err := os.Stat(filepath.Join(destination, FileName)); err == nil {
+		return nil
+	}
+	archive, err := i.store.Queries().GetPluginArchive(ctx, plugin.ID)
+	if err != nil {
+		return err
+	}
+	dir, err := os.MkdirTemp(i.stagingDir(), "restore-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	unpacked, err := Unpack(ctx, bytes.NewReader(archive), dir)
+	if err != nil {
+		return err
+	}
+	if unpacked.SHA256 != plugin.SHA256 || unpacked.Manifest.ID != plugin.ID {
+		return fmt.Errorf("%w: stored package disagrees with its installed record", ErrPackage)
+	}
+	if err := os.RemoveAll(destination); err != nil {
+		return err
+	}
+	_, err = movePackage(dir, destination)
+	return err
+}
+
+// InstallBundled installs the first-party packages shipped beside the server.
+func (i *Installer) InstallBundled(ctx context.Context, dir string) error {
+	if dir == "" {
+		return nil
+	}
+	for _, plugin := range []string{"docker", "incus"} {
+		if _, err := i.Get(ctx, plugin); err == nil {
+			continue
+		} else if !errors.Is(err, access.ErrNotFound) {
+			return err
+		}
+		if err := i.installBundle(ctx, dir, plugin); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (i *Installer) installBundle(ctx context.Context, dir, plugin string) error {
+	packageFile, err := os.Open(filepath.Join(dir, plugin+".tar.gz")) //nolint:gosec // configured release bundle directory
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("plugins: reading bundle %s: %w", plugin, err)
+	}
+	defer func() { _ = packageFile.Close() }()
+	_, err = i.install(ctx, packageFile, installOptions{requireNew: true, expectedID: plugin})
+	return err
+}
+
+func (i *Installer) applyConnections(plugin string, manifest *Manifest) {
+	if i.connections == nil {
+		return
+	}
+	var types []config.ConnectionType
+	if manifest != nil {
+		for _, declared := range manifest.ConnectionTypes {
+			typ := config.ConnectionType{ID: declared.ID, Label: declared.Label, Test: declared.Test}
+			for name, field := range declared.Fields {
+				typ.Fields = append(typ.Fields, config.ConnectionField{Name: name, Secret: field.Secret})
+			}
+			types = append(types, typ)
+		}
+	}
+	i.connections.ReplacePluginTypes(plugin, types)
+}
+
+// Run starts services whose declared job kinds have queued work.
+func (i *Installer) Run(ctx context.Context) error {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			queued, err := i.store.Queries().PluginsWithQueuedJobs(ctx)
+			if err != nil {
+				if ctx.Err() == nil {
+					i.logger.Warn("looking for plugin work", "error", err.Error())
+				}
+				continue
+			}
+			for _, id := range queued {
+				if i.services.Running(id) {
+					continue
+				}
+				if plugin, err := i.Get(ctx, id); err == nil && plugin.Enabled {
+					_ = i.services.Start(ctx, plugin)
+				}
+			}
+		}
+	}
 }

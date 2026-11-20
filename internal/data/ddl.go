@@ -17,23 +17,26 @@ import (
 // plugin system calls it at install. The declaration and its table are
 // committed together, and creating the same collection again is safe.
 func (d *Data) Create(ctx context.Context, plugin string) error {
-	collections := d.Collections(plugin)
+	return d.writeTransaction(ctx, func(tx pgx.Tx) error {
+		return CreateIn(ctx, tx, plugin, d.Collections(plugin))
+	})
+}
+
+// CreateIn creates and records collections in the install transaction.
+func CreateIn(ctx context.Context, tx pgx.Tx, plugin string, collections []*Collection) error {
 	if len(collections) == 0 {
 		return nil
 	}
-
-	return d.writeTransaction(ctx, func(tx pgx.Tx) error {
-		schema := pgIdentifier("p_" + plugin)
-		if _, err := tx.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+schema); err != nil {
-			return fmt.Errorf("data: creating the schema of %s: %w", plugin, err)
+	schema := pgIdentifier("p_" + plugin)
+	if _, err := tx.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+schema); err != nil {
+		return fmt.Errorf("data: creating the schema of %s: %w", plugin, err)
+	}
+	for _, collection := range collections {
+		if err := storeCollection(ctx, tx, collection); err != nil {
+			return err
 		}
-		for _, collection := range collections {
-			if err := storeCollection(ctx, tx, collection); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	}
+	return nil
 }
 
 func storeCollection(ctx context.Context, tx pgx.Tx, collection *Collection) error {
@@ -87,37 +90,33 @@ func (d *Data) Load(ctx context.Context) error {
 
 // Drop removes a plugin's schema, catalog entries and derived data.
 func (d *Data) Drop(ctx context.Context, plugin string) error {
+	if err := d.writeTransaction(ctx, func(tx pgx.Tx) error { return DropIn(ctx, tx, plugin) }); err != nil {
+		return err
+	}
+	d.Forget(plugin)
+	return nil
+}
+
+// DropIn removes collection tables and derived records in the install transaction.
+func DropIn(ctx context.Context, tx pgx.Tx, plugin string) error {
 	if !namePattern.MatchString(plugin) {
 		return fmt.Errorf("%w: invalid plugin %q", ErrInvalid, plugin)
 	}
-	err := d.writeTransaction(ctx, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, "DROP SCHEMA IF EXISTS "+pgIdentifier("p_"+plugin)+" CASCADE"); err != nil {
-			return fmt.Errorf("data: dropping the schema of %s: %w", plugin, err)
-		}
-		resourcePrefix := "record://" + plugin + "/"
-		for _, statement := range []string{
-			"DELETE FROM rookery.refs WHERE starts_with(source, $1) OR starts_with(target, $1)",
-			"DELETE FROM rookery.entities WHERE starts_with(uri, $1)",
-			"DELETE FROM rookery.changes WHERE starts_with(resource, $1)",
-		} {
-			if _, err := tx.Exec(ctx, statement, resourcePrefix); err != nil {
-				return fmt.Errorf("data: cleaning up derived rows for %s: %w", plugin, err)
-			}
-		}
-		if _, err := tx.Exec(ctx, "DELETE FROM rookery.collections WHERE plugin = $1", plugin); err != nil {
-			return fmt.Errorf("data: dropping collection declarations for %s: %w", plugin, err)
-		}
-		return nil
-	})
-	if err != nil {
-		return err
+	if _, err := tx.Exec(ctx, "DROP SCHEMA IF EXISTS "+pgIdentifier("p_"+plugin)+" CASCADE"); err != nil {
+		return fmt.Errorf("data: dropping the schema of %s: %w", plugin, err)
 	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	for key, collection := range d.collections {
-		if collection.Plugin == plugin {
-			delete(d.collections, key)
+	resourcePrefix := "record://" + plugin + "/"
+	for _, statement := range []string{
+		"DELETE FROM rookery.refs WHERE starts_with(source, $1) OR starts_with(target, $1)",
+		"DELETE FROM rookery.entities WHERE starts_with(uri, $1)",
+		"DELETE FROM rookery.changes WHERE starts_with(resource, $1)",
+	} {
+		if _, err := tx.Exec(ctx, statement, resourcePrefix); err != nil {
+			return fmt.Errorf("data: cleaning up derived rows for %s: %w", plugin, err)
 		}
+	}
+	if _, err := tx.Exec(ctx, "DELETE FROM rookery.collections WHERE plugin = $1", plugin); err != nil {
+		return fmt.Errorf("data: dropping collection declarations for %s: %w", plugin, err)
 	}
 	return nil
 }

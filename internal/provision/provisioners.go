@@ -26,6 +26,11 @@ type Tokens interface {
 	PluginToken(ctx context.Context, plugin string) (string, error)
 }
 
+// CallTokens scopes a plugin process credential to one provisioner call.
+type CallTokens interface {
+	IssueProvisionerToken(ctx context.Context, plugin, node string) (string, func(), error)
+}
+
 // Hosts is where a created machine becomes a host, and where a host's machine is
 // looked up when the host goes. internal/hosts implements it.
 type Hosts interface {
@@ -70,7 +75,8 @@ type Deps struct {
 
 	// Tokens are the credentials a provisioner process presents on the server's
 	// socket.
-	Tokens Tokens
+	Tokens     Tokens
+	CallTokens CallTokens
 
 	// Hosts is where a created machine becomes a host.
 	Hosts Hosts
@@ -82,14 +88,15 @@ type Deps struct {
 // Provisioners is the core's provisioners: their entries, what they made, and
 // the calls into their executables.
 type Provisioners struct {
-	entries   *Entries
-	resources *Resources
-	catalog   Catalog
-	runner    *Runner
-	secrets   Secrets
-	tokens    Tokens
-	hosts     Hosts
-	logger    *slog.Logger
+	entries    *Entries
+	resources  *Resources
+	catalog    Catalog
+	runner     *Runner
+	secrets    Secrets
+	tokens     Tokens
+	callTokens CallTokens
+	hosts      Hosts
+	logger     *slog.Logger
 }
 
 // New returns the provisioners of a deployment.
@@ -99,14 +106,15 @@ func New(deps Deps) *Provisioners {
 		logger = slog.New(slog.DiscardHandler)
 	}
 	return &Provisioners{
-		entries:   NewEntries(deps.Store, deps.Checker),
-		resources: NewResources(deps.Store),
-		catalog:   deps.Catalog,
-		runner:    deps.Runner,
-		secrets:   deps.Secrets,
-		tokens:    deps.Tokens,
-		hosts:     deps.Hosts,
-		logger:    logger,
+		entries:    NewEntries(deps.Store, deps.Checker),
+		resources:  NewResources(deps.Store),
+		catalog:    deps.Catalog,
+		runner:     deps.Runner,
+		secrets:    deps.Secrets,
+		tokens:     deps.Tokens,
+		callTokens: deps.CallTokens,
+		hosts:      deps.Hosts,
+		logger:     logger,
 	}
 }
 
@@ -398,7 +406,14 @@ func (p *Provisioners) callWithSecrets(ctx context.Context, entry Entry, typ Typ
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	call := Call{Entry: entry, Type: typ, Engine: engineOf(entry), Line: line}
-	if p.tokens != nil {
+	if p.callTokens != nil {
+		token, revoke, err := p.callTokens.IssueProvisionerToken(ctx, typ.Plugin, entry.Node)
+		if err != nil {
+			return fmt.Errorf("provision: minting the provisioner's token: %w", err)
+		}
+		defer revoke()
+		call.Token = token
+	} else if p.tokens != nil {
 		token, err := p.tokens.PluginToken(ctx, typ.Plugin)
 		if err != nil {
 			return fmt.Errorf("provision: minting the provisioner's token: %w", err)

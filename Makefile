@@ -165,3 +165,9 @@ cross:
 
 clean:
 	rm -rf bin
+
+# Stage the Linux executables and package the first-party plugin bundles next
+# to the server binary for release.
+.PHONY: bundle-plugins
+bundle-plugins:
+	./scripts/bundle-plugins "$(CURDIR)/bin/plugins"

@@ -24,8 +24,10 @@ const EventHostsChanged = "rookery/hosts.changed"
 
 // Deps is what the host service is built from.
 type Deps struct {
-	Hosts   *Hosts
-	Checker *access.Checker
+	// ValidateFeatures checks plugin declarations before saving a profile.
+	ValidateFeatures func(context.Context, profile.Profile) error
+	Hosts            *Hosts
+	Checker          *access.Checker
 	// Jobs enqueues first contact; a host service without one cannot add a host
 	// with a credential.
 	Jobs *jobs.Service
@@ -300,6 +302,11 @@ func (s *Service) SetProfile(ctx context.Context, request *connect.Request[rooke
 	p, err := fromProtoProfile(request.Msg.GetProfile())
 	if err != nil {
 		return nil, access.ToConnect(err)
+	}
+	if s.deps.ValidateFeatures != nil {
+		if err := s.deps.ValidateFeatures(ctx, p); err != nil {
+			return nil, access.ToConnect(err)
+		}
 	}
 	current, err := s.deps.Hosts.Get(ctx, request.Msg.GetName())
 	if err != nil {

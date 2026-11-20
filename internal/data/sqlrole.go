@@ -35,6 +35,18 @@ type Sealer interface {
 //
 // The server's database user needs CREATEROLE.
 func (d *Data) EnsureSQLRole(ctx context.Context, plugin string) (string, error) {
+	return d.ensureSQLRole(ctx, plugin, d.transaction)
+}
+
+// EnsureSQLRoleIn creates the raw SQL role in the install transaction.
+func (d *Data) EnsureSQLRoleIn(ctx context.Context, tx pgx.Tx, plugin string) error {
+	_, err := d.ensureSQLRole(ctx, plugin, func(_ context.Context, fn func(pgx.Tx) error) error {
+		return fn(tx) //nolint:contextcheck // the callback encloses the caller's context
+	})
+	return err
+}
+
+func (d *Data) ensureSQLRole(ctx context.Context, plugin string, transaction func(context.Context, func(pgx.Tx) error) error) (string, error) {
 	if !namePattern.MatchString(plugin) {
 		return "", fmt.Errorf("%w: %q is not a plugin id", ErrInvalid, plugin)
 	}
@@ -49,7 +61,7 @@ func (d *Data) EnsureSQLRole(ctx context.Context, plugin string) (string, error)
 	schema := role
 
 	var password string
-	err := d.transaction(ctx, func(tx pgx.Tx) error {
+	err := transaction(ctx, func(tx pgx.Tx) error {
 		// One call at a time makes a role, so that two installs of one plugin
 		// do not make two passwords.
 		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", "rookery.sqlrole:"+plugin); err != nil {

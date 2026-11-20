@@ -46,6 +46,11 @@ const (
 	// PluginServiceInstallFromRegistryProcedure is the fully-qualified name of the PluginService's
 	// InstallFromRegistry RPC.
 	PluginServiceInstallFromRegistryProcedure = "/rookery.v1.PluginService/InstallFromRegistry"
+	// PluginServiceUpdateProcedure is the fully-qualified name of the PluginService's Update RPC.
+	PluginServiceUpdateProcedure = "/rookery.v1.PluginService/Update"
+	// PluginServiceContributionsProcedure is the fully-qualified name of the PluginService's
+	// Contributions RPC.
+	PluginServiceContributionsProcedure = "/rookery.v1.PluginService/Contributions"
 	// PluginServiceRemoveProcedure is the fully-qualified name of the PluginService's Remove RPC.
 	PluginServiceRemoveProcedure = "/rookery.v1.PluginService/Remove"
 	// PluginServiceSetEnabledProcedure is the fully-qualified name of the PluginService's SetEnabled
@@ -65,6 +70,8 @@ type PluginServiceClient interface {
 	Get(context.Context, *connect.Request[v1.PluginServiceGetRequest]) (*connect.Response[v1.PluginServiceGetResponse], error)
 	Install(context.Context) *connect.ClientStreamForClient[v1.PluginServiceInstallRequest, v1.PluginServiceInstallResponse]
 	InstallFromRegistry(context.Context, *connect.Request[v1.PluginServiceInstallFromRegistryRequest]) (*connect.Response[v1.PluginServiceInstallFromRegistryResponse], error)
+	Update(context.Context, *connect.Request[v1.PluginServiceUpdateRequest]) (*connect.Response[v1.PluginServiceUpdateResponse], error)
+	Contributions(context.Context, *connect.Request[v1.PluginServiceContributionsRequest]) (*connect.Response[v1.PluginServiceContributionsResponse], error)
 	Remove(context.Context, *connect.Request[v1.PluginServiceRemoveRequest]) (*connect.Response[v1.PluginServiceRemoveResponse], error)
 	SetEnabled(context.Context, *connect.Request[v1.PluginServiceSetEnabledRequest]) (*connect.Response[v1.PluginServiceSetEnabledResponse], error)
 }
@@ -104,6 +111,18 @@ func NewPluginServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(pluginServiceMethods.ByName("InstallFromRegistry")),
 			connect.WithClientOptions(opts...),
 		),
+		update: connect.NewClient[v1.PluginServiceUpdateRequest, v1.PluginServiceUpdateResponse](
+			httpClient,
+			baseURL+PluginServiceUpdateProcedure,
+			connect.WithSchema(pluginServiceMethods.ByName("Update")),
+			connect.WithClientOptions(opts...),
+		),
+		contributions: connect.NewClient[v1.PluginServiceContributionsRequest, v1.PluginServiceContributionsResponse](
+			httpClient,
+			baseURL+PluginServiceContributionsProcedure,
+			connect.WithSchema(pluginServiceMethods.ByName("Contributions")),
+			connect.WithClientOptions(opts...),
+		),
 		remove: connect.NewClient[v1.PluginServiceRemoveRequest, v1.PluginServiceRemoveResponse](
 			httpClient,
 			baseURL+PluginServiceRemoveProcedure,
@@ -125,6 +144,8 @@ type pluginServiceClient struct {
 	get                 *connect.Client[v1.PluginServiceGetRequest, v1.PluginServiceGetResponse]
 	install             *connect.Client[v1.PluginServiceInstallRequest, v1.PluginServiceInstallResponse]
 	installFromRegistry *connect.Client[v1.PluginServiceInstallFromRegistryRequest, v1.PluginServiceInstallFromRegistryResponse]
+	update              *connect.Client[v1.PluginServiceUpdateRequest, v1.PluginServiceUpdateResponse]
+	contributions       *connect.Client[v1.PluginServiceContributionsRequest, v1.PluginServiceContributionsResponse]
 	remove              *connect.Client[v1.PluginServiceRemoveRequest, v1.PluginServiceRemoveResponse]
 	setEnabled          *connect.Client[v1.PluginServiceSetEnabledRequest, v1.PluginServiceSetEnabledResponse]
 }
@@ -149,6 +170,16 @@ func (c *pluginServiceClient) InstallFromRegistry(ctx context.Context, req *conn
 	return c.installFromRegistry.CallUnary(ctx, req)
 }
 
+// Update calls rookery.v1.PluginService.Update.
+func (c *pluginServiceClient) Update(ctx context.Context, req *connect.Request[v1.PluginServiceUpdateRequest]) (*connect.Response[v1.PluginServiceUpdateResponse], error) {
+	return c.update.CallUnary(ctx, req)
+}
+
+// Contributions calls rookery.v1.PluginService.Contributions.
+func (c *pluginServiceClient) Contributions(ctx context.Context, req *connect.Request[v1.PluginServiceContributionsRequest]) (*connect.Response[v1.PluginServiceContributionsResponse], error) {
+	return c.contributions.CallUnary(ctx, req)
+}
+
 // Remove calls rookery.v1.PluginService.Remove.
 func (c *pluginServiceClient) Remove(ctx context.Context, req *connect.Request[v1.PluginServiceRemoveRequest]) (*connect.Response[v1.PluginServiceRemoveResponse], error) {
 	return c.remove.CallUnary(ctx, req)
@@ -165,6 +196,8 @@ type PluginServiceHandler interface {
 	Get(context.Context, *connect.Request[v1.PluginServiceGetRequest]) (*connect.Response[v1.PluginServiceGetResponse], error)
 	Install(context.Context, *connect.ClientStream[v1.PluginServiceInstallRequest]) (*connect.Response[v1.PluginServiceInstallResponse], error)
 	InstallFromRegistry(context.Context, *connect.Request[v1.PluginServiceInstallFromRegistryRequest]) (*connect.Response[v1.PluginServiceInstallFromRegistryResponse], error)
+	Update(context.Context, *connect.Request[v1.PluginServiceUpdateRequest]) (*connect.Response[v1.PluginServiceUpdateResponse], error)
+	Contributions(context.Context, *connect.Request[v1.PluginServiceContributionsRequest]) (*connect.Response[v1.PluginServiceContributionsResponse], error)
 	Remove(context.Context, *connect.Request[v1.PluginServiceRemoveRequest]) (*connect.Response[v1.PluginServiceRemoveResponse], error)
 	SetEnabled(context.Context, *connect.Request[v1.PluginServiceSetEnabledRequest]) (*connect.Response[v1.PluginServiceSetEnabledResponse], error)
 }
@@ -200,6 +233,18 @@ func NewPluginServiceHandler(svc PluginServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(pluginServiceMethods.ByName("InstallFromRegistry")),
 		connect.WithHandlerOptions(opts...),
 	)
+	pluginServiceUpdateHandler := connect.NewUnaryHandler(
+		PluginServiceUpdateProcedure,
+		svc.Update,
+		connect.WithSchema(pluginServiceMethods.ByName("Update")),
+		connect.WithHandlerOptions(opts...),
+	)
+	pluginServiceContributionsHandler := connect.NewUnaryHandler(
+		PluginServiceContributionsProcedure,
+		svc.Contributions,
+		connect.WithSchema(pluginServiceMethods.ByName("Contributions")),
+		connect.WithHandlerOptions(opts...),
+	)
 	pluginServiceRemoveHandler := connect.NewUnaryHandler(
 		PluginServiceRemoveProcedure,
 		svc.Remove,
@@ -222,6 +267,10 @@ func NewPluginServiceHandler(svc PluginServiceHandler, opts ...connect.HandlerOp
 			pluginServiceInstallHandler.ServeHTTP(w, r)
 		case PluginServiceInstallFromRegistryProcedure:
 			pluginServiceInstallFromRegistryHandler.ServeHTTP(w, r)
+		case PluginServiceUpdateProcedure:
+			pluginServiceUpdateHandler.ServeHTTP(w, r)
+		case PluginServiceContributionsProcedure:
+			pluginServiceContributionsHandler.ServeHTTP(w, r)
 		case PluginServiceRemoveProcedure:
 			pluginServiceRemoveHandler.ServeHTTP(w, r)
 		case PluginServiceSetEnabledProcedure:
@@ -249,6 +298,14 @@ func (UnimplementedPluginServiceHandler) Install(context.Context, *connect.Clien
 
 func (UnimplementedPluginServiceHandler) InstallFromRegistry(context.Context, *connect.Request[v1.PluginServiceInstallFromRegistryRequest]) (*connect.Response[v1.PluginServiceInstallFromRegistryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.PluginService.InstallFromRegistry is not implemented"))
+}
+
+func (UnimplementedPluginServiceHandler) Update(context.Context, *connect.Request[v1.PluginServiceUpdateRequest]) (*connect.Response[v1.PluginServiceUpdateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.PluginService.Update is not implemented"))
+}
+
+func (UnimplementedPluginServiceHandler) Contributions(context.Context, *connect.Request[v1.PluginServiceContributionsRequest]) (*connect.Response[v1.PluginServiceContributionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.PluginService.Contributions is not implemented"))
 }
 
 func (UnimplementedPluginServiceHandler) Remove(context.Context, *connect.Request[v1.PluginServiceRemoveRequest]) (*connect.Response[v1.PluginServiceRemoveResponse], error) {

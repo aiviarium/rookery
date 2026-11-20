@@ -761,3 +761,15 @@ CREATE TABLE rookery.plugin_kv (
     revision bigint NOT NULL CHECK (revision > 0),
     PRIMARY KEY (plugin, key)
 );
+
+-- Compressed package bytes are retrieved only when restoring installed files.
+CREATE TABLE rookery.plugin_archives (
+    plugin  text PRIMARY KEY REFERENCES rookery.plugins(id) ON DELETE CASCADE,
+    archive bytea NOT NULL
+);
+
+-- The last collection declaration survives a non-purging removal.
+CREATE TABLE rookery.plugin_declarations (
+    plugin   text PRIMARY KEY,
+    manifest bytea NOT NULL
+);

@@ -77,6 +77,59 @@ func (r *Registry) Declare(kinds ...Kind) error {
 	return nil
 }
 
+// Replace validates and swaps the kinds belonging to a plugin.
+func (r *Registry) Replace(plugin string, kinds ...Kind) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.check(plugin, kinds); err != nil {
+		return err
+	}
+	next := make([]Kind, 0, len(r.declared)+len(kinds))
+	for _, kind := range r.declared {
+		if kind.Plugin != plugin {
+			next = append(next, kind)
+		}
+	}
+	r.declared = append(next, kinds...)
+	return nil
+}
+
+// CheckReplace checks a plugin's kinds before an install changes state.
+func (r *Registry) CheckReplace(plugin string, kinds ...Kind) error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.check(plugin, kinds)
+}
+
+func (r *Registry) check(plugin string, kinds []Kind) error {
+	for _, kind := range kinds {
+		if kind.ID == "" || kind.Plugin != plugin || plugin == "" || IsCoreKind(kind.ID) {
+			return fmt.Errorf("%w: invalid declaration of space kind %q", access.ErrInvalid, kind.ID)
+		}
+		for _, declared := range r.declared {
+			if declared.ID == kind.ID && declared.Plugin != plugin {
+				return fmt.Errorf("%w: the space kind %s is declared by %s", access.ErrConflict, kind.ID, declared.Plugin)
+			}
+		}
+	}
+	return nil
+}
+
+// Has reports whether a space kind is available for creation.
+func (r *Registry) Has(kind string) bool {
+	if IsCoreKind(kind) {
+		return true
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, declared := range r.declared {
+		if declared.ID == kind {
+			return true
+		}
+	}
+	return false
+}
+
 // All returns the core's kinds and then the plugins', by id.
 func (r *Registry) All() []Kind {
 	r.mu.RLock()
@@ -177,10 +230,14 @@ func (s *Spaces) ByID(ctx context.Context, spaceID string) (store.RookerySpaces,
 
 // Create makes a space and grants its creator manage on it.
 func (s *Spaces) Create(ctx context.Context, creatorID, kind, name string) (store.RookerySpaces, error) {
+	return s.create(ctx, creatorID, kind, name, IsCoreKind)
+}
+
+func (s *Spaces) create(ctx context.Context, creatorID, kind, name string, known func(string) bool) (store.RookerySpaces, error) {
 	kind = strings.TrimSpace(kind)
 	name = strings.TrimSpace(name)
 	switch {
-	case !IsCoreKind(kind):
+	case !known(kind):
 		return store.RookerySpaces{}, fmt.Errorf("%w: %q is not a space kind this deployment declares", access.ErrInvalid, kind)
 	case name == "":
 		return store.RookerySpaces{}, fmt.Errorf("%w: a space needs a name", access.ErrInvalid)
@@ -356,7 +413,7 @@ func (s *Service) Get(ctx context.Context, request *connect.Request[rookeryv1.Sp
 // Create makes a space.
 func (s *Service) Create(ctx context.Context, request *connect.Request[rookeryv1.SpaceServiceCreateRequest]) (*connect.Response[rookeryv1.SpaceServiceCreateResponse], error) {
 	principal := access.MustPrincipal(ctx)
-	space, err := s.spaces.Create(ctx, principal.ID, request.Msg.GetKind(), request.Msg.GetName())
+	space, err := s.spaces.create(ctx, principal.ID, request.Msg.GetKind(), request.Msg.GetName(), s.registry.Has)
 	if err != nil {
 		return nil, access.ToConnect(err)
 	}

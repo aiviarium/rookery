@@ -107,10 +107,11 @@ func kindOf(plugin string, declared Job) (jobs.Kind, error) {
 		level = access.Use
 	}
 	return jobs.Kind{
-		Name:    plugin + "/" + declared.Kind,
-		Level:   level,
-		Timeout: time.Duration(declared.Timeout),
-		Retries: declared.Retries,
+		Name:         plugin + "/" + declared.Kind,
+		Level:        level,
+		ResourceKind: string(declared.Enqueue.Resource),
+		Timeout:      time.Duration(declared.Timeout),
+		Retries:      declared.Retries,
 	}, nil
 }
 

@@ -30,6 +30,8 @@ import (
 	"github.com/aiviarium/rookery/internal/link"
 	"github.com/aiviarium/rookery/internal/messaging"
 	"github.com/aiviarium/rookery/internal/plugins"
+	"github.com/aiviarium/rookery/internal/profile"
+	"github.com/aiviarium/rookery/internal/provision"
 	"github.com/aiviarium/rookery/internal/rollouts"
 	"github.com/aiviarium/rookery/internal/seal"
 	"github.com/aiviarium/rookery/internal/spaces"
@@ -160,16 +162,17 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 
 	// Plugins install their declared collections through the datastore.
 	installer := plugins.NewInstaller(plugins.Options{
-		SQL:       collections.data,
-		Settings:  settings,
-		Version:   s.config.Version,
-		Store:     opened,
-		Data:      collections.data,
-		StateDir:  s.config.StateDir,
-		Jobs:      registry,
-		Schedules: schedules,
-		Spaces:    spaceKinds,
-		Logger:    s.log,
+		SQL:         collections.data,
+		Settings:    settings,
+		Connections: connections,
+		Version:     s.config.Version,
+		Store:       opened,
+		Data:        collections.data,
+		StateDir:    s.config.StateDir,
+		Jobs:        registry,
+		Schedules:   schedules,
+		Spaces:      spaceKinds,
+		Logger:      s.log,
 	})
 	supervisor := plugins.NewSupervisor(plugins.SupervisorOptions{
 		Source:   installer,
@@ -179,6 +182,13 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		Logger:   s.log,
 	})
 	installer.SetServices(supervisor)
+	connections.SetPluginTester(pluginConnectionTest(supervisor))
+	if err := installer.Restore(ctx); err != nil {
+		return nil, err
+	}
+	if err := installer.InstallBundled(ctx, s.config.BundlesDir); err != nil {
+		return nil, err
+	}
 
 	hostStore := hosts.New(opened)
 	rolloutList := rollouts.New(rollouts.Options{
@@ -199,6 +209,10 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	keyRing := link.NewRing(opened, ring)
 	trusted := link.NewKnownHosts(opened, s.log)
 	hostService := hosts.NewService(hosts.Deps{
+		ValidateFeatures: func(ctx context.Context, desired profile.Profile) error {
+			_, err := installer.HostFeatures(ctx, desired, nil)
+			return err
+		},
 		Hosts:    hostStore,
 		Checker:  checker,
 		Bus:      bus,
@@ -260,6 +274,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		notifications: notifications,
 		plugins:       plugins.NewService(installer),
 		registries:    plugins.NewRegistries(opened),
+		provisioners:  provisioners,
 		settings:      config.NewSettingsService(settings, checker),
 		secrets:       config.NewSecretsService(secrets),
 		connections:   config.NewConnectionsService(connections),
@@ -302,9 +317,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		RegisterServices: func(mux *http.ServeMux, options []connect.HandlerOption) {
 			service.register(mux, options)
 			collections.register(mux, options)
-			path, handler := rookeryv1connect.NewProvisionerServiceHandler(provisioners, options...)
-			mux.Handle(path, handler)
-			path, handler = rookeryv1connect.NewTailnetServiceHandler(tailRPC, options...)
+			path, handler := rookeryv1connect.NewTailnetServiceHandler(tailRPC, options...)
 			mux.Handle(path, handler)
 		},
 		Blobs:              blobStore.Handler(),
@@ -329,6 +342,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		runner:      runner,
 		scheduler:   scheduler,
 		supervisor:  supervisor,
+		plugins:     installer,
 		retention:   time.Duration(s.config.RetentionDays) * 24 * time.Hour,
 		store:       opened,
 		blobs:       blobStore,
@@ -347,6 +361,7 @@ func (h *handlers) start(ctx context.Context) error {
 	h.supervisor.StartAll(ctx)
 	defer h.supervisor.StopAll()
 	group.Go(func() error { return h.runner.Run(ctx) })
+	group.Go(func() error { return h.plugins.Run(ctx) })
 	group.Go(func() error { return h.scheduler.Run(ctx) })
 	group.Go(func() error { return h.rollouts.Run(ctx) })
 	group.Go(func() error { return h.collections.data.Run(ctx) })
@@ -388,6 +403,7 @@ type services struct {
 	notifications *messaging.NotificationsService
 	plugins       *plugins.PluginService
 	registries    *plugins.Registries
+	provisioners  *provision.Service
 	settings      *config.SettingsService
 	secrets       *config.SecretsService
 	connections   *config.ConnectionsService
@@ -428,6 +444,8 @@ func (s services) register(mux *http.ServeMux, options []connect.HandlerOption) 
 	path, handler = rookeryv1connect.NewPluginServiceHandler(s.plugins, options...)
 	handle(path, handler)
 	path, handler = rookeryv1connect.NewRegistryServiceHandler(s.registries, options...)
+	handle(path, handler)
+	path, handler = rookeryv1connect.NewProvisionerServiceHandler(s.provisioners, options...)
 	handle(path, handler)
 	path, handler = rookeryv1connect.NewRolloutServiceHandler(s.rollouts, options...)
 	handle(path, handler)

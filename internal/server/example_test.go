@@ -78,7 +78,7 @@ func TestExamplePlugin(t *testing.T) {
 		t.Fatal(err)
 	}
 	spaces := rookeryv1connect.NewSpaceServiceClient(http.DefaultClient, base)
-	createSpace := connect.NewRequest(&rookeryv1.SpaceServiceCreateRequest{Kind: "project", Name: "Test notes"})
+	createSpace := connect.NewRequest(&rookeryv1.SpaceServiceCreateRequest{Kind: "notebook", Name: "Test notes"})
 	createSpace.Header().Set("Authorization", "Bearer "+token)
 	space, err := spaces.Create(ctx, createSpace)
 	if err != nil {

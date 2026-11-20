@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+output=${1:?expected output directory}
+mkdir -p "$output"
+stage=$(mktemp -d "${TMPDIR:-$HOME/.tmp}/rk-bundles.XXXXXX")
+trap 'rm -rf "$stage"' EXIT HUP INT TERM
+for plugin in docker incus; do
+    mkdir -p "$stage/$plugin/bin"
+    cp "plugins/$plugin/plugin.yaml" "$stage/$plugin/"
+    cp -R "plugins/$plugin/features" "$stage/$plugin/"
+done
+for arch in amd64 arm64; do
+    GOOS=linux GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$stage/docker/bin/provisioner-$arch" ./plugins/docker/cmd/provisioner
+    GOOS=linux GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$stage/incus/bin/incus-vm-$arch" ./plugins/incus/cmd/vm
+    GOOS=linux GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$stage/incus/bin/incus-container-$arch" ./plugins/incus/cmd/container
+done
+for plugin in docker incus; do
+    go run ./cmd/rookery plugin pack "$stage/$plugin" --output "$output/$plugin.tar.gz"
+done

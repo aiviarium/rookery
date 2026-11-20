@@ -89,3 +89,16 @@ func PluginIdentity(ctx context.Context) (string, bool) {
 	principal, ok := PrincipalFrom(ctx)
 	return principal.ID, ok && principal.Kind == KindPluginPrincipal
 }
+
+type provisionerNodeKey struct{}
+
+// WithProvisionerNode attaches the node restriction of a provisioner credential.
+func WithProvisionerNode(ctx context.Context, node string) context.Context {
+	return context.WithValue(ctx, provisionerNodeKey{}, node)
+}
+
+// ProvisionerNode returns the capability of a provisioner process, if any.
+func ProvisionerNode(ctx context.Context) (string, bool) {
+	node, ok := ctx.Value(provisionerNodeKey{}).(string)
+	return node, ok
+}

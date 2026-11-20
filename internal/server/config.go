@@ -22,6 +22,8 @@ type Config struct {
 	DatabaseURL string
 	// Version is the build's version, which the applied digest is taken over.
 	Version string
+	// BundlesDir is where the first-party plugin packages are shipped.
+	BundlesDir string
 
 	// DatabaseLockURL is ROOKERY_DATABASE_LOCK_URL: where the leader lock is
 	// taken when DatabaseURL goes through a pooler that would defeat it. Empty
@@ -119,6 +121,7 @@ func LoadFrom(get func(string) string) (Config, error) {
 		PublicURL:            strings.TrimRight(get("ROOKERY_PUBLIC_URL"), "/"),
 		SecretKey:            get("ROOKERY_SECRET_KEY"),
 		SecretKeyFile:        get("ROOKERY_SECRET_KEY_FILE"),
+		BundlesDir:           get("ROOKERY_BUNDLES_DIR"),
 		PreviousKeyFile:      get("ROOKERY_SECRET_PREVIOUS_KEY_FILE"),
 		StateDir:             valueOr(get("ROOKERY_STATE_DIR"), DefaultStateDir),
 		ReleaseDir:           get("ROOKERY_RELEASE_DIR"),
@@ -134,6 +137,12 @@ func LoadFrom(get func(string) string) (Config, error) {
 		OIDCGroupsClaim:      valueOr(get("ROOKERY_OIDC_GROUPS_CLAIM"), "groups"),
 		RetentionDays:        DefaultRetentionDays,
 		CookieSecure:         true,
+	}
+
+	if config.BundlesDir == "" {
+		if executable, err := os.Executable(); err == nil {
+			config.BundlesDir = filepath.Join(filepath.Dir(executable), "plugins")
+		}
 	}
 
 	if config.DatabaseURL == "" {

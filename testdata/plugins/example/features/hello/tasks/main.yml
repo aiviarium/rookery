@@ -2,7 +2,7 @@
 - name: Write the example greeting
   ansible.builtin.copy:
     dest: /etc/example-hello
-    content: "{{ greeting }}\n"
+    content: "{{ example__hello.vars.greeting }}\n"
     mode: "0644"
 
 - name: Install the greeting command

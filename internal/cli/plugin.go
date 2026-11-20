@@ -96,15 +96,25 @@ func pluginCommand() *cobra.Command {
 	}
 
 	update := &cobra.Command{
-		Use:   "update PACKAGE",
-		Short: "Install a package over the plugin it replaces",
+		Use:   "update ID[@VERSION]",
+		Short: "Update an installed plugin from the registries",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// An install of the same id replaces it, which is what an update is;
-			// resolving an id from a registry arrives with the registry client.
-			return add.RunE(cmd, args)
+			session, err := open(cmd)
+			if err != nil {
+				return err
+			}
+			reset, _ := cmd.Flags().GetBool("reset-data")
+			updated, err := session.api.Plugins.Update(cmd.Context(), connect.NewRequest(&rookeryv1.PluginServiceUpdateRequest{
+				Reference: args[0], ResetData: reset,
+			}))
+			if err != nil {
+				return err
+			}
+			return printPlugin(session.printer, updated.Msg.GetPlugin())
 		},
 	}
+	update.Flags().Bool("reset-data", false, "drop and recreate the plugin's collection tables")
 
 	remove := &cobra.Command{
 		Use:   "remove ID",

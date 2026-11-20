@@ -58,7 +58,8 @@ type Kind struct {
 	// Core is set for the kinds the server runs in process.
 	Core bool
 	// Level is what a caller needs on the job's resource to enqueue it.
-	Level access.Level
+	Level        access.Level
+	ResourceKind string
 	// Timeout bounds one attempt. Zero means no bound.
 	Timeout time.Duration
 	// Retries is how many times a failed attempt is tried again. Core kinds
@@ -151,8 +152,22 @@ func (r *Registry) RegisterKinds(kinds ...Kind) error {
 	return nil
 }
 
-// Handle gives an existing kind its in-process handler, for the item that
-// arrives after the kind's declaration.
+// ReplacePluginKinds refreshes only the kinds owned by this plugin.
+func (r *Registry) ReplacePluginKinds(plugin string, kinds []Kind) {
+	prefix := plugin + "/"
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for name := range r.kinds {
+		if strings.HasPrefix(name, prefix) {
+			delete(r.kinds, name)
+		}
+	}
+	for _, kind := range kinds {
+		r.kinds[kind.Name] = kind
+	}
+}
+
+// Handle gives a registered kind its in-process handler.
 func (r *Registry) Handle(name string, handler Handler) error {
 	if _, ok := r.kinds[name]; !ok {
 		return fmt.Errorf("jobs: there is no kind %s to handle", name)
@@ -346,9 +361,21 @@ func (s *Service) enqueue(ctx context.Context, request EnqueueRequest, principal
 	}
 
 	resource := strings.TrimSpace(request.Resource)
+	var resourceKind string
 	if resource != "" {
-		if _, err := access.ParseResource(resource); err != nil {
+		var err error
+		resourceKind, err = access.ParseResource(resource)
+		if err != nil {
 			return Job{}, err
+		}
+	}
+	if kind.ResourceKind != "" && !principal.IsLocal() && resourceKind != kind.ResourceKind {
+		return Job{}, fmt.Errorf("%w: job kind %s needs a %s resource", access.ErrInvalid, request.Kind, kind.ResourceKind)
+	}
+	if kind.ResourceKind == access.KindPlugin && !principal.IsLocal() {
+		owner, _, _ := strings.Cut(kind.Name, "/")
+		if resource != access.PluginURI(owner) {
+			return Job{}, fmt.Errorf("%w: job kind %s belongs to plugin %s", access.ErrDenied, request.Kind, owner)
 		}
 	}
 	if err := s.checker.Check(ctx, principal, resource, kind.Level); err != nil {
