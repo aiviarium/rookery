@@ -34,7 +34,10 @@ const MAX_OUTBOUND_MESSAGE: usize = 2 * 1024 * 1024;
 /// Room of the queue that notifications which may be dropped leave free, for replies and control
 /// notifications: what binary data may take, and a few frames more.
 const KEEP_FREE: usize = MAX_OUTBOUND_BINARY + 8;
-const MAX_PENDING_CALLS: usize = 16;
+// A page opens with every plugin's client half asking for what it needs at
+// once, and a shell with several plugins has more calls than a view's own: a
+// dozen or two in flight is ordinary, so the cap is roomy while still bounded.
+const MAX_PENDING_CALLS: usize = 128;
 const MAX_PENDING_CALL_BYTES: usize = 12 * 1024 * 1024;
 
 #[derive(Clone)]
