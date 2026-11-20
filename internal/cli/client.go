@@ -129,6 +129,9 @@ func dial(ctx context.Context, address, token string) (*api, error) {
 	_ = ctx
 
 	options := []connectrpc.ClientOption{connectrpc.WithGRPC()}
+	desktopClient := *httpClient
+	// A viewer can stay attached for as long as its local connection is open.
+	desktopClient.Timeout = 0
 	return &api{
 		Server:        base,
 		Auth:          rookeryv1connect.NewAuthServiceClient(httpClient, base, options...),
@@ -151,7 +154,7 @@ func dial(ctx context.Context, address, token string) (*api, error) {
 		Plugins:       rookeryv1connect.NewPluginServiceClient(httpClient, base, options...),
 		Registries:    rookeryv1connect.NewRegistryServiceClient(httpClient, base, options...),
 		Hosts:         rookeryv1connect.NewHostServiceClient(httpClient, base, options...),
-		Desktop:       rookeryv1connect.NewDesktopServiceClient(httpClient, base, options...),
+		Desktop:       rookeryv1connect.NewDesktopServiceClient(&desktopClient, base, options...),
 		Keys:          rookeryv1connect.NewKeyServiceClient(httpClient, base, options...),
 	}, nil
 }
@@ -186,10 +189,11 @@ func transport(address, token string) (*http.Client, string, error) {
 		// A deployment that is not behind TLS speaks h2c.
 		transport.Protocols = cleartextHTTP2()
 	}
+	var roundTripper http.RoundTripper = transport
 	if token != "" {
-		transport = withBearer(transport, token).(*http.Transport)
+		roundTripper = withBearer(transport, token)
 	}
-	return &http.Client{Transport: transport, Timeout: 5 * time.Minute}, base, nil
+	return &http.Client{Transport: roundTripper, Timeout: 5 * time.Minute}, base, nil
 }
 
 // socketPath is the Unix socket an address names, if it names one.
