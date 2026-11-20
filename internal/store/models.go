@@ -6,6 +6,8 @@ package store
 
 import (
 	"time"
+
+	"github.com/pgvector/pgvector-go"
 )
 
 // Every call that changes state, or tries to: who, what, on what, how it ended.
@@ -17,6 +19,35 @@ type RookeryAudit struct {
 	Resource  string
 	Outcome   string
 	Detail    string
+}
+
+// One row per datastore write, in one order: the live queries and the change feed read them.
+type RookeryChanges struct {
+	Seq        int64
+	Collection string
+	Resource   string
+	// insert, update, delete or undelete.
+	Kind      string
+	Rev       int64
+	SpaceID   *string
+	OwnerID   *string
+	Principal string
+	// The record as a CBOR map, or null for a delete.
+	Data []byte
+	At   time.Time
+}
+
+// What search resolves: a record or document by URI, with its title, its searchable text and its access parent.
+type RookeryEntities struct {
+	Uri       string
+	Kind      string
+	Title     string
+	Body      string
+	Search    interface{}
+	Embedding *pgvector.Vector
+	// The resource URI whose grants decide who may see the entity.
+	Access    string
+	UpdatedAt time.Time
 }
 
 // Levels held on a resource by user:ID, group:ID or everyone.
@@ -62,6 +93,16 @@ type RookeryMeta struct {
 	Key       string
 	Value     []byte
 	UpdatedAt time.Time
+}
+
+// The references records hold, for RefsTo, RefsFrom and what a delete does to a holder.
+type RookeryRefs struct {
+	// The holding record, as a record:// URI.
+	Source string
+	Field  string
+	Target string
+	// restrict, nullify or cascade.
+	OnDelete string
 }
 
 // Every resource a grant can name, as a URI, with its parent.
