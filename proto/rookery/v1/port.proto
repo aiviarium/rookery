@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package rookery.v1;
+
+import "rookery/host/v1/ports.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+service PortService {
+  rpc Connect(stream PortServiceConnectRequest) returns (stream PortServiceConnectResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE };
+  }
+}
+message PortServiceConnectRequest {
+  // Only the first message sets the host and the target. Unix sockets require
+  // manage access because the connection is opened as root.
+  string host = 1;
+  rookery.host.v1.PortServiceDialRequest dial = 2;
+}
+message PortServiceConnectResponse {
+  bytes data = 1;
+}

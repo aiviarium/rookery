@@ -316,14 +316,33 @@ func deadLetterOf(record store.RookeryTopicDead) DeadLetter {
 
 // TopicsService is TopicService.
 type TopicsService struct {
-	topics *Topics
+	topics  *Topics
+	checker *access.Checker
 }
 
 // NewTopicsService returns TopicService for a database.
-func NewTopicsService(topics *Topics) *TopicsService { return &TopicsService{topics: topics} }
+func NewTopicsService(topics *Topics, checker *access.Checker) *TopicsService {
+	return &TopicsService{topics: topics, checker: checker}
+}
+
+func (s *TopicsService) checkHostTopic(ctx context.Context, topic string) error {
+	hostTopic, found := strings.CutPrefix(trimTopic(topic), "host/")
+	if !found {
+		return nil
+	}
+	host, name, found := strings.Cut(hostTopic, "/")
+	if !found || host == "" || name == "" {
+		return fmt.Errorf("%w: a host topic is host/NAME/TOPIC", access.ErrInvalid)
+	}
+	principal, _ := access.PrincipalFrom(ctx)
+	return s.checker.Check(ctx, principal, access.HostURI(host), access.Use)
+}
 
 // Publish puts a message on a topic.
 func (s *TopicsService) Publish(ctx context.Context, request *connect.Request[rookeryv1.TopicServicePublishRequest]) (*connect.Response[rookeryv1.TopicServicePublishResponse], error) {
+	if strings.HasPrefix(trimTopic(request.Msg.GetTopic()), "host/") {
+		return nil, access.ToConnect(fmt.Errorf("%w: publish host messages through ChannelService", access.ErrDenied))
+	}
 	id, err := s.topics.Publish(ctx, request.Msg.GetTopic(), request.Msg.GetPayloadCbor())
 	if err != nil {
 		return nil, access.ToConnect(err)
@@ -333,6 +352,9 @@ func (s *TopicsService) Publish(ctx context.Context, request *connect.Request[ro
 
 // Subscribe streams a topic's messages to a consumer group.
 func (s *TopicsService) Subscribe(ctx context.Context, request *connect.Request[rookeryv1.TopicServiceSubscribeRequest], stream *connect.ServerStream[rookeryv1.TopicServiceSubscribeResponse]) error {
+	if err := s.checkHostTopic(ctx, request.Msg.GetTopic()); err != nil {
+		return access.ToConnect(err)
+	}
 	deliveries, err := s.topics.Subscribe(ctx, request.Msg.GetTopic(), request.Msg.GetConsumer())
 	if err != nil {
 		return access.ToConnect(err)
@@ -364,6 +386,9 @@ func (s *TopicsService) Subscribe(ctx context.Context, request *connect.Request[
 
 // Ack acknowledges a message.
 func (s *TopicsService) Ack(ctx context.Context, request *connect.Request[rookeryv1.TopicServiceAckRequest]) (*connect.Response[rookeryv1.TopicServiceAckResponse], error) {
+	if err := s.checkHostTopic(ctx, request.Msg.GetTopic()); err != nil {
+		return nil, access.ToConnect(err)
+	}
 	if err := s.topics.ack(ctx, trimTopic(request.Msg.GetTopic()), consumerOf(request.Msg.GetConsumer()), request.Msg.GetId()); err != nil {
 		return nil, access.ToConnect(err)
 	}
@@ -372,6 +397,10 @@ func (s *TopicsService) Ack(ctx context.Context, request *connect.Request[rooker
 
 // Nack asks for another delivery.
 func (s *TopicsService) Nack(ctx context.Context, request *connect.Request[rookeryv1.TopicServiceNackRequest]) (*connect.Response[rookeryv1.TopicServiceNackResponse], error) {
+	topic := trimTopic(request.Msg.GetTopic())
+	if err := s.checkHostTopic(ctx, topic); err != nil {
+		return nil, access.ToConnect(err)
+	}
 	var cause error
 	if request.Msg.GetError() != "" {
 		cause = errors.New(request.Msg.GetError())
@@ -380,7 +409,10 @@ func (s *TopicsService) Nack(ctx context.Context, request *connect.Request[rooke
 	if err != nil {
 		return nil, access.ToConnect(fmt.Errorf("messaging: reading the message %d: %w", request.Msg.GetId(), err))
 	}
-	if err := s.topics.nack(ctx, trimTopic(request.Msg.GetTopic()), consumerOf(request.Msg.GetConsumer()), record, time.Duration(request.Msg.GetDelaySeconds())*time.Second, cause); err != nil {
+	if record.Topic != topic {
+		return nil, access.ToConnect(fmt.Errorf("%w: no message with that id on this topic", access.ErrNotFound))
+	}
+	if err := s.topics.nack(ctx, topic, consumerOf(request.Msg.GetConsumer()), record, time.Duration(request.Msg.GetDelaySeconds())*time.Second, cause); err != nil {
 		return nil, access.ToConnect(err)
 	}
 	return connect.NewResponse(&rookeryv1.TopicServiceNackResponse{}), nil

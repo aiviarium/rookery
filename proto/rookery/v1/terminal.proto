@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package rookery.v1;
+
+import "rookery/host/v1/session.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+service TerminalService {
+  rpc Open(TerminalServiceOpenRequest) returns (TerminalServiceOpenResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE, resource: "host", mutates: true };
+  }
+  rpc List(TerminalServiceListRequest) returns (TerminalServiceListResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE, resource: "host" };
+  }
+  rpc Attach(stream TerminalServiceAttachRequest) returns (stream TerminalServiceAttachResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE };
+  }
+  rpc Resize(TerminalServiceResizeRequest) returns (TerminalServiceResizeResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE, mutates: true };
+  }
+  rpc Close(TerminalServiceCloseRequest) returns (TerminalServiceCloseResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE, mutates: true };
+  }
+}
+
+// A terminal's id is unique across hosts. The host retains its PTY when
+// clients detach or the server restarts.
+message Terminal {
+  string host = 1;
+  rookery.host.v1.Session session = 2;
+}
+
+message TerminalServiceOpenRequest {
+  string host = 1;
+  // User, when provided, selects desktop, operator or root.
+  rookery.host.v1.SessionServiceCreateRequest session = 2;
+  // By default anyone with the required host level may attach.
+  bool private = 3;
+}
+message TerminalServiceOpenResponse {
+  Terminal terminal = 1;
+}
+message TerminalServiceListRequest {
+  string host = 1;
+}
+message TerminalServiceListResponse {
+  repeated Terminal terminals = 1;
+}
+message TerminalServiceAttachRequest {
+  // The first message carries the session id and optional replay offset.
+  rookery.host.v1.SessionServiceAttachRequest attach = 1;
+}
+message TerminalServiceAttachResponse {
+  rookery.host.v1.SessionServiceAttachResponse event = 1;
+}
+message TerminalServiceResizeRequest {
+  string id = 1;
+  uint32 cols = 2;
+  uint32 rows = 3;
+}
+message TerminalServiceResizeResponse {}
+message TerminalServiceCloseRequest {
+  string id = 1;
+}
+message TerminalServiceCloseResponse {}

@@ -21,7 +21,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file rookery/host/v1/session.proto.
  */
 export const file_rookery_host_v1_session: GenFile = /*@__PURE__*/
-  fileDesc("Ch1yb29rZXJ5L2hvc3QvdjEvc2Vzc2lvbi5wcm90bxIPcm9va2VyeS5ob3N0LnYxItkBCgdTZXNzaW9uEgoKAmlkGAEgASgJEgwKBHVzZXIYAiABKAkSDwoHY29tbWFuZBgDIAEoCRILCgNwaWQYBCABKA0SDAoEY29scxgFIAEoDRIMCgRyb3dzGAYgASgNEi4KCmNyZWF0ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg8KB3J1bm5pbmcYCCABKAgSEQoJZXhpdF9jb2RlGAkgASgFEhQKDG91dHB1dF9ieXRlcxgKIAEoBBIQCghhdHRhY2hlZBgLIAEoDSL6AQobU2Vzc2lvblNlcnZpY2VDcmVhdGVSZXF1ZXN0EiMKBHVzZXIYASABKAsyFS5yb29rZXJ5Lmhvc3QudjEuVXNlchIPCgdjb21tYW5kGAIgASgJEgwKBGFyZ3MYAyADKAkSCwoDZGlyGAQgASgJEkIKA2VudhgFIAMoCzI1LnJvb2tlcnkuaG9zdC52MS5TZXNzaW9uU2VydmljZUNyZWF0ZVJlcXVlc3QuRW52RW50cnkSDAoEY29scxgGIAEoDRIMCgRyb3dzGAcgASgNGioKCEVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiSQocU2Vzc2lvblNlcnZpY2VDcmVhdGVSZXNwb25zZRIpCgdzZXNzaW9uGAEgASgLMhgucm9va2VyeS5ob3N0LnYxLlNlc3Npb24iGwoZU2Vzc2lvblNlcnZpY2VMaXN0UmVxdWVzdCJIChpTZXNzaW9uU2VydmljZUxpc3RSZXNwb25zZRIqCghzZXNzaW9ucxgBIAMoCzIYLnJvb2tlcnkuaG9zdC52MS5TZXNzaW9uImQKG1Nlc3Npb25TZXJ2aWNlQXR0YWNoUmVxdWVzdBIKCgJpZBgBIAEoCRINCgVpbnB1dBgCIAEoDBIOCgZvZmZzZXQYAyABKAQSDAoEY29scxgEIAEoDRIMCgRyb3dzGAUgASgNIoUBChxTZXNzaW9uU2VydmljZUF0dGFjaFJlc3BvbnNlEg4KBm91dHB1dBgBIAEoDBIOCgZvZmZzZXQYAiABKAQSDgoGZXhpdGVkGAMgASgIEhEKCWV4aXRfY29kZRgEIAEoBRIRCgl0cnVuY2F0ZWQYBSABKAgSDwoHZHJvcHBlZBgGIAEoCCJFChtTZXNzaW9uU2VydmljZVJlc2l6ZVJlcXVlc3QSCgoCaWQYASABKAkSDAoEY29scxgCIAEoDRIMCgRyb3dzGAMgASgNIh4KHFNlc3Npb25TZXJ2aWNlUmVzaXplUmVzcG9uc2UiOQobU2Vzc2lvblNlcnZpY2VTaWduYWxSZXF1ZXN0EgoKAmlkGAEgASgJEg4KBnNpZ25hbBgCIAEoCSIeChxTZXNzaW9uU2VydmljZVNpZ25hbFJlc3BvbnNlIigKGlNlc3Npb25TZXJ2aWNlQ2xvc2VSZXF1ZXN0EgoKAmlkGAEgASgJIh0KG1Nlc3Npb25TZXJ2aWNlQ2xvc2VSZXNwb25zZTL1BAoOU2Vzc2lvblNlcnZpY2USZQoGQ3JlYXRlEiwucm9va2VyeS5ob3N0LnYxLlNlc3Npb25TZXJ2aWNlQ3JlYXRlUmVxdWVzdBotLnJvb2tlcnkuaG9zdC52MS5TZXNzaW9uU2VydmljZUNyZWF0ZVJlc3BvbnNlEl8KBExpc3QSKi5yb29rZXJ5Lmhvc3QudjEuU2Vzc2lvblNlcnZpY2VMaXN0UmVxdWVzdBorLnJvb2tlcnkuaG9zdC52MS5TZXNzaW9uU2VydmljZUxpc3RSZXNwb25zZRJpCgZBdHRhY2gSLC5yb29rZXJ5Lmhvc3QudjEuU2Vzc2lvblNlcnZpY2VBdHRhY2hSZXF1ZXN0Gi0ucm9va2VyeS5ob3N0LnYxLlNlc3Npb25TZXJ2aWNlQXR0YWNoUmVzcG9uc2UoATABEmUKBlJlc2l6ZRIsLnJvb2tlcnkuaG9zdC52MS5TZXNzaW9uU2VydmljZVJlc2l6ZVJlcXVlc3QaLS5yb29rZXJ5Lmhvc3QudjEuU2Vzc2lvblNlcnZpY2VSZXNpemVSZXNwb25zZRJlCgZTaWduYWwSLC5yb29rZXJ5Lmhvc3QudjEuU2Vzc2lvblNlcnZpY2VTaWduYWxSZXF1ZXN0Gi0ucm9va2VyeS5ob3N0LnYxLlNlc3Npb25TZXJ2aWNlU2lnbmFsUmVzcG9uc2USYgoFQ2xvc2USKy5yb29rZXJ5Lmhvc3QudjEuU2Vzc2lvblNlcnZpY2VDbG9zZVJlcXVlc3QaLC5yb29rZXJ5Lmhvc3QudjEuU2Vzc2lvblNlcnZpY2VDbG9zZVJlc3BvbnNlQjxaOmdpdGh1Yi5jb20vYWl2aWFyaXVtL3Jvb2tlcnkvZ2VuL2dvL3Jvb2tlcnkvaG9zdC92MTtob3N0djFiBnByb3RvMw", [file_google_protobuf_timestamp, file_rookery_host_v1_common]);
+  fileDesc("Ch1yb29rZXJ5L2hvc3QvdjEvc2Vzc2lvbi5wcm90bxIPcm9va2VyeS5ob3N0LnYxIosCCgdTZXNzaW9uEgoKAmlkGAEgASgJEgwKBHVzZXIYAiABKAkSDwoHY29tbWFuZBgDIAEoCRILCgNwaWQYBCABKA0SDAoEY29scxgFIAEoDRIMCgRyb3dzGAYgASgNEi4KCmNyZWF0ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg8KB3J1bm5pbmcYCCABKAgSEQoJZXhpdF9jb2RlGAkgASgFEhQKDG91dHB1dF9ieXRlcxgKIAEoBBIQCghhdHRhY2hlZBgLIAEoDRIwCgdzaGFyaW5nGAwgASgLMh8ucm9va2VyeS5ob3N0LnYxLlNlc3Npb25TaGFyaW5nIkIKDlNlc3Npb25TaGFyaW5nEg0KBW93bmVyGAEgASgJEg8KB3ByaXZhdGUYAiABKAgSEAoIZWxldmF0ZWQYAyABKAgirAIKG1Nlc3Npb25TZXJ2aWNlQ3JlYXRlUmVxdWVzdBIjCgR1c2VyGAEgASgLMhUucm9va2VyeS5ob3N0LnYxLlVzZXISDwoHY29tbWFuZBgCIAEoCRIMCgRhcmdzGAMgAygJEgsKA2RpchgEIAEoCRJCCgNlbnYYBSADKAsyNS5yb29rZXJ5Lmhvc3QudjEuU2Vzc2lvblNlcnZpY2VDcmVhdGVSZXF1ZXN0LkVudkVudHJ5EgwKBGNvbHMYBiABKA0SDAoEcm93cxgHIAEoDRIwCgdzaGFyaW5nGAggASgLMh8ucm9va2VyeS5ob3N0LnYxLlNlc3Npb25TaGFyaW5nGioKCEVudkVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiSQocU2Vzc2lvblNlcnZpY2VDcmVhdGVSZXNwb25zZRIpCgdzZXNzaW9uGAEgASgLMhgucm9va2VyeS5ob3N0LnYxLlNlc3Npb24iGwoZU2Vzc2lvblNlcnZpY2VMaXN0UmVxdWVzdCJIChpTZXNzaW9uU2VydmljZUxpc3RSZXNwb25zZRIqCghzZXNzaW9ucxgBIAMoCzIYLnJvb2tlcnkuaG9zdC52MS5TZXNzaW9uImQKG1Nlc3Npb25TZXJ2aWNlQXR0YWNoUmVxdWVzdBIKCgJpZBgBIAEoCRINCgVpbnB1dBgCIAEoDBIOCgZvZmZzZXQYAyABKAQSDAoEY29scxgEIAEoDRIMCgRyb3dzGAUgASgNIoUBChxTZXNzaW9uU2VydmljZUF0dGFjaFJlc3BvbnNlEg4KBm91dHB1dBgBIAEoDBIOCgZvZmZzZXQYAiABKAQSDgoGZXhpdGVkGAMgASgIEhEKCWV4aXRfY29kZRgEIAEoBRIRCgl0cnVuY2F0ZWQYBSABKAgSDwoHZHJvcHBlZBgGIAEoCCJFChtTZXNzaW9uU2VydmljZVJlc2l6ZVJlcXVlc3QSCgoCaWQYASABKAkSDAoEY29scxgCIAEoDRIMCgRyb3dzGAMgASgNIh4KHFNlc3Npb25TZXJ2aWNlUmVzaXplUmVzcG9uc2UiOQobU2Vzc2lvblNlcnZpY2VTaWduYWxSZXF1ZXN0EgoKAmlkGAEgASgJEg4KBnNpZ25hbBgCIAEoCSIeChxTZXNzaW9uU2VydmljZVNpZ25hbFJlc3BvbnNlIigKGlNlc3Npb25TZXJ2aWNlQ2xvc2VSZXF1ZXN0EgoKAmlkGAEgASgJIh0KG1Nlc3Npb25TZXJ2aWNlQ2xvc2VSZXNwb25zZTL1BAoOU2Vzc2lvblNlcnZpY2USZQoGQ3JlYXRlEiwucm9va2VyeS5ob3N0LnYxLlNlc3Npb25TZXJ2aWNlQ3JlYXRlUmVxdWVzdBotLnJvb2tlcnkuaG9zdC52MS5TZXNzaW9uU2VydmljZUNyZWF0ZVJlc3BvbnNlEl8KBExpc3QSKi5yb29rZXJ5Lmhvc3QudjEuU2Vzc2lvblNlcnZpY2VMaXN0UmVxdWVzdBorLnJvb2tlcnkuaG9zdC52MS5TZXNzaW9uU2VydmljZUxpc3RSZXNwb25zZRJpCgZBdHRhY2gSLC5yb29rZXJ5Lmhvc3QudjEuU2Vzc2lvblNlcnZpY2VBdHRhY2hSZXF1ZXN0Gi0ucm9va2VyeS5ob3N0LnYxLlNlc3Npb25TZXJ2aWNlQXR0YWNoUmVzcG9uc2UoATABEmUKBlJlc2l6ZRIsLnJvb2tlcnkuaG9zdC52MS5TZXNzaW9uU2VydmljZVJlc2l6ZVJlcXVlc3QaLS5yb29rZXJ5Lmhvc3QudjEuU2Vzc2lvblNlcnZpY2VSZXNpemVSZXNwb25zZRJlCgZTaWduYWwSLC5yb29rZXJ5Lmhvc3QudjEuU2Vzc2lvblNlcnZpY2VTaWduYWxSZXF1ZXN0Gi0ucm9va2VyeS5ob3N0LnYxLlNlc3Npb25TZXJ2aWNlU2lnbmFsUmVzcG9uc2USYgoFQ2xvc2USKy5yb29rZXJ5Lmhvc3QudjEuU2Vzc2lvblNlcnZpY2VDbG9zZVJlcXVlc3QaLC5yb29rZXJ5Lmhvc3QudjEuU2Vzc2lvblNlcnZpY2VDbG9zZVJlc3BvbnNlQjxaOmdpdGh1Yi5jb20vYWl2aWFyaXVtL3Jvb2tlcnkvZ2VuL2dvL3Jvb2tlcnkvaG9zdC92MTtob3N0djFiBnByb3RvMw", [file_google_protobuf_timestamp, file_rookery_host_v1_common]);
 
 /**
  * Session is a terminal on the host.
@@ -98,6 +98,14 @@ export type Session = Message<"rookery.host.v1.Session"> & {
    * @generated from field: uint32 attached = 11;
    */
   attached: number;
+
+  /**
+   * Sharing records the server principal and attach policy across reconnects.
+   * It is set only by callers on the root socket.
+   *
+   * @generated from field: rookery.host.v1.SessionSharing sharing = 12;
+   */
+  sharing?: SessionSharing | undefined;
 };
 
 /**
@@ -106,6 +114,33 @@ export type Session = Message<"rookery.host.v1.Session"> & {
  */
 export const SessionSchema: GenMessage<Session> = /*@__PURE__*/
   messageDesc(file_rookery_host_v1_session, 0);
+
+/**
+ * @generated from message rookery.host.v1.SessionSharing
+ */
+export type SessionSharing = Message<"rookery.host.v1.SessionSharing"> & {
+  /**
+   * @generated from field: string owner = 1;
+   */
+  owner: string;
+
+  /**
+   * @generated from field: bool private = 2;
+   */
+  private: boolean;
+
+  /**
+   * @generated from field: bool elevated = 3;
+   */
+  elevated: boolean;
+};
+
+/**
+ * Describes the message rookery.host.v1.SessionSharing.
+ * Use `create(SessionSharingSchema)` to create a new message.
+ */
+export const SessionSharingSchema: GenMessage<SessionSharing> = /*@__PURE__*/
+  messageDesc(file_rookery_host_v1_session, 1);
 
 /**
  * @generated from message rookery.host.v1.SessionServiceCreateRequest
@@ -153,6 +188,11 @@ export type SessionServiceCreateRequest = Message<"rookery.host.v1.SessionServic
    * @generated from field: uint32 rows = 7;
    */
   rows: number;
+
+  /**
+   * @generated from field: rookery.host.v1.SessionSharing sharing = 8;
+   */
+  sharing?: SessionSharing | undefined;
 };
 
 /**
@@ -160,7 +200,7 @@ export type SessionServiceCreateRequest = Message<"rookery.host.v1.SessionServic
  * Use `create(SessionServiceCreateRequestSchema)` to create a new message.
  */
 export const SessionServiceCreateRequestSchema: GenMessage<SessionServiceCreateRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_host_v1_session, 1);
+  messageDesc(file_rookery_host_v1_session, 2);
 
 /**
  * @generated from message rookery.host.v1.SessionServiceCreateResponse
@@ -177,7 +217,7 @@ export type SessionServiceCreateResponse = Message<"rookery.host.v1.SessionServi
  * Use `create(SessionServiceCreateResponseSchema)` to create a new message.
  */
 export const SessionServiceCreateResponseSchema: GenMessage<SessionServiceCreateResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_host_v1_session, 2);
+  messageDesc(file_rookery_host_v1_session, 3);
 
 /**
  * @generated from message rookery.host.v1.SessionServiceListRequest
@@ -190,7 +230,7 @@ export type SessionServiceListRequest = Message<"rookery.host.v1.SessionServiceL
  * Use `create(SessionServiceListRequestSchema)` to create a new message.
  */
 export const SessionServiceListRequestSchema: GenMessage<SessionServiceListRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_host_v1_session, 3);
+  messageDesc(file_rookery_host_v1_session, 4);
 
 /**
  * @generated from message rookery.host.v1.SessionServiceListResponse
@@ -207,7 +247,7 @@ export type SessionServiceListResponse = Message<"rookery.host.v1.SessionService
  * Use `create(SessionServiceListResponseSchema)` to create a new message.
  */
 export const SessionServiceListResponseSchema: GenMessage<SessionServiceListResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_host_v1_session, 4);
+  messageDesc(file_rookery_host_v1_session, 5);
 
 /**
  * @generated from message rookery.host.v1.SessionServiceAttachRequest
@@ -254,7 +294,7 @@ export type SessionServiceAttachRequest = Message<"rookery.host.v1.SessionServic
  * Use `create(SessionServiceAttachRequestSchema)` to create a new message.
  */
 export const SessionServiceAttachRequestSchema: GenMessage<SessionServiceAttachRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_host_v1_session, 5);
+  messageDesc(file_rookery_host_v1_session, 6);
 
 /**
  * @generated from message rookery.host.v1.SessionServiceAttachResponse
@@ -308,7 +348,7 @@ export type SessionServiceAttachResponse = Message<"rookery.host.v1.SessionServi
  * Use `create(SessionServiceAttachResponseSchema)` to create a new message.
  */
 export const SessionServiceAttachResponseSchema: GenMessage<SessionServiceAttachResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_host_v1_session, 6);
+  messageDesc(file_rookery_host_v1_session, 7);
 
 /**
  * @generated from message rookery.host.v1.SessionServiceResizeRequest
@@ -335,7 +375,7 @@ export type SessionServiceResizeRequest = Message<"rookery.host.v1.SessionServic
  * Use `create(SessionServiceResizeRequestSchema)` to create a new message.
  */
 export const SessionServiceResizeRequestSchema: GenMessage<SessionServiceResizeRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_host_v1_session, 7);
+  messageDesc(file_rookery_host_v1_session, 8);
 
 /**
  * @generated from message rookery.host.v1.SessionServiceResizeResponse
@@ -348,7 +388,7 @@ export type SessionServiceResizeResponse = Message<"rookery.host.v1.SessionServi
  * Use `create(SessionServiceResizeResponseSchema)` to create a new message.
  */
 export const SessionServiceResizeResponseSchema: GenMessage<SessionServiceResizeResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_host_v1_session, 8);
+  messageDesc(file_rookery_host_v1_session, 9);
 
 /**
  * @generated from message rookery.host.v1.SessionServiceSignalRequest
@@ -375,7 +415,7 @@ export type SessionServiceSignalRequest = Message<"rookery.host.v1.SessionServic
  * Use `create(SessionServiceSignalRequestSchema)` to create a new message.
  */
 export const SessionServiceSignalRequestSchema: GenMessage<SessionServiceSignalRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_host_v1_session, 9);
+  messageDesc(file_rookery_host_v1_session, 10);
 
 /**
  * @generated from message rookery.host.v1.SessionServiceSignalResponse
@@ -388,7 +428,7 @@ export type SessionServiceSignalResponse = Message<"rookery.host.v1.SessionServi
  * Use `create(SessionServiceSignalResponseSchema)` to create a new message.
  */
 export const SessionServiceSignalResponseSchema: GenMessage<SessionServiceSignalResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_host_v1_session, 10);
+  messageDesc(file_rookery_host_v1_session, 11);
 
 /**
  * @generated from message rookery.host.v1.SessionServiceCloseRequest
@@ -405,7 +445,7 @@ export type SessionServiceCloseRequest = Message<"rookery.host.v1.SessionService
  * Use `create(SessionServiceCloseRequestSchema)` to create a new message.
  */
 export const SessionServiceCloseRequestSchema: GenMessage<SessionServiceCloseRequest> = /*@__PURE__*/
-  messageDesc(file_rookery_host_v1_session, 11);
+  messageDesc(file_rookery_host_v1_session, 12);
 
 /**
  * @generated from message rookery.host.v1.SessionServiceCloseResponse
@@ -418,7 +458,7 @@ export type SessionServiceCloseResponse = Message<"rookery.host.v1.SessionServic
  * Use `create(SessionServiceCloseResponseSchema)` to create a new message.
  */
 export const SessionServiceCloseResponseSchema: GenMessage<SessionServiceCloseResponse> = /*@__PURE__*/
-  messageDesc(file_rookery_host_v1_session, 12);
+  messageDesc(file_rookery_host_v1_session, 13);
 
 /**
  * @generated from service rookery.host.v1.SessionService

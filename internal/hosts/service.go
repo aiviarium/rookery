@@ -73,11 +73,14 @@ func (s *Service) ContactHandler() jobs.Handler {
 		if err := decode(job.Args, &args); err != nil {
 			return nil, err
 		}
-		target, err := s.Target(ctx, args.Host)
+		if args.Host != job.Host || job.Host == "" {
+			return nil, fmt.Errorf("%w: contact host must match the job resource", access.ErrInvalid)
+		}
+		credential := s.credentials.Take(job.ID)
+		target, err := s.Target(ctx, job.Host)
 		if err != nil {
 			return nil, err
 		}
-		credential := s.credentials.Take(job.ID)
 		_ = log.WriteLine(fmt.Sprintf("contacting %s at %s", target.Name, target.Address)) //nolint:contextcheck // the log holds the job's context
 		contact, err := s.deps.Links.Contact(ctx, target, credential, s.deps.Log)
 		if err != nil {
@@ -101,6 +104,10 @@ func (s *Service) Target(ctx context.Context, name string) (link.Target, error) 
 	if err != nil {
 		return link.Target{}, err
 	}
+	return targetOf(record), nil
+}
+
+func targetOf(record Record) link.Target {
 	target := link.Target{
 		Name:    record.Name,
 		Address: record.Profile.Address,
@@ -111,7 +118,7 @@ func (s *Service) Target(ctx context.Context, name string) (link.Target, error) 
 		target.Address = record.Address
 		target.TailnetAddress = record.Address
 	}
-	return target, nil
+	return target
 }
 
 // Target looks a host up for the link manager.
@@ -249,11 +256,10 @@ func (s *Service) Add(ctx context.Context, request *connect.Request[rookeryv1.Ho
 
 	credential := credentialOf(request.Msg.GetCredential())
 	if !credential.Empty() {
-		job, err := s.enqueueContact(ctx, record.Name)
+		job, err := s.enqueueContact(ctx, record.Name, credential)
 		if err != nil {
 			return nil, access.ToConnect(err)
 		}
-		s.credentials.Put(job.ID, credential)
 		response.FirstContact = job.ID
 	}
 	return connect.NewResponse(response), nil
@@ -264,6 +270,7 @@ func (s *Service) Remove(ctx context.Context, request *connect.Request[rookeryv1
 	if err := s.deps.Hosts.Remove(ctx, request.Msg.GetName()); err != nil {
 		return nil, access.ToConnect(err)
 	}
+	s.disconnect(request.Msg.GetName())
 	s.publish(ctx, request.Msg.GetName(), "removed")
 	return connect.NewResponse(&rookeryv1.HostServiceRemoveResponse{}), nil
 }
@@ -274,6 +281,7 @@ func (s *Service) Rename(ctx context.Context, request *connect.Request[rookeryv1
 	if err != nil {
 		return nil, access.ToConnect(err)
 	}
+	s.disconnect(request.Msg.GetName())
 	s.publish(ctx, request.Msg.GetName(), "removed")
 	s.publish(ctx, record.Name, "added")
 	host, err := s.message(ctx, record)
@@ -289,10 +297,24 @@ func (s *Service) SetProfile(ctx context.Context, request *connect.Request[rooke
 	if err != nil {
 		return nil, access.ToConnect(err)
 	}
+	current, err := s.deps.Hosts.Get(ctx, request.Msg.GetName())
+	if err != nil {
+		return nil, access.ToConnect(err)
+	}
+	normalized := p.Normalize()
+	if normalized.Address != current.Profile.Address || normalized.Port != current.Profile.Port || normalized.SSHUser != current.Profile.SSHUser {
+		// Routing a host to another SSH address can reuse the deployment
+		// key there. Only an admin may change what a host resource identifies.
+		principal, _ := access.PrincipalFrom(ctx)
+		if err := s.deps.Checker.Check(ctx, principal, "", access.Admin); err != nil {
+			return nil, access.ToConnect(err)
+		}
+	}
 	record, err := s.deps.Hosts.SetProfile(ctx, request.Msg.GetName(), p)
 	if err != nil {
 		return nil, access.ToConnect(err)
 	}
+	s.disconnect(record.Name)
 	s.publish(ctx, record.Name, "updated")
 	host, err := s.message(ctx, record)
 	if err != nil {
@@ -371,7 +393,7 @@ func (s *Service) message(ctx context.Context, record Record) (*rookeryv1.Host, 
 }
 
 // enqueueContact starts first contact for a host.
-func (s *Service) enqueueContact(ctx context.Context, name string) (jobs.Job, error) {
+func (s *Service) enqueueContact(ctx context.Context, name string, credential link.Credential) (jobs.Job, error) {
 	if s.deps.Jobs == nil {
 		return jobs.Job{}, fmt.Errorf("%w: first contact needs the job runner", access.ErrUnavailable)
 	}
@@ -379,11 +401,25 @@ func (s *Service) enqueueContact(ctx context.Context, name string) (jobs.Job, er
 	if err != nil {
 		return jobs.Job{}, err
 	}
-	return s.deps.Jobs.Enqueue(ctx, jobs.EnqueueRequest{
+	// A worker may claim the job immediately after the database commit.
+	// Hold the same lock Take uses until its credential is available.
+	s.credentials.mu.Lock()
+	defer s.credentials.mu.Unlock()
+	job, err := s.deps.Jobs.Enqueue(ctx, jobs.EnqueueRequest{
 		Kind:     "host.contact",
 		Args:     args,
 		Resource: access.HostURI(name),
 	})
+	if err == nil {
+		s.credentials.byID[job.ID] = credential
+	}
+	return job, err
+}
+
+func (s *Service) disconnect(name string) {
+	if s.deps.Links != nil {
+		s.deps.Links.Disconnect(name)
+	}
 }
 
 // publish sends a host event, which a Watch turns into a stream message and a

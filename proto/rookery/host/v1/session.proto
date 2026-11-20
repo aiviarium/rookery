@@ -66,6 +66,16 @@ message Session {
 
   // How many clients are attached.
   uint32 attached = 11;
+
+  // Sharing records the server principal and attach policy across reconnects.
+  // It is set only by callers on the root socket.
+  SessionSharing sharing = 12;
+}
+
+message SessionSharing {
+  string owner = 1;
+  bool private = 2;
+  bool elevated = 3;
 }
 
 message SessionServiceCreateRequest {
@@ -84,6 +94,7 @@ message SessionServiceCreateRequest {
   // The terminal's size in characters. Zero is 80 by 24.
   uint32 cols = 6;
   uint32 rows = 7;
+  SessionSharing sharing = 8;
 }
 
 message SessionServiceCreateResponse {

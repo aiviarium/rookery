@@ -107,7 +107,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	// runner's jobs are followed by the service.
 	bus := messaging.NewBus()
 	events := messaging.NewEventsService(bus, checker)
-	topics := messaging.NewTopicsService(messaging.NewTopics(opened))
+	topics := messaging.NewTopicsService(messaging.NewTopics(opened), checker)
 	notificationStore := messaging.NewNotifications(opened)
 	notifications := messaging.NewNotificationsService(notificationStore)
 
@@ -178,6 +178,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 
 	hostService.SetJobs(jobRunner)
 	hostService.SetLinks(hostLinks)
+	hostRuntime := hosts.NewRuntime(hostService)
 	if err := registry.Handle("host.contact", hostService.ContactHandler()); err != nil {
 		return nil, err
 	}
@@ -215,6 +216,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		blobs:         blobs.NewService(blobStore),
 		hosts:         hostService,
 		desktop:       desktop.New(hostStore, hostLinks, checker),
+		hostRuntime:   hostRuntime,
 		keys:          link.NewKeysService(keyRing, trusted),
 		rollouts:      rollouts.NewRolloutService(rolloutList),
 	}
@@ -240,9 +242,10 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 			service.register(mux, options)
 			collections.register(mux, options)
 		},
-		Blobs:     blobStore.Handler(),
-		Documents: docs.NewHandler(collections.docs, dataCaller{}),
-		Desktop:   service.desktop.WebSocket(),
+		Blobs:              blobStore.Handler(),
+		Documents:          docs.NewHandler(collections.docs, dataCaller{}),
+		Desktop:            service.desktop.WebSocket(),
+		RegisterHostRoutes: hostRuntime.RegisterRoutes,
 		RegisterLocal: func(mux *http.ServeMux, options []connect.HandlerOption) {
 			path, handler := rookeryv1connect.NewLocalServiceHandler(service.local, options...)
 			mux.Handle(path, handler)
@@ -264,6 +267,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		links:       hostLinks,
 		rollouts:    rolloutManager,
 		collections: collections,
+		hostRuntime: hostRuntime,
 	}, nil
 }
 
@@ -279,6 +283,7 @@ func (h *handlers) start(ctx context.Context) error {
 	group.Go(func() error { return h.rollouts.Run(ctx) })
 	group.Go(func() error { return h.collections.data.Run(ctx) })
 	group.Go(func() error { return h.collectExpiring(ctx) })
+	group.Go(func() error { return h.hostRuntime.FollowChannels(ctx) })
 	group.Go(func() error {
 		ticker := time.NewTicker(retentionCheck)
 		defer ticker.Stop()
@@ -321,6 +326,7 @@ type services struct {
 	blobs         *blobs.Service
 	hosts         *hosts.Service
 	desktop       *desktop.Service
+	hostRuntime   *hosts.Runtime
 	keys          *link.KeysService
 	rollouts      *rollouts.RolloutService
 }
@@ -369,6 +375,7 @@ func (s services) register(mux *http.ServeMux, options []connect.HandlerOption) 
 	handle(path, handler)
 	path, handler = rookeryv1connect.NewDesktopServiceHandler(s.desktop, options...)
 	handle(path, streamio.WithReadInterrupt(handler))
+	registerHostRuntime(mux, s.hostRuntime, options)
 	path, handler = rookeryv1connect.NewKeyServiceHandler(s.keys, options...)
 	handle(path, handler)
 }

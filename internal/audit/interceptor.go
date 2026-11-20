@@ -86,11 +86,15 @@ func (i *Interceptor) record(ctx context.Context, spec connect.Spec, request any
 			switch connectErr.Code() {
 			case connect.CodePermissionDenied, connect.CodeUnauthenticated:
 				outcome = Denied
+			case connect.CodeUnavailable:
+				if refusal := access.RefusalOf(callErr); refusal != nil {
+					outcome = Denied
+				}
 			}
 		}
 	}
 
-	changes := level == access.Manage || level == access.Admin || level == access.Local
+	changes := access.Mutates(method) || level == access.Manage || level == access.Admin || level == access.Local
 	if !changes && outcome == OK {
 		return
 	}

@@ -61,6 +61,11 @@ func run(ctx context.Context, args []string) error {
 	switch args[0] {
 	case "serve":
 		return serve(ctx, args[1:])
+	case "file-worker":
+		if len(args) != 2 {
+			return errors.New("file-worker requires an operation")
+		}
+		return agent.FileWorker(ctx, args[1], os.Stdin, os.Stdout)
 	case "connect":
 		return connect(ctx, args[1:])
 	default:

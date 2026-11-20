@@ -18,7 +18,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file rookery/v1/access.proto.
  */
 export const file_rookery_v1_access: GenFile = /*@__PURE__*/
-  fileDesc("Chdyb29rZXJ5L3YxL2FjY2Vzcy5wcm90bxIKcm9va2VyeS52MSI8CgZBY2Nlc3MSIAoFbGV2ZWwYASABKA4yES5yb29rZXJ5LnYxLkxldmVsEhAKCHJlc291cmNlGAIgASgJImEKB1JlZnVzYWwSEAoIcmVzb3VyY2UYASABKAkSIAoFbGV2ZWwYAiABKA4yES5yb29rZXJ5LnYxLkxldmVsEhIKCmNhcGFiaWxpdHkYAyABKAkSDgoGcmVhc29uGAQgASgJKoEBCgVMZXZlbBIVChFMRVZFTF9VTlNQRUNJRklFRBAAEg4KCkxFVkVMX1ZJRVcQARINCglMRVZFTF9VU0UQAhIQCgxMRVZFTF9NQU5BR0UQAxIPCgtMRVZFTF9BRE1JThAEEg4KCkxFVkVMX1NFTEYQBRIPCgtMRVZFTF9MT0NBTBAGOkwKBmFjY2VzcxIeLmdvb2dsZS5wcm90b2J1Zi5NZXRob2RPcHRpb25zGNGGAyABKAsyEi5yb29rZXJ5LnYxLkFjY2Vzc1IGYWNjZXNzQjpaOGdpdGh1Yi5jb20vYWl2aWFyaXVtL3Jvb2tlcnkvZ2VuL2dvL3Jvb2tlcnkvdjE7cm9va2VyeXYxYgZwcm90bzM", [file_google_protobuf_descriptor]);
+  fileDesc("Chdyb29rZXJ5L3YxL2FjY2Vzcy5wcm90bxIKcm9va2VyeS52MSJNCgZBY2Nlc3MSIAoFbGV2ZWwYASABKA4yES5yb29rZXJ5LnYxLkxldmVsEhAKCHJlc291cmNlGAIgASgJEg8KB211dGF0ZXMYAyABKAgiYQoHUmVmdXNhbBIQCghyZXNvdXJjZRgBIAEoCRIgCgVsZXZlbBgCIAEoDjIRLnJvb2tlcnkudjEuTGV2ZWwSEgoKY2FwYWJpbGl0eRgDIAEoCRIOCgZyZWFzb24YBCABKAkqgQEKBUxldmVsEhUKEUxFVkVMX1VOU1BFQ0lGSUVEEAASDgoKTEVWRUxfVklFVxABEg0KCUxFVkVMX1VTRRACEhAKDExFVkVMX01BTkFHRRADEg8KC0xFVkVMX0FETUlOEAQSDgoKTEVWRUxfU0VMRhAFEg8KC0xFVkVMX0xPQ0FMEAY6TAoGYWNjZXNzEh4uZ29vZ2xlLnByb3RvYnVmLk1ldGhvZE9wdGlvbnMY0YYDIAEoCzISLnJvb2tlcnkudjEuQWNjZXNzUgZhY2Nlc3NCOlo4Z2l0aHViLmNvbS9haXZpYXJpdW0vcm9va2VyeS9nZW4vZ28vcm9va2VyeS92MTtyb29rZXJ5djFiBnByb3RvMw", [file_google_protobuf_descriptor]);
 
 /**
  * Access is what a procedure requires of its caller.
@@ -41,6 +41,14 @@ export type Access = Message<"rookery.v1.Access"> & {
    * @generated from field: string resource = 2;
    */
   resource: string;
+
+  /**
+   * Mutates makes a successful call auditable even when it needs less than
+   * manage access.
+   *
+   * @generated from field: bool mutates = 3;
+   */
+  mutates: boolean;
 };
 
 /**

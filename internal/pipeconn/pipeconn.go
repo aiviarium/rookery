@@ -112,7 +112,8 @@ func Client(conn net.Conn) *http.Client {
 	)
 
 	transport := &http.Transport{
-		Protocols: cleartextHTTP2(),
+		Protocols:       cleartextHTTP2(),
+		MaxConnsPerHost: 1,
 		// A pipe is already addressed: the address in the URL names nothing.
 		DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
 			mu.Lock()

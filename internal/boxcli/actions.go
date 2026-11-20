@@ -79,7 +79,7 @@ func runAction(ctx context.Context, options Options, args []string) error {
 		if !found || key == "" {
 			return usage("box run: %q is not NAME=VALUE", argument)
 		}
-		arguments[key] = parseValue(value)
+		arguments[key] = cborx.ParseText(value)
 	}
 	encoded, err := cborx.Marshal(arguments)
 	if err != nil {

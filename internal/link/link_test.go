@@ -31,6 +31,7 @@ func startDaemon(t *testing.T) string {
 	ctx, cancel := context.WithCancel(t.Context())
 	server, err := agent.New(ctx, agent.Config{
 		Version:    "test",
+		ChannelDB:  filepath.Join(dir, "channel.db"),
 		RootSocket: filepath.Join(dir, "root.sock"),
 		UserSocket: filepath.Join(dir, "user.sock"),
 	})

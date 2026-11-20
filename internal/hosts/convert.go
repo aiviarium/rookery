@@ -24,13 +24,6 @@ func NewCredentials() *Credentials {
 	return &Credentials{byID: make(map[string]link.Credential)}
 }
 
-// Put keeps a credential for a job.
-func (c *Credentials) Put(jobID string, credential link.Credential) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.byID[jobID] = credential
-}
-
 // Take returns a job's credential and forgets it.
 func (c *Credentials) Take(jobID string) link.Credential {
 	c.mu.Lock()
@@ -81,6 +74,8 @@ func fromProtoCapability(c rookeryv1.Capability) Capability {
 		return CapabilityDesktop
 	case rookeryv1.Capability_CAPABILITY_CHANNEL:
 		return CapabilityChannel
+	case rookeryv1.Capability_CAPABILITY_HOST_SERVICES:
+		return CapabilityHostServices
 	case rookeryv1.Capability_CAPABILITY_ACTIONS:
 		return CapabilityActions
 	case rookeryv1.Capability_CAPABILITY_APPLY:

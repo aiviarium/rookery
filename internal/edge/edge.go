@@ -61,6 +61,8 @@ type Deps struct {
 	RegisterServices func(mux *http.ServeMux, options []connect.HandlerOption)
 	// RegisterLocal adds LocalService, the Unix socket only.
 	RegisterLocal func(mux *http.ServeMux, options []connect.HandlerOption)
+	// RegisterHostRoutes adds the public terminal and port endpoints.
+	RegisterHostRoutes func(mux *http.ServeMux)
 }
 
 // Edge is the edge's handlers.
@@ -92,6 +94,9 @@ func (e *Edge) Handler() http.Handler {
 	e.registerAuth(mux)
 	e.registerPlugins(mux)
 	e.registerPluginRPC(mux)
+	if e.deps.RegisterHostRoutes != nil {
+		e.deps.RegisterHostRoutes(mux)
+	}
 	mux.HandleFunc("/", e.fallback)
 	return e.authenticate(mux)
 }

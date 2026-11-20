@@ -93,6 +93,7 @@ type session struct {
 	id      string
 	account *account
 	command string
+	sharing *hostv1.SessionSharing
 	cmd     *exec.Cmd
 	pty     *os.File
 	ring    *ring
@@ -150,6 +151,11 @@ func startSession(ctx context.Context, acct *account, request *hostv1.SessionSer
 		rows = 24
 	}
 
+	if cols > 65535 || rows > 65535 {
+		return nil, fmt.Errorf("%w: a terminal has at most 65535 columns and rows", ErrInvalid)
+	}
+	id := randomID()
+
 	extra := mergeEnv(request.GetEnv(), "TERM", "xterm-256color")
 
 	// The session outlives the call that made it: it ends when it closes, not
@@ -164,16 +170,11 @@ func startSession(ctx context.Context, acct *account, request *hostv1.SessionSer
 		return nil, fmt.Errorf("agent: starting %s for %s: %w", command, acct.Name, translateStartError(err))
 	}
 
-	id, err := randomID()
-	if err != nil {
-		_ = cmd.Process.Kill()
-		return nil, err
-	}
-
 	sess := &session{
 		id:      id,
 		account: acct,
 		command: formatCommand(command, args),
+		sharing: request.GetSharing(),
 		cmd:     cmd,
 		pty:     terminal,
 		ring:    newRing(sessionRingSize),
@@ -212,9 +213,10 @@ func (s *session) emit(p []byte) {
 	offset := s.ring.total
 	s.ring.write(p)
 
+	output := chunk{offset: offset, data: append([]byte(nil), p...)}
 	for v := range s.viewers {
 		select {
-		case v.chunks <- chunk{offset: offset, data: append([]byte(nil), p...)}:
+		case v.chunks <- output:
 		default:
 			// The viewer reads too slowly to hold a terminal up, so it loses
 			// the session instead. It is told so.
@@ -343,6 +345,7 @@ func (s *session) info() *hostv1.Session {
 	sess := &hostv1.Session{
 		Id:          s.id,
 		User:        s.account.Name,
+		Sharing:     s.sharing,
 		Command:     s.command,
 		Pid:         uint32(s.cmd.Process.Pid), //nolint:gosec // a pid is positive.
 		Cols:        uint32(s.cols),
@@ -381,12 +384,10 @@ func mergeEnv(env map[string]string, name, value string) map[string]string {
 }
 
 // randomID makes a session's id.
-func randomID() (string, error) {
-	var raw [12]byte
-	if _, err := rand.Read(raw[:]); err != nil {
-		return "", fmt.Errorf("agent: making an id: %w", err)
-	}
-	return hex.EncodeToString(raw[:]), nil
+func randomID() string {
+	var raw [16]byte
+	_, _ = rand.Read(raw[:])
+	return hex.EncodeToString(raw[:])
 }
 
 // exitCodeOf is a process's exit code, with a signal reported as 128 plus its

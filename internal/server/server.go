@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aiviarium/rookery/internal/blobs"
+	"github.com/aiviarium/rookery/internal/hosts"
 	"github.com/aiviarium/rookery/internal/jobs"
 	"github.com/aiviarium/rookery/internal/plugins"
 	"github.com/aiviarium/rookery/internal/rollouts"
@@ -124,6 +125,7 @@ type handlers struct {
 	links       interface{ Close() }
 	rollouts    *rollouts.Manager
 	collections *collectionServices
+	hostRuntime *hosts.Runtime
 }
 
 // logger is the server's logger, for the loops the handlers own.

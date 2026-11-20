@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package rookery.v1;
+
+import "rookery/host/v1/hostcall.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+service HostCallService {
+  rpc List(HostCallServiceListRequest) returns (HostCallServiceListResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE, resource: "host" };
+  }
+  rpc Call(HostCallServiceCallRequest) returns (HostCallServiceCallResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE, resource: "host", mutates: true };
+  }
+}
+
+message HostCallServiceListRequest {
+  string host = 1;
+}
+message HostCallServiceListResponse {
+  repeated rookery.host.v1.HostService services = 1;
+}
+message HostCallServiceCallRequest {
+  string host = 1;
+  string service = 2;
+  string method = 3;
+  bytes args_cbor = 4;
+}
+message HostCallServiceCallResponse {
+  bytes result_cbor = 1;
+}

@@ -217,7 +217,7 @@ func (s *Server) handlers() http.Handler {
 	register(hostv1connect.NewAgentServiceHandler(&agentService{server: s}))
 	register(hostv1connect.NewSessionServiceHandler(&sessionService{server: s}))
 	register(hostv1connect.NewExecServiceHandler(&execService{server: s}))
-	register(hostv1connect.NewFileServiceHandler(&fileService{server: s}))
+	register(hostv1connect.NewFileServiceHandler(&fileService{}))
 	portPath, portHandler := hostv1connect.NewPortServiceHandler(&portService{server: s})
 	register(portPath, streamio.WithReadInterrupt(portHandler))
 	register(hostv1connect.NewChannelServiceHandler(&channelService{server: s}))
