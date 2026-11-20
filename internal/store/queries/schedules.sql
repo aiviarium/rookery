@@ -1,6 +1,6 @@
 -- name: CreateSchedule :one
-INSERT INTO rookery.schedules (id, name, kind, args, resource, cron, timezone, enabled, next_run_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+INSERT INTO rookery.schedules (id, name, kind, args, resource, cron, timezone, enabled, next_run_at, rollout)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 RETURNING *;
 
 -- name: GetSchedule :one
@@ -42,6 +42,7 @@ SET name = sqlc.arg('name'),
     resource = sqlc.arg('resource'),
     cron = sqlc.arg('cron'),
     timezone = sqlc.arg('timezone'),
+    rollout = sqlc.arg('rollout'),
     enabled = sqlc.arg('enabled'),
     next_run_at = sqlc.narg('next_run_at')
 WHERE id = sqlc.arg('id')

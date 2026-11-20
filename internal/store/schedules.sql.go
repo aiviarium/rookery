@@ -11,9 +11,9 @@ import (
 )
 
 const createSchedule = `-- name: CreateSchedule :one
-INSERT INTO rookery.schedules (id, name, kind, args, resource, cron, timezone, enabled, next_run_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-RETURNING id, name, kind, args, resource, cron, timezone, enabled, next_run_at, last_run_at, created_at
+INSERT INTO rookery.schedules (id, name, kind, args, resource, cron, timezone, enabled, next_run_at, rollout)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+RETURNING id, name, kind, args, resource, cron, timezone, enabled, next_run_at, last_run_at, created_at, rollout
 `
 
 type CreateScheduleParams struct {
@@ -26,6 +26,7 @@ type CreateScheduleParams struct {
 	Timezone  string
 	Enabled   bool
 	NextRunAt *time.Time
+	Rollout   []byte
 }
 
 func (q *Queries) CreateSchedule(ctx context.Context, arg CreateScheduleParams) (RookerySchedules, error) {
@@ -39,6 +40,7 @@ func (q *Queries) CreateSchedule(ctx context.Context, arg CreateScheduleParams) 
 		arg.Timezone,
 		arg.Enabled,
 		arg.NextRunAt,
+		arg.Rollout,
 	)
 	var i RookerySchedules
 	err := row.Scan(
@@ -53,6 +55,7 @@ func (q *Queries) CreateSchedule(ctx context.Context, arg CreateScheduleParams) 
 		&i.NextRunAt,
 		&i.LastRunAt,
 		&i.CreatedAt,
+		&i.Rollout,
 	)
 	return i, err
 }
@@ -71,7 +74,7 @@ func (q *Queries) DeleteSchedule(ctx context.Context, id string) (int64, error) 
 }
 
 const getSchedule = `-- name: GetSchedule :one
-SELECT id, name, kind, args, resource, cron, timezone, enabled, next_run_at, last_run_at, created_at
+SELECT id, name, kind, args, resource, cron, timezone, enabled, next_run_at, last_run_at, created_at, rollout
 FROM rookery.schedules
 WHERE id = $1
 `
@@ -91,12 +94,13 @@ func (q *Queries) GetSchedule(ctx context.Context, id string) (RookerySchedules,
 		&i.NextRunAt,
 		&i.LastRunAt,
 		&i.CreatedAt,
+		&i.Rollout,
 	)
 	return i, err
 }
 
 const listDueSchedules = `-- name: ListDueSchedules :many
-SELECT id, name, kind, args, resource, cron, timezone, enabled, next_run_at, last_run_at, created_at
+SELECT id, name, kind, args, resource, cron, timezone, enabled, next_run_at, last_run_at, created_at, rollout
 FROM rookery.schedules
 WHERE enabled
   AND next_run_at IS NOT NULL
@@ -126,6 +130,7 @@ func (q *Queries) ListDueSchedules(ctx context.Context, limit int32) ([]RookeryS
 			&i.NextRunAt,
 			&i.LastRunAt,
 			&i.CreatedAt,
+			&i.Rollout,
 		); err != nil {
 			return nil, err
 		}
@@ -138,7 +143,7 @@ func (q *Queries) ListDueSchedules(ctx context.Context, limit int32) ([]RookeryS
 }
 
 const listSchedules = `-- name: ListSchedules :many
-SELECT id, name, kind, args, resource, cron, timezone, enabled, next_run_at, last_run_at, created_at
+SELECT id, name, kind, args, resource, cron, timezone, enabled, next_run_at, last_run_at, created_at, rollout
 FROM rookery.schedules
 WHERE id > $1
 ORDER BY id
@@ -171,6 +176,7 @@ func (q *Queries) ListSchedules(ctx context.Context, arg ListSchedulesParams) ([
 			&i.NextRunAt,
 			&i.LastRunAt,
 			&i.CreatedAt,
+			&i.Rollout,
 		); err != nil {
 			return nil, err
 		}
@@ -206,10 +212,11 @@ SET name = $1,
     resource = $4,
     cron = $5,
     timezone = $6,
-    enabled = $7,
-    next_run_at = $8
-WHERE id = $9
-RETURNING id, name, kind, args, resource, cron, timezone, enabled, next_run_at, last_run_at, created_at
+    rollout = $7,
+    enabled = $8,
+    next_run_at = $9
+WHERE id = $10
+RETURNING id, name, kind, args, resource, cron, timezone, enabled, next_run_at, last_run_at, created_at, rollout
 `
 
 type UpdateScheduleFieldsParams struct {
@@ -219,6 +226,7 @@ type UpdateScheduleFieldsParams struct {
 	Resource  string
 	Cron      string
 	Timezone  string
+	Rollout   []byte
 	Enabled   bool
 	NextRunAt *time.Time
 	ID        string
@@ -232,6 +240,7 @@ func (q *Queries) UpdateScheduleFields(ctx context.Context, arg UpdateScheduleFi
 		arg.Resource,
 		arg.Cron,
 		arg.Timezone,
+		arg.Rollout,
 		arg.Enabled,
 		arg.NextRunAt,
 		arg.ID,
@@ -249,6 +258,7 @@ func (q *Queries) UpdateScheduleFields(ctx context.Context, arg UpdateScheduleFi
 		&i.NextRunAt,
 		&i.LastRunAt,
 		&i.CreatedAt,
+		&i.Rollout,
 	)
 	return i, err
 }

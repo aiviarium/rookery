@@ -648,3 +648,56 @@ CREATE TABLE rookery.host_cursors (
 );
 
 COMMENT ON TABLE rookery.host_cursors IS 'The last channel message taken in from each host, for the follower to continue from.';
+-- Roll-outs. A roll-out applies, or runs one action, on a set of hosts in
+-- batches. It keeps a row per host, and each host's work is a child job whose
+-- parent is the roll-out.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE rookery.rollouts (
+	id             text        PRIMARY KEY,
+	kind           text        NOT NULL,
+	args           bytea       NOT NULL DEFAULT ''::bytea,
+	resource       text        NOT NULL DEFAULT '',
+	created_by     text        NOT NULL DEFAULT '',
+	state          text        NOT NULL DEFAULT 'running'
+		CHECK (state IN ('running', 'paused', 'succeeded', 'failed', 'cancelled')),
+	selection      bytea       NOT NULL DEFAULT ''::bytea,
+	strategy       bytea       NOT NULL DEFAULT ''::bytea,
+	canary_done    boolean     NOT NULL DEFAULT false,
+	paused_until   timestamptz,
+	paused_because text        NOT NULL DEFAULT '',
+	created_at     timestamptz NOT NULL DEFAULT now(),
+	started_at     timestamptz,
+	finished_at    timestamptz
+);
+
+COMMENT ON TABLE rookery.rollouts IS 'An apply or one action on a set of hosts, in batches.';
+COMMENT ON COLUMN rookery.rollouts.selection IS 'The selection as CBOR, so a roll-out says what it was for even after its hosts changed.';
+COMMENT ON COLUMN rookery.rollouts.strategy IS 'The strategy as CBOR: batch size, failures allowed, the pause and the canary.';
+COMMENT ON COLUMN rookery.rollouts.paused_until IS 'When the pause between batches ends; set while the roll-out is still running.';
+
+CREATE INDEX rollouts_state ON rookery.rollouts (state, id);
+
+CREATE TABLE rookery.rollout_hosts (
+	rollout_id  text        NOT NULL REFERENCES rookery.rollouts (id) ON DELETE CASCADE,
+	host        text        NOT NULL,
+	batch       integer     NOT NULL DEFAULT 0,
+	state       text        NOT NULL DEFAULT 'pending'
+		CHECK (state IN ('pending', 'running', 'succeeded', 'failed', 'skipped', 'cancelled')),
+	job         text        NOT NULL DEFAULT '',
+	reason      text        NOT NULL DEFAULT '',
+	error       text        NOT NULL DEFAULT '',
+	started_at  timestamptz,
+	finished_at timestamptz,
+	PRIMARY KEY (rollout_id, host)
+);
+
+COMMENT ON TABLE rookery.rollout_hosts IS 'What a roll-out does to one host: its batch, its child job and how it ended.';
+
+CREATE INDEX rollout_hosts_state ON rookery.rollout_hosts (rollout_id, state, batch);
+
+-- A schedule runs a job kind, or starts a roll-out when its rollout is set.
+-- The column lives in this section to keep one item's changes in one place.
+ALTER TABLE rookery.schedules ADD COLUMN rollout bytea NOT NULL DEFAULT ''::bytea;
+
+COMMENT ON COLUMN rookery.schedules.rollout IS 'The roll-out to start as CBOR, instead of a job kind, when it is set.';

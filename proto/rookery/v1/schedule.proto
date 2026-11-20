@@ -26,6 +26,9 @@ message Schedule {
   google.protobuf.Timestamp next_run_at = 9;
   google.protobuf.Timestamp last_run_at = 10;
   google.protobuf.Timestamp created_at = 11;
+  // RolloutCbor is the roll-out the schedule starts, as CBOR, when it starts
+  // one instead of enqueuing a job kind.
+  bytes rollout_cbor = 12;
 }
 
 message ScheduleServiceListRequest {
@@ -45,6 +48,8 @@ message ScheduleServiceCreateRequest {
   string resource = 4;
   string cron = 5;
   string timezone = 6;
+  // RolloutCbor starts a roll-out instead of the job kind.
+  bytes rollout_cbor = 7;
 }
 
 message ScheduleServiceCreateResponse {
@@ -61,6 +66,7 @@ message ScheduleServiceUpdateRequest {
   optional string cron = 6;
   optional string timezone = 7;
   optional bool enabled = 8;
+  optional bytes rollout_cbor = 9;
 }
 
 message ScheduleServiceUpdateResponse {
@@ -83,6 +89,8 @@ message ScheduleServiceRunNowRequest {
 message ScheduleServiceRunNowResponse {
   // Job is the job the schedule enqueued.
   string job = 1;
+  // Rollout is the roll-out the schedule started, when it starts one.
+  string rollout = 2;
 }
 
 // ScheduleService manages the deployment's schedules.

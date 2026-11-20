@@ -391,7 +391,7 @@ func TestOneScheduledRunIsEnqueuedOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("running the schedule now: %v", err)
 	}
-	harness.waitForState(t, made.ID, jobs.Succeeded)
+	harness.waitForState(t, made.Job.ID, jobs.Succeeded)
 	if _, ok := runs.Load("ran"); !ok {
 		t.Fatal("the schedule's job did not run")
 	}
