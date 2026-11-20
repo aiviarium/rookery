@@ -10,6 +10,7 @@ import (
 	"time"
 
 	hostv1 "github.com/aiviarium/rookery/gen/go/rookery/host/v1"
+	"github.com/aiviarium/rookery/internal/hostaction"
 )
 
 // The file the apply writes is /etc/rookery/actions.json, and its format is:
@@ -61,34 +62,19 @@ type action struct {
 	description string
 	terminal    bool
 	command     string
-	arguments   []actionArgument
-}
-
-// actionArgument is one argument an action takes.
-type actionArgument struct {
-	name     string
-	label    string
-	required bool
-	def      string
+	arguments   []hostaction.Argument
 }
 
 // declaredAction and declaredArgument are the file's shape.
 type declaredAction struct {
-	Name        string             `json:"name"`
-	Label       string             `json:"label"`
-	Group       string             `json:"group"`
-	User        string             `json:"user"`
-	Description string             `json:"description"`
-	Terminal    bool               `json:"terminal"`
-	Command     string             `json:"command"`
-	Arguments   []declaredArgument `json:"arguments"`
-}
-
-type declaredArgument struct {
-	Name     string `json:"name"`
-	Label    string `json:"label"`
-	Required bool   `json:"required"`
-	Default  string `json:"default"`
+	Name        string                `json:"name"`
+	Label       string                `json:"label"`
+	Group       string                `json:"group"`
+	User        string                `json:"user"`
+	Description string                `json:"description"`
+	Terminal    bool                  `json:"terminal"`
+	Command     string                `json:"command"`
+	Arguments   []hostaction.Argument `json:"arguments"`
 }
 
 // actionFile is the file's whole shape.
@@ -212,20 +198,11 @@ func parseAction(declared declaredAction) (*action, error) {
 		command:     declared.Command,
 	}
 	for _, argument := range declared.Arguments {
-		if argument.Name == "" {
-			return nil, fmt.Errorf("%w: %s has an argument with no name", ErrInvalid, name)
+		if _, err := hostaction.Variable(argument.Name); err != nil {
+			return nil, fmt.Errorf("%w: %s: %w", ErrInvalid, name, err)
 		}
-		if !validArgumentName(argument.Name) {
-			return nil, fmt.Errorf("%w: %s's argument %q is not a letter, digit or underscore",
-				ErrInvalid, name, argument.Name)
-		}
-		parsed.arguments = append(parsed.arguments, actionArgument{
-			name:     argument.Name,
-			label:    argument.Label,
-			required: argument.Required,
-			def:      argument.Default,
-		})
 	}
+	parsed.arguments = declared.Arguments
 	return parsed, nil
 }
 
@@ -245,20 +222,6 @@ func parseActionUser(user string) (hostv1.ActionUser, error) {
 	}
 }
 
-// validArgumentName says whether an argument's name can become an environment
-// variable's.
-func validArgumentName(name string) bool {
-	for _, char := range name {
-		switch {
-		case char >= 'a' && char <= 'z', char >= 'A' && char <= 'Z', char >= '0' && char <= '9':
-		case char == '_':
-		default:
-			return false
-		}
-	}
-	return name != ""
-}
-
 // proto is an action as the RPC reports it.
 func (a *action) proto() *hostv1.Action {
 	declared := &hostv1.Action{
@@ -274,10 +237,10 @@ func (a *action) proto() *hostv1.Action {
 	}
 	for _, argument := range a.arguments {
 		declared.Arguments = append(declared.Arguments, &hostv1.ActionArgument{
-			Name:         argument.name,
-			Label:        argument.label,
-			Required:     argument.required,
-			DefaultValue: argument.def,
+			Name:         argument.Name,
+			Label:        argument.Label,
+			Required:     argument.Required,
+			DefaultValue: argument.Default,
 		})
 	}
 	return declared

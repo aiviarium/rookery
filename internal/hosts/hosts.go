@@ -189,7 +189,7 @@ func (h *Hosts) Add(ctx context.Context, input AddInput) (Record, error) {
 		p.Type = input.Type
 	}
 	if err := p.Validate(); err != nil {
-		return Record{}, err
+		return Record{}, fmt.Errorf("%w: %w", access.ErrInvalid, err)
 	}
 	encoded, err := cborx.Marshal(p)
 	if err != nil {
@@ -215,16 +215,12 @@ func (h *Hosts) Add(ctx context.Context, input AddInput) (Record, error) {
 	return h.decode(ctx, row)
 }
 
-// SetProfile stores a host's profile. The host's type only grows, so a profile
-// that asks for less than the host now has leaves its type alone.
+// SetProfile stores the desired configuration. Only a verified apply records
+// what the host can do now.
 func (h *Hosts) SetProfile(ctx context.Context, name string, p profile.Profile) (Record, error) {
-	current, err := h.Get(ctx, name)
-	if err != nil {
-		return Record{}, err
-	}
 	normalized := p.Normalize()
 	if err := normalized.Validate(); err != nil {
-		return Record{}, err
+		return Record{}, fmt.Errorf("%w: %w", access.ErrInvalid, err)
 	}
 	encoded, err := cborx.Marshal(normalized)
 	if err != nil {
@@ -233,34 +229,22 @@ func (h *Hosts) SetProfile(ctx context.Context, name string, p profile.Profile) 
 	row, err := h.store.Queries().SetHostProfile(ctx, store.SetHostProfileParams{
 		Name:    name,
 		Profile: encoded,
-		Type:    string(Grow(current.Type, normalized.Type)),
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Record{}, fmt.Errorf("%w: host %q", access.ErrNotFound, name)
+	}
 	if err != nil {
 		return Record{}, fmt.Errorf("hosts: setting the profile of %s: %w", name, err)
 	}
 	return h.decode(ctx, row)
 }
 
-// SetType stores what a host can do now, after an apply.
+// SetType stores the capabilities verified on a host.
 func (h *Hosts) SetType(ctx context.Context, name string, hostType profile.Type) error {
-	current, err := h.Get(ctx, name)
-	if err != nil {
-		return err
+	if !hostType.Valid() {
+		return fmt.Errorf("%w: unknown host type", access.ErrInvalid)
 	}
-	grown := Grow(current.Type, hostType)
-	if grown == current.Type {
-		return nil
-	}
-	encoded, err := cborx.Marshal(current.Profile)
-	if err != nil {
-		return fmt.Errorf("hosts: encoding the profile of %s: %w", name, err)
-	}
-	_, err = h.store.Queries().SetHostProfile(ctx, store.SetHostProfileParams{
-		Name:    name,
-		Profile: encoded,
-		Type:    string(grown),
-	})
-	return err
+	return h.store.Queries().SetHostType(ctx, store.SetHostTypeParams{Name: name, Type: string(hostType)})
 }
 
 // SetLabels puts and takes labels.

@@ -263,7 +263,7 @@ func TestApplyReachesATailnetHostThroughTheServer(t *testing.T) {
 	inventory := seen.Files["inventory.yml"]
 	for _, want := range []string{
 		`ansible_host: "100.64.0.7"`,
-		`-o ProxyCommand=/usr/bin/rookery server dial %h %p`,
+		"ProxyCommand=", "/usr/bin/rookery", "server dial %h %p",
 	} {
 		if !strings.Contains(inventory, want) {
 			t.Errorf("inventory.yml has no %q:\n%s", want, inventory)

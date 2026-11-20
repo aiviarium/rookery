@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/aiviarium/rookery/internal/access"
 	"github.com/aiviarium/rookery/internal/store"
@@ -225,7 +226,7 @@ func (k *KnownHosts) Line(ctx context.Context, address string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("link: the stored key of %s does not parse: %w", address, err)
 	}
-	return []byte(address + " " + string(ssh.MarshalAuthorizedKey(key))), nil
+	return []byte(knownhosts.Line([]string{address}, key) + "\n"), nil
 }
 
 // pointer is the address of a value, for an optional column.

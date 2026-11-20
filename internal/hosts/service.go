@@ -48,6 +48,7 @@ type Service struct {
 	// credentials holds a first contact's password or key until the job that
 	// uses it runs: it is never stored and never logged.
 	credentials *Credentials
+	operations  *Operations
 }
 
 // NewService returns the host service.
@@ -230,6 +231,9 @@ func (s *Service) Add(ctx context.Context, request *connect.Request[rookeryv1.Ho
 		Tailnet: true,
 	}
 
+	if hostType == profile.TypeWorkstation {
+		p.Desktop = &profile.Desktop{}
+	}
 	record, err := s.deps.Hosts.Add(ctx, AddInput{
 		Name:      request.Msg.GetName(),
 		Type:      hostType,

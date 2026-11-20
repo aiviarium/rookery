@@ -27,10 +27,15 @@ WHERE name = $1;
 -- name: SetHostProfile :one
 UPDATE rookery.hosts
 SET profile = sqlc.arg('profile'),
-    type = sqlc.arg('type'),
     updated_at = now()
 WHERE name = sqlc.arg('name')
 RETURNING *;
+
+-- name: SetHostType :exec
+UPDATE rookery.hosts
+SET type = sqlc.arg('type'),
+    updated_at = now()
+WHERE name = sqlc.arg('name');
 
 -- name: SetHostApplied :one
 UPDATE rookery.hosts

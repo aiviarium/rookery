@@ -17,6 +17,7 @@ import (
 	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
 	"github.com/aiviarium/rookery/gen/go/rookery/v1/rookeryv1connect"
 	"github.com/aiviarium/rookery/internal/access"
+	"github.com/aiviarium/rookery/internal/apply"
 	"github.com/aiviarium/rookery/internal/audit"
 	"github.com/aiviarium/rookery/internal/authn"
 	"github.com/aiviarium/rookery/internal/blobs"
@@ -180,6 +181,13 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	hostService.SetLinks(hostLinks)
 	hostRuntime := hosts.NewRuntime(hostService)
 	if err := registry.Handle("host.contact", hostService.ContactHandler()); err != nil {
+		return nil, err
+	}
+
+	if err := hostService.RegisterOperations(hostRuntime, registry, hosts.OperationOptions{
+		Apply:      &apply.Runner{StateDir: s.config.StateDir, Socket: s.config.Socket},
+		ReleaseDir: s.config.ReleaseDir, Plugins: installer, Secrets: secrets, Connections: connections,
+	}); err != nil {
 		return nil, err
 	}
 

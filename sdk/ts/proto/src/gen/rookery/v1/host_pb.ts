@@ -8,6 +8,10 @@ import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobu
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
+import type { Action } from "../host/v1/actions_pb.js";
+import { file_rookery_host_v1_actions } from "../host/v1/actions_pb.js";
+import type { Terminal } from "./terminal_pb.js";
+import { file_rookery_v1_terminal } from "./terminal_pb.js";
 import { file_rookery_v1_access } from "./access_pb.js";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -15,7 +19,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file rookery/v1/host.proto.
  */
 export const file_rookery_v1_host: GenFile = /*@__PURE__*/
-  fileDesc("ChVyb29rZXJ5L3YxL2hvc3QucHJvdG8SCnJvb2tlcnkudjEiQwoHRGVza3RvcBIMCgR1c2VyGAEgASgJEg0KBXdpZHRoGAIgASgFEg4KBmhlaWdodBgDIAEoBRILCgNncHUYBCABKAgiPQoHRmVhdHVyZRIOCgZwbHVnaW4YASABKAkSDwoHZmVhdHVyZRgCIAEoCRIRCgl2YXJzX2Nib3IYAyABKAwi+QEKC0hvc3RQcm9maWxlEiIKBHR5cGUYASABKA4yFC5yb29rZXJ5LnYxLkhvc3RUeXBlEg8KB2FkZHJlc3MYAiABKAkSDAoEcG9ydBgDIAEoBRIQCghzc2hfdXNlchgEIAEoCRIQCghvcGVyYXRvchgFIAEoCRIkCgdkZXNrdG9wGAYgASgLMhMucm9va2VyeS52MS5EZXNrdG9wEg8KB3RhaWxuZXQYByABKAgSEgoKcmVnaXN0cmllcxgIIAMoCRIlCghmZWF0dXJlcxgJIAMoCzITLnJvb2tlcnkudjEuRmVhdHVyZRIRCgl2YXJzX2Nib3IYCiABKAwizgMKBEhvc3QSDAoEbmFtZRgBIAEoCRIiCgR0eXBlGAIgASgOMhQucm9va2VyeS52MS5Ib3N0VHlwZRIoCgdwcm9maWxlGAMgASgLMhcucm9va2VyeS52MS5Ib3N0UHJvZmlsZRIPCgdhZGRyZXNzGAQgASgJEhYKDmFwcGxpZWRfZGlnZXN0GAUgASgJEg4KBmRpZ2VzdBgGIAEoCRIuCgphcHBsaWVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgxsYXN0X3NlZW5fYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhIKCmNyZWF0ZWRfYnkYCSABKAkSLgoKY3JlYXRlZF9hdBgKIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgLIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLAoGbGFiZWxzGAwgAygLMhwucm9va2VyeS52MS5Ib3N0LkxhYmVsc0VudHJ5Gi0KC0xhYmVsc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiPwoKQ3JlZGVudGlhbBISCghwYXNzd29yZBgBIAEoCUgAEhUKC3ByaXZhdGVfa2V5GAIgASgMSABCBgoEa2luZCKjAQoWSG9zdFNlcnZpY2VMaXN0UmVxdWVzdBI8CgVsYWJlbBgBIAMoCzItLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VMaXN0UmVxdWVzdC5MYWJlbEVudHJ5Eg0KBWxpbWl0GAIgASgFEg4KBmN1cnNvchgDIAEoCRosCgpMYWJlbEVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiTwoXSG9zdFNlcnZpY2VMaXN0UmVzcG9uc2USHwoFaG9zdHMYASADKAsyEC5yb29rZXJ5LnYxLkhvc3QSEwoLbmV4dF9jdXJzb3IYAiABKAkiJQoVSG9zdFNlcnZpY2VHZXRSZXF1ZXN0EgwKBG5hbWUYASABKAkiOAoWSG9zdFNlcnZpY2VHZXRSZXNwb25zZRIeCgRob3N0GAEgASgLMhAucm9va2VyeS52MS5Ib3N0IhkKF0hvc3RTZXJ2aWNlV2F0Y2hSZXF1ZXN0IksKGEhvc3RTZXJ2aWNlV2F0Y2hSZXNwb25zZRIfCgVob3N0cxgBIAMoCzIQLnJvb2tlcnkudjEuSG9zdBIOCgZjaGFuZ2UYAiABKAkiogEKFUhvc3RTZXJ2aWNlQWRkUmVxdWVzdBIMCgRuYW1lGAEgASgJEg8KB2FkZHJlc3MYAiABKAkSIgoEdHlwZRgDIAEoDjIULnJvb2tlcnkudjEuSG9zdFR5cGUSDAoEdXNlchgEIAEoCRIMCgRwb3J0GAUgASgFEioKCmNyZWRlbnRpYWwYBiABKAsyFi5yb29rZXJ5LnYxLkNyZWRlbnRpYWwiTwoWSG9zdFNlcnZpY2VBZGRSZXNwb25zZRIeCgRob3N0GAEgASgLMhAucm9va2VyeS52MS5Ib3N0EhUKDWZpcnN0X2NvbnRhY3QYAiABKAkiKAoYSG9zdFNlcnZpY2VSZW1vdmVSZXF1ZXN0EgwKBG5hbWUYASABKAkiGwoZSG9zdFNlcnZpY2VSZW1vdmVSZXNwb25zZSI6ChhIb3N0U2VydmljZVJlbmFtZVJlcXVlc3QSDAoEbmFtZRgBIAEoCRIQCghuZXdfbmFtZRgCIAEoCSI7ChlIb3N0U2VydmljZVJlbmFtZVJlc3BvbnNlEh4KBGhvc3QYASABKAsyEC5yb29rZXJ5LnYxLkhvc3QiVgocSG9zdFNlcnZpY2VTZXRQcm9maWxlUmVxdWVzdBIMCgRuYW1lGAEgASgJEigKB3Byb2ZpbGUYAiABKAsyFy5yb29rZXJ5LnYxLkhvc3RQcm9maWxlIj8KHUhvc3RTZXJ2aWNlU2V0UHJvZmlsZVJlc3BvbnNlEh4KBGhvc3QYASABKAsyEC5yb29rZXJ5LnYxLkhvc3QipgEKG0hvc3RTZXJ2aWNlU2V0TGFiZWxzUmVxdWVzdBIMCgRuYW1lGAEgASgJEj0KA3NldBgCIAMoCzIwLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VTZXRMYWJlbHNSZXF1ZXN0LlNldEVudHJ5Eg4KBnJlbW92ZRgDIAMoCRoqCghTZXRFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIj4KHEhvc3RTZXJ2aWNlU2V0TGFiZWxzUmVzcG9uc2USHgoEaG9zdBgBIAEoCzIQLnJvb2tlcnkudjEuSG9zdCJTChdIb3N0U2VydmljZUNoZWNrUmVxdWVzdBIMCgRuYW1lGAEgASgJEioKCmNhcGFiaWxpdHkYAiABKA4yFi5yb29rZXJ5LnYxLkNhcGFiaWxpdHkiXwoYSG9zdFNlcnZpY2VDaGVja1Jlc3BvbnNlEg8KB2FsbG93ZWQYASABKAgSIgoEdHlwZRgCIAEoDjIULnJvb2tlcnkudjEuSG9zdFR5cGUSDgoGcmVhc29uGAMgASgJKmoKCEhvc3RUeXBlEhkKFUhPU1RfVFlQRV9VTlNQRUNJRklFRBAAEhEKDUhPU1RfVFlQRV9TU0gQARIVChFIT1NUX1RZUEVfTUFOQUdFRBACEhkKFUhPU1RfVFlQRV9XT1JLU1RBVElPThADKv4BCgpDYXBhYmlsaXR5EhoKFkNBUEFCSUxJVFlfVU5TUEVDSUZJRUQQABITCg9DQVBBQklMSVRZX0VYRUMQARIXChNDQVBBQklMSVRZX1RFUk1JTkFMEAISFAoQQ0FQQUJJTElUWV9GSUxFUxADEhQKEENBUEFCSUxJVFlfUE9SVFMQBBIWChJDQVBBQklMSVRZX0RFU0tUT1AQBRIWChJDQVBBQklMSVRZX0NIQU5ORUwQBhIcChhDQVBBQklMSVRZX0hPU1RfU0VSVklDRVMQBxIWChJDQVBBQklMSVRZX0FDVElPTlMQCBIUChBDQVBBQklMSVRZX0FQUExZEAkygQcKC0hvc3RTZXJ2aWNlElcKBExpc3QSIi5yb29rZXJ5LnYxLkhvc3RTZXJ2aWNlTGlzdFJlcXVlc3QaIy5yb29rZXJ5LnYxLkhvc3RTZXJ2aWNlTGlzdFJlc3BvbnNlIgaKtRgCCAESWgoDR2V0EiEucm9va2VyeS52MS5Ib3N0U2VydmljZUdldFJlcXVlc3QaIi5yb29rZXJ5LnYxLkhvc3RTZXJ2aWNlR2V0UmVzcG9uc2UiDIq1GAgIARIEbmFtZRJcCgVXYXRjaBIjLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VXYXRjaFJlcXVlc3QaJC5yb29rZXJ5LnYxLkhvc3RTZXJ2aWNlV2F0Y2hSZXNwb25zZSIGirUYAggBMAESVAoDQWRkEiEucm9va2VyeS52MS5Ib3N0U2VydmljZUFkZFJlcXVlc3QaIi5yb29rZXJ5LnYxLkhvc3RTZXJ2aWNlQWRkUmVzcG9uc2UiBoq1GAIIAxJjCgZSZW1vdmUSJC5yb29rZXJ5LnYxLkhvc3RTZXJ2aWNlUmVtb3ZlUmVxdWVzdBolLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VSZW1vdmVSZXNwb25zZSIMirUYCAgDEgRuYW1lEmMKBlJlbmFtZRIkLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VSZW5hbWVSZXF1ZXN0GiUucm9va2VyeS52MS5Ib3N0U2VydmljZVJlbmFtZVJlc3BvbnNlIgyKtRgICAMSBG5hbWUSbwoKU2V0UHJvZmlsZRIoLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VTZXRQcm9maWxlUmVxdWVzdBopLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VTZXRQcm9maWxlUmVzcG9uc2UiDIq1GAgIAxIEbmFtZRJsCglTZXRMYWJlbHMSJy5yb29rZXJ5LnYxLkhvc3RTZXJ2aWNlU2V0TGFiZWxzUmVxdWVzdBooLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VTZXRMYWJlbHNSZXNwb25zZSIMirUYCAgDEgRuYW1lEmAKBUNoZWNrEiMucm9va2VyeS52MS5Ib3N0U2VydmljZUNoZWNrUmVxdWVzdBokLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VDaGVja1Jlc3BvbnNlIgyKtRgICAESBG5hbWVCOlo4Z2l0aHViLmNvbS9haXZpYXJpdW0vcm9va2VyeS9nZW4vZ28vcm9va2VyeS92MTtyb29rZXJ5djFiBnByb3RvMw", [file_google_protobuf_timestamp, file_rookery_v1_access]);
+  fileDesc("ChVyb29rZXJ5L3YxL2hvc3QucHJvdG8SCnJvb2tlcnkudjEiQwoHRGVza3RvcBIMCgR1c2VyGAEgASgJEg0KBXdpZHRoGAIgASgFEg4KBmhlaWdodBgDIAEoBRILCgNncHUYBCABKAgiPQoHRmVhdHVyZRIOCgZwbHVnaW4YASABKAkSDwoHZmVhdHVyZRgCIAEoCRIRCgl2YXJzX2Nib3IYAyABKAwi+QEKC0hvc3RQcm9maWxlEiIKBHR5cGUYASABKA4yFC5yb29rZXJ5LnYxLkhvc3RUeXBlEg8KB2FkZHJlc3MYAiABKAkSDAoEcG9ydBgDIAEoBRIQCghzc2hfdXNlchgEIAEoCRIQCghvcGVyYXRvchgFIAEoCRIkCgdkZXNrdG9wGAYgASgLMhMucm9va2VyeS52MS5EZXNrdG9wEg8KB3RhaWxuZXQYByABKAgSEgoKcmVnaXN0cmllcxgIIAMoCRIlCghmZWF0dXJlcxgJIAMoCzITLnJvb2tlcnkudjEuRmVhdHVyZRIRCgl2YXJzX2Nib3IYCiABKAwizgMKBEhvc3QSDAoEbmFtZRgBIAEoCRIiCgR0eXBlGAIgASgOMhQucm9va2VyeS52MS5Ib3N0VHlwZRIoCgdwcm9maWxlGAMgASgLMhcucm9va2VyeS52MS5Ib3N0UHJvZmlsZRIPCgdhZGRyZXNzGAQgASgJEhYKDmFwcGxpZWRfZGlnZXN0GAUgASgJEg4KBmRpZ2VzdBgGIAEoCRIuCgphcHBsaWVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgxsYXN0X3NlZW5fYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhIKCmNyZWF0ZWRfYnkYCSABKAkSLgoKY3JlYXRlZF9hdBgKIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgLIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLAoGbGFiZWxzGAwgAygLMhwucm9va2VyeS52MS5Ib3N0LkxhYmVsc0VudHJ5Gi0KC0xhYmVsc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiPwoKQ3JlZGVudGlhbBISCghwYXNzd29yZBgBIAEoCUgAEhUKC3ByaXZhdGVfa2V5GAIgASgMSABCBgoEa2luZCKjAQoWSG9zdFNlcnZpY2VMaXN0UmVxdWVzdBI8CgVsYWJlbBgBIAMoCzItLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VMaXN0UmVxdWVzdC5MYWJlbEVudHJ5Eg0KBWxpbWl0GAIgASgFEg4KBmN1cnNvchgDIAEoCRosCgpMYWJlbEVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiTwoXSG9zdFNlcnZpY2VMaXN0UmVzcG9uc2USHwoFaG9zdHMYASADKAsyEC5yb29rZXJ5LnYxLkhvc3QSEwoLbmV4dF9jdXJzb3IYAiABKAkiJQoVSG9zdFNlcnZpY2VHZXRSZXF1ZXN0EgwKBG5hbWUYASABKAkiOAoWSG9zdFNlcnZpY2VHZXRSZXNwb25zZRIeCgRob3N0GAEgASgLMhAucm9va2VyeS52MS5Ib3N0IhkKF0hvc3RTZXJ2aWNlV2F0Y2hSZXF1ZXN0IksKGEhvc3RTZXJ2aWNlV2F0Y2hSZXNwb25zZRIfCgVob3N0cxgBIAMoCzIQLnJvb2tlcnkudjEuSG9zdBIOCgZjaGFuZ2UYAiABKAkiogEKFUhvc3RTZXJ2aWNlQWRkUmVxdWVzdBIMCgRuYW1lGAEgASgJEg8KB2FkZHJlc3MYAiABKAkSIgoEdHlwZRgDIAEoDjIULnJvb2tlcnkudjEuSG9zdFR5cGUSDAoEdXNlchgEIAEoCRIMCgRwb3J0GAUgASgFEioKCmNyZWRlbnRpYWwYBiABKAsyFi5yb29rZXJ5LnYxLkNyZWRlbnRpYWwiTwoWSG9zdFNlcnZpY2VBZGRSZXNwb25zZRIeCgRob3N0GAEgASgLMhAucm9va2VyeS52MS5Ib3N0EhUKDWZpcnN0X2NvbnRhY3QYAiABKAkiKAoYSG9zdFNlcnZpY2VSZW1vdmVSZXF1ZXN0EgwKBG5hbWUYASABKAkiGwoZSG9zdFNlcnZpY2VSZW1vdmVSZXNwb25zZSI6ChhIb3N0U2VydmljZVJlbmFtZVJlcXVlc3QSDAoEbmFtZRgBIAEoCRIQCghuZXdfbmFtZRgCIAEoCSI7ChlIb3N0U2VydmljZVJlbmFtZVJlc3BvbnNlEh4KBGhvc3QYASABKAsyEC5yb29rZXJ5LnYxLkhvc3QiVgocSG9zdFNlcnZpY2VTZXRQcm9maWxlUmVxdWVzdBIMCgRuYW1lGAEgASgJEigKB3Byb2ZpbGUYAiABKAsyFy5yb29rZXJ5LnYxLkhvc3RQcm9maWxlIj8KHUhvc3RTZXJ2aWNlU2V0UHJvZmlsZVJlc3BvbnNlEh4KBGhvc3QYASABKAsyEC5yb29rZXJ5LnYxLkhvc3QipgEKG0hvc3RTZXJ2aWNlU2V0TGFiZWxzUmVxdWVzdBIMCgRuYW1lGAEgASgJEj0KA3NldBgCIAMoCzIwLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VTZXRMYWJlbHNSZXF1ZXN0LlNldEVudHJ5Eg4KBnJlbW92ZRgDIAMoCRoqCghTZXRFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIj4KHEhvc3RTZXJ2aWNlU2V0TGFiZWxzUmVzcG9uc2USHgoEaG9zdBgBIAEoCzIQLnJvb2tlcnkudjEuSG9zdCJTChdIb3N0U2VydmljZUNoZWNrUmVxdWVzdBIMCgRuYW1lGAEgASgJEioKCmNhcGFiaWxpdHkYAiABKA4yFi5yb29rZXJ5LnYxLkNhcGFiaWxpdHkiXwoYSG9zdFNlcnZpY2VDaGVja1Jlc3BvbnNlEg8KB2FsbG93ZWQYASABKAgSIgoEdHlwZRgCIAEoDjIULnJvb2tlcnkudjEuSG9zdFR5cGUSDgoGcmVhc29uGAMgASgJIicKF0hvc3RTZXJ2aWNlQXBwbHlSZXF1ZXN0EgwKBG5hbWUYASABKAkiJwoYSG9zdFNlcnZpY2VBcHBseVJlc3BvbnNlEgsKA2pvYhgBIAEoCSItCh1Ib3N0U2VydmljZUxpc3RBY3Rpb25zUmVxdWVzdBIMCgRuYW1lGAEgASgJIkoKHkhvc3RTZXJ2aWNlTGlzdEFjdGlvbnNSZXNwb25zZRIoCgdhY3Rpb25zGAEgAygLMhcucm9va2VyeS5ob3N0LnYxLkFjdGlvbiJOChtIb3N0U2VydmljZVJ1bkFjdGlvblJlcXVlc3QSDAoEbmFtZRgBIAEoCRIOCgZhY3Rpb24YAiABKAkSEQoJYXJnc19jYm9yGAMgASgMImQKHEhvc3RTZXJ2aWNlUnVuQWN0aW9uUmVzcG9uc2USDQoDam9iGAEgASgJSAASKAoIdGVybWluYWwYAiABKAsyFC5yb29rZXJ5LnYxLlRlcm1pbmFsSABCCwoJZXhlY3V0aW9uKmoKCEhvc3RUeXBlEhkKFUhPU1RfVFlQRV9VTlNQRUNJRklFRBAAEhEKDUhPU1RfVFlQRV9TU0gQARIVChFIT1NUX1RZUEVfTUFOQUdFRBACEhkKFUhPU1RfVFlQRV9XT1JLU1RBVElPThADKv4BCgpDYXBhYmlsaXR5EhoKFkNBUEFCSUxJVFlfVU5TUEVDSUZJRUQQABITCg9DQVBBQklMSVRZX0VYRUMQARIXChNDQVBBQklMSVRZX1RFUk1JTkFMEAISFAoQQ0FQQUJJTElUWV9GSUxFUxADEhQKEENBUEFCSUxJVFlfUE9SVFMQBBIWChJDQVBBQklMSVRZX0RFU0tUT1AQBRIWChJDQVBBQklMSVRZX0NIQU5ORUwQBhIcChhDQVBBQklMSVRZX0hPU1RfU0VSVklDRVMQBxIWChJDQVBBQklMSVRZX0FDVElPTlMQCBIUChBDQVBBQklMSVRZX0FQUExZEAkyxQkKC0hvc3RTZXJ2aWNlElcKBExpc3QSIi5yb29rZXJ5LnYxLkhvc3RTZXJ2aWNlTGlzdFJlcXVlc3QaIy5yb29rZXJ5LnYxLkhvc3RTZXJ2aWNlTGlzdFJlc3BvbnNlIgaKtRgCCAESWgoDR2V0EiEucm9va2VyeS52MS5Ib3N0U2VydmljZUdldFJlcXVlc3QaIi5yb29rZXJ5LnYxLkhvc3RTZXJ2aWNlR2V0UmVzcG9uc2UiDIq1GAgIARIEbmFtZRJcCgVXYXRjaBIjLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VXYXRjaFJlcXVlc3QaJC5yb29rZXJ5LnYxLkhvc3RTZXJ2aWNlV2F0Y2hSZXNwb25zZSIGirUYAggBMAESVAoDQWRkEiEucm9va2VyeS52MS5Ib3N0U2VydmljZUFkZFJlcXVlc3QaIi5yb29rZXJ5LnYxLkhvc3RTZXJ2aWNlQWRkUmVzcG9uc2UiBoq1GAIIAxJjCgZSZW1vdmUSJC5yb29rZXJ5LnYxLkhvc3RTZXJ2aWNlUmVtb3ZlUmVxdWVzdBolLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VSZW1vdmVSZXNwb25zZSIMirUYCAgDEgRuYW1lEmMKBlJlbmFtZRIkLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VSZW5hbWVSZXF1ZXN0GiUucm9va2VyeS52MS5Ib3N0U2VydmljZVJlbmFtZVJlc3BvbnNlIgyKtRgICAMSBG5hbWUSbwoKU2V0UHJvZmlsZRIoLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VTZXRQcm9maWxlUmVxdWVzdBopLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VTZXRQcm9maWxlUmVzcG9uc2UiDIq1GAgIAxIEbmFtZRJsCglTZXRMYWJlbHMSJy5yb29rZXJ5LnYxLkhvc3RTZXJ2aWNlU2V0TGFiZWxzUmVxdWVzdBooLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VTZXRMYWJlbHNSZXNwb25zZSIMirUYCAgDEgRuYW1lEmAKBUFwcGx5EiMucm9va2VyeS52MS5Ib3N0U2VydmljZUFwcGx5UmVxdWVzdBokLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VBcHBseVJlc3BvbnNlIgyKtRgICAMSBG5hbWUScgoLTGlzdEFjdGlvbnMSKS5yb29rZXJ5LnYxLkhvc3RTZXJ2aWNlTGlzdEFjdGlvbnNSZXF1ZXN0Gioucm9va2VyeS52MS5Ib3N0U2VydmljZUxpc3RBY3Rpb25zUmVzcG9uc2UiDIq1GAgIARIEbmFtZRJsCglSdW5BY3Rpb24SJy5yb29rZXJ5LnYxLkhvc3RTZXJ2aWNlUnVuQWN0aW9uUmVxdWVzdBooLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VSdW5BY3Rpb25SZXNwb25zZSIMirUYCAgDEgRuYW1lEmAKBUNoZWNrEiMucm9va2VyeS52MS5Ib3N0U2VydmljZUNoZWNrUmVxdWVzdBokLnJvb2tlcnkudjEuSG9zdFNlcnZpY2VDaGVja1Jlc3BvbnNlIgyKtRgICAESBG5hbWVCOlo4Z2l0aHViLmNvbS9haXZpYXJpdW0vcm9va2VyeS9nZW4vZ28vcm9va2VyeS92MTtyb29rZXJ5djFiBnByb3RvMw", [file_google_protobuf_timestamp, file_rookery_host_v1_actions, file_rookery_v1_terminal, file_rookery_v1_access]);
 
 /**
  * Desktop is a workstation's desktop: one shared virtual session for one user.
@@ -698,6 +702,130 @@ export const HostServiceCheckResponseSchema: GenMessage<HostServiceCheckResponse
   messageDesc(file_rookery_v1_host, 22);
 
 /**
+ * @generated from message rookery.v1.HostServiceApplyRequest
+ */
+export type HostServiceApplyRequest = Message<"rookery.v1.HostServiceApplyRequest"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+};
+
+/**
+ * Describes the message rookery.v1.HostServiceApplyRequest.
+ * Use `create(HostServiceApplyRequestSchema)` to create a new message.
+ */
+export const HostServiceApplyRequestSchema: GenMessage<HostServiceApplyRequest> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_host, 23);
+
+/**
+ * @generated from message rookery.v1.HostServiceApplyResponse
+ */
+export type HostServiceApplyResponse = Message<"rookery.v1.HostServiceApplyResponse"> & {
+  /**
+   * @generated from field: string job = 1;
+   */
+  job: string;
+};
+
+/**
+ * Describes the message rookery.v1.HostServiceApplyResponse.
+ * Use `create(HostServiceApplyResponseSchema)` to create a new message.
+ */
+export const HostServiceApplyResponseSchema: GenMessage<HostServiceApplyResponse> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_host, 24);
+
+/**
+ * @generated from message rookery.v1.HostServiceListActionsRequest
+ */
+export type HostServiceListActionsRequest = Message<"rookery.v1.HostServiceListActionsRequest"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+};
+
+/**
+ * Describes the message rookery.v1.HostServiceListActionsRequest.
+ * Use `create(HostServiceListActionsRequestSchema)` to create a new message.
+ */
+export const HostServiceListActionsRequestSchema: GenMessage<HostServiceListActionsRequest> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_host, 25);
+
+/**
+ * @generated from message rookery.v1.HostServiceListActionsResponse
+ */
+export type HostServiceListActionsResponse = Message<"rookery.v1.HostServiceListActionsResponse"> & {
+  /**
+   * @generated from field: repeated rookery.host.v1.Action actions = 1;
+   */
+  actions: Action[];
+};
+
+/**
+ * Describes the message rookery.v1.HostServiceListActionsResponse.
+ * Use `create(HostServiceListActionsResponseSchema)` to create a new message.
+ */
+export const HostServiceListActionsResponseSchema: GenMessage<HostServiceListActionsResponse> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_host, 26);
+
+/**
+ * @generated from message rookery.v1.HostServiceRunActionRequest
+ */
+export type HostServiceRunActionRequest = Message<"rookery.v1.HostServiceRunActionRequest"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string action = 2;
+   */
+  action: string;
+
+  /**
+   * @generated from field: bytes args_cbor = 3;
+   */
+  argsCbor: Uint8Array;
+};
+
+/**
+ * Describes the message rookery.v1.HostServiceRunActionRequest.
+ * Use `create(HostServiceRunActionRequestSchema)` to create a new message.
+ */
+export const HostServiceRunActionRequestSchema: GenMessage<HostServiceRunActionRequest> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_host, 27);
+
+/**
+ * @generated from message rookery.v1.HostServiceRunActionResponse
+ */
+export type HostServiceRunActionResponse = Message<"rookery.v1.HostServiceRunActionResponse"> & {
+  /**
+   * @generated from oneof rookery.v1.HostServiceRunActionResponse.execution
+   */
+  execution: {
+    /**
+     * @generated from field: string job = 1;
+     */
+    value: string;
+    case: "job";
+  } | {
+    /**
+     * @generated from field: rookery.v1.Terminal terminal = 2;
+     */
+    value: Terminal;
+    case: "terminal";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message rookery.v1.HostServiceRunActionResponse.
+ * Use `create(HostServiceRunActionResponseSchema)` to create a new message.
+ */
+export const HostServiceRunActionResponseSchema: GenMessage<HostServiceRunActionResponse> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_host, 28);
+
+/**
  * HostType is what a host can do, from the least to the most.
  *
  * @generated from enum rookery.v1.HostType
@@ -869,6 +997,30 @@ export const HostService: GenService<{
     methodKind: "unary";
     input: typeof HostServiceSetLabelsRequestSchema;
     output: typeof HostServiceSetLabelsResponseSchema;
+  },
+  /**
+   * @generated from rpc rookery.v1.HostService.Apply
+   */
+  apply: {
+    methodKind: "unary";
+    input: typeof HostServiceApplyRequestSchema;
+    output: typeof HostServiceApplyResponseSchema;
+  },
+  /**
+   * @generated from rpc rookery.v1.HostService.ListActions
+   */
+  listActions: {
+    methodKind: "unary";
+    input: typeof HostServiceListActionsRequestSchema;
+    output: typeof HostServiceListActionsResponseSchema;
+  },
+  /**
+   * @generated from rpc rookery.v1.HostService.RunAction
+   */
+  runAction: {
+    methodKind: "unary";
+    input: typeof HostServiceRunActionRequestSchema;
+    output: typeof HostServiceRunActionResponseSchema;
   },
   /**
    * @generated from rpc rookery.v1.HostService.Check

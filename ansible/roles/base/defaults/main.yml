@@ -10,6 +10,7 @@
 # the key ring's public key, one key to a line, and may use sudo without a
 # password.
 base_operator: ops
+base_standard_user: dev
 base_operator_key: ""
 base_operator_passwordless_sudo: true
 
@@ -31,7 +32,7 @@ base_tailnet_timeout: 3m
 base_tailnet_hostname: ""
 
 # rookeryd and box. The apply passes the built binaries' paths, and the actions
-# rookeryd offers: a list of {name, label, user, onHost, run, args}.
+# rookeryd offers: a list of {name, label, user, command, arguments}.
 base_rookeryd_path: ""
 base_box_path: ""
 base_actions: []

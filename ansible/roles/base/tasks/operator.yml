@@ -56,3 +56,12 @@
     path: /etc/sudoers.d/90-rookery-operator
     state: absent
   when: not base_operator_passwordless_sudo | bool
+
+
+- name: Create the unprivileged host account
+  ansible.builtin.user:
+    name: "{{ base_standard_user }}"
+    shell: /bin/bash
+    create_home: true
+    state: present
+  when: base_standard_user != base_operator

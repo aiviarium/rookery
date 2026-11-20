@@ -24,6 +24,10 @@ var varName = regexp.MustCompile(`^base_[a-z0-9_]+$`)
 var reserved = []string{
 	"base_actions",
 	"base_box_path",
+	"base_operator",
+	"base_ssh_port",
+	"base_standard_user",
+	"base_tailnet",
 	"base_operator_key",
 	"base_registries",
 	"base_rookeryd_path",
@@ -65,11 +69,32 @@ func (r *Runner) vars(req Request) (map[string]any, error) {
 	if port == 0 {
 		port = profile.DefaultPort
 	}
+	user := profile.DefaultDesktopUser
+	if desktop := req.Profile.Desktop; desktop != nil {
+		user = desktop.User
+		if user == "" {
+			user = profile.DefaultDesktopUser
+		}
+		vars["desktop_user"] = user
+		width, height := desktop.Width, desktop.Height
+		if width == 0 {
+			width = profile.DefaultWidth
+		}
+		if height == 0 {
+			height = profile.DefaultHeight
+		}
+		vars["desktop_geometry"] = fmt.Sprintf("%dx%d", width, height)
+		vars["desktop_gpu"] = desktop.GPU
+	}
+	vars["base_standard_user"] = user
 	vars["base_operator"] = operator
 	vars["base_ssh_port"] = port
 	vars["base_operator_key"] = key
 	vars["base_tailnet"] = req.Profile.Tailnet
 	vars["base_tailnet_auth_key"] = req.AuthKey
+	if req.LoginServer != "" {
+		vars["base_tailnet_login_server"] = req.LoginServer
+	}
 	vars["base_rookeryd_path"] = req.Binaries.Rookeryd
 	vars["base_box_path"] = req.Binaries.Box
 	vars["base_actions"] = req.Actions
@@ -98,10 +123,56 @@ func decodeVars(data []byte, what string) (map[string]any, error) {
 	if err := cborx.Unmarshal(data, &vars); err != nil {
 		return nil, fmt.Errorf("%w: %s: %w", ErrInvalid, what, err)
 	}
-	if vars == nil {
-		vars = map[string]any{}
+	literal := make(map[string]any, len(vars))
+	for name, value := range vars {
+		if hasTemplate(name) {
+			return nil, fmt.Errorf("%w: %s contains a template in a variable name", ErrInvalid, what)
+		}
+		converted, err := literalVariable(value)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s variable %s: %w", ErrInvalid, what, name, err)
+		}
+		literal[name] = converted
 	}
-	return vars, nil
+	return literal, nil
+}
+
+// literalVariable keeps profile inputs as JSON data. Ansible may interpret
+// templates in extra vars on the controller, where a host manager has no shell.
+func literalVariable(value any) (any, error) {
+	switch value := value.(type) {
+	case string:
+		if hasTemplate(value) {
+			return nil, fmt.Errorf("profile variables cannot contain Ansible templates")
+		}
+	case []any:
+		for i, item := range value {
+			literal, err := literalVariable(item)
+			if err != nil {
+				return nil, err
+			}
+			value[i] = literal
+		}
+	case map[any]any:
+		object := make(map[string]any, len(value))
+		for key, item := range value {
+			name, ok := key.(string)
+			if !ok || hasTemplate(name) {
+				return nil, fmt.Errorf("object keys must be literal strings")
+			}
+			literal, err := literalVariable(item)
+			if err != nil {
+				return nil, err
+			}
+			object[name] = literal
+		}
+		return object, nil
+	}
+	return value, nil
+}
+
+func hasTemplate(value string) bool {
+	return strings.Contains(value, "{{") || strings.Contains(value, "{%") || strings.Contains(value, "{#")
 }
 
 // publicKeyLine is the operator's authorized_keys line: the key ring's public

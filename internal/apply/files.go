@@ -90,11 +90,30 @@ func (r *Runner) writeRoles(workDir string, features []Feature) error {
 		if _, err := os.Lstat(link); err == nil {
 			return fmt.Errorf("apply: the role %s is both bundled and a feature", feature.Role())
 		}
-		if err := os.Symlink(target, link); err != nil {
+		if err := linkRole(target, link); err != nil {
 			return fmt.Errorf("apply: linking feature %s: %w", feature.Role(), err)
 		}
 	}
 	return nil
+}
+
+func linkRole(target, link string) error {
+	info, err := os.Stat(target)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return os.Symlink(target, link)
+	}
+	tasksDir := filepath.Dir(target)
+	if filepath.Base(tasksDir) == "tasks" && (filepath.Base(target) == "main.yml" || filepath.Base(target) == "main.yaml") {
+		return os.Symlink(filepath.Dir(tasksDir), link)
+	}
+
+	// A manifest may also name standalone tasks. Import them from the
+	// installed path so relative imports resolve next to the source file.
+	wrapper := []byte("---\n- name: Import the feature tasks\n  ansible.builtin.import_tasks: " + quote(target) + "\n")
+	return writeFile(filepath.Join(link, "tasks", "main.yml"), wrapper, 0o644)
 }
 
 // extractRoles writes the roles in content into dir, as the server's user, with
