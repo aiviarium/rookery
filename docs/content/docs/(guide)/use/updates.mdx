@@ -26,7 +26,7 @@ rookery update --check     # is there a newer release?
 rookery update             # download it, check its SHA-256 and replace this program
 ```
 
-`rookery update` takes the same archive as the install script. It offers only full releases, not pre-releases such as `0.4.0-rc.1`, and moves from a pre-release to its release. A container is updated by pulling a newer image. `rookeryd` and `box` travel inside `rookery`. A host gets the new ones when you apply its configuration. `rookery host show` says when its tools are of another version than your Rookery.
+`rookery update` takes the same archive as the install script. It offers only full releases, not pre-releases such as `0.4.0-rc.1`, and moves from a pre-release to its release. A container is updated by pulling a newer image. On Windows, `rookery update` says to run `install.ps1` again, which replaces `rookery.exe` in place. `rookeryd` and `box` travel inside `rookery`. A host gets the new ones when you apply its configuration. `rookery host show` says when its tools are of another version than your Rookery.
 
 A host whose rookeryd is older than Rookery needs is marked `old controller` in `rookery ls`. Its sessions, files and `rookery exec` work, but its actions and port forwarding need a newer rookeryd. The host's page and its actions say what updates it, `rookery apply HOST` or, for a managed host, `rookery run HOST install-controller`. A Rookery that meets a newer rookeryd is out of date: update it. It refuses the profile a newer Rookery left on the host rather than misread it. `rookery update --from URL` takes the releases from a mirror instead, and the setting `releases` keeps one.
 

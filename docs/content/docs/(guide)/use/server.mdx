@@ -282,7 +282,10 @@ Every command calls the server. Each works from another machine as it does on th
 | Writing the USB installer to a drive | The drive is a device of that machine |
 | `rookery registry publish` and `rookery registry push-image` | They upload files of that machine |
 | `rookery server …` and `rookery serve` | They are the server itself |
+| `rookery host inventory` | It reads Ansible's inventory on the machine it runs on |
 | The settings that aren't open to the network | The server keeps them to its own users |
+
+On macOS and Windows, `rookery host inventory` and the server's own commands are not built. Every other command works there as a client ([Not in this version](/docs/reference/not-in-this-version)).
 
 ### Setting the server up from here
 

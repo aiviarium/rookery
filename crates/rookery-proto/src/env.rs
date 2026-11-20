@@ -56,8 +56,8 @@ wire! {
         pub name: String,
         /// `env://<name>`.
         pub uri: String,
-        /// The host's type: `ssh`, `managed`, `node`, `workstation` or `local`.
-        #[cfg_attr(feature = "ts", ts(type = "\"ssh\" | \"managed\" | \"node\" | \"workstation\" | \"local\" | \"connector\" | (string & {})"))]
+        /// The host's type: `ssh`, `managed`, `node` or `workstation`.
+        #[cfg_attr(feature = "ts", ts(type = "\"ssh\" | \"managed\" | \"node\" | \"workstation\" | (string & {})"))]
         pub kind: String,
         pub state: EnvState,
         /// The owner's user id.
