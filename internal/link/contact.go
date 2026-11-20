@@ -1,10 +1,10 @@
 package link
 
 import (
-	"io"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 
