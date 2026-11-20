@@ -4,7 +4,10 @@
   "type": "module",
   "workspaces": [
     "proto",
-    "client"
+    "client",
+    "sdk",
+    "../../testdata/plugins/example-ts",
+    "../../testdata/plugins/shell"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",

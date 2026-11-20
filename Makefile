@@ -116,11 +116,16 @@ ansible:
 	ansible-playbook --syntax-check -i localhost, ansible/desktop.yml
 
 # The TypeScript SDK: its dependencies as the lockfile has them, the workspace
-# type-checked under tsc's strict settings, and the unit tests.
+# type-checked under tsc's strict settings, and the unit tests. The fixture
+# plugins are workspace members, so their halves are type-checked too, and their
+# bundles are built the way an install builds them.
 ts:
 	@if [ -f $(TS_DIR)/package.json ]; then \
 		cd $(TS_DIR) && bun install --frozen-lockfile && bun run typecheck && bun test; \
 	else echo "ts: no $(TS_DIR) yet, skipped"; fi
+	@for plugin in testdata/plugins/example-ts testdata/plugins/shell; do \
+		if [ -f $$plugin/package.json ]; then cd $$plugin && bun run build || exit 1; cd $(CURDIR); fi; \
+	done
 
 # The end-to-end test arrives with item 7.
 e2e:

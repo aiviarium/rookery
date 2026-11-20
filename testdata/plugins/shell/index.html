@@ -1,0 +1,22 @@
+<!doctype html>
+<!--
+  The fixture shell: the page Rookery serves for `/` when the shell plugin is
+  installed. It loads @rookery/client, lists every installed plugin's
+  contributions and mounts a client half's view in the outlet.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rookery</title>
+  </head>
+  <body>
+    <header>
+      <h1>Rookery</h1>
+      <p id="who">Signing in…</p>
+    </header>
+    <nav id="nav"></nav>
+    <main id="outlet"></main>
+    <script type="module" src="./index.js"></script>
+  </body>
+</html>

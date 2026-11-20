@@ -1,0 +1,34 @@
+# The TypeScript fixture: the same manifest as `example`, in the one language a
+# plugin's service can be written in without Go. The core's tests install it to
+# check that a plugin written with `@rookery/sdk` registers and works; the shell
+# fixture loads its client half.
+id: example-ts
+version: 0.1.0
+name: Example TS
+requires: ">=0.1.0"
+
+service:
+  runtime: bun
+  entry: service/main.ts
+  start: lazy
+  rpc:
+    - procedure: examplets.v1.NoteService/Summarize
+      access: { level: view, resource: space }
+
+collections:
+  notes:
+    scope: space
+    access: { read: view, write: use }
+    fields:
+      title: { type: text, required: true }
+      body: { type: text }
+
+jobs: [{ kind: reindex, enqueue: { level: manage, resource: space }, timeout: 10m, retries: 3 }]
+
+events: [example-ts/note.changed]
+
+client: web/
+shell: false
+contributes:
+  views: [{ id: notes, label: Notes, route: /notes }]
+  nav: [{ view: notes, group: Workspace }]

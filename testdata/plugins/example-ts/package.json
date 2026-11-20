@@ -1,0 +1,15 @@
+{
+  "name": "@rookery-fixture/example-ts",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "bun run service/main.ts",
+    "build": "bun build web/main.ts --outfile=web/index.js --format=esm --target=browser"
+  },
+  "dependencies": {
+    "@rookery/client": "workspace:*",
+    "@rookery/proto": "workspace:*",
+    "@rookery/sdk": "workspace:*"
+  }
+}

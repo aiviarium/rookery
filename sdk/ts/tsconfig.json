@@ -8,6 +8,12 @@
     "proto/src",
     "proto/test",
     "client/src",
-    "client/test"
+    "client/test",
+    "sdk/src",
+    "sdk/test",
+    "../../testdata/plugins/example-ts/service",
+    "../../testdata/plugins/example-ts/web",
+    "../../testdata/plugins/shell/web",
+    "../../testdata/plugins/shell/serve.ts"
   ]
 }

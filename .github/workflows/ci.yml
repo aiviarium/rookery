@@ -93,3 +93,24 @@ jobs:
 
       - name: Cross-builds
         run: make cross
+
+  ts:
+    name: ts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('sdk/ts/bun.lock') }}
+
+      # The workspace's dependencies, the type-check, the unit tests and the
+      # fixture plugins' bundles. The fixtures are workspace members, so the
+      # lockfile covers them too.
+      - run: make ts

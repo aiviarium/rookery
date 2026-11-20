@@ -6,9 +6,16 @@
 // everything else follows from the generated service descriptor.
 import {
   AccessService,
+  AuditService,
   AuthService,
+  DataService,
+  EventService,
   GroupService,
+  JobService,
+  NotificationService,
+  ScheduleService,
   SpaceService,
+  TopicService,
   UserService,
 } from "@rookery/proto";
 import {
@@ -37,9 +44,16 @@ import { TerminalSession, type TerminalOptions } from "./terminals.ts";
  */
 export const services = {
   access: AccessService,
+  audit: AuditService,
   auth: AuthService,
+  data: DataService,
+  events: EventService,
   groups: GroupService,
+  jobs: JobService,
+  notifications: NotificationService,
+  schedules: ScheduleService,
   spaces: SpaceService,
+  topics: TopicService,
   users: UserService,
 } as const;
 
