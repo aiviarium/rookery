@@ -180,18 +180,9 @@ const HOST_REQUESTS: &[&str] = &[
     "spaces.create",
     "spaces.rename",
     "users.search",
-    "sql.query",
-    "sql.execute",
-    "sql.begin",
-    "sql.txQuery",
-    "sql.txExecute",
-    "sql.txPublish",
-    "sql.commit",
-    "sql.rollback",
     "blobs.get",
     "blobs.put",
     "blobs.delete",
-    "audit.list",
     "schedules.create",
     "schedules.list",
     "schedules.setEnabled",
@@ -204,6 +195,7 @@ const HOST_REQUESTS: &[&str] = &[
     "access.levelOf",
     "access.require",
     "access.revoke",
+    "audit.list",
     "terminals.list",
     "terminals.get",
     "terminals.screen",
@@ -223,10 +215,9 @@ const HOST_REQUESTS: &[&str] = &[
     "data.txDelete",
 ];
 
-/// The methods a host half may call through `host.data` for one invocation: what a handler does for
-/// the person it serves. A method that is not here stays the plugin's own, such as `entities.register`
-/// or the raw SQL of its schema.
-const HOST_DATA: &[&str] = &[
+/// The methods `host.data` runs as the person the invocation serves. A method outside both lists
+/// stays the plugin's own, such as `entities.register`.
+const HOST_DATA_PERSON: &[&str] = &[
     "data.find",
     "data.scan",
     "data.count",
@@ -270,18 +261,9 @@ const HOST_DATA: &[&str] = &[
     "spaces.create",
     "spaces.rename",
     "users.search",
-    "sql.query",
-    "sql.execute",
-    "sql.begin",
-    "sql.txQuery",
-    "sql.txExecute",
-    "sql.txPublish",
-    "sql.commit",
-    "sql.rollback",
     "blobs.get",
     "blobs.put",
     "blobs.delete",
-    "audit.list",
     "schedules.create",
     "schedules.list",
     "schedules.setEnabled",
@@ -294,6 +276,7 @@ const HOST_DATA: &[&str] = &[
     "access.levelOf",
     "access.require",
     "access.revoke",
+    "audit.list",
     "terminals.list",
     "terminals.get",
     "terminals.screen",
@@ -305,6 +288,20 @@ const HOST_DATA: &[&str] = &[
     "terminals.signal",
     "terminals.sessions",
     "terminals.adopt",
+];
+
+/// The methods `host.data` may run for an invocation that stay the plugin's own whatever person it
+/// serves: its raw SQL, which is its schema, and its audit entry, which is recorded under its id.
+const HOST_DATA_PLUGIN: &[&str] = &[
+    "sql.query",
+    "sql.execute",
+    "sql.begin",
+    "sql.txQuery",
+    "sql.txExecute",
+    "sql.txPublish",
+    "sql.commit",
+    "sql.rollback",
+    "audit.record",
 ];
 
 /// How the server starts the extension host.
@@ -1755,7 +1752,8 @@ async fn host_request(
         "host.data" => {
             let call_id = text("callId")?.to_owned();
             let method = text("method")?.to_owned();
-            if !HOST_DATA.contains(&method.as_str()) {
+            let as_person = HOST_DATA_PERSON.contains(&method.as_str());
+            if !as_person && !HOST_DATA_PLUGIN.contains(&method.as_str()) {
                 return Err(RpcError::forbidden(format!(
                     "{method} is not one a host half calls for an invocation"
                 )));
@@ -1767,7 +1765,10 @@ async fn host_request(
             };
             let mut call = call.clone();
             call.deadline = acting.deadline;
+            // A method that stays the plugin's is on its own list, and a level of its own is a
+            // backstop for one added there by mistake.
             if let Some(user) = acting.user
+                && as_person
                 && call.kernel.methods.level(&method) != Some(Level::Plugin)
             {
                 // The audit log names the person whose level ran the call, and the plugin that did it.

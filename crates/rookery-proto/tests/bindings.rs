@@ -138,6 +138,7 @@ fn typescript_bindings() {
         access::GroupCreate,
         access::Membership,
         access::AuditQuery,
+        access::AuditRecord,
         access::AuditEntry,
         access::AuditList,
         jobs::JobState,

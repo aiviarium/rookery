@@ -211,6 +211,19 @@ wire! {
 }
 
 wire! {
+    /// `audit.record`: a plugin's own action in the log, under its id.
+    pub struct AuditRecord {
+        pub action: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        pub resource: Option<String>,
+        #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(type = "unknown"))]
+        pub details: Value,
+    }
+}
+
+wire! {
     pub struct AuditEntry {
         #[cfg_attr(feature = "ts", ts(type = "number"))]
         pub id: i64,

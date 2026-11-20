@@ -237,16 +237,20 @@ function dataFor(rt: HostRuntime, inv: Invocation | null, space?: string | null)
   const definition = (name: string) => rt.manifest.contributes?.collections?.find((c) => c.name === name)
   return collectionsProxy((name) => createCollection(call, name, definition), {
     refs: createRefs(call),
-    changes: changesFor(rt, call),
+    changes: changesFor(rt, call, inv),
     space: (id: string) => dataFor(rt, inv, id),
   }) as ServiceData
 }
 
-/** `data.subscribe`, one collection at a time, as `data.changed` notifications arrive. */
-function changesFor(rt: HostRuntime, call: Call): Changes {
+/**
+ * A live query over one collection: `data.live` scopes it to the caller, so a handler serving a person
+ * hears only the rows that person may read, and a job hears the plugin's own. The subscription ends
+ * with the invocation, or when the handler disposes it.
+ */
+function changesFor(rt: HostRuntime, call: Call, inv: Invocation | null): Changes {
   return {
     subscribe: async (collection, handler) => {
-      const started = (await call("data.subscribe", { collections: [collection] })) as {
+      const started = (await call("data.live", { collection, query: {} })) as {
         subscription: string
       }
       const at = started.subscription
@@ -260,10 +264,13 @@ function changesFor(rt: HostRuntime, call: Call): Changes {
           seq: change.seq,
         })
       })
-      return disposable(() => {
+      const off = disposable(() => {
         rt.changes.delete(at)
-        call("data.unsubscribe", { subscription: at }).catch(() => {})
+        call("data.unlive", { subscription: at }).catch(() => {})
       })
+      // A feed a handler started does not outlive the call it served.
+      if (inv) rt.track(inv.callId, () => off.dispose())
+      return off
     },
   }
 }
@@ -341,6 +348,8 @@ export class HostRuntime {
   readonly events = new Map<string, (payload: unknown, name: string) => unknown>()
   /** The handlers of `data.subscribe`, by subscription. */
   readonly changes = new Map<string, (change: Change) => unknown>()
+  /** What a handler started for one invocation, run when it ends: its change feeds, above all. */
+  readonly invocations = new Map<string, Array<() => unknown>>()
   readonly disposers: Array<() => unknown> = []
   readonly running = new Map<string, AbortController>()
   active = false
@@ -390,6 +399,12 @@ export class HostRuntime {
     return [...this.handlers.values()].map((h) => this.registration(h))
   }
 
+  /** Something a handler started for an invocation, ended when the invocation is. */
+  track(callId: string, off: () => unknown) {
+    const kept = this.invocations.get(callId)
+    if (kept) kept.push(off)
+  }
+
   context(ctx: CallContext, signal: AbortSignal): Ctx {
     const space = ctx.space ?? null
     const inv: Invocation = { callId: ctx.callId, space }
@@ -414,6 +429,7 @@ export class HostRuntime {
       Math.max(0, inv.ctx.deadline - Date.now()),
     )
     this.running.set(inv.ctx.callId, abort)
+    this.invocations.set(inv.ctx.callId, [])
     try {
       if (inv.ctx.deadline <= Date.now()) {
         throw new RookeryError("TIMEOUT", "the call's deadline passed")
@@ -426,6 +442,14 @@ export class HostRuntime {
     } finally {
       clearTimeout(timer)
       this.running.delete(inv.ctx.callId)
+      for (const off of this.invocations.get(inv.ctx.callId) ?? []) {
+        try {
+          await off()
+        } catch (e) {
+          this.transport.log("error", `a call's cleanup failed: ${format([e])}`)
+        }
+      }
+      this.invocations.delete(inv.ctx.callId)
     }
   }
 
@@ -814,42 +838,56 @@ function createApi(rt: HostRuntime): Rookery {
       resolve: (id) => rt.call<ConnectionResolved>("connections.resolve", { id }),
     },
     blobs: {
-      put: (data, opts = {}) =>
-        rt.call("blobs.put", {
+      put: (ctx, data, opts = {}) =>
+        invocationCall(rt, asInvocation(ctx))("blobs.put", {
           data: toBase64(data),
           contentType: opts.contentType ?? "application/octet-stream",
           ...(opts.filename !== undefined ? { name: opts.filename } : {}),
         }) as Promise<BlobInfo>,
-      get: (id) => rt.call("blobs.get", { id }) as Promise<BlobInfo>,
+      get: (ctx, id) => invocationCall(rt, asInvocation(ctx))("blobs.get", { id }) as Promise<BlobInfo>,
       read: () => {
         throw new RookeryError(
           "UNAVAILABLE",
           "rookery.blobs.read needs the server's stream channel to a host half, which this version does not serve",
         )
       },
-      delete: async (id) => {
-        await rt.call("blobs.delete", { id })
+      delete: async (ctx, id) => {
+        await invocationCall(rt, asInvocation(ctx))("blobs.delete", { id })
       },
     },
     audit: {
-      record: () => {
-        throw new RookeryError(
-          "UNAVAILABLE",
-          "rookery.audit.record is not available to host halves in this version of Rookery",
-        )
+      // The plugin's own action, under its id: there is no person to record it for.
+      record: async (entry) => {
+        await rt.call("audit.record", entry)
       },
-      list: async (query = {}) => (await rt.call<{ entries: AuditEntry[] }>("audit.list", query)).entries,
+      list: async (ctx, query = {}) =>
+        (
+          (await invocationCall(rt, asInvocation(ctx))("audit.list", query)) as {
+            entries: AuditEntry[]
+          }
+        ).entries,
     },
     schedules: {
-      create: (params) => rt.call("schedules.create", params) as Promise<ScheduleInfo>,
-      list: async () => (await rt.call<{ schedules: ScheduleInfo[] }>("schedules.list", {})).schedules,
-      setEnabled: (id, enabled) => rt.call("schedules.setEnabled", { id, enabled }) as Promise<ScheduleInfo>,
-      fire: (id, params) =>
-        rt.call("schedules.fire", { id, ...(params !== undefined ? { params } : {}) }) as Promise<{
-          job: string
-        }>,
-      remove: async (id) => {
-        await rt.call("schedules.remove", { id })
+      create: (ctx, params) =>
+        invocationCall(rt, asInvocation(ctx))("schedules.create", params) as Promise<ScheduleInfo>,
+      list: async (ctx) =>
+        (
+          (await invocationCall(rt, asInvocation(ctx))("schedules.list", {})) as {
+            schedules: ScheduleInfo[]
+          }
+        ).schedules,
+      setEnabled: (ctx, id, enabled) =>
+        invocationCall(rt, asInvocation(ctx))("schedules.setEnabled", {
+          id,
+          enabled,
+        }) as Promise<ScheduleInfo>,
+      fire: (ctx, id, params) =>
+        invocationCall(rt, asInvocation(ctx))("schedules.fire", {
+          id,
+          ...(params !== undefined ? { params } : {}),
+        }) as Promise<{ job: string }>,
+      remove: async (ctx, id) => {
+        await invocationCall(rt, asInvocation(ctx))("schedules.remove", { id })
       },
     },
     streams: unavailable("streams"),

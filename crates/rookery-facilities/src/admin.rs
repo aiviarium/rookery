@@ -3,8 +3,8 @@
 use rookery_kernel::{Call, Empty, Level, Methods, RpcError};
 use rookery_proto::IdRef;
 use rookery_proto::access::{
-    AuditEntry, AuditList, AuditQuery, GroupCreate, GroupInfo, GroupList, Membership, SetDisabled,
-    SetRole, UserInfo, UserList,
+    AuditEntry, AuditList, AuditQuery, AuditRecord, GroupCreate, GroupInfo, GroupList, Membership,
+    SetDisabled, SetRole, UserInfo, UserList,
 };
 use rookery_store::users::User;
 
@@ -188,4 +188,26 @@ pub fn register(methods: &mut Methods) {
         })
         .summary("The audit log, newest first: who did what to which resource.")
         .level(Level::Admin);
+    methods
+        .add("audit.record", |call: Call, p: AuditRecord| async move {
+            let plugin = call.plugin(None)?;
+            let action = p.action.trim();
+            if action.is_empty() || action.chars().count() > 100 {
+                return Err(RpcError::invalid("an action is 1 to 100 characters"));
+            }
+            // The plugin's own: no plugin writes an entry that looks like the server's or another's.
+            let action = format!("{plugin}/{action}");
+            call.store()
+                .audit()
+                .record(
+                    &call.audit_name(),
+                    &action,
+                    p.resource.as_deref(),
+                    p.details,
+                )
+                .await?;
+            Ok(Empty {})
+        })
+        .summary("Records an action of the plugin that made the call, under its id.")
+        .level(Level::Plugin);
 }

@@ -1270,6 +1270,44 @@
     }
   },
   {
+    "name": "audit.record",
+    "summary": "Records an action of the plugin that made the call, under its id.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`audit.record`: a plugin's own action in the log, under its id.",
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "details": {
+          "default": null
+        },
+        "resource": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "AuditRecord",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
     "name": "auth.createLink",
     "summary": "Makes a one-time sign-in link: a device link for oneself, an invite or a device link for another as admin, the first admin's setup link on the server's own machine.",
     "level": {

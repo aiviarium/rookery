@@ -644,7 +644,24 @@ const NOTES_SERVICE: &str = r#"{"apiVersion": "1", "name": "Notes", "host": "hos
     "jobs": [{"id": "notes.scan", "title": "Scan"}]
   }}"#;
 
-const NOTES_HOST: &str = r#"import { definePlugin } from "@rookery/sdk"
+const NOTES_HOST: &str = r#"import { parentPort } from "node:worker_threads"
+import { RookeryError, definePlugin } from "@rookery/sdk"
+
+let next = -1
+/** A host request straight on the worker port, so a test can name a callId itself. */
+function hostCall(method: string, params: Record<string, unknown>): Promise<any> {
+  const id = next--
+  return new Promise((resolve, reject) => {
+    const result = (message: any) => {
+      if (message.type !== "result" || message.id !== id) return
+      parentPort?.off("message", result)
+      if (message.error) reject(new RookeryError(message.error.code, message.error.message, message.error.details))
+      else resolve(message.result)
+    }
+    parentPort?.on("message", result)
+    parentPort?.postMessage({ type: "call", id, method, params })
+  })
+}
 
 export default definePlugin((rookery) => {
   rookery.services.provide("notes", {
@@ -659,6 +676,16 @@ export default definePlugin((rookery) => {
       const page = await rookery.data.space(space).notes.find({})
       return { rows: page.rows.length }
     },
+  })
+  // A host.data call for this invocation, and one for a callId the test names.
+  rookery.rpc.handle("bind", {
+    level: "own",
+    run: (ctx, p: { method: string; params: Record<string, unknown> }) =>
+      hostCall("host.data", { callId: ctx.callId, method: p.method, params: p.params }),
+  })
+  rookery.rpc.handle("named", {
+    level: "own",
+    run: (_ctx, p: Record<string, unknown>) => hostCall("host.data", p),
   })
 })
 "#;
@@ -749,6 +776,49 @@ async fn a_host_half_reads_for_the_person_it_serves_and_for_itself_in_a_job() {
         notes(&ada, "where", json!({})).await.unwrap(),
         json!({"space": null, "user": "Ada"})
     );
+    // A plugin-only method stays the plugin's, whoever the invocation serves.
+    let admin = k.person("Mira", true).await;
+    assert_eq!(
+        k.call(
+            &ada,
+            "plugins.rpc",
+            rpc(
+                "notes",
+                "bind",
+                json!({"method": "audit.record", "params": {"action": "scan"}})
+            ),
+        )
+        .await
+        .unwrap(),
+        json!({})
+    );
+    let log = k.call(&admin, "audit.list", json!({})).await.unwrap();
+    let entry = log["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["action"] == "notes/scan")
+        .expect("the plugin's action");
+    assert_eq!(entry["principal"], "plugin:notes");
+    // A callId whose invocation has ended is refused.
+    let stale = k
+        .call(
+            &ada,
+            "plugins.rpc",
+            rpc(
+                "notes",
+                "named",
+                json!({
+                    "callId": "01a1f29a-9205-74ff-9584-61b930804b33",
+                    "method": "data.find",
+                    "params": {"collection": "notes"}
+                }),
+            ),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(stale.error_code(), rookery_proto::ErrorCode::NotFound);
+
     // A job runs for the plugin: its own collection is its own, whatever the space's grants are.
     let job = k
         .call(
