@@ -4,11 +4,10 @@
 import { Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { HostType, type Host } from "@rookery/proto";
+import { Button, Callout, Dialog, Select, TextArea, TextField } from "@aiviarium/nocturne";
 
 import { useShell } from "../../../shell.tsx";
-import { Button, Callout, Field, Input, Select, Spinner } from "../../../ui.tsx";
 import { errorMessage } from "../format.ts";
-import { Dialog, TextArea } from "../parts.tsx";
 
 /** CredentialKind is how first contact logs in when the key ring's key is refused. */
 type CredentialKind = "none" | "password" | "key";
@@ -82,70 +81,71 @@ export function AddHost(props: {
           <Button onClick={props.onClose} disabled={busy()}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={() => void submit()} disabled={busy()} data-part="add-host-submit">
-            {busy() ? "Adding…" : "Add host"}
+          <Button variant="primary" loading={busy()} onClick={() => void submit()} data-part="add-host-submit">
+            Add host
           </Button>
         </>
       }
     >
-      <Field label="Name" hint="Lowercase letters, digits and hyphens. Commands and grants name the host by it.">
-        <Input value={name()} placeholder="studio" onInput={setName} />
-      </Field>
-      <Field label="Address" hint="Where Rookery reaches the machine before it joins a tailnet.">
-        <Input value={address()} placeholder="192.0.2.10" onInput={setAddress} />
-      </Field>
-      <Field label="Type">
-        <Select
-          value={type()}
-          options={[
-            { value: String(HostType.SSH), label: "SSH — reached over SSH only, until it is applied" },
-            { value: String(HostType.MANAGED), label: "Managed — rookeryd, box and the tailnet" },
-            { value: String(HostType.WORKSTATION), label: "Workstation — a managed host with a desktop" },
-          ]}
-          onChange={setType}
-        />
-      </Field>
+      <div class="nc-stack">
+      <TextField
+        label="Name"
+        help="Lowercase letters, digits and hyphens. Commands and grants name the host by it."
+        value={name()}
+        placeholder="studio"
+        onInput={event => setName(event.currentTarget.value)}
+      />
+      <TextField
+        label="Address"
+        help="Where Rookery reaches the machine before it joins a tailnet."
+        value={address()}
+        placeholder="192.0.2.10"
+        onInput={event => setAddress(event.currentTarget.value)}
+      />
+      <Select
+        label="Type"
+        value={type()}
+        options={[
+          { value: String(HostType.SSH), label: "SSH — reached over SSH only, until it is applied" },
+          { value: String(HostType.MANAGED), label: "Managed — rookeryd, box and the tailnet" },
+          { value: String(HostType.WORKSTATION), label: "Workstation — a managed host with a desktop" },
+        ]}
+        onChange={setType}
+      />
       <div class="nc-row">
-        <Field label="SSH user">
-          <Input value={user()} onInput={setUser} />
-        </Field>
-        <Field label="Port">
-          <Input value={port()} onInput={setPort} />
-        </Field>
+        <TextField label="SSH user" value={user()} onInput={event => setUser(event.currentTarget.value)} />
+        <TextField label="Port" value={port()} onInput={event => setPort(event.currentTarget.value)} />
       </div>
-      <Field label="First contact">
-        <Select
-          value={kind()}
-          options={[
-            { value: "none", label: "No credential — an apply or a later check contacts it" },
-            { value: "password", label: "A password, used once" },
-            { value: "key", label: "A private key, used once" },
-          ]}
-          onChange={value => setKind(value as CredentialKind)}
-        />
-      </Field>
+      <Select
+        label="First contact"
+        value={kind()}
+        options={[
+          { value: "none", label: "No credential — an apply or a later check contacts it" },
+          { value: "password", label: "A password, used once" },
+          { value: "key", label: "A private key, used once" },
+        ]}
+        onChange={value => setKind(value as CredentialKind)}
+      />
       <Show when={kind() === "password"}>
-        <Field label="Password" hint="Sent once for first contact. The server does not store it.">
-          <Input type="password" value={password()} onInput={setPassword} />
-        </Field>
+        <TextField
+          label="Password"
+          type="password"
+          help="Sent once for first contact. The server does not store it."
+          value={password()}
+          onInput={event => setPassword(event.currentTarget.value)}
+        />
       </Show>
       <Show when={kind() === "key"}>
         <TextArea
           label="Private key"
-          value={key()}
+          help="PEM, unencrypted. Sent once for first contact. The server does not store it."
           rows={5}
-          onInput={setKey}
+          value={key()}
+          onInput={event => setKey(event.currentTarget.value)}
         />
-        <p class="nc-muted">PEM, unencrypted. Sent once for first contact. The server does not store it.</p>
       </Show>
-      <Show when={failure()}>
-        {message => <Callout tone="danger">{message()}</Callout>}
-      </Show>
-      <Show when={busy()}>
-        <span class="nc-row">
-          <Spinner /> Adding the host…
-        </span>
-      </Show>
+      <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
+      </div>
     </Dialog>
   );
 }

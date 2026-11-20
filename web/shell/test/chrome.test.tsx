@@ -44,11 +44,8 @@ describe("the chrome", () => {
     const view = await mount(client);
     try {
       expect(view.text()).toContain("All spaces");
-      await view.click("button.nc-nav-item[aria-haspopup='menu']");
-
-      const analysis = view.findAll(".nc-menu__item").find((item) => item.textContent?.includes("Analysis"));
-      expect(analysis).toBeDefined();
-      await view.clickElement(analysis as HTMLElement);
+      await view.click("[data-part='sidebar-switcher']");
+      await view.pick("Analysis");
 
       expect(client.space()).toBe(A_SPACE.id);
       expect(localStorage.getItem("rookery-space")).toBe(A_SPACE.id);

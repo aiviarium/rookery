@@ -4,10 +4,19 @@ import { For, Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { cbor } from "@rookery/client";
 import { createQuery } from "@rookery/client/solid";
-import type { ConnectionType } from "@rookery/proto";
+import type { Connection, ConnectionType } from "@rookery/proto";
+import {
+  Badge,
+  Button,
+  Callout,
+  Card,
+  DataTable,
+  type DataColumn,
+  Select,
+  TextField,
+} from "@aiviarium/nocturne";
 
 import { useShell } from "../../shell.tsx";
-import { Badge, Button, Callout, Card, Empty, Field, Input, Select, Spinner, Table } from "../../ui.tsx";
 
 /** ConnectionsSection lists the connections and makes, tests and removes them. */
 export function ConnectionsSection(): JSX.Element {
@@ -42,38 +51,87 @@ export function ConnectionsSection(): JSX.Element {
     }
   };
 
+  const columns = (): DataColumn<Connection>[] => [
+    { id: "name", header: "Name", type: "mono", accessor: connection => connection.name },
+    {
+      id: "type",
+      header: "Type",
+      accessor: connection => connection.type,
+      cell: connection => <Badge tone="outline">{connection.type}</Badge>,
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: connection => (
+        <div class="nc-row nc-row--tight">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setTested("");
+              void shell.rookery.connections
+                .test({ connection: connection.id })
+                .then((answer) =>
+                  setTested(
+                    `${connection.name}: ${answer.ok ? "works" : "does not work"}${answer.message === "" ? "" : ` — ${answer.message}`}`,
+                  ),
+                )
+                .catch((failure: unknown) => setTested(failure instanceof Error ? failure.message : String(failure)));
+            }}
+          >
+            Test
+          </Button>
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={() => {
+              void shell.rookery.connections.delete({ connection: connection.id }).then(() => connections.refresh());
+            }}
+          >
+            Remove
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
   return (
-    <Card title="Connections">
-      <div class="nc-stack">
+    <Card title="Connections" padding="none">
+      <div class="shell-pad nc-stack">
         <div class="nc-row">
-          <Field label="Type">
-            <Select
-              value={type()}
-              options={[{ value: "", label: "Choose a type" }, ...(types()?.types ?? []).map((connectionType) => ({
+          <Select
+            label="Type"
+            value={type()}
+            options={[
+              { value: "", label: "Choose a type" },
+              ...(types()?.types ?? []).map((connectionType) => ({
                 value: connectionType.id,
                 label: connectionType.plugin === "" ? connectionType.label : `${connectionType.label} (${connectionType.plugin})`,
-              }))]}
-              onChange={setType}
-            />
-          </Field>
-          <Field label="Name">
-            <Input id="connection-name" value={name()} placeholder="lab-registry" onInput={setName} />
-          </Field>
+              })),
+            ]}
+            onChange={setType}
+          />
+          <TextField
+            label="Name"
+            id="connection-name"
+            value={name()}
+            placeholder="lab-registry"
+            onInput={event => setName(event.currentTarget.value)}
+          />
         </div>
         <Show when={chosenType()}>
           {connectionType => (
             <div class="nc-row">
               <For each={connectionType().fields}>
                 {field => (
-                  <Field label={field.label || field.name}>
-                    <Input
-                      id={`connection-field-${field.name}`}
-                      type={field.secret ? "password" : "text"}
-                      autocomplete={field.secret ? "new-password" : undefined}
-                      value={values()[field.name] ?? ""}
-                      onInput={(value) => setValue(field.name, value)}
-                    />
-                  </Field>
+                  <TextField
+                    label={field.label || field.name}
+                    id={`connection-field-${field.name}`}
+                    type={field.secret ? "password" : "text"}
+                    autocomplete={field.secret ? "new-password" : undefined}
+                    value={values()[field.name] ?? ""}
+                    onInput={event => setValue(field.name, event.currentTarget.value)}
+                  />
                 )}
               </For>
             </div>
@@ -90,53 +148,19 @@ export function ConnectionsSection(): JSX.Element {
         <Show when={tested() !== ""}>
           <Callout tone="info">{tested()}</Callout>
         </Show>
-
-        <Show when={connections() !== undefined} fallback={<Spinner />}>
-          <Show
-            when={(connections()?.connections.length ?? 0) > 0}
-            fallback={<Empty title="No connections" description="A connection is a login a host or a plugin uses, kept sealed." />}
-          >
-            <Table columns={["Name", "Type", ""]}>
-              <For each={connections()?.connections ?? []}>
-                {connection => (
-                  <tr>
-                    <td class="nc-mono">{connection.name}</td>
-                    <td>
-                      <Badge tone="outline">{connection.type}</Badge>
-                    </td>
-                    <td>
-                      <div class="nc-row nc-row--tight">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            setTested("");
-                            void shell.rookery.connections
-                              .test({ connection: connection.id })
-                              .then((answer) => setTested(`${connection.name}: ${answer.ok ? "works" : "does not work"}${answer.message === "" ? "" : ` — ${answer.message}`}`))
-                              .catch((failure: unknown) => setTested(failure instanceof Error ? failure.message : String(failure)));
-                          }}
-                        >
-                          Test
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          onClick={() => {
-                            void shell.rookery.connections.delete({ connection: connection.id }).then(() => connections.refresh());
-                          }}
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </For>
-            </Table>
-          </Show>
-        </Show>
       </div>
+      <DataTable
+        bare
+        label="Connections"
+        rows={connections()?.connections ?? []}
+        columns={columns()}
+        getRowId={connection => connection.id}
+        loading={connections.pending() && connections() === undefined}
+        empty={{
+          title: "No connections",
+          description: "A connection is a login a host or a plugin uses, kept sealed.",
+        }}
+      />
     </Card>
   );
 }

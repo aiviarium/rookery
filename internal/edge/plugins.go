@@ -23,6 +23,9 @@ func (e *Edge) registerPlugins(mux *http.ServeMux) {
 	if e.deps.Plugins == nil {
 		return
 	}
+	// `/plugins` is a page of the shell; `/plugins/` is where a client half's files are. The mux would redirect
+	// the exact path to the subtree, which has no file called "", so the page answers here.
+	mux.HandleFunc("GET /plugins", e.fallback)
 	mux.HandleFunc("/plugins/", e.pluginFile)
 }
 

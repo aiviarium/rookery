@@ -1,35 +1,59 @@
 // The bell: what happened while the person was not looking.
-import { For, Show } from "solid-js";
+import { Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
+import {
+  Button,
+  Card,
+  Count,
+  EmptyState,
+  IconButton,
+  ListRow,
+  Popover,
+  RowList,
+} from "@aiviarium/nocturne";
+import type { Notification } from "@rookery/proto";
 
 import { useShell } from "../shell.tsx";
-import { Badge, Button, Empty, Glyph, IconButton, Popover, relative, useToggle } from "../ui.tsx";
 
 /** NotificationsMenu is the unread count and the notifications behind it. */
 export function NotificationsMenu(): JSX.Element {
   const shell = useShell();
-  const [open, toggle] = useToggle();
+  const [anchor, setAnchor] = createSignal<HTMLElement>();
+  const [open, setOpen] = createSignal(false);
+
+  const unread = () => shell.notifications.unread();
+  const items = () => shell.notifications.items();
+
+  const choose = (notification: Notification): void => {
+    setOpen(false);
+    void shell.notifications.markRead(notification.id, true);
+    if (notification.link !== "") shell.navigate(notification.link);
+  };
 
   return (
-    <div style={relative}>
-      <span style={{ position: "relative", display: "inline-flex" }}>
+    <>
+      <span class="shell-bell" ref={element => setAnchor(element)}>
         <IconButton
-          label={shell.notifications.unread() > 0 ? `Notifications, ${shell.notifications.unread()} unread` : "Notifications"}
-          glyph="bell"
-          expanded={open()}
-          onClick={() => toggle()}
+          label={unread() > 0 ? `Notifications, ${unread()} unread` : "Notifications"}
+          icon="bell"
+          pressed={open()}
+          onClick={() => setOpen(!open())}
         />
-        <Show when={shell.notifications.unread() > 0}>
-          <span class="nc-badge nc-badge--accent" style={{ position: "absolute", top: "-4px", right: "-4px" }}>
-            {shell.notifications.unread()}
-          </span>
+        <Show when={unread() > 0}>
+          <Count value={unread()} class="shell-bell__count" />
         </Show>
       </span>
-      <Popover open={open()} onClose={() => toggle(false)} label="Notifications">
-        <div class="nc-stack" style={{ "min-width": "320px", "max-width": "420px" }}>
-          <div class="nc-row" style={{ "justify-content": "space-between", padding: "var(--space-2)" }}>
-            <strong>Notifications</strong>
-            <Show when={shell.notifications.unread() > 0}>
+      <Popover
+        open={open()}
+        anchor={anchor()}
+        onClose={() => setOpen(false)}
+        placement="bottom-end"
+        aria-label="Notifications"
+      >
+        <Card
+          title="Notifications"
+          action={
+            <Show when={unread() > 0}>
               <Button
                 variant="ghost"
                 size="sm"
@@ -40,51 +64,47 @@ export function NotificationsMenu(): JSX.Element {
                 Mark all read
               </Button>
             </Show>
-          </div>
-          <Show
-            when={shell.notifications.items().length > 0}
-            fallback={<Empty title="Nothing yet" description="Rookery tells you here when a job fails or a roll-out pauses." />}
-          >
-            <ul class="nc-rows">
-              <For each={shell.notifications.items()}>
-                {notification => (
-                  <li class="nc-lrow" data-lines="2">
-                    <button
-                      type="button"
-                      class="nc-lrow__main"
-                      style={{ "flex-direction": "column", "align-items": "flex-start", gap: "2px" }}
-                      onClick={() => {
-                        toggle(false);
-                        void shell.notifications.markRead(notification.id, true);
-                        if (notification.link !== "") shell.navigate(notification.link);
-                      }}
-                    >
-                      <span class="nc-row" style={{ "justify-content": "space-between", width: "100%" }}>
-                        <span class="nc-lrow-title">{notification.title}</span>
-                        <Show when={!notification.read}>
-                          <Badge tone="accent">new</Badge>
-                        </Show>
-                      </span>
-                      <span class="nc-lrow-meta">{notification.body}</span>
-                    </button>
-                  </li>
-                )}
-              </For>
-            </ul>
-          </Show>
-          <div class="nc-row" style={{ "justify-content": "flex-end", padding: "var(--space-1) var(--space-2)" }}>
+          }
+          padding="none"
+          footer={
             <Button
               variant="ghost"
               size="sm"
+              icon="refresh-cw"
               onClick={() => {
                 void shell.notifications.refresh();
               }}
             >
-              <Glyph name="search" size={14} /> Check again
+              Check again
             </Button>
+          }
+        >
+          <div class="shell-notifications">
+            <Show
+              when={items().length > 0}
+              fallback={
+                <EmptyState
+                  size="sm"
+                  title="Nothing yet"
+                  description="Rookery tells you here when a job fails or a roll-out pauses."
+                />
+              }
+            >
+              <RowList label="Notifications" variant="inset">
+                {items().map(notification => (
+                  <ListRow
+                    title={notification.title}
+                    secondary={notification.body}
+                    lines={2}
+                    unread={!notification.read}
+                    onClick={() => choose(notification)}
+                  />
+                ))}
+              </RowList>
+            </Show>
           </div>
-        </div>
+        </Card>
       </Popover>
-    </div>
+    </>
   );
 }

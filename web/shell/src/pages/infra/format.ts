@@ -2,14 +2,13 @@
 // job's state, a roll-out's progress, and the times around them.
 //
 // The words are the CLI's, so a page and a terminal read the same.
+import type { DotStatus } from "@aiviarium/nocturne";
 import type { Host, HostType, Job, ProvisionerResource, Rollout } from "@rookery/proto";
 
-import type { Tone } from "./parts.tsx";
-
-/** Shown is a state as a page draws it. */
+/** Shown is a state as a page draws it: the words, and the dot Nocturne's `State` takes. */
 export interface Shown {
   readonly label: string;
-  readonly tone: Tone;
+  readonly tone: DotStatus;
 }
 
 /** hostState is a host's apply progress. */

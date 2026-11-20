@@ -6,11 +6,22 @@ import { Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { createQuery } from "@rookery/client/solid";
 import type { Schedule } from "@rookery/proto";
+import {
+  Badge,
+  Button,
+  Callout,
+  Card,
+  DataTable,
+  type DataColumn,
+  Dialog,
+  Select,
+  State,
+  TextField,
+} from "@aiviarium/nocturne";
 
 import { useShell } from "../../../shell.tsx";
-import { Badge, Button, Callout, Card, Field, IconButton, Input, Page, Select, Spinner } from "../../../ui.tsx";
+import { Page } from "../../../parts/page.tsx";
 import { errorMessage, relativeTime, dateOf } from "../format.ts";
-import { Dialog, StateText, Table, type Column } from "../parts.tsx";
 
 export function SchedulesPage(): JSX.Element {
   const shell = useShell();
@@ -52,65 +63,67 @@ export function SchedulesPage(): JSX.Element {
     }
   };
 
-  const columns: Column<Schedule>[] = [
-    { id: "name", header: "Name", value: schedule => schedule.name },
+  const columns = (): DataColumn<Schedule>[] => [
+    { id: "name", header: "Name", accessor: schedule => schedule.name },
     {
       id: "runs",
       header: "Runs",
-      value: schedule => (schedule.rolloutCbor.length > 0 ? "roll-out" : schedule.kind),
+      accessor: schedule => (schedule.rolloutCbor.length > 0 ? "roll-out" : schedule.kind),
       cell: schedule =>
         schedule.rolloutCbor.length > 0 ? <Badge tone="outline">roll-out</Badge> : <span class="nc-code">{schedule.kind}</span>,
     },
-    { id: "cron", header: "Cron", mono: true, value: schedule => `${schedule.cron} ${schedule.timezone}` },
+    { id: "cron", header: "Cron", type: "mono", accessor: schedule => `${schedule.cron} ${schedule.timezone}` },
     {
       id: "enabled",
       header: "On",
-      value: schedule => (schedule.enabled ? "on" : "off"),
-      cell: schedule => <StateText tone={schedule.enabled ? "ok" : "off"}>{schedule.enabled ? "On" : "Off"}</StateText>,
+      accessor: schedule => (schedule.enabled ? "on" : "off"),
+      cell: schedule => <State status={schedule.enabled ? "ok" : "off"}>{schedule.enabled ? "On" : "Off"}</State>,
     },
-    { id: "next", header: "Next", value: schedule => relativeTime(dateOf(schedule.nextRunAt)) },
-    { id: "last", header: "Last", value: schedule => relativeTime(dateOf(schedule.lastRunAt)) },
+    { id: "next", header: "Next", type: "time", accessor: schedule => relativeTime(dateOf(schedule.nextRunAt)) },
+    { id: "last", header: "Last", type: "time", accessor: schedule => relativeTime(dateOf(schedule.lastRunAt)) },
+    {
+      id: "actions",
+      header: "",
+      cell: schedule => (
+        <span class="nc-row nc-row--tight">
+          <Button size="sm" onClick={() => void run(schedule)}>
+            Run now
+          </Button>
+          <Button size="sm" onClick={() => void enable(schedule, !schedule.enabled)}>
+            {schedule.enabled ? "Disable" : "Enable"}
+          </Button>
+          <Button size="sm" variant="danger" onClick={() => void remove(schedule)}>
+            Delete
+          </Button>
+        </span>
+      ),
+    },
   ];
 
   return (
     <Page
       title="Schedules"
       description="A job kind or a roll-out on a cron expression, in a time zone. A missed run is enqueued once."
-      actions={
-        <>
-          <IconButton label="Read the schedules again" glyph="jobs" onClick={() => void schedules.refresh()} />
-          <Button variant="primary" onClick={() => setCreating(true)}>
-            New schedule
-          </Button>
-        </>
-      }
+      actions={() => [
+        { id: "refresh", label: "Read the schedules again", icon: "refresh-cw", onClick: () => void schedules.refresh() },
+        { id: "new", label: "New schedule", primary: true, onClick: () => setCreating(true) },
+      ]}
     >
       <Show when={schedules.error()}>{error => <Callout tone="danger">{error().message}</Callout>}</Show>
       <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
-      <Card title="Schedules">
-        <p class="nc-meta">{rows().length} {rows().length === 1 ? "schedule" : "schedules"}</p>
-        <Show when={!schedules.pending() || schedules() !== undefined} fallback={<Spinner />}>
-          <Table
-            label="Schedules"
-            rows={rows()}
-            columns={columns}
-            rowKey={schedule => schedule.id}
-            empty="No schedules. A schedule runs a job kind or a roll-out by itself."
-            rowActions={schedule => (
-              <span class="nc-row">
-                <Button size="sm" onClick={() => void run(schedule)}>
-                  Run now
-                </Button>
-                <Button size="sm" onClick={() => void enable(schedule, !schedule.enabled)}>
-                  {schedule.enabled ? "Disable" : "Enable"}
-                </Button>
-                <Button size="sm" variant="danger" onClick={() => void remove(schedule)}>
-                  Delete
-                </Button>
-              </span>
-            )}
-          />
-        </Show>
+      <Card title="Schedules" count={rows().length} padding="none">
+        <DataTable
+          bare
+          label="Schedules"
+          rows={rows()}
+          columns={columns()}
+          getRowId={schedule => schedule.id}
+          loading={schedules.pending() && schedules() === undefined}
+          empty={{
+            title: "No schedules",
+            description: "A schedule runs a job kind or a roll-out by itself.",
+          }}
+        />
       </Card>
       <Show when={creating()}>
         <NewSchedule
@@ -167,26 +180,32 @@ function NewSchedule(props: { onClose: () => void; onCreated: () => void }): JSX
           </Button>
           <Button
             variant="primary"
-            disabled={busy() || name().trim() === "" || kind().trim() === "" || cron().trim() === ""}
+            loading={busy()}
+            disabled={name().trim() === "" || kind().trim() === "" || cron().trim() === ""}
             onClick={() => void submit()}
           >
-            {busy() ? "Creating…" : "Create schedule"}
+            Create schedule
           </Button>
         </>
       }
     >
-      <Field label="Name">
-        <Input value={name()} placeholder="Nightly apply" onInput={setName} />
-      </Field>
-      <Field label="Job kind" hint="A core kind such as host.apply, or a plugin's.">
-        <Input value={kind()} onInput={setKind} />
-      </Field>
-      <div class="nc-row">
-        <Field label="Cron">
-          <Input value={cron()} onInput={setCron} />
-        </Field>
-        <Field label="Time zone">
+      <div class="nc-stack">
+        <TextField
+          label="Name"
+          value={name()}
+          placeholder="Nightly apply"
+          onInput={event => setName(event.currentTarget.value)}
+        />
+        <TextField
+          label="Job kind"
+          help="A core kind such as host.apply, or a plugin's."
+          value={kind()}
+          onInput={event => setKind(event.currentTarget.value)}
+        />
+        <div class="nc-row">
+          <TextField label="Cron" value={cron()} onInput={event => setCron(event.currentTarget.value)} />
           <Select
+            label="Time zone"
             value={timezone()}
             options={[
               { value: "UTC", label: "UTC" },
@@ -196,12 +215,12 @@ function NewSchedule(props: { onClose: () => void; onCreated: () => void }): JSX
             ]}
             onChange={setTimezone}
           />
-        </Field>
+        </div>
+        <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
+        <p class="nc-muted">
+          A schedule that starts a roll-out is made by its plugin or by <span class="nc-code">rookery rollout</span>.
+        </p>
       </div>
-      <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
-      <p class="nc-muted">
-        A schedule that starts a roll-out is made by its plugin or by <span class="nc-code">rookery rollout</span>.
-      </p>
     </Dialog>
   );
 }

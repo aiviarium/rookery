@@ -1,12 +1,23 @@
 // Plugins and registries: what is installed, what it adds, and where more comes
 // from.
-import { For, Show, createSignal } from "solid-js";
+import { Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { createQuery } from "@rookery/client/solid";
-import type { Plugin } from "@rookery/proto";
+import type { Plugin, Registry } from "@rookery/proto";
+import {
+  Badge,
+  Button,
+  Callout,
+  Card,
+  DataTable,
+  type DataColumn,
+  Switch,
+  TextField,
+} from "@aiviarium/nocturne";
 
 import { useShell } from "../../shell.tsx";
-import { Badge, Button, Callout, Card, Code, Empty, Field, Input, Page, Spinner, Switch, Table } from "../../ui.tsx";
+import { FileField } from "../../parts/file-field.tsx";
+import { Page } from "../../parts/page.tsx";
 
 /** PluginsPage installs, updates, enables and removes plugins. */
 export function PluginsPage(): JSX.Element {
@@ -63,6 +74,105 @@ export function PluginsPage(): JSX.Element {
     }
   };
 
+  const pluginColumns = (): DataColumn<Plugin>[] => [
+    {
+      id: "plugin",
+      header: "Plugin",
+      accessor: plugin => plugin.name || plugin.id,
+      cell: plugin => (
+        <span class="nc-row nc-row--tight">
+          <strong>{plugin.name || plugin.id}</strong>
+          <span class="nc-meta">{plugin.id}</span>
+        </span>
+      ),
+    },
+    { id: "version", header: "Version", type: "mono", accessor: plugin => plugin.version },
+    {
+      id: "state",
+      header: "State",
+      accessor: plugin => (plugin.enabled ? "enabled" : "disabled"),
+      cell: plugin => (
+        <span class="nc-row nc-row--tight">
+          <Show when={plugin.enabled} fallback={<Badge>disabled</Badge>}>
+            <Badge tone="success">enabled</Badge>
+          </Show>
+          <Show when={plugin.shell}>
+            <Badge tone="accent">shell</Badge>
+          </Show>
+        </span>
+      ),
+    },
+    { id: "adds", header: "Adds", accessor: plugin => contributionSummary(plugin) },
+    {
+      id: "actions",
+      header: "",
+      cell: plugin => (
+        <div class="nc-row nc-row--tight">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() =>
+              void run(
+                () => shell.rookery.plugins.setEnabled({ id: plugin.id, enabled: !plugin.enabled }),
+                plugin.enabled ? `${plugin.id} is disabled.` : `${plugin.id} is enabled.`,
+              )
+            }
+          >
+            {plugin.enabled ? "Disable" : "Enable"}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() =>
+              void run(
+                () => shell.rookery.plugins.update({ reference: `${plugin.id}@${plugin.version}` }),
+                `${plugin.id} is updated.`,
+              )
+            }
+          >
+            Update
+          </Button>
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={() =>
+              void run(() => shell.rookery.plugins.remove({ id: plugin.id, purge: purge() }), `${plugin.id} is removed.`)
+            }
+          >
+            Remove
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
+  const registryColumns = (): DataColumn<Registry>[] => [
+    { id: "name", header: "Name", accessor: registry => registry.name },
+    { id: "url", header: "URL", type: "mono", accessor: registry => registry.url },
+    {
+      id: "key",
+      header: "Key",
+      cell: registry => (
+        <code class="nc-code">{new TextDecoder().decode(registry.publicKey).slice(0, 32)}…</code>
+      ),
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: registry => (
+        <Button
+          size="sm"
+          variant="danger"
+          onClick={() => {
+            void shell.rookery.registries.remove({ name: registry.name }).then(() => registries.refresh());
+          }}
+        >
+          Remove
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <Page title="Plugins" description="What this deployment runs, and where more comes from.">
       <Show when={message() !== ""}>
@@ -74,7 +184,7 @@ export function PluginsPage(): JSX.Element {
 
       <Card
         title="Install"
-        actions={
+        action={
           <Button size="sm" variant="primary" onClick={() => void installFromRegistry()}>
             Install from a registry
           </Button>
@@ -82,146 +192,84 @@ export function PluginsPage(): JSX.Element {
       >
         <div class="nc-stack">
           <div class="nc-row">
-            <Field label="Reference" hint="A plugin's id, optionally with a version: example or example@0.2.0.">
-              <Input id="plugin-reference" value={reference()} placeholder="example@0.2.0" onInput={setReference} />
-            </Field>
+            <TextField
+              label="Reference"
+              help="A plugin's id, optionally with a version: example or example@0.2.0."
+              id="plugin-reference"
+              value={reference()}
+              placeholder="example@0.2.0"
+              onInput={event => setReference(event.currentTarget.value)}
+            />
           </div>
           <div class="nc-row">
-            <Field label="Package" hint="A .tar.gz with plugin.yaml at its root.">
-              <input
-                type="file"
-                accept=".tar.gz,application/gzip"
-                onChange={(event) => {
-                  const file = event.currentTarget.files?.[0];
-                  if (file !== undefined) void installFromPackage(file);
-                }}
-              />
-            </Field>
+            <FileField
+              label="Package"
+              help="A .tar.gz with plugin.yaml at its root."
+              accept=".tar.gz,application/gzip"
+              onPick={file => void installFromPackage(file)}
+            />
           </div>
         </div>
       </Card>
 
       <Card
         title="Installed"
-        actions={
-          <Switch label="Remove with data" checked={purge()} onChange={setPurge} />
-        }
+        action={<Switch label="Remove with data" checked={purge()} onChange={setPurge} />}
+        padding="none"
       >
-        <Show when={plugins() !== undefined} fallback={<Spinner />}>
-          <Show
-            when={(plugins()?.plugins.length ?? 0) > 0}
-            fallback={<Empty title="No plugins" description="The release installs Docker and Incus on an empty database." />}
-          >
-            <Table columns={["Plugin", "Version", "State", "Adds", ""]}>
-              <For each={plugins()?.plugins ?? []}>
-                {plugin => (
-                  <tr>
-                    <td>
-                      <strong>{plugin.name || plugin.id}</strong>
-                      <span class="nc-meta"> {plugin.id}</span>
-                    </td>
-                    <td class="nc-mono">{plugin.version}</td>
-                    <td>
-                      <Show when={plugin.enabled} fallback={<Badge>disabled</Badge>}>
-                        <Badge tone="success">enabled</Badge>
-                      </Show>
-                      <Show when={plugin.shell}>
-                        <Badge tone="accent">shell</Badge>
-                      </Show>
-                    </td>
-                    <td>{contributionSummary(plugin)}</td>
-                    <td>
-                      <div class="nc-row nc-row--tight">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() =>
-                            void run(
-                              () => shell.rookery.plugins.setEnabled({ id: plugin.id, enabled: !plugin.enabled }),
-                              plugin.enabled ? `${plugin.id} is disabled.` : `${plugin.id} is enabled.`,
-                            )
-                          }
-                        >
-                          {plugin.enabled ? "Disable" : "Enable"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() =>
-                            void run(
-                              () => shell.rookery.plugins.update({ reference: `${plugin.id}@${plugin.version}` }),
-                              `${plugin.id} is updated.`,
-                            )
-                          }
-                        >
-                          Update
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          onClick={() =>
-                            void run(
-                              () => shell.rookery.plugins.remove({ id: plugin.id, purge: purge() }),
-                              `${plugin.id} is removed.`,
-                            )
-                          }
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </For>
-            </Table>
-          </Show>
-        </Show>
+        <DataTable
+          bare
+          label="Installed plugins"
+          rows={plugins()?.plugins ?? []}
+          columns={pluginColumns()}
+          getRowId={plugin => plugin.id}
+          loading={plugins.pending() && plugins() === undefined}
+          empty={{ title: "No plugins", description: "The release installs Docker and Incus on an empty database." }}
+        />
       </Card>
 
       <Card
         title="Registries"
-        actions={
+        action={
           <div class="nc-row nc-row--tight">
-            <Input id="registry-name" value={registryName()} placeholder="name" onInput={setRegistryName} />
-            <Input id="registry-url" type="url" value={registryURL()} placeholder="https://plugins.example.test" onInput={setRegistryURL} />
-            <Input id="registry-key" value={registryKey()} placeholder="public key" onInput={setRegistryKey} />
+            <TextField
+              aria-label="The registry's name"
+              id="registry-name"
+              value={registryName()}
+              placeholder="name"
+              onInput={event => setRegistryName(event.currentTarget.value)}
+            />
+            <TextField
+              aria-label="The registry's URL"
+              id="registry-url"
+              type="url"
+              value={registryURL()}
+              placeholder="https://plugins.example.test"
+              onInput={event => setRegistryURL(event.currentTarget.value)}
+            />
+            <TextField
+              aria-label="The registry's public key"
+              id="registry-key"
+              value={registryKey()}
+              placeholder="public key"
+              onInput={event => setRegistryKey(event.currentTarget.value)}
+            />
             <Button size="sm" onClick={() => void addRegistry()}>
               Add
             </Button>
           </div>
         }
+        padding="none"
       >
-        <Show when={registries() !== undefined} fallback={<Spinner />}>
-          <Show
-            when={(registries()?.registries.length ?? 0) > 0}
-            fallback={<Empty title="No registries" description="A registry is a signed index of packages, over HTTPS." />}
-          >
-            <Table columns={["Name", "URL", "Key", ""]}>
-              <For each={registries()?.registries ?? []}>
-                {registry => (
-                  <tr>
-                    <td>{registry.name}</td>
-                    <td class="nc-mono">{registry.url}</td>
-                    <td>
-                      <Code>{new TextDecoder().decode(registry.publicKey).slice(0, 32)}…</Code>
-                    </td>
-                    <td>
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        onClick={() => {
-                          void shell.rookery.registries.remove({ name: registry.name }).then(() => registries.refresh());
-                        }}
-                      >
-                        Remove
-                      </Button>
-                    </td>
-                  </tr>
-                )}
-              </For>
-            </Table>
-          </Show>
-        </Show>
+        <DataTable
+          bare
+          label="Registries"
+          rows={registries()?.registries ?? []}
+          columns={registryColumns()}
+          getRowId={registry => registry.name}
+          loading={registries.pending() && registries() === undefined}
+          empty={{ title: "No registries", description: "A registry is a signed index of packages, over HTTPS." }}
+        />
       </Card>
     </Page>
   );

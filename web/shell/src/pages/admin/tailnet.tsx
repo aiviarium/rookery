@@ -1,10 +1,22 @@
 // The tailnet: the network the server and its hosts meet on.
-import { For, Show, createSignal } from "solid-js";
+import { Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { createQuery } from "@rookery/client/solid";
+import type { TailnetDevice } from "@rookery/proto";
+import {
+  Badge,
+  Button,
+  Callout,
+  Card,
+  DataTable,
+  type DataColumn,
+  MetaLine,
+  Skeleton,
+  TextField,
+} from "@aiviarium/nocturne";
 
 import { useShell } from "../../shell.tsx";
-import { Badge, Button, Callout, Card, Empty, Field, Input, Page, Spinner, Table } from "../../ui.tsx";
+import { Page } from "../../parts/page.tsx";
 
 /** TailnetPage is the tailnet's state, its settings and its devices. */
 export function TailnetPage(): JSX.Element {
@@ -31,27 +43,41 @@ export function TailnetPage(): JSX.Element {
     }
   };
 
+  const columns = (): DataColumn<TailnetDevice>[] => [
+    { id: "hostname", header: "Hostname", accessor: device => device.hostname },
+    { id: "addresses", header: "Addresses", type: "mono", accessor: device => device.addresses.join(", ") },
+    { id: "tags", header: "Tags", accessor: device => device.tags.join(", ") },
+    {
+      id: "state",
+      header: "State",
+      accessor: device => (device.online ? "online" : "offline"),
+      cell: device => (
+        <Show when={device.online} fallback={<Badge>offline</Badge>}>
+          <Badge tone="success">online</Badge>
+        </Show>
+      ),
+    },
+  ];
+
   return (
     <Page title="Tailnet" description="The network the server and its hosts are devices of.">
       <Card title="Status">
-        <Show when={status() !== undefined} fallback={<Spinner />}>
+        <Show when={status() !== undefined} fallback={<Skeleton width="30%" />}>
           <div class="nc-stack">
             <div class="nc-row" style={{ gap: "var(--space-3)" }}>
-              <span class="nc-row nc-row--tight">
-                <Show when={status()?.configured} fallback={<Badge>not configured</Badge>}>
-                  <Badge tone="success">configured</Badge>
-                </Show>
-              </span>
+              <Show when={status()?.configured} fallback={<Badge>not configured</Badge>}>
+                <Badge tone="success">configured</Badge>
+              </Show>
               <Show when={status()?.configured}>
                 <Badge tone={status()?.online ? "success" : "warning"}>{status()?.online ? "online" : "offline"}</Badge>
               </Show>
-              <Show when={status()?.controlUrl !== ""}>
-                <span class="nc-meta">control: {status()?.controlUrl}</span>
-              </Show>
-              <Show when={status()?.tag !== ""}>
-                <span class="nc-meta">tag: {status()?.tag}</span>
-              </Show>
-              <For each={status()?.addresses ?? []}>{(address) => <span class="nc-mono">{address}</span>}</For>
+              <MetaLine
+                items={[
+                  status()?.controlUrl !== "" ? { label: `control: ${status()?.controlUrl}`, mono: true } : false,
+                  status()?.tag !== "" ? { label: `tag: ${status()?.tag}`, mono: true } : false,
+                  ...(status()?.addresses ?? []).map(address => ({ label: address, mono: true })),
+                ]}
+              />
             </div>
             <Show when={configured()}>
               <Callout tone="info">The tailnet is configured. A host joins it when it is applied.</Callout>
@@ -63,15 +89,23 @@ export function TailnetPage(): JSX.Element {
       <Card title="Configure">
         <div class="nc-stack">
           <div class="nc-row">
-            <Field label="Control URL" hint="Tailscale's hosted service, or the Headscale that serves this deployment.">
-              <Input id="tailnet-url" type="url" value={controlURL()} onInput={setControlURL} />
-            </Field>
-            <Field label="API key">
-              <Input id="tailnet-api-key" type="password" autocomplete="new-password" value={apiKey()} onInput={setAPIKey} />
-            </Field>
-            <Field label="Tag">
-              <Input id="tailnet-tag" value={tag()} onInput={setTag} />
-            </Field>
+            <TextField
+              label="Control URL"
+              help="Tailscale's hosted service, or the Headscale that serves this deployment."
+              id="tailnet-url"
+              type="url"
+              value={controlURL()}
+              onInput={event => setControlURL(event.currentTarget.value)}
+            />
+            <TextField
+              label="API key"
+              id="tailnet-api-key"
+              type="password"
+              autocomplete="new-password"
+              value={apiKey()}
+              onInput={event => setAPIKey(event.currentTarget.value)}
+            />
+            <TextField label="Tag" id="tailnet-tag" value={tag()} onInput={event => setTag(event.currentTarget.value)} />
             <Button variant="primary" size="sm" onClick={() => void configure()}>
               Save
             </Button>
@@ -82,30 +116,16 @@ export function TailnetPage(): JSX.Element {
         </div>
       </Card>
 
-      <Card title="Devices">
-        <Show when={devices() !== undefined} fallback={<Spinner />}>
-          <Show
-            when={(devices()?.devices.length ?? 0) > 0}
-            fallback={<Empty title="No devices" description="Each host that joins the tailnet is a device here." />}
-          >
-            <Table columns={["Hostname", "Addresses", "Tags", "State"]}>
-              <For each={devices()?.devices ?? []}>
-                {device => (
-                  <tr>
-                    <td>{device.hostname}</td>
-                    <td class="nc-mono">{device.addresses.join(", ")}</td>
-                    <td>{device.tags.join(", ")}</td>
-                    <td>
-                      <Show when={device.online} fallback={<Badge>offline</Badge>}>
-                        <Badge tone="success">online</Badge>
-                      </Show>
-                    </td>
-                  </tr>
-                )}
-              </For>
-            </Table>
-          </Show>
-        </Show>
+      <Card title="Devices" count={devices()?.devices.length} padding="none">
+        <DataTable
+          bare
+          label="Devices"
+          rows={devices()?.devices ?? []}
+          columns={columns()}
+          getRowId={device => device.id}
+          loading={devices.pending() && devices() === undefined}
+          empty={{ title: "No devices", description: "Each host that joins the tailnet is a device here." }}
+        />
       </Card>
     </Page>
   );

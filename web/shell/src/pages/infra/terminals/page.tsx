@@ -3,16 +3,25 @@
 // A terminal lives on its host and outlives the page, so the tabs are only what
 // this browser has open: one closed here can be attached again from the host's
 // list, and one opened elsewhere appears there too.
-import { For, Show, createSignal, onSettled } from "solid-js";
+import { For, Show, createEffect, createSignal, onSettled } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { useParams } from "@solidjs/router";
 import { createQuery } from "@rookery/client/solid";
 import type { Terminal } from "@rookery/proto";
+import {
+  Button,
+  Callout,
+  Card,
+  EmptyState,
+  ListRow,
+  RowList,
+  Select,
+  TabStrip,
+} from "@aiviarium/nocturne";
 
 import { useShell } from "../../../shell.tsx";
-import { Button, Callout, Card, Empty, Field, IconButton, Page, Select, Spinner } from "../../../ui.tsx";
+import { Page } from "../../../parts/page.tsx";
 import { errorMessage } from "../format.ts";
-import { TabStrip } from "../parts.tsx";
 import { TerminalPane } from "./pane.tsx";
 
 /** OpenTab is one terminal this page has open. */
@@ -39,7 +48,7 @@ export function TerminalsPage(): JSX.Element {
 
   type Session = NonNullable<Terminal["session"]>;
 
-const titleOf = (session: Session, name: string): string => {
+  const titleOf = (session: Session, name: string): string => {
     const command = session.command === "" ? "shell" : (session.command.split("/").pop() ?? session.command);
     return `${name} · ${command}`;
   };
@@ -62,12 +71,20 @@ const titleOf = (session: Session, name: string): string => {
     }
   };
 
+  // The first host is the one the page opens on, once the list has arrived: a
+  // Select needs a value that is in its options.
+  createEffect(
+    () => hosts()?.hosts[0]?.name,
+    (first) => {
+      if (first === undefined) return;
+      if (host() === "") setHost(first);
+      void loadExisting(host());
+    },
+  );
+
   onSettled(() => {
-    const chosen = host() === "" ? (hosts()?.hosts[0]?.name ?? "") : host();
-    setHost(chosen);
-    void loadExisting(chosen);
     const direct = params.id ?? "";
-    if (direct !== "") open(direct, chosen, "Terminal");
+    if (direct !== "") open(direct, host(), "Terminal");
   });
 
   const create = async (): Promise<void> => {
@@ -106,83 +123,80 @@ const titleOf = (session: Session, name: string): string => {
     <Page
       title="Terminals"
       description="A shell on a host, kept there while this page is closed. Several can be open at once."
-      actions={
-        <>
-          <IconButton label="Read the terminals again" glyph="jobs" onClick={() => void loadExisting(host())} />
-          <Button variant="primary" onClick={() => void create()} disabled={host() === "" || opening()}>
-            {opening() ? "Opening…" : "Open a terminal"}
-          </Button>
-        </>
-      }
+      actions={() => [
+        { id: "refresh", label: "Read the terminals again", icon: "refresh-cw", onClick: () => void loadExisting(host()) },
+        {
+          id: "open",
+          label: opening() ? "Opening…" : "Open a terminal",
+          primary: true,
+          disabled: host() === "" || opening(),
+          onClick: () => void create(),
+        },
+      ]}
     >
       <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
-      <div class="infra-terminals-layout">
+      <div class="shell-terminals-layout">
         <div class="nc-stack">
           <Card title="A new terminal">
             <div class="nc-stack">
-              <Field label="Host">
-                <Select
-                  value={host()}
-                  options={(hosts()?.hosts ?? []).map(one => ({ value: one.name, label: one.name }))}
-                  onChange={chosen => {
-                    setHost(chosen);
-                    void loadExisting(chosen);
-                  }}
-                />
-              </Field>
-              <Field label="As">
-                <Select
-                  value={account()}
-                  options={[
-                    { value: "desktop", label: "desktop — the desktop's account" },
-                    { value: "operator", label: "operator — needs manage on the host" },
-                    { value: "root", label: "root — needs manage on the host" },
-                  ]}
-                  onChange={chosen => setAccount(chosen as Account)}
-                />
-              </Field>
+              <Select
+                label="Host"
+                value={host()}
+                options={(hosts()?.hosts ?? []).map(one => ({ value: one.name, label: one.name }))}
+                onChange={chosen => {
+                  setHost(chosen);
+                  void loadExisting(chosen);
+                }}
+              />
+              <Select
+                label="As"
+                value={account()}
+                options={[
+                  { value: "desktop", label: "desktop — the desktop's account" },
+                  { value: "operator", label: "operator — needs manage on the host" },
+                  { value: "root", label: "root — needs manage on the host" },
+                ]}
+                onChange={chosen => setAccount(chosen as Account)}
+              />
               <Button variant="secondary" onClick={() => void create()} disabled={host() === "" || opening()}>
                 Open
               </Button>
             </div>
           </Card>
-          <Card title="On this host">
-            <p class="nc-meta">{existing().length} {existing().length === 1 ? "terminal" : "terminals"}</p>
+          <Card title="On this host" count={existing().length}>
             <Show
               when={existing().length > 0}
-              fallback={<Empty title="No terminals" description="None is running on this host." />}
+              fallback={<EmptyState size="sm" title="No terminals" description="None is running on this host." />}
             >
-              <ul class="nc-list">
+              <RowList label="Terminals on this host" variant="inline">
                 <For each={existing()}>
                   {terminal => (
                     <Show when={terminal.session}>
                       {session => (
-                        <li class="nc-list__row" data-terminal={session().id}>
-                          <button
-                            type="button"
-                            class="infra-link"
-                            onClick={() => open(session().id, terminal.host, titleOf(session(), terminal.host))}
-                          >
-                            <span class="nc-code">{session().user}</span>
-                            <span class="nc-meta">{session().running ? "running" : `exited ${session().exitCode}`}</span>
-                          </button>
-                        </li>
+                        <ListRow
+                          data-terminal={session().id}
+                          title={<span class="nc-code">{session().user}</span>}
+                          secondary={session().running ? "running" : `exited ${session().exitCode}`}
+                          onClick={() => open(session().id, terminal.host, titleOf(session(), terminal.host))}
+                        />
                       )}
                     </Show>
                   )}
                 </For>
-              </ul>
+              </RowList>
             </Show>
           </Card>
         </div>
-        <div class="infra-terminals">
+        <div class="shell-terminals">
           <Show
             when={tabs().length > 0}
             fallback={
-              <Empty
-                title="No terminal is open"
-                description="Choose a host, and open a shell on it. It keeps running when this page closes."
-              />
+              <Card fill padding="none">
+                <EmptyState
+                  title="No terminal is open"
+                  description="Choose a host, and open a shell on it. It keeps running when this page closes."
+                />
+              </Card>
             }
           >
             <TabStrip
@@ -192,10 +206,10 @@ const titleOf = (session: Session, name: string): string => {
               onChange={setActive}
               onClose={id => void close(id)}
             />
-            <div class="infra-terminals__panes">
+            <div class="shell-terminals__panes">
               <For each={tabs()}>
                 {tab => (
-                  <div class="infra-terminals__pane" style={{ display: tab.key === active() ? "block" : "none" }}>
+                  <div class="shell-terminals__pane" style={{ display: tab.key === active() ? "block" : "none" }}>
                     <TerminalPane id={tab.key} active={tab.key === active()} />
                   </div>
                 )}
@@ -204,11 +218,6 @@ const titleOf = (session: Session, name: string): string => {
           </Show>
         </div>
       </div>
-      <Show when={hosts.pending() && tabs().length === 0}>
-        <span class="nc-row">
-          <Spinner /> Reading the hosts…
-        </span>
-      </Show>
     </Page>
   );
 }

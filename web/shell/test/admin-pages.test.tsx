@@ -54,7 +54,7 @@ describe("the spaces page", () => {
     const spaceSite = site();
     const view = await mount(fakeClient(spaceSite), { identityProvider: false }, "/spaces");
     try {
-      await view.select("select", "team");
+      await view.choose("[data-part='select'] button", "Team");
       await view.type("#space-name", "Simulations");
       const button = view.findAll("button").find((candidate) => candidate.textContent === "Create");
       await view.clickElement(button as HTMLElement);
@@ -98,7 +98,7 @@ describe("the secrets page", () => {
     const secretSite = site();
     const view = await mount(fakeClient(secretSite), { identityProvider: false }, "/settings");
     try {
-      await view.click(".nc-tab:nth-of-type(2)");
+      await view.click("#settings-tabs-tab-secrets");
       await view.type("#secret-name", "github_token");
       await view.type("#secret-value", "hunter2-not-in-the-page");
       const set = view.findAll("button").find((candidate) => candidate.textContent === "Set");
@@ -126,8 +126,8 @@ describe("the connections page", () => {
     });
     const view = await mount(fakeClient(connectionSite), { identityProvider: false }, "/settings");
     try {
-      await view.click(".nc-tab:nth-of-type(3)");
-      await view.select("select", "registry");
+      await view.click("#settings-tabs-tab-connections");
+      await view.choose("[data-part='select'] button", "Registry");
       await view.type("#connection-name", "lab-registry");
       await view.type("#connection-field-url", "https://registry.example.test");
       const createButton = view.findAll("button").find((candidate) => candidate.textContent === "Create");
@@ -216,7 +216,7 @@ describe("the datastore page", () => {
     });
     const view = await mount(fakeClient(dataSite), { identityProvider: false }, "/data");
     try {
-      await view.select("select", "example/notes");
+      await view.choose("[data-part='select'] button", "example/notes");
       expect(view.text()).toContain("A note");
       const row = view.findAll("tbody tr")[0];
       await view.clickElement(row as HTMLElement);

@@ -26,13 +26,13 @@ export const routes = defineRoutes([
 ]);
 
 export const nav: Area["nav"] = [
-  { label: "People", href: "/people", group: "Administration", icon: "groups" },
-  { label: "Spaces", href: "/spaces", group: "Administration", icon: "space" },
+  { label: "People", href: "/people", group: "Administration", icon: "users" },
+  { label: "Spaces", href: "/spaces", group: "Administration", icon: "building-2" },
   { label: "Settings", href: "/settings", group: "Administration", icon: "settings" },
-  { label: "Keys", href: "/keys", group: "Administration", icon: "key" },
-  { label: "Tailnet", href: "/tailnet", group: "Administration", icon: "tailnet" },
-  { label: "Plugins", href: "/plugins", group: "Administration", icon: "plugin" },
-  { label: "Datastore", href: "/data", group: "Data", icon: "database" },
-  { label: "Documents", href: "/documents", group: "Data", icon: "document" },
-  { label: "Server", href: "/status", group: "Data", icon: "gauge" },
+  { label: "Keys", href: "/keys", group: "Administration", icon: "key-round" },
+  { label: "Tailnet", href: "/tailnet", group: "Administration", icon: "link" },
+  { label: "Plugins", href: "/plugins", group: "Administration", icon: "puzzle" },
+  { label: "Datastore", href: "/data", group: "Data", icon: "hard-drive" },
+  { label: "Documents", href: "/documents", group: "Data", icon: "file" },
+  { label: "Server", href: "/status", group: "Data", icon: "activity" },
 ];

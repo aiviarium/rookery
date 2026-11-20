@@ -6,11 +6,11 @@
 import { Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import type { HostFile } from "@rookery/proto";
+import { Button, Callout, Card, DataTable, type DataColumn, Select, TextField } from "@aiviarium/nocturne";
 
 import { useShell } from "../../../shell.tsx";
-import { Button, Callout, Card, Field, Input, Select, Spinner } from "../../../ui.tsx";
+import { Spinner } from "../../../parts/spinner.tsx";
 import { bytesSize, errorMessage, relativeTime, dateOf } from "../format.ts";
-import { Table, type Column } from "../parts.tsx";
 
 type Account = "operator" | "desktop" | "root";
 
@@ -109,18 +109,40 @@ export function HostFiles(props: { host: string }): JSX.Element {
     }
   };
 
-  const columns: Column<HostFile>[] = [
-    { id: "name", header: "Name", mono: true, value: entry => (entry.dir ? `${entry.name}/` : entry.name) },
-    { id: "size", header: "Size", num: true, value: entry => (entry.dir ? "" : bytesSize(Number(entry.size))) },
-    { id: "mode", header: "Mode", mono: true, value: entry => (entry.mode === 0 ? "" : `0${entry.mode.toString(8)}`) },
-    { id: "modified", header: "Modified", value: entry => relativeTime(dateOf(entry.modifiedAt)) },
+  const columns = (): DataColumn<HostFile>[] => [
+    {
+      id: "name",
+      header: "Name",
+      type: "mono",
+      accessor: entry => (entry.dir ? `${entry.name}/` : entry.name),
+    },
+    { id: "size", header: "Size", type: "num", accessor: entry => (entry.dir ? "" : bytesSize(Number(entry.size))) },
+    {
+      id: "mode",
+      header: "Mode",
+      type: "mono",
+      accessor: entry => (entry.mode === 0 ? "" : `0${entry.mode.toString(8)}`),
+    },
+    { id: "modified", header: "Modified", type: "time", accessor: entry => relativeTime(dateOf(entry.modifiedAt)) },
+    {
+      id: "actions",
+      header: "",
+      cell: entry => (
+        <span class="nc-row nc-row--tight">
+          <Button size="sm" disabled={entry.dir} onClick={() => void download(entry)}>
+            Download
+          </Button>
+          <Button size="sm" variant="danger" onClick={() => void remove(entry)}>
+            Delete
+          </Button>
+        </span>
+      ),
+    },
   ];
 
   return (
-    <Card
-      title="Files"
-    >
-      <div class="nc-stack">
+    <Card title="Files" padding="none">
+      <div class="shell-pad nc-stack">
         <form
           class="nc-row"
           onSubmit={event => {
@@ -129,6 +151,7 @@ export function HostFiles(props: { host: string }): JSX.Element {
           }}
         >
           <Select
+            aria-label="Account"
             value={account()}
             options={[
               { value: "operator", label: "operator" },
@@ -140,9 +163,12 @@ export function HostFiles(props: { host: string }): JSX.Element {
               void open("");
             }}
           />
-          <Field label="Path">
-            <Input value={draft()} placeholder="~ (the account's home)" onInput={setDraft} />
-          </Field>
+          <TextField
+            label="Path"
+            value={draft()}
+            placeholder="~ (the account's home)"
+            onInput={event => setDraft(event.currentTarget.value)}
+          />
           <Button type="submit" size="sm">
             Go
           </Button>
@@ -173,8 +199,8 @@ export function HostFiles(props: { host: string }): JSX.Element {
         </Show>
         <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
         <Show when={busy() !== undefined}>
-          <span class="nc-row">
-            <Spinner /> {busy()}
+          <span class="nc-row nc-row--tight">
+            <Spinner label={busy()} /> {busy()}
           </span>
         </Show>
         <Show
@@ -185,25 +211,16 @@ export function HostFiles(props: { host: string }): JSX.Element {
             </Button>
           }
         >
-          <Table
+          <DataTable
+            bare
             label={`Files in ${path() === "" ? "the home directory" : path()}`}
             rows={entries()}
-            columns={columns}
-            rowKey={entry => entry.path}
+            columns={columns()}
+            getRowId={entry => entry.path}
             onRowClick={entry => {
               if (entry.dir) void open(entry.path);
             }}
-            empty="This directory has no files."
-            rowActions={entry => (
-              <span class="nc-row">
-                <Button size="sm" disabled={entry.dir} onClick={() => void download(entry)}>
-                  Download
-                </Button>
-                <Button size="sm" variant="danger" onClick={() => void remove(entry)}>
-                  Delete
-                </Button>
-              </span>
-            )}
+            empty={{ title: "This directory has no files." }}
           />
         </Show>
       </div>

@@ -1,10 +1,12 @@
 // Spaces: the containers records and documents are scoped to.
-import { For, Show, createSignal } from "solid-js";
+import { Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { createQuery } from "@rookery/client/solid";
+import type { Space } from "@rookery/proto";
+import { Badge, Button, Callout, Card, DataTable, type DataColumn, Select, TextField } from "@aiviarium/nocturne";
 
 import { useShell } from "../../shell.tsx";
-import { Badge, Button, Callout, Card, Empty, Field, Input, Page, Select, Spinner, Table } from "../../ui.tsx";
+import { Page } from "../../parts/page.tsx";
 
 /** SpacesPage lists the spaces, and makes, renames, archives and deletes them. */
 export function SpacesPage(): JSX.Element {
@@ -37,24 +39,105 @@ export function SpacesPage(): JSX.Element {
     }
   };
 
+  const columns = (): DataColumn<Space>[] => [
+    {
+      id: "name",
+      header: "Name",
+      accessor: space => space.name,
+      cell: space => (
+        <Show when={renaming() === space.id} fallback={<strong>{space.name}</strong>}>
+          <div class="nc-row nc-row--tight">
+            <TextField
+              aria-label={`The new name of ${space.name}`}
+              id={`rename-${space.id}`}
+              value={newName()}
+              onInput={event => setNewName(event.currentTarget.value)}
+            />
+            <Button
+              size="sm"
+              onClick={() => {
+                void shell.rookery.spaces.rename({ space: space.id, name: newName() }).then(() => {
+                  setRenaming("");
+                  refreshAll();
+                });
+              }}
+            >
+              Save
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setRenaming("")}>
+              Cancel
+            </Button>
+          </div>
+        </Show>
+      ),
+    },
+    { id: "kind", header: "Kind", accessor: space => space.kind },
+    {
+      id: "state",
+      header: "State",
+      accessor: space => (space.archived ? "archived" : "open"),
+      cell: space => (
+        <Show when={space.archived} fallback={<Badge tone="success">open</Badge>}>
+          <Badge>archived</Badge>
+        </Show>
+      ),
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: space => (
+        <div class="nc-row nc-row--tight">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setRenaming(space.id);
+              setNewName(space.name);
+            }}
+          >
+            Rename
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              void shell.rookery.spaces.archive({ space: space.id, archived: !space.archived }).then(refreshAll);
+            }}
+          >
+            {space.archived ? "Unarchive" : "Archive"}
+          </Button>
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={() => {
+              void shell.rookery.spaces.delete({ space: space.id }).then(refreshAll);
+            }}
+          >
+            Delete
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <Page title="Spaces" description="A space gathers records and documents, and gives them one place to live.">
       <Card title="New space">
         <div class="nc-stack">
           <div class="nc-row">
-            <Field label="Kind">
-              <Select
-                value={kind()}
-                options={[{ value: "", label: "Choose a kind" }, ...(kinds()?.kinds ?? []).map((spaceKind) => ({
+            <Select
+              label="Kind"
+              value={kind()}
+              options={[
+                { value: "", label: "Choose a kind" },
+                ...(kinds()?.kinds ?? []).map((spaceKind) => ({
                   value: spaceKind.id,
                   label: spaceKind.plugin === "" ? spaceKind.label : `${spaceKind.label} (${spaceKind.plugin})`,
-                }))]}
-                onChange={setKind}
-              />
-            </Field>
-            <Field label="Name">
-              <Input id="space-name" value={name()} placeholder="Analysis" onInput={setName} />
-            </Field>
+                })),
+              ]}
+              onChange={setKind}
+            />
+            <TextField label="Name" id="space-name" value={name()} placeholder="Analysis" onInput={event => setName(event.currentTarget.value)} />
             <Button variant="primary" size="sm" onClick={() => void create()}>
               Create
             </Button>
@@ -68,84 +151,16 @@ export function SpacesPage(): JSX.Element {
         </div>
       </Card>
 
-      <Card title="Spaces">
-        <Show when={spaces() !== undefined} fallback={<Spinner />}>
-          <Show
-            when={(spaces()?.spaces.length ?? 0) > 0}
-            fallback={<Empty title="No spaces" description="Make one above, or ask a plugin's page to create one." />}
-          >
-            <Table columns={["Name", "Kind", "State", ""]}>
-              <For each={spaces()?.spaces ?? []}>
-                {space => (
-                  <tr>
-                    <td>
-                      <Show
-                        when={renaming() === space.id}
-                        fallback={<strong>{space.name}</strong>}
-                      >
-                        <div class="nc-row nc-row--tight">
-                          <Input id={`rename-${space.id}`} value={newName()} onInput={setNewName} />
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              void shell.rookery.spaces.rename({ space: space.id, name: newName() }).then(() => {
-                                setRenaming("");
-                                refreshAll();
-                              });
-                            }}
-                          >
-                            Save
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => setRenaming("")}>
-                            Cancel
-                          </Button>
-                        </div>
-                      </Show>
-                    </td>
-                    <td>{space.kind}</td>
-                    <td>
-                      <Show when={space.archived} fallback={<Badge tone="success">open</Badge>}>
-                        <Badge>archived</Badge>
-                      </Show>
-                    </td>
-                    <td>
-                      <div class="nc-row nc-row--tight">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            setRenaming(space.id);
-                            setNewName(space.name);
-                          }}
-                        >
-                          Rename
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            void shell.rookery.spaces.archive({ space: space.id, archived: !space.archived }).then(refreshAll);
-                          }}
-                        >
-                          {space.archived ? "Unarchive" : "Archive"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          onClick={() => {
-                            void shell.rookery.spaces.delete({ space: space.id }).then(refreshAll);
-                          }}
-                        >
-                          Delete
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </For>
-            </Table>
-          </Show>
-        </Show>
+      <Card title="Spaces" count={spaces()?.spaces.length} padding="none">
+        <DataTable
+          bare
+          label="Spaces"
+          rows={spaces()?.spaces ?? []}
+          columns={columns()}
+          getRowId={space => space.id}
+          loading={spaces.pending() && spaces() === undefined}
+          empty={{ title: "No spaces", description: "Make one above, or ask a plugin's page to create one." }}
+        />
       </Card>
     </Page>
   );

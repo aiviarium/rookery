@@ -5,17 +5,53 @@ import { Show, createSignal, onSettled } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { createQuery } from "@rookery/client/solid";
 import type { Host } from "@rookery/proto";
+import { Badge, Card, DataTable, type DataColumn, State } from "@aiviarium/nocturne";
 
 import { useShell } from "../../../shell.tsx";
-import { Badge, Button, Callout, IconButton, Page, Spinner } from "../../../ui.tsx";
+import { Page } from "../../../parts/page.tsx";
 import { hostState, hostTypeLabel, hostTypeTone, labelsText, relativeTime, dateOf } from "../format.ts";
-import { StateText, Table, type Column } from "../parts.tsx";
 import { AddHost } from "./add.tsx";
 
 /** hostPath is a host's page. */
 export function hostPath(name: string): string {
   return `/hosts/${encodeURIComponent(name)}`;
 }
+
+/** COLUMNS are what the hosts table shows, in order. */
+const COLUMNS: DataColumn<Host>[] = [
+  { id: "name", header: "Name", type: "mono", accessor: host => host.name, sortable: true },
+  {
+    id: "state",
+    header: "State",
+    accessor: host => hostState(host).label,
+    cell: host => <State status={hostState(host).tone}>{hostState(host).label}</State>,
+    sortable: true,
+  },
+  {
+    id: "type",
+    header: "Type",
+    accessor: host => hostTypeLabel(host.type),
+    cell: host => <Badge tone={hostTypeTone(host.type)}>{hostTypeLabel(host.type)}</Badge>,
+  },
+  {
+    id: "labels",
+    header: "Labels",
+    accessor: host => labelsText(host.labels),
+    cell: host => <span class="nc-mono nc-meta">{labelsText(host.labels)}</span>,
+  },
+  {
+    id: "address",
+    header: "Address",
+    type: "mono",
+    accessor: host => host.address || host.profile?.address || "",
+  },
+  {
+    id: "applied",
+    header: "Applied",
+    type: "time",
+    accessor: host => relativeTime(dateOf(host.appliedAt)),
+  },
+];
 
 export function HostsPage(): JSX.Element {
   const shell = useShell();
@@ -30,103 +66,40 @@ export function HostsPage(): JSX.Element {
 
   const rows = () => hosts()?.hosts ?? [];
 
-  const columns: Column<Host>[] = [
-    {
-      id: "name",
-      header: "Name",
-      mono: true,
-      value: (host) => host.name,
-    },
-    {
-      id: "state",
-      header: "State",
-      value: (host) => hostState(host).label,
-      cell: (host) => {
-        const shown = hostState(host);
-        return <StateText tone={shown.tone}>{shown.label}</StateText>;
-      },
-    },
-    {
-      id: "type",
-      header: "Type",
-      value: (host) => hostTypeLabel(host.type),
-      cell: (host) => <Badge tone={hostTypeTone(host.type)}>{hostTypeLabel(host.type)}</Badge>,
-    },
-    {
-      id: "labels",
-      header: "Labels",
-      value: (host) => labelsText(host.labels),
-      cell: (host) => <span class="nc-meta nc-code">{labelsText(host.labels)}</span>,
-    },
-    { id: "address", header: "Address", mono: true, value: (host) => host.address || host.profile?.address || "" },
-    { id: "applied", header: "Applied", value: (host) => relativeTime(dateOf(host.appliedAt)) },
-  ];
-
   return (
     <Page
       title="Hosts"
       description="The machines Rookery runs: reached over SSH, set up with a profile, and used through terminals, files, ports and desktops."
-      actions={
-        <>
-          <IconButton label="Read the hosts again" glyph="hosts" onClick={() => void hosts.refresh()} />
-          <Button variant="primary" onClick={() => setAdding(true)}>
-            Add host
-          </Button>
-        </>
-      }
+      actions={() => [
+        {
+          id: "refresh",
+          label: "Read the hosts again",
+          icon: "refresh-cw",
+          onClick: () => void hosts.refresh(),
+        },
+        { id: "add", label: "Add host", icon: "plus", onClick: () => setAdding(true) },
+      ]}
     >
-      <Show when={hosts.error()}>
-        {error => (
-          <Callout tone="danger">
-            The hosts could not be read: {error().message}
-          </Callout>
-        )}
-      </Show>
-      <Show
-        when={!hosts.pending() || hosts() !== undefined}
-        fallback={
-          <p class="nc-row">
-            <Spinner /> Reading the hosts…
-          </p>
-        }
-      >
-        <Show
-          when={rows().length > 0}
-          fallback={
-            <Show when={hosts() !== undefined}>
-              <section class="nc-card">
-                <div class="nc-pad nc-stack">
-                  <p class="nc-empty__title">No hosts yet</p>
-                  <p class="nc-empty__desc">
-                    Add a machine Rookery reaches over SSH, and apply its profile to make it a managed host or a
-                    workstation.
-                  </p>
-                  <div class="nc-row">
-                    <Button onClick={() => setAdding(true)}>Add host</Button>
-                  </div>
-                </div>
-              </section>
-            </Show>
+      <Card title="Hosts" count={rows().length} padding="none">
+        <DataTable
+          bare
+          label="Hosts"
+          rows={rows()}
+          columns={COLUMNS}
+          getRowId={host => host.name}
+          loading={hosts.pending() && hosts() === undefined}
+          onRowClick={host => shell.navigate(hostPath(host.name))}
+          empty={{
+            title: "No hosts yet",
+            description: "Add a machine Rookery reaches over SSH, and apply its profile to make it a managed host or a workstation.",
+          }}
+          error={
+            hosts.error() === undefined
+              ? undefined
+              : { message: "The hosts could not be read.", detail: hosts.error()?.message, onRetry: () => void hosts.refresh() }
           }
-        >
-          <section class="nc-card">
-            <div class="nc-pad nc-stack">
-              <div class="nc-row" style={{ "justify-content": "space-between" }}>
-                <span class="nc-meta">
-                  {rows().length} {rows().length === 1 ? "host" : "hosts"}
-                </span>
-              </div>
-              <Table
-                label="Hosts"
-                rows={rows()}
-                columns={columns}
-                rowKey={host => host.name}
-                onRowClick={host => shell.navigate(hostPath(host.name))}
-              />
-            </div>
-          </section>
-        </Show>
-      </Show>
+        />
+      </Card>
       <Show when={adding()}>
         <AddHost
           onClose={() => setAdding(false)}

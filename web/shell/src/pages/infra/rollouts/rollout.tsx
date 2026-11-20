@@ -5,11 +5,22 @@ import { Show, createSignal, onCleanup, onSettled } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { useParams } from "@solidjs/router";
 import type { Rollout, RolloutHost } from "@rookery/proto";
+import {
+  Button,
+  Callout,
+  Card,
+  DataTable,
+  type DataColumn,
+  Dialog,
+  PropertyList,
+  Skeleton,
+  State,
+  TextField,
+} from "@aiviarium/nocturne";
 
 import { useShell } from "../../../shell.tsx";
-import { Button, Callout, Card, Field, Input, Page, Spinner } from "../../../ui.tsx";
+import { Page } from "../../../parts/page.tsx";
 import { errorMessage, relativeTime, rolloutActive, rolloutHostState, rolloutState, dateOf } from "../format.ts";
-import { Dialog, PropertyList, StateText, Table, type Column } from "../parts.tsx";
 
 export function RolloutPage(): JSX.Element {
   const shell = useShell();
@@ -82,44 +93,52 @@ export function RolloutPage(): JSX.Element {
     return current === undefined ? undefined : rolloutState(current.pausedBecause === "" ? current.state : "paused");
   };
 
-  const columns: Column<RolloutHost>[] = [
-    { id: "host", header: "Host", mono: true, value: host => host.host },
-    { id: "batch", header: "Batch", num: true, value: host => `${host.batch}` },
+  const columns = (): DataColumn<RolloutHost>[] => [
+    { id: "host", header: "Host", type: "mono", accessor: host => host.host },
+    { id: "batch", header: "Batch", type: "num", accessor: host => `${host.batch}` },
     {
       id: "state",
       header: "State",
-      value: host => rolloutHostState(host.state).label,
+      accessor: host => rolloutHostState(host.state).label,
       cell: host => {
         const shown = rolloutHostState(host.state);
-        return <StateText tone={shown.tone}>{shown.label}</StateText>;
+        return <State status={shown.tone}>{shown.label}</State>;
       },
     },
-    { id: "why", header: "Why", value: host => host.error || host.reason },
-    { id: "job", header: "Job", mono: true, value: host => host.job.slice(0, 10) },
+    { id: "why", header: "Why", accessor: host => host.error || host.reason },
+    { id: "job", header: "Job", type: "mono", accessor: host => host.job.slice(0, 10) },
   ];
 
   return (
     <Page
       title={`Roll-out ${id().slice(0, 10)}`}
-      description={rollout()?.kind === "host.action" ? "One action, on the hosts in batches." : "An apply, on the hosts in batches."}
-      actions={
-        <>
-          <Show when={state()}>{shown => <StateText tone={shown().tone}>{shown().label}</StateText>}</Show>
-          <Button onClick={() => void steer("pause")} disabled={rollout()?.state !== "running" || busy() !== undefined}>
-            {busy() === "pause" ? "Pausing…" : "Pause"}
-          </Button>
-          <Button onClick={() => void steer("resume")} disabled={rollout()?.state !== "paused" || busy() !== undefined}>
-            {busy() === "resume" ? "Resuming…" : "Resume"}
-          </Button>
-          <Button
-            variant="danger"
-            onClick={() => void steer("cancel")}
-            disabled={!rolloutActive(rollout()) || busy() !== undefined}
-          >
-            {busy() === "cancel" ? "Cancelling…" : "Cancel"}
-          </Button>
-        </>
+      crumbs={() => [{ label: "Roll-outs", href: "/rollouts" }, { label: id().slice(0, 10) }]}
+      description={
+        rollout()?.kind === "host.action" ? "One action, on the hosts in batches." : "An apply, on the hosts in batches."
       }
+      context={<Show when={state()}>{shown => <State status={shown().tone}>{shown().label}</State>}</Show>}
+      actions={() => [
+        {
+          id: "pause",
+          label: busy() === "pause" ? "Pausing…" : "Pause",
+          disabled: rollout()?.state !== "running" || busy() !== undefined,
+          onClick: () => setPausing(true),
+        },
+        {
+          id: "resume",
+          label: busy() === "resume" ? "Resuming…" : "Resume",
+          disabled: rollout()?.state !== "paused" || busy() !== undefined,
+          onClick: () => void steer("resume"),
+        },
+        {
+          id: "cancel",
+          label: busy() === "cancel" ? "Cancelling…" : "Cancel",
+          overflow: true,
+          danger: true,
+          disabled: !rolloutActive(rollout()) || busy() !== undefined,
+          onClick: () => void steer("cancel"),
+        },
+      ]}
     >
       <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
       <Show
@@ -131,19 +150,21 @@ export function RolloutPage(): JSX.Element {
         }
       >
         {reason => (
-          <Callout tone="warning">
-            <div class="nc-row" style={{ "justify-content": "space-between" }}>
-              <span>Paused: {reason()}</span>
+          <Callout
+            tone="warning"
+            action={
               <Show when={rollout()?.state === "paused"}>
                 <Button size="sm" onClick={() => void steer("resume")}>
                   Resume
                 </Button>
               </Show>
-            </div>
+            }
+          >
+            Paused: {reason()}
           </Callout>
         )}
       </Show>
-      <Show when={rollout()} fallback={<Spinner />}>
+      <Show when={rollout()} fallback={<Skeleton width="40%" />}>
         {current => (
           <Card title="Progress">
             <PropertyList
@@ -163,16 +184,17 @@ export function RolloutPage(): JSX.Element {
           </Card>
         )}
       </Show>
-      <Card title="Hosts">
-        <Table
+      <Card title="Hosts" count={rows().length} padding="none">
+        <DataTable
+          bare
           label="Hosts of the roll-out"
           rows={rows()}
-          columns={columns}
-          rowKey={host => host.host}
+          columns={columns()}
+          getRowId={host => `${host.batch}/${host.host}`}
           onRowClick={host => {
             if (host.job !== "") shell.navigate(`/jobs/${encodeURIComponent(host.job)}`);
           }}
-          empty="The plan named none that can take it."
+          empty={{ title: "No host", description: "The plan named none that can take it." }}
         />
       </Card>
       <Show when={pausing()}>
@@ -192,9 +214,15 @@ export function RolloutPage(): JSX.Element {
             </>
           }
         >
-          <Field label="Why" hint="The person who started it is told this.">
-            <Input value={why()} placeholder="A person is checking the first batch" onInput={setWhy} />
-          </Field>
+          <div class="nc-stack">
+            <TextField
+              label="Why"
+              help="The person who started it is told this."
+              value={why()}
+              placeholder="A person is checking the first batch"
+              onInput={event => setWhy(event.currentTarget.value)}
+            />
+          </div>
         </Dialog>
       </Show>
     </Page>

@@ -10,12 +10,13 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
+import { State, type DotStatus } from "@aiviarium/nocturne";
+
 import { useShell } from "../../../shell.tsx";
-import { StateText, type Tone } from "../parts.tsx";
 
 type PaneState = "connecting" | "live" | "ended" | "error";
 
-const TONE: Record<PaneState, Tone> = {
+const TONE: Record<PaneState, DotStatus> = {
   connecting: "idle",
   live: "live",
   ended: "neutral",
@@ -172,9 +173,7 @@ export function TerminalPane(props: { id: string; active: boolean }): JSX.Elemen
   return (
     <div class="infra-terminal" data-part="terminal" data-terminal={props.id} data-state={state()}>
       <div class="nc-row infra-terminal__state">
-        <StateText tone={TONE[state()]}>
-          {exited() === undefined ? WORD[state()] : `Exited with ${exited()}`}
-        </StateText>
+        <State status={TONE[state()]}>{exited() === undefined ? WORD[state()] : `Exited with ${exited()}`}</State>
         <span class="nc-meta nc-code">{props.id}</span>
       </div>
       <div class="infra-terminal__frame" ref={frame} />

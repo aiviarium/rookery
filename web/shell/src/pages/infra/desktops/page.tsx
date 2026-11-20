@@ -8,15 +8,15 @@ import { Show, createSignal, onCleanup, onSettled } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { useParams } from "@solidjs/router";
 import RFB from "@novnc/novnc";
+import { Button, Callout, Card, Dialog, State, TextArea, type DotStatus } from "@aiviarium/nocturne";
 
 import { useShell } from "../../../shell.tsx";
-import { Button, Callout, Page } from "../../../ui.tsx";
+import { Page } from "../../../parts/page.tsx";
 import { errorMessage } from "../format.ts";
-import { Dialog, StateText, TextArea, type Tone } from "../parts.tsx";
 
 type DesktopState = "connecting" | "connected" | "lost" | "ended";
 
-const TONE: Record<DesktopState, Tone> = {
+const TONE: Record<DesktopState, DotStatus> = {
   connecting: "idle",
   connected: "live",
   lost: "warn",
@@ -155,36 +155,43 @@ export function DesktopPage(): JSX.Element {
   return (
     <Page
       title={`Desktop of ${host()}`}
+      crumbs={() => [{ label: "Hosts", href: "/hosts" }, { label: host() }, { label: "Desktop" }]}
       description="The workstation's shared desktop, drawn in this tab. Input and the clipboard go through the server."
-      actions={
-        <>
-          <StateText tone={TONE[state()]}>{WORD[state()]}</StateText>
-          <Button onClick={() => setClipboardOpen(!clipboardOpen())}>Clipboard</Button>
-          <Button onClick={() => void togglePause()}>{paused() ? "Resume" : "Pause"}</Button>
-          <Button onClick={() => void screenshot()}>Screenshot</Button>
-          <Button variant="primary" onClick={() => void fullscreen()}>
-            Full screen
-          </Button>
-        </>
-      }
+      context={<State status={TONE[state()]}>{WORD[state()]}</State>}
+      actions={() => [
+        { id: "clipboard", label: "Clipboard", icon: "copy", onClick: () => setClipboardOpen(!clipboardOpen()) },
+        {
+          id: "pause",
+          label: paused() ? "Resume" : "Pause",
+          icon: paused() ? "play" : "pause",
+          onClick: () => void togglePause(),
+        },
+        { id: "screenshot", label: "Screenshot", icon: "eye", onClick: () => void screenshot() },
+        { id: "fullscreen", label: "Full screen", primary: true, onClick: () => void fullscreen() },
+      ]}
     >
       <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
       <Show when={clipboardOpen()}>
-        <section class="nc-card">
-          <div class="nc-pad nc-stack">
-            <TextArea label="Clipboard" value={clipboard()} rows={3} onInput={setClipboard} />
+        <Card title="Clipboard">
+          <div class="nc-stack">
+            <TextArea
+              label="Clipboard"
+              rows={3}
+              value={clipboard()}
+              onInput={event => setClipboard(event.currentTarget.value)}
+            />
             <div class="nc-row">
               <Button onClick={() => void sendClipboard()}>Send to the desktop</Button>
               <Button onClick={() => void readClipboard()}>Read from the desktop</Button>
             </div>
           </div>
-        </section>
+        </Card>
       </Show>
-      <div class="infra-desktop" data-part="desktop-page" data-host={host()} data-state={state()} ref={stage}>
-        <div class="infra-desktop__screen" ref={screen} />
+      <div class="shell-desktop" data-part="desktop-page" data-host={host()} data-state={state()} ref={stage}>
+        <div class="shell-desktop__screen" ref={screen} />
         <Show when={state() !== "connected"}>
-          <div class="infra-desktop__overlay">
-            <StateText tone={TONE[state()]}>{detail() ?? `The desktop of ${host()}`}</StateText>
+          <div class="shell-desktop__overlay">
+            <State status={TONE[state()]}>{detail() ?? `The desktop of ${host()}`}</State>
           </div>
         </Show>
       </div>
@@ -213,7 +220,7 @@ export function DesktopPage(): JSX.Element {
           </>
         }
       >
-        <Show when={shot()}>{url => <img class="infra-shot" src={url()} alt={`The desktop of ${host()}`} />}</Show>
+        <Show when={shot()}>{url => <img class="shell-shot" src={url()} alt={`The desktop of ${host()}`} />}</Show>
       </Dialog>
     </Page>
   );

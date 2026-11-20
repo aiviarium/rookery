@@ -1,11 +1,20 @@
 // The home page: what this server holds, and where to go next.
 import { For, Show, onSettled } from "solid-js";
-import type { JSX } from "@solidjs/web";
 import { createQuery } from "@rookery/client/solid";
 import { HostType } from "@rookery/proto";
+import {
+  Badge,
+  Callout,
+  Card,
+  EmptyState,
+  ListRow,
+  RowList,
+  Skeleton,
+  StatCard,
+} from "@aiviarium/nocturne";
 
 import { useShell } from "../../shell.tsx";
-import { Badge, Callout, Card, Empty, Page, Spinner } from "../../ui.tsx";
+import { Page } from "../../parts/page.tsx";
 
 /** HomePage is the first page a person sees after signing in. */
 export function HomePage() {
@@ -33,18 +42,16 @@ export function HomePage() {
 
   return (
     <Page title={`Welcome, ${name()}`} description="This is the Rookery server you are signed in to.">
-      <div class="nc-row" style={{ gap: "var(--space-2)", "align-items": "stretch" }}>
-        <Stat label="Hosts" value={hosts()?.hosts.length} loading={hosts.pending()} />
-        <Stat label="Spaces" value={spaces()?.spaces.length} loading={spaces.pending()} />
-        <Stat label="Plugins" value={plugins()?.plugins.length} loading={plugins.pending()} />
-        <Stat label="Jobs running" value={jobs()?.jobs.length} loading={jobs.pending()} />
+      <div class="shell-stats">
+        <StatCard label="Hosts" value={hosts()?.hosts.length ?? "—"} />
+        <StatCard label="Spaces" value={spaces()?.spaces.length ?? "—"} />
+        <StatCard label="Plugins" value={plugins()?.plugins.length ?? "—"} />
+        <StatCard label="Jobs running" value={jobs()?.jobs.length ?? "—"} />
       </div>
 
       <Show when={hosts.error() !== undefined || spaces.error() !== undefined}>
         <Callout tone="warning">
-          <div class="nc-callout__body">
-            Some of this server could not be read. The page shows what it could.
-          </div>
+          Some of this server could not be read. The page shows what it could.
         </Callout>
       </Show>
 
@@ -52,7 +59,7 @@ export function HomePage() {
         {space => (
           <Card title="The space you are in">
             <div class="nc-row" style={{ "justify-content": "space-between" }}>
-              <span class="nc-row">
+              <span class="nc-row nc-row--tight">
                 <strong>{space().name}</strong>
                 <Badge tone="outline">{space().kind}</Badge>
               </span>
@@ -62,88 +69,55 @@ export function HomePage() {
         )}
       </Show>
 
-      <Card title="Hosts">
-        <Show when={hosts() !== undefined} fallback={<Loading />}>
+      <Card title="Hosts" count={hosts()?.hosts.length}>
+        <Show when={hosts() !== undefined} fallback={<Skeleton width="40%" />}>
           <Show
             when={(hosts()?.hosts.length ?? 0) > 0}
             fallback={
-              <Empty
+              <EmptyState
+                size="sm"
                 title="No hosts yet"
                 description="A host is a machine Rookery sets up and reaches over SSH and the tailnet."
-                actions={
-                  <span class="nc-meta">
-                    Add one with <code class="nc-code">rookery host add NAME ADDRESS</code>.
-                  </span>
-                }
-              />
+              >
+                <code class="nc-code">rookery host add NAME ADDRESS</code>
+              </EmptyState>
             }
           >
-            <ul class="nc-rows">
+            <RowList label="Hosts" variant="inset">
               <For each={hosts()?.hosts ?? []}>
-                {host => (
-                  <li class="nc-lrow" data-interactive>
-                    <span class="nc-lrow__main">
-                      <span class="nc-lrow-title">{host.name}</span>
-                      <span class="nc-lrow-meta">{hostType(host.type)}</span>
-                    </span>
-                  </li>
-                )}
+                {host => <ListRow icon="server" title={host.name} secondary={hostType(host.type)} />}
               </For>
-            </ul>
+            </RowList>
           </Show>
         </Show>
       </Card>
 
-      <Card title="Plugins">
-        <Show when={plugins() !== undefined} fallback={<Loading />}>
+      <Card title="Plugins" count={plugins()?.plugins.length}>
+        <Show when={plugins() !== undefined} fallback={<Skeleton width="40%" />}>
           <Show
             when={(plugins()?.plugins.length ?? 0) > 0}
-            fallback={<Empty title="No plugins" description="Rookery ships the Docker and Incus plugins." />}
+            fallback={<EmptyState size="sm" title="No plugins" description="Rookery ships the Docker and Incus plugins." />}
           >
-            <ul class="nc-rows">
+            <RowList label="Plugins" variant="inset">
               <For each={plugins()?.plugins ?? []}>
                 {plugin => (
-                  <li class="nc-lrow">
-                    <span class="nc-lrow__main">
-                      <span class="nc-lrow-title">{plugin.name || plugin.id}</span>
-                      <span class="nc-lrow-meta">{plugin.version}</span>
-                    </span>
-                    <Show when={plugin.enabled} fallback={<Badge>disabled</Badge>}>
-                      <Badge tone="success">enabled</Badge>
-                    </Show>
-                  </li>
+                  <ListRow
+                    icon="puzzle"
+                    title={plugin.name || plugin.id}
+                    secondary={plugin.version}
+                    meta={
+                      <Show when={plugin.enabled} fallback={<Badge>disabled</Badge>}>
+                        <Badge tone="success">enabled</Badge>
+                      </Show>
+                    }
+                  />
                 )}
               </For>
-            </ul>
+            </RowList>
           </Show>
         </Show>
       </Card>
     </Page>
-  );
-}
-
-/** Stat is one number about the server, with what it counts. */
-function Stat(props: { label: string; value: number | undefined; loading: boolean }): JSX.Element {
-  return (
-    <div class="nc-stat" style={{ "min-width": "140px" }}>
-      <span class="nc-stat__label">
-        {props.label}
-        <Show when={props.loading}>
-          <Spinner />
-        </Show>
-      </span>
-      <span class="nc-stat__value">{props.value ?? "—"}</span>
-    </div>
-  );
-}
-
-/** Loading is a card whose answer has not arrived. */
-function Loading(): JSX.Element {
-  return (
-    <div class="nc-row">
-      <Spinner />
-      <span class="nc-meta">Loading…</span>
-    </div>
   );
 }
 

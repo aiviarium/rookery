@@ -6,11 +6,21 @@ import { For, Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { cbor } from "@rookery/client";
 import { HostType, type Host } from "@rookery/proto";
+import {
+  Badge,
+  Button,
+  Callout,
+  Dialog,
+  IconButton,
+  SectionHeading,
+  Select,
+  Switch,
+  TextArea,
+  TextField,
+} from "@aiviarium/nocturne";
 
 import { useShell } from "../../../shell.tsx";
-import { Badge, Button, Callout, Field, IconButton, Input, Select, Switch } from "../../../ui.tsx";
 import { errorMessage } from "../format.ts";
-import { Dialog, TextArea } from "../parts.tsx";
 
 /** FeatureDraft is one feature row, with its variables as JSON. */
 interface FeatureDraft {
@@ -128,74 +138,68 @@ export function HostProfile(props: {
           <Button onClick={props.onClose} disabled={busy()}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={() => void save()} disabled={busy()} data-part="save-profile">
-            {busy() ? "Saving…" : "Save profile"}
+          <Button variant="primary" loading={busy()} onClick={() => void save()} data-part="save-profile">
+            Save profile
           </Button>
         </>
       }
     >
-      <Field label="Type">
-        <Select
-          value={type()}
-          options={[
-            { value: String(HostType.SSH), label: "SSH" },
-            { value: String(HostType.MANAGED), label: "Managed" },
-            { value: String(HostType.WORKSTATION), label: "Workstation" },
-          ]}
-          onChange={setType}
-        />
-      </Field>
-      <Field label="Address" hint="Changing the address an existing host is reached at needs an admin.">
-        <Input value={address()} onInput={setAddress} />
-      </Field>
+      <div class="nc-stack">
+      <Select
+        label="Type"
+        value={type()}
+        options={[
+          { value: String(HostType.SSH), label: "SSH" },
+          { value: String(HostType.MANAGED), label: "Managed" },
+          { value: String(HostType.WORKSTATION), label: "Workstation" },
+        ]}
+        onChange={setType}
+      />
+      <TextField
+        label="Address"
+        help="Changing the address an existing host is reached at needs an admin."
+        value={address()}
+        onInput={event => setAddress(event.currentTarget.value)}
+      />
       <div class="nc-row">
-        <Field label="SSH port">
-          <Input value={port()} onInput={setPort} />
-        </Field>
-        <Field label="SSH user">
-          <Input value={sshUser()} onInput={setSSHUser} />
-        </Field>
-        <Field label="Operator">
-          <Input value={operator()} onInput={setOperator} />
-        </Field>
+        <TextField label="SSH port" value={port()} onInput={event => setPort(event.currentTarget.value)} />
+        <TextField label="SSH user" value={sshUser()} onInput={event => setSSHUser(event.currentTarget.value)} />
+        <TextField label="Operator" value={operator()} onInput={event => setOperator(event.currentTarget.value)} />
       </div>
       <Switch label="Join the tailnet" checked={tailnet()} onChange={setTailnet} />
-      <Field label="Registries" hint="Connection names, separated by commas. The apply writes their logins on the host.">
-        <Input value={registries()} onInput={setRegistries} />
-      </Field>
+      <TextField
+        label="Registries"
+        help="Connection names, separated by commas. The apply writes their logins on the host."
+        value={registries()}
+        onInput={event => setRegistries(event.currentTarget.value)}
+      />
       <Show when={Number(type()) === HostType.WORKSTATION}>
         <div class="nc-row">
-          <Field label="Desktop user">
-            <Input value={desktopUser()} onInput={setDesktopUser} />
-          </Field>
-          <Field label="Width">
-            <Input value={width()} onInput={setWidth} />
-          </Field>
-          <Field label="Height">
-            <Input value={height()} onInput={setHeight} />
-          </Field>
+          <TextField label="Desktop user" value={desktopUser()} onInput={event => setDesktopUser(event.currentTarget.value)} />
+          <TextField label="Width" value={width()} onInput={event => setWidth(event.currentTarget.value)} />
+          <TextField label="Height" value={height()} onInput={event => setHeight(event.currentTarget.value)} />
         </div>
         <Switch label="Give the desktop user the GPU" checked={gpu()} onChange={setGpu} />
       </Show>
       <section class="nc-stack">
-        <h3 class="nc-section-heading">Features</h3>
+        <SectionHeading title="Features" level={3} />
         <For each={features()}>
           {(feature, index) => (
-            <div class="infra-feature" data-part="profile-feature">
+            <div class="shell-feature nc-stack" data-part="profile-feature">
               <div class="nc-row">
                 <Badge tone="outline">{feature.plugin === "" ? "plugin" : feature.plugin}</Badge>
                 <span class="nc-code">{feature.feature}</span>
+                <IconButton
+                  label="Remove the feature"
+                  icon="close"
+                  onClick={() => setFeatures(previous => previous.filter((_, at) => at !== index()))}
+                />
               </div>
               <TextArea
                 label={`Variables of ${feature.plugin}/${feature.feature}`}
                 rows={3}
                 value={feature.vars}
-                onInput={vars => change(index(), { vars })}
-              />
-              <IconButton
-                label="Remove the feature"
-                glyph="close"
-                onClick={() => setFeatures(previous => previous.filter((_, at) => at !== index()))}
+                onInput={event => change(index(), { vars: event.currentTarget.value })}
               />
             </div>
           )}
@@ -208,6 +212,7 @@ export function HostProfile(props: {
         </Button>
       </section>
       <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
+      </div>
     </Dialog>
   );
 }

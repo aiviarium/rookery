@@ -6,9 +6,26 @@ import type { JSX } from "@solidjs/web";
 import { useParams } from "@solidjs/router";
 import { createQuery } from "@rookery/client/solid";
 import { HostType, type Host } from "@rookery/proto";
+import {
+  Badge,
+  Button,
+  Callout,
+  Card,
+  Dialog,
+  EmptyState,
+  IconButton,
+  ListRow,
+  PropertyList,
+  RowList,
+  Skeleton,
+  State,
+  Tabs,
+  TextField,
+  type PropertyItem,
+} from "@aiviarium/nocturne";
 
 import { useShell } from "../../../shell.tsx";
-import { Badge, Button, Callout, Card, Field, IconButton, Input, Page, Spinner } from "../../../ui.tsx";
+import { Page } from "../../../parts/page.tsx";
 import { HostTabMount } from "../../../plugin/mount.tsx";
 import {
   errorMessage,
@@ -19,7 +36,6 @@ import {
   relativeTime,
   dateOf,
 } from "../format.ts";
-import { Dialog, PropertyList, StateText, Tabs, type PropertyItem } from "../parts.tsx";
 import { HostActions } from "./actions.tsx";
 import { HostFiles } from "./files.tsx";
 import { HostPorts } from "./ports.tsx";
@@ -90,7 +106,7 @@ export function HostPage(): JSX.Element {
     if (shown === undefined) return [];
     const applied = hostState(shown);
     return [
-      { label: "State", value: <StateText tone={applied.tone}>{applied.label}</StateText> },
+      { label: "State", value: <State status={applied.tone}>{applied.label}</State> },
       { label: "Type", value: <Badge tone={hostTypeTone(shown.type)}>{hostTypeLabel(shown.type)}</Badge> },
       {
         label: "Address",
@@ -152,65 +168,61 @@ export function HostPage(): JSX.Element {
   return (
     <Page
       title={current()?.name ?? name()}
+      crumbs={() => [{ label: "Hosts", href: "/hosts" }, { label: current()?.name ?? name() }]}
       description="A machine Rookery runs. Its profile is what an apply makes of it."
-      actions={
-        <>
-          <Show when={state()}>
-            {shown => <StateText tone={shown().tone}>{shown().label}</StateText>}
-          </Show>
-          <IconButton
-            label="Open a terminal"
-            glyph="hosts"
-            onClick={() => shell.navigate(`/terminals?host=${encodeURIComponent(name())}`)}
-          />
-          <IconButton
-            label="Open the desktop"
-            glyph="server"
-            onClick={() => shell.navigate(`/hosts/${encodeURIComponent(name())}/desktop`)}
-          />
-          <IconButton label="Edit the profile" glyph="settings" onClick={() => setEditing(true)} />
-          <Button variant="ghost" onClick={() => setRenaming(true)}>
-            Rename
-          </Button>
-          <Button variant="ghost" onClick={() => setRemoving(true)}>
-            Remove
-          </Button>
-          <Button variant="primary" onClick={() => void apply()} disabled={busy() || current() === undefined}>
-            {busy() ? "Applying…" : "Apply"}
-          </Button>
-        </>
+      context={
+        <Show when={state()}>{shown => <State status={shown().tone}>{shown().label}</State>}</Show>
       }
+      actions={() => [
+        {
+          id: "terminal",
+          label: "Open a terminal",
+          icon: "terminal",
+          onClick: () => shell.navigate(`/terminals?host=${encodeURIComponent(name())}`),
+        },
+        {
+          id: "desktop",
+          label: "Open the desktop",
+          icon: "monitor",
+          onClick: () => shell.navigate(`/hosts/${encodeURIComponent(name())}/desktop`),
+        },
+        { id: "profile", label: "Edit the profile", icon: "settings", onClick: () => setEditing(true) },
+        { id: "rename", label: "Rename", icon: "edit", overflow: true, onClick: () => setRenaming(true) },
+        { id: "remove", label: "Remove", icon: "trash", overflow: true, danger: true, onClick: () => setRemoving(true) },
+        {
+          id: "apply",
+          label: busy() ? "Applying…" : "Apply",
+          primary: true,
+          disabled: busy() || current() === undefined,
+          onClick: () => void apply(),
+        },
+      ]}
     >
       <Show when={host.error()}>
-        {error => (
-          <Callout tone="danger">
-            The host could not be read: {error().message}
-          </Callout>
-        )}
+        {error => <Callout tone="danger">The host could not be read: {error().message}</Callout>}
       </Show>
       <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
       <Show
         when={current() !== undefined}
-        fallback={
-          <Show when={host.pending()}>
-            <span class="nc-row">
-              <Spinner /> Reading the host…
-            </span>
-          </Show>
-        }
+        fallback={<Show when={host.pending()}><Skeleton width="40%" /></Show>}
       >
         <Show when={behind()}>
           <Callout tone="warning">The profile changed since the host was last applied.</Callout>
         </Show>
-        <Tabs label={`Sections of ${name()}`} items={tabs()} value={tab()} onChange={setTab} />
+        <Tabs
+          label={`Sections of ${name()}`}
+          idPrefix="host-tabs"
+          variant="underline"
+          items={tabs()}
+          value={tab()}
+          onChange={setTab}
+        />
         <Show when={tab() === "overview"}>
-          <div class="infra-grid">
+          <div class="shell-columns">
             <Card title="Overview">
               <PropertyList items={overview()} />
             </Card>
-            <Card
-              title="Profile"
-            >
+            <Card title="Profile">
               <PropertyList items={profileItems()} />
             </Card>
           </div>
@@ -232,10 +244,15 @@ export function HostPage(): JSX.Element {
       <Show when={current()}>
         {shown => (
           <>
-            <HostProfile open={editing()} host={shown()} onClose={() => setEditing(false)} onSaved={() => {
-              setEditing(false);
-              void host.refresh().catch(() => undefined);
-            }} />
+            <HostProfile
+              open={editing()}
+              host={shown()}
+              onClose={() => setEditing(false)}
+              onSaved={() => {
+                setEditing(false);
+                void host.refresh().catch(() => undefined);
+              }}
+            />
             <RenameHost
               open={renaming()}
               host={shown().name}
@@ -282,27 +299,36 @@ function Labels(props: { host: Host; onChanged: () => void }): JSX.Element {
   const entries = () => Object.entries(props.host.labels).sort(([a], [b]) => a.localeCompare(b));
 
   return (
-    <Card
-      title="Labels"
-    >
+    <Card title="Labels">
       <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
       <Show
         when={entries().length > 0}
         fallback={
-          <p class="nc-empty__desc">No labels. Roll-outs select hosts by them, such as role=desk or site=lab.</p>
+          <EmptyState
+            size="sm"
+            title="No labels"
+            description="Roll-outs select hosts by them, such as role=desk or site=lab."
+          />
         }
       >
-        <ul class="nc-list">
+        <RowList label="Labels" variant="inline">
           <For each={entries()}>
             {([name, label]) => (
-              <li class="nc-list__row" data-label={name}>
-                <span class="nc-code">{name}</span>
-                <span class="infra-grow">{label}</span>
-                <IconButton label={`Remove the label ${name}`} glyph="close" onClick={() => void save({}, [name])} />
-              </li>
+              <ListRow
+                title={<span class="nc-code">{name}</span>}
+                secondary={label}
+                actions={
+                  <IconButton
+                    size="sm"
+                    label={`Remove the label ${name}`}
+                    icon="close"
+                    onClick={() => void save({}, [name])}
+                  />
+                }
+              />
             )}
           </For>
-        </ul>
+        </RowList>
       </Show>
       <form
         class="nc-row"
@@ -315,12 +341,8 @@ function Labels(props: { host: Host; onChanged: () => void }): JSX.Element {
           void save(labels, []);
         }}
       >
-        <Field label="Label">
-          <Input value={key()} placeholder="role" onInput={setKey} />
-        </Field>
-        <Field label="Value">
-          <Input value={value()} placeholder="desk" onInput={setValue} />
-        </Field>
+        <TextField label="Label" value={key()} placeholder="role" onInput={event => setKey(event.currentTarget.value)} />
+        <TextField label="Value" value={value()} placeholder="desk" onInput={event => setValue(event.currentTarget.value)} />
         <Button type="submit" disabled={busy() || key().trim() === ""}>
           Add label
         </Button>
@@ -365,16 +387,16 @@ function RenameHost(props: {
           <Button onClick={props.onClose} disabled={busy()}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={() => void submit()} disabled={busy() || name().trim() === ""}>
+          <Button variant="primary" loading={busy()} onClick={() => void submit()} disabled={name().trim() === ""}>
             Rename
           </Button>
         </>
       }
     >
-      <Field label="New name">
-        <Input value={name()} onInput={setName} />
-      </Field>
-      <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
+      <div class="nc-stack">
+        <TextField label="New name" value={name()} onInput={event => setName(event.currentTarget.value)} />
+        <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
+      </div>
     </Dialog>
   );
 }
@@ -414,14 +436,16 @@ function RemoveHost(props: {
           <Button onClick={props.onClose} disabled={busy()}>
             Cancel
           </Button>
-          <Button variant="danger" onClick={() => void submit()} disabled={busy()} data-part="confirm-remove-host">
+          <Button variant="danger" loading={busy()} onClick={() => void submit()} data-part="confirm-remove-host">
             Remove host
           </Button>
         </>
       }
     >
-      <Callout tone="warning">What runs on the machine is not stopped. Add the host again to reach it.</Callout>
-      <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
+      <div class="nc-stack">
+        <Callout tone="warning">What runs on the machine is not stopped. Add the host again to reach it.</Callout>
+        <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
+      </div>
     </Dialog>
   );
 }

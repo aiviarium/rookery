@@ -42,7 +42,7 @@ describe("a plugin's page", () => {
       "/notes",
     );
     try {
-      expect(view.findAll(".nc-section-heading").some((heading) => heading.textContent?.includes("Workspace"))).toBe(true);
+      expect(view.findAll(".nc-nav__label").some((heading) => heading.textContent?.includes("Workspace"))).toBe(true);
       const link = view.find("a[href='/notes']");
       expect(link?.textContent).toContain("Notes");
       expect(view.text()).toContain("notes from the plugin");

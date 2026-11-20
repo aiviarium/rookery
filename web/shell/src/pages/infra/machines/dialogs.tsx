@@ -9,11 +9,10 @@ import type { JSX } from "@solidjs/web";
 import { HostType, type ProvisionerAction, type ProvisionerEntry, type ProvisionerType } from "@rookery/proto";
 
 import { cbor } from "@rookery/client";
+import { Badge, Button, Callout, Dialog, Select, TextField } from "@aiviarium/nocturne";
 
 import { useShell } from "../../../shell.tsx";
-import { Badge, Button, Callout, Field, Input, Select } from "../../../ui.tsx";
 import { errorMessage } from "../format.ts";
-import { Dialog } from "../parts.tsx";
 import {
   ArgumentFields,
   type ArgumentValues,
@@ -81,17 +80,28 @@ export function NewProvisioner(props: {
           <Button onClick={props.onClose} disabled={busy()}>
             Cancel
           </Button>
-          <Button variant="primary" disabled={busy() || name().trim() === "" || type() === ""} onClick={() => void submit()} data-part="add-provisioner">
-            {busy() ? "Adding…" : "Add provisioner"}
+          <Button
+            variant="primary"
+            loading={busy()}
+            disabled={name().trim() === "" || type() === ""}
+            onClick={() => void submit()}
+            data-part="add-provisioner"
+          >
+            Add provisioner
           </Button>
         </>
       }
     >
-      <Field label="Name" hint="The resource provisioners are granted, and the name a machine names.">
-        <Input value={name()} placeholder="lab-incus" onInput={setName} />
-      </Field>
-      <Field label="Type">
+      <div class="nc-stack">
+        <TextField
+          label="Name"
+          help="The resource provisioners are granted, and the name a machine names."
+          value={name()}
+          placeholder="lab-incus"
+          onInput={event => setName(event.currentTarget.value)}
+        />
         <Select
+          label="Type"
           value={type()}
           options={props.types.map(one => ({
             value: one.id,
@@ -99,9 +109,8 @@ export function NewProvisioner(props: {
           }))}
           onChange={choose}
         />
-      </Field>
-      <Field label="Engine">
         <Select
+          label="Engine"
           value={engine()}
           options={[
             { value: "local", label: "This server — its own engine" },
@@ -110,34 +119,34 @@ export function NewProvisioner(props: {
           ]}
           onChange={setEngine}
         />
-      </Field>
-      <Show when={chosen()}>
-        {found => (
-          <>
-            <Show when={found().error !== ""}>
-              <Callout tone="warning">{found().error}</Callout>
-            </Show>
-            <div class="nc-row">
-              <For each={found().kinds}>
-                {kind => <Badge tone="outline">{kind.label === "" ? kind.id : kind.label}</Badge>}
-              </For>
-            </div>
-            <Show when={found().secrets.length > 0}>
-              <Callout tone="info">
-                It reads the secrets <span class="nc-code">{found().secrets.join(", ")}</span>, which an admin sets
-                for this entry.
-              </Callout>
-            </Show>
-            <ArgumentFields
-              arguments={found().arguments}
-              values={values()}
-              errors={{}}
-              onChange={(key, value) => setValues(previous => ({ ...previous, [key]: value }))}
-            />
-          </>
-        )}
-      </Show>
-      <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
+        <Show when={chosen()}>
+          {found => (
+            <>
+              <Show when={found().error !== ""}>
+                <Callout tone="warning">{found().error}</Callout>
+              </Show>
+              <div class="nc-row">
+                <For each={found().kinds}>
+                  {kind => <Badge tone="outline">{kind.label === "" ? kind.id : kind.label}</Badge>}
+                </For>
+              </div>
+              <Show when={found().secrets.length > 0}>
+                <Callout tone="info">
+                  It reads the secrets <span class="nc-code">{found().secrets.join(", ")}</span>, which an admin sets
+                  for this entry.
+                </Callout>
+              </Show>
+              <ArgumentFields
+                arguments={found().arguments}
+                values={values()}
+                errors={{}}
+                onChange={(key, value) => setValues(previous => ({ ...previous, [key]: value }))}
+              />
+            </>
+          )}
+        </Show>
+        <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
+      </div>
     </Dialog>
   );
 }
@@ -200,14 +209,20 @@ export function RunProvisionerAction(props: {
           <Button onClick={props.onClose} disabled={busy()}>
             Cancel
           </Button>
-          <Button variant="primary" disabled={busy() || action() === undefined} onClick={() => void submit()}>
-            {busy() ? "Starting…" : "Run action"}
+          <Button
+            variant="primary"
+            loading={busy()}
+            disabled={action() === undefined}
+            onClick={() => void submit()}
+          >
+            Run action
           </Button>
         </>
       }
     >
-      <Field label="Action">
+      <div class="nc-stack">
         <Select
+          label="Action"
           value={action()?.name ?? ""}
           options={(props.type?.actions ?? []).map(one => ({
             value: one.name,
@@ -215,23 +230,23 @@ export function RunProvisionerAction(props: {
           }))}
           onChange={choose}
         />
-      </Field>
-      <Show when={action()}>
-        {chosen => (
-          <>
-            <Show when={chosen().destructive}>
-              <Callout tone="warning">It changes or removes what the engine holds.</Callout>
-            </Show>
-            <ArgumentFields
-              arguments={chosen().arguments}
-              values={values()}
-              errors={{}}
-              onChange={(key, value) => setValues(previous => ({ ...previous, [key]: value }))}
-            />
-          </>
-        )}
-      </Show>
-      <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
+        <Show when={action()}>
+          {chosen => (
+            <>
+              <Show when={chosen().destructive}>
+                <Callout tone="warning">It changes or removes what the engine holds.</Callout>
+              </Show>
+              <ArgumentFields
+                arguments={chosen().arguments}
+                values={values()}
+                errors={{}}
+                onChange={(key, value) => setValues(previous => ({ ...previous, [key]: value }))}
+              />
+            </>
+          )}
+        </Show>
+        <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
+      </div>
     </Dialog>
   );
 }
@@ -299,15 +314,22 @@ export function NewMachine(props: {
           <Button onClick={props.onClose} disabled={busy()}>
             Cancel
           </Button>
-          <Button variant="primary" disabled={busy() || name().trim() === "" || !makesMachine()} onClick={() => void submit()} data-part="create-machine">
-            {busy() ? "Creating…" : "Create machine"}
+          <Button
+            variant="primary"
+            loading={busy()}
+            disabled={name().trim() === "" || !makesMachine()}
+            onClick={() => void submit()}
+            data-part="create-machine"
+          >
+            Create machine
           </Button>
         </>
       }
     >
-      <Show when={props.entries.length > 0} fallback={<Callout tone="info">Add a provisioner first.</Callout>}>
-        <Field label="Provisioner">
+      <div class="nc-stack">
+        <Show when={props.entries.length > 0} fallback={<Callout tone="info">Add a provisioner first.</Callout>}>
           <Select
+            label="Provisioner"
             value={entry()}
             options={props.entries.map(one => ({ value: one.name, label: `${one.name} · ${one.type}` }))}
             onChange={chosenEntry => {
@@ -318,12 +340,16 @@ export function NewMachine(props: {
               setImage("");
             }}
           />
-        </Field>
-        <Field label="Host name" hint="The machine takes this name, and the host whose profile it is.">
-          <Input value={name()} placeholder="desk-3" onInput={setName} />
-        </Field>
-        <Field label="Type" hint="What the host becomes: the apply sets up the rest.">
+          <TextField
+            label="Host name"
+            help="The machine takes this name, and the host whose profile it is."
+            value={name()}
+            placeholder="desk-3"
+            onInput={event => setName(event.currentTarget.value)}
+          />
           <Select
+            label="Type"
+            help="What the host becomes: the apply sets up the rest."
             value={String(hostType())}
             options={[
               { value: String(HostType.SSH), label: "SSH — reachable over SSH only" },
@@ -332,18 +358,17 @@ export function NewMachine(props: {
             ]}
             onChange={value => setHostType(Number(value) as HostType)}
           />
-        </Field>
-        <Show when={type()}>
-          {found => (
-            <>
-              <Show when={!makesMachine()}>
-                <Callout tone="warning">
-                  {found().id} makes no machine. Its kinds are {found().kinds.map(kind => kind.id).join(", ")}.
-                </Callout>
-              </Show>
-              <Show when={found().sizes.length > 0}>
-                <Field label="Size">
+          <Show when={type()}>
+            {found => (
+              <>
+                <Show when={!makesMachine()}>
+                  <Callout tone="warning">
+                    {found().id} makes no machine. Its kinds are {found().kinds.map(kind => kind.id).join(", ")}.
+                  </Callout>
+                </Show>
+                <Show when={found().sizes.length > 0}>
                   <Select
+                    label="Size"
                     value={size()}
                     options={found().sizes.map(choice => ({
                       value: choice.id,
@@ -351,11 +376,10 @@ export function NewMachine(props: {
                     }))}
                     onChange={setSize}
                   />
-                </Field>
-              </Show>
-              <Show when={found().images.length > 0}>
-                <Field label="Image">
+                </Show>
+                <Show when={found().images.length > 0}>
                   <Select
+                    label="Image"
                     value={image()}
                     options={found().images.map(choice => ({
                       value: choice.id,
@@ -363,23 +387,23 @@ export function NewMachine(props: {
                     }))}
                     onChange={setImage}
                   />
-                </Field>
-              </Show>
-              <ArgumentFields
-                arguments={found().arguments}
-                values={values()}
-                errors={{}}
-                onChange={(key, value) => setValues(previous => ({ ...previous, [key]: value }))}
-              />
-            </>
-          )}
+                </Show>
+                <ArgumentFields
+                  arguments={found().arguments}
+                  values={values()}
+                  errors={{}}
+                  onChange={(key, value) => setValues(previous => ({ ...previous, [key]: value }))}
+                />
+              </>
+            )}
+          </Show>
         </Show>
-      </Show>
-      <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
-      <Callout tone="info">
-        The machine's seed has the operator account and the tailnet key; the apply that follows sets everything else
-        up.
-      </Callout>
+        <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
+        <Callout tone="info">
+          The machine's seed has the operator account and the tailnet key; the apply that follows sets everything else
+          up.
+        </Callout>
+      </div>
     </Dialog>
   );
 }

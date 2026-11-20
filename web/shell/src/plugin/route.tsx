@@ -2,9 +2,10 @@
 import { Match, Switch } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { useLocation } from "@solidjs/router";
+import { Button, EmptyState } from "@aiviarium/nocturne";
 
 import { useShell } from "../shell.tsx";
-import { Button, Empty, Page } from "../ui.tsx";
+import { Page } from "../parts/page.tsx";
 import { ClientHalfMount } from "./mount.tsx";
 
 /**
@@ -38,15 +39,19 @@ export function PluginRoute() {
 export function NotFound(props: { path: string }): JSX.Element {
   return (
     <Page title="Not found" description={`Nothing on this server answers ${props.path}.`}>
-      <Empty
+      <EmptyState
         title="This page does not exist"
         description="A plugin may have been removed, or the address may have a typo."
-        actions={
-          <Button variant="primary" onClick={() => { location.assign("/"); }}>
-            Go home
-          </Button>
-        }
-      />
+      >
+        <Button
+          variant="primary"
+          onClick={() => {
+            location.assign("/");
+          }}
+        >
+          Go home
+        </Button>
+      </EmptyState>
     </Page>
   );
 }

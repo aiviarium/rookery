@@ -1,13 +1,13 @@
 // The shell's application: the state, the sign-in gate and the router.
 import { Match, Switch } from "solid-js";
 import type { JSX } from "@solidjs/web";
+import { Skeleton } from "@aiviarium/nocturne";
 import type { AuthConfig, Rookery } from "@rookery/client";
 
 import { ShellLayout } from "./chrome/layout.tsx";
 import { Router } from "./router.ts";
 import { ShellContext, createShell } from "./shell.tsx";
 import { SignIn } from "./sign-in.tsx";
-import { Spinner } from "./ui.tsx";
 
 /** AppProps are what a page needs beyond its own origin, and tests provide. */
 export interface AppProps {
@@ -25,8 +25,8 @@ export function App(props: AppProps): JSX.Element {
     <ShellContext value={shell}>
       <Switch>
         <Match when={shell.signIn().status === "unknown"}>
-          <div class="nc-shell" style={{ "grid-template-columns": "minmax(0, 1fr)", "place-items": "center" }}>
-            <Spinner />
+          <div class="shell-centered">
+            <Skeleton width="160px" height="14px" />
           </div>
         </Match>
         <Match when={shell.signIn().status === "signed-in"}>

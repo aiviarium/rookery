@@ -5,8 +5,7 @@ import { For, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { cbor } from "@rookery/client";
 import type { ProvisionerArgument } from "@rookery/proto";
-
-import { Field, Input, Select, Switch } from "../../../ui.tsx";
+import { Select, Switch, TextField } from "@aiviarium/nocturne";
 
 /** ArgumentValues maps an argument's name to what the person typed. */
 export type ArgumentValues = Record<string, string | boolean>;
@@ -85,22 +84,23 @@ export function ArgumentFields(props: {
               <Show
                 when={argument.type === "select" && argument.choices.length > 0}
                 fallback={
-                  <Field label={label} hint={help === "" ? undefined : help} error={props.errors[argument.name]}>
-                    <Input
-                      value={String(props.values[argument.name] ?? "")}
-                      placeholder={argument.type === "cbor" ? "{}" : undefined}
-                      onInput={value => props.onChange(argument.name, value)}
-                    />
-                  </Field>
+                  <TextField
+                    label={label}
+                    help={help === "" ? undefined : help}
+                    error={props.errors[argument.name]}
+                    value={String(props.values[argument.name] ?? "")}
+                    placeholder={argument.type === "cbor" ? "{}" : undefined}
+                    onInput={event => props.onChange(argument.name, event.currentTarget.value)}
+                  />
                 }
               >
-                <Field label={label} hint={help === "" ? undefined : help}>
-                  <Select
-                    value={String(props.values[argument.name] ?? "")}
-                    options={argument.choices.map(choice => ({ value: choice, label: choice }))}
-                    onChange={chosen => props.onChange(argument.name, chosen)}
-                  />
-                </Field>
+                <Select
+                  label={label}
+                  help={help === "" ? undefined : help}
+                  value={String(props.values[argument.name] ?? "")}
+                  options={argument.choices.map(choice => ({ value: choice, label: choice }))}
+                  onChange={chosen => props.onChange(argument.name, chosen)}
+                />
               </Show>
             }
           >
