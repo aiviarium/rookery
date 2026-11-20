@@ -32,7 +32,7 @@ WHERE id = $1;
 -- name: ListConnectionsForRekey :many
 SELECT *
 FROM rookery.connections
-ORDER BY id;
+ORDER BY id FOR UPDATE;
 
 -- name: ResealConnection :exec
 UPDATE rookery.connections

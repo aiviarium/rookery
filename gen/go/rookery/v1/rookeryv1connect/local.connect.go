@@ -63,7 +63,7 @@ type LocalServiceClient interface {
 	// Reset drops and recreates the database's schemas.
 	Reset(context.Context, *connect.Request[v1.LocalServiceResetRequest]) (*connect.Response[v1.LocalServiceResetResponse], error)
 	// Dial opens a byte stream to a host's address through the tailnet, for
-	// Ansible's SSH ProxyCommand. It arrives with the tailnet item.
+	// Ansible's SSH ProxyCommand.
 	Dial(context.Context) *connect.BidiStreamForClient[v1.LocalServiceDialRequest, v1.LocalServiceDialResponse]
 }
 
@@ -158,7 +158,7 @@ type LocalServiceHandler interface {
 	// Reset drops and recreates the database's schemas.
 	Reset(context.Context, *connect.Request[v1.LocalServiceResetRequest]) (*connect.Response[v1.LocalServiceResetResponse], error)
 	// Dial opens a byte stream to a host's address through the tailnet, for
-	// Ansible's SSH ProxyCommand. It arrives with the tailnet item.
+	// Ansible's SSH ProxyCommand.
 	Dial(context.Context, *connect.BidiStream[v1.LocalServiceDialRequest, v1.LocalServiceDialResponse]) error
 }
 

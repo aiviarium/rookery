@@ -137,7 +137,7 @@ func (q *Queries) ListConnections(ctx context.Context, type_ *string) ([]Rookery
 const listConnectionsForRekey = `-- name: ListConnectionsForRekey :many
 SELECT id, type, name, values, key_id, created_at, updated_at
 FROM rookery.connections
-ORDER BY id
+ORDER BY id FOR UPDATE
 `
 
 func (q *Queries) ListConnectionsForRekey(ctx context.Context) ([]RookeryConnections, error) {

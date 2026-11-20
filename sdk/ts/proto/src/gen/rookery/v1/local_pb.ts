@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file rookery/v1/local.proto.
  */
 export const file_rookery_v1_local: GenFile = /*@__PURE__*/
-  fileDesc("ChZyb29rZXJ5L3YxL2xvY2FsLnByb3RvEgpyb29rZXJ5LnYxIh4KHExvY2FsU2VydmljZVNldHVwTGlua1JlcXVlc3QiPQodTG9jYWxTZXJ2aWNlU2V0dXBMaW5rUmVzcG9uc2USCwoDdXJsGAEgASgJEg8KB2NyZWF0ZWQYAiABKAgiPQoeTG9jYWxTZXJ2aWNlQ3JlYXRlVG9rZW5SZXF1ZXN0Eg0KBWVtYWlsGAEgASgJEgwKBG5hbWUYAiABKAkiMAofTG9jYWxTZXJ2aWNlQ3JlYXRlVG9rZW5SZXNwb25zZRINCgV0b2tlbhgBIAEoCSIaChhMb2NhbFNlcnZpY2VSZWtleVJlcXVlc3QiKQoZTG9jYWxTZXJ2aWNlUmVrZXlSZXNwb25zZRIMCgRyb3dzGAEgASgDIhoKGExvY2FsU2VydmljZVJlc2V0UmVxdWVzdCIbChlMb2NhbFNlcnZpY2VSZXNldFJlc3BvbnNlIicKF0xvY2FsU2VydmljZURpYWxSZXF1ZXN0EgwKBGRhdGEYASABKAwiKAoYTG9jYWxTZXJ2aWNlRGlhbFJlc3BvbnNlEgwKBGRhdGEYASABKAwygwQKDExvY2FsU2VydmljZRJoCglTZXR1cExpbmsSKC5yb29rZXJ5LnYxLkxvY2FsU2VydmljZVNldHVwTGlua1JlcXVlc3QaKS5yb29rZXJ5LnYxLkxvY2FsU2VydmljZVNldHVwTGlua1Jlc3BvbnNlIgaKtRgCCAYSbgoLQ3JlYXRlVG9rZW4SKi5yb29rZXJ5LnYxLkxvY2FsU2VydmljZUNyZWF0ZVRva2VuUmVxdWVzdBorLnJvb2tlcnkudjEuTG9jYWxTZXJ2aWNlQ3JlYXRlVG9rZW5SZXNwb25zZSIGirUYAggGElwKBVJla2V5EiQucm9va2VyeS52MS5Mb2NhbFNlcnZpY2VSZWtleVJlcXVlc3QaJS5yb29rZXJ5LnYxLkxvY2FsU2VydmljZVJla2V5UmVzcG9uc2UiBoq1GAIIBhJcCgVSZXNldBIkLnJvb2tlcnkudjEuTG9jYWxTZXJ2aWNlUmVzZXRSZXF1ZXN0GiUucm9va2VyeS52MS5Mb2NhbFNlcnZpY2VSZXNldFJlc3BvbnNlIgaKtRgCCAYSXQoERGlhbBIjLnJvb2tlcnkudjEuTG9jYWxTZXJ2aWNlRGlhbFJlcXVlc3QaJC5yb29rZXJ5LnYxLkxvY2FsU2VydmljZURpYWxSZXNwb25zZSIGirUYAggGKAEwAUI6WjhnaXRodWIuY29tL2Fpdmlhcml1bS9yb29rZXJ5L2dlbi9nby9yb29rZXJ5L3YxO3Jvb2tlcnl2MWIGcHJvdG8z", [file_rookery_v1_access]);
+  fileDesc("ChZyb29rZXJ5L3YxL2xvY2FsLnByb3RvEgpyb29rZXJ5LnYxIh4KHExvY2FsU2VydmljZVNldHVwTGlua1JlcXVlc3QiPQodTG9jYWxTZXJ2aWNlU2V0dXBMaW5rUmVzcG9uc2USCwoDdXJsGAEgASgJEg8KB2NyZWF0ZWQYAiABKAgiPQoeTG9jYWxTZXJ2aWNlQ3JlYXRlVG9rZW5SZXF1ZXN0Eg0KBWVtYWlsGAEgASgJEgwKBG5hbWUYAiABKAkiMAofTG9jYWxTZXJ2aWNlQ3JlYXRlVG9rZW5SZXNwb25zZRINCgV0b2tlbhgBIAEoCSIaChhMb2NhbFNlcnZpY2VSZWtleVJlcXVlc3QiKQoZTG9jYWxTZXJ2aWNlUmVrZXlSZXNwb25zZRIMCgRyb3dzGAEgASgDIhoKGExvY2FsU2VydmljZVJlc2V0UmVxdWVzdCIbChlMb2NhbFNlcnZpY2VSZXNldFJlc3BvbnNlIkMKF0xvY2FsU2VydmljZURpYWxSZXF1ZXN0EgwKBGRhdGEYASABKAwSDAoEaG9zdBgCIAEoCRIMCgRwb3J0GAMgASgNIigKGExvY2FsU2VydmljZURpYWxSZXNwb25zZRIMCgRkYXRhGAEgASgMMoMECgxMb2NhbFNlcnZpY2USaAoJU2V0dXBMaW5rEigucm9va2VyeS52MS5Mb2NhbFNlcnZpY2VTZXR1cExpbmtSZXF1ZXN0Gikucm9va2VyeS52MS5Mb2NhbFNlcnZpY2VTZXR1cExpbmtSZXNwb25zZSIGirUYAggGEm4KC0NyZWF0ZVRva2VuEioucm9va2VyeS52MS5Mb2NhbFNlcnZpY2VDcmVhdGVUb2tlblJlcXVlc3QaKy5yb29rZXJ5LnYxLkxvY2FsU2VydmljZUNyZWF0ZVRva2VuUmVzcG9uc2UiBoq1GAIIBhJcCgVSZWtleRIkLnJvb2tlcnkudjEuTG9jYWxTZXJ2aWNlUmVrZXlSZXF1ZXN0GiUucm9va2VyeS52MS5Mb2NhbFNlcnZpY2VSZWtleVJlc3BvbnNlIgaKtRgCCAYSXAoFUmVzZXQSJC5yb29rZXJ5LnYxLkxvY2FsU2VydmljZVJlc2V0UmVxdWVzdBolLnJvb2tlcnkudjEuTG9jYWxTZXJ2aWNlUmVzZXRSZXNwb25zZSIGirUYAggGEl0KBERpYWwSIy5yb29rZXJ5LnYxLkxvY2FsU2VydmljZURpYWxSZXF1ZXN0GiQucm9va2VyeS52MS5Mb2NhbFNlcnZpY2VEaWFsUmVzcG9uc2UiBoq1GAIIBigBMAFCOlo4Z2l0aHViLmNvbS9haXZpYXJpdW0vcm9va2VyeS9nZW4vZ28vcm9va2VyeS92MTtyb29rZXJ5djFiBnByb3RvMw", [file_rookery_v1_access]);
 
 /**
  * @generated from message rookery.v1.LocalServiceSetupLinkRequest
@@ -163,11 +163,23 @@ export const LocalServiceResetResponseSchema: GenMessage<LocalServiceResetRespon
  */
 export type LocalServiceDialRequest = Message<"rookery.v1.LocalServiceDialRequest"> & {
   /**
-   * Data is bytes to send to the far end.
+   * Data is bytes to send after the opening message.
    *
    * @generated from field: bytes data = 1;
    */
   data: Uint8Array;
+
+  /**
+   * Host and port appear on the first message only.
+   *
+   * @generated from field: string host = 2;
+   */
+  host: string;
+
+  /**
+   * @generated from field: uint32 port = 3;
+   */
+  port: number;
 };
 
 /**
@@ -246,7 +258,7 @@ export const LocalService: GenService<{
   },
   /**
    * Dial opens a byte stream to a host's address through the tailnet, for
-   * Ansible's SSH ProxyCommand. It arrives with the tailnet item.
+   * Ansible's SSH ProxyCommand.
    *
    * @generated from rpc rookery.v1.LocalService.Dial
    */

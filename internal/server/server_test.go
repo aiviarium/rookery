@@ -12,6 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
+
+	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
+	"github.com/aiviarium/rookery/gen/go/rookery/v1/rookeryv1connect"
 	"github.com/aiviarium/rookery/internal/server"
 	"github.com/aiviarium/rookery/internal/store/storetest"
 )
@@ -177,5 +181,10 @@ func TestTheUnixSocketServesTheLocalAdmin(t *testing.T) {
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("the socket answered %d", response.StatusCode)
+	}
+	tailnet := rookeryv1connect.NewTailnetServiceClient(client, "http://rookery")
+	status, err := tailnet.Status(t.Context(), connect.NewRequest(&rookeryv1.TailnetServiceStatusRequest{}))
+	if err != nil || status.Msg.GetConfigured() {
+		t.Fatalf("an unconfigured tailnet answered %v, %v", status, err)
 	}
 }

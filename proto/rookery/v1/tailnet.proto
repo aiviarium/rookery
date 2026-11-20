@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+message TailnetServiceStatusRequest {}
+
+message TailnetServiceStatusResponse {
+  bool configured = 1;
+  bool online = 2;
+  string control_url = 3;
+  string tag = 4;
+  repeated string addresses = 5;
+}
+
+message TailnetServiceConfigureRequest {
+  // Url of Headscale or https://controlplane.tailscale.com for hosted Tailscale.
+  string control_url = 1;
+  string api_key = 2;
+  string tag = 3;
+}
+
+message TailnetServiceConfigureResponse {}
+
+message TailnetDevice {
+  string id = 1;
+  string hostname = 2;
+  repeated string addresses = 3;
+  repeated string tags = 4;
+  bool online = 5;
+  google.protobuf.Timestamp last_seen = 6;
+}
+
+message TailnetServiceListDevicesRequest {}
+
+message TailnetServiceListDevicesResponse {
+  repeated TailnetDevice devices = 1;
+}
+
+service TailnetService {
+  rpc Status(TailnetServiceStatusRequest) returns (TailnetServiceStatusResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc Configure(TailnetServiceConfigureRequest) returns (TailnetServiceConfigureResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc ListDevices(TailnetServiceListDevicesRequest) returns (TailnetServiceListDevicesResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+}

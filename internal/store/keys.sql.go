@@ -175,6 +175,21 @@ func (q *Queries) GetSSHKey(ctx context.Context, id string) (RookeryKeys, error)
 	return i, err
 }
 
+const hasSealedData = `-- name: HasSealedData :one
+SELECT EXISTS (SELECT 1 FROM rookery.secrets)
+    OR EXISTS (SELECT 1 FROM rookery.connections)
+    OR EXISTS (SELECT 1 FROM rookery.keys)
+    OR EXISTS (SELECT 1 FROM rookery.sql_roles)
+    OR EXISTS (SELECT 1 FROM rookery.tailnet_config) AS present
+`
+
+func (q *Queries) HasSealedData(ctx context.Context) (*bool, error) {
+	row := q.db.QueryRow(ctx, hasSealedData)
+	var present *bool
+	err := row.Scan(&present)
+	return present, err
+}
+
 const listKnownHosts = `-- name: ListKnownHosts :many
 SELECT address, host, key_type, public_key, fingerprint, pending_key_type, pending_public_key, pending_fingerprint, pending_at, first_seen_at, trusted_at
 FROM rookery.known_hosts
@@ -203,6 +218,36 @@ func (q *Queries) ListKnownHosts(ctx context.Context) ([]RookeryKnownHosts, erro
 			&i.FirstSeenAt,
 			&i.TrustedAt,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSQLRolesForRekey = `-- name: ListSQLRolesForRekey :many
+SELECT plugin, password, key_id FROM rookery.sql_roles ORDER BY plugin FOR UPDATE
+`
+
+type ListSQLRolesForRekeyRow struct {
+	Plugin   string
+	Password []byte
+	KeyID    string
+}
+
+func (q *Queries) ListSQLRolesForRekey(ctx context.Context) ([]ListSQLRolesForRekeyRow, error) {
+	rows, err := q.db.Query(ctx, listSQLRolesForRekey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSQLRolesForRekeyRow{}
+	for rows.Next() {
+		var i ListSQLRolesForRekeyRow
+		if err := rows.Scan(&i.Plugin, &i.Password, &i.KeyID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -249,6 +294,36 @@ func (q *Queries) ListSSHKeys(ctx context.Context) ([]RookeryKeys, error) {
 	return items, nil
 }
 
+const listSSHKeysForRekey = `-- name: ListSSHKeysForRekey :many
+SELECT id, private_key, key_id FROM rookery.keys ORDER BY id FOR UPDATE
+`
+
+type ListSSHKeysForRekeyRow struct {
+	ID         string
+	PrivateKey []byte
+	KeyID      string
+}
+
+func (q *Queries) ListSSHKeysForRekey(ctx context.Context) ([]ListSSHKeysForRekeyRow, error) {
+	rows, err := q.db.Query(ctx, listSSHKeysForRekey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSSHKeysForRekeyRow{}
+	for rows.Next() {
+		var i ListSSHKeysForRekeyRow
+		if err := rows.Scan(&i.ID, &i.PrivateKey, &i.KeyID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const offerKnownHostKey = `-- name: OfferKnownHostKey :exec
 UPDATE rookery.known_hosts
 SET pending_key_type = $1,
@@ -272,6 +347,36 @@ func (q *Queries) OfferKnownHostKey(ctx context.Context, arg OfferKnownHostKeyPa
 		arg.Fingerprint,
 		arg.Address,
 	)
+	return err
+}
+
+const resealSQLRole = `-- name: ResealSQLRole :exec
+UPDATE rookery.sql_roles SET password = $2, key_id = $3 WHERE plugin = $1
+`
+
+type ResealSQLRoleParams struct {
+	Plugin   string
+	Password []byte
+	KeyID    string
+}
+
+func (q *Queries) ResealSQLRole(ctx context.Context, arg ResealSQLRoleParams) error {
+	_, err := q.db.Exec(ctx, resealSQLRole, arg.Plugin, arg.Password, arg.KeyID)
+	return err
+}
+
+const resealSSHKey = `-- name: ResealSSHKey :exec
+UPDATE rookery.keys SET private_key = $2, key_id = $3 WHERE id = $1
+`
+
+type ResealSSHKeyParams struct {
+	ID         string
+	PrivateKey []byte
+	KeyID      string
+}
+
+func (q *Queries) ResealSSHKey(ctx context.Context, arg ResealSSHKeyParams) error {
+	_, err := q.db.Exec(ctx, resealSSHKey, arg.ID, arg.PrivateKey, arg.KeyID)
 	return err
 }
 

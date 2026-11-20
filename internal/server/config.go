@@ -30,9 +30,11 @@ type Config struct {
 
 	// Listen is ROOKERY_LISTEN, the edge's public address.
 	Listen string
-	// TailnetListen is ROOKERY_TAILNET_LISTEN, the edge's tailnet address. It
-	// arrives with the tailnet item.
-	TailnetListen string
+	// Tailnet fields configure the leader's tsnet node and edge listener.
+	TailnetListen        string
+	TailnetHostname      string
+	TailnetName          string
+	TailnetHeadscaleUser string
 	// TLSCert and TLSKey turn the edge into HTTPS when both are set; otherwise
 	// it speaks h2c.
 	TLSCert string
@@ -50,6 +52,8 @@ type Config struct {
 	SecretKey string
 	// SecretKeyFile is ROOKERY_SECRET_KEY_FILE, created on an empty database.
 	SecretKeyFile string
+	// PreviousKeyFile contains the old key during a deployment rekey.
+	PreviousKeyFile string
 
 	// StateDir is ROOKERY_STATE_DIR: work directories, plugin folders, the
 	// tailnet's state.
@@ -101,31 +105,35 @@ func Load() (Config, error) { return LoadFrom(os.Getenv) }
 // LoadFrom reads the configuration through get, which a test supplies.
 func LoadFrom(get func(string) string) (Config, error) {
 	config := Config{
-		DatabaseURL:      get("ROOKERY_DATABASE_URL"),
-		DatabaseLockURL:  get("ROOKERY_DATABASE_LOCK_URL"),
-		Listen:           valueOr(get("ROOKERY_LISTEN"), DefaultListen),
-		TailnetListen:    get("ROOKERY_TAILNET_LISTEN"),
-		TLSCert:          get("ROOKERY_TLS_CERT"),
-		TLSKey:           get("ROOKERY_TLS_KEY"),
-		Socket:           valueOr(get("ROOKERY_SOCKET"), DefaultSocket),
-		SocketMode:       0o660,
-		PublicURL:        strings.TrimRight(get("ROOKERY_PUBLIC_URL"), "/"),
-		SecretKey:        get("ROOKERY_SECRET_KEY"),
-		SecretKeyFile:    get("ROOKERY_SECRET_KEY_FILE"),
-		StateDir:         valueOr(get("ROOKERY_STATE_DIR"), DefaultStateDir),
-		ReleaseDir:       get("ROOKERY_RELEASE_DIR"),
-		Blobs:            get("ROOKERY_BLOBS"),
-		S3Endpoint:       get("ROOKERY_S3_ENDPOINT"),
-		S3AccessKey:      get("ROOKERY_S3_ACCESS_KEY"),
-		S3SecretKey:      get("ROOKERY_S3_SECRET_KEY"),
-		S3Region:         get("ROOKERY_S3_REGION"),
-		Admins:           splitList(get("ROOKERY_ADMINS")),
-		OIDCIssuer:       get("ROOKERY_OIDC_ISSUER"),
-		OIDCClientID:     get("ROOKERY_OIDC_CLIENT_ID"),
-		OIDCClientSecret: get("ROOKERY_OIDC_CLIENT_SECRET"),
-		OIDCGroupsClaim:  valueOr(get("ROOKERY_OIDC_GROUPS_CLAIM"), "groups"),
-		RetentionDays:    DefaultRetentionDays,
-		CookieSecure:     true,
+		DatabaseURL:          get("ROOKERY_DATABASE_URL"),
+		DatabaseLockURL:      get("ROOKERY_DATABASE_LOCK_URL"),
+		Listen:               valueOr(get("ROOKERY_LISTEN"), DefaultListen),
+		TailnetListen:        get("ROOKERY_TAILNET_LISTEN"),
+		TailnetHostname:      get("ROOKERY_TAILNET_HOSTNAME"),
+		TailnetName:          get("ROOKERY_TAILNET_NAME"),
+		TailnetHeadscaleUser: get("ROOKERY_TAILNET_HEADSCALE_USER"),
+		TLSCert:              get("ROOKERY_TLS_CERT"),
+		TLSKey:               get("ROOKERY_TLS_KEY"),
+		Socket:               valueOr(get("ROOKERY_SOCKET"), DefaultSocket),
+		SocketMode:           0o660,
+		PublicURL:            strings.TrimRight(get("ROOKERY_PUBLIC_URL"), "/"),
+		SecretKey:            get("ROOKERY_SECRET_KEY"),
+		SecretKeyFile:        get("ROOKERY_SECRET_KEY_FILE"),
+		PreviousKeyFile:      get("ROOKERY_SECRET_PREVIOUS_KEY_FILE"),
+		StateDir:             valueOr(get("ROOKERY_STATE_DIR"), DefaultStateDir),
+		ReleaseDir:           get("ROOKERY_RELEASE_DIR"),
+		Blobs:                get("ROOKERY_BLOBS"),
+		S3Endpoint:           get("ROOKERY_S3_ENDPOINT"),
+		S3AccessKey:          get("ROOKERY_S3_ACCESS_KEY"),
+		S3SecretKey:          get("ROOKERY_S3_SECRET_KEY"),
+		S3Region:             get("ROOKERY_S3_REGION"),
+		Admins:               splitList(get("ROOKERY_ADMINS")),
+		OIDCIssuer:           get("ROOKERY_OIDC_ISSUER"),
+		OIDCClientID:         get("ROOKERY_OIDC_CLIENT_ID"),
+		OIDCClientSecret:     get("ROOKERY_OIDC_CLIENT_SECRET"),
+		OIDCGroupsClaim:      valueOr(get("ROOKERY_OIDC_GROUPS_CLAIM"), "groups"),
+		RetentionDays:        DefaultRetentionDays,
+		CookieSecure:         true,
 	}
 
 	if config.DatabaseURL == "" {

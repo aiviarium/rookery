@@ -22,6 +22,9 @@ import (
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
+// TailnetControlAAD binds a sealed control API key to the tailnet settings.
+const TailnetControlAAD = "rookery.tailnet.api_key"
+
 // KeySize is the size of a key: 32 bytes, 64 hex digits.
 const KeySize = chacha20poly1305.KeySize
 

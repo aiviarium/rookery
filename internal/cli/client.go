@@ -105,6 +105,7 @@ type api struct {
 	Jobs          rookeryv1connect.JobServiceClient
 	Rollouts      rookeryv1connect.RolloutServiceClient
 	Provisioners  rookeryv1connect.ProvisionerServiceClient
+	Tailnet       rookeryv1connect.TailnetServiceClient
 	Schedules     rookeryv1connect.ScheduleServiceClient
 	Events        rookeryv1connect.EventServiceClient
 	Topics        rookeryv1connect.TopicServiceClient
@@ -153,6 +154,7 @@ func dial(ctx context.Context, address, token string) (*api, error) {
 		Jobs:          rookeryv1connect.NewJobServiceClient(httpClient, base, options...),
 		Rollouts:      rookeryv1connect.NewRolloutServiceClient(httpClient, base, options...),
 		Provisioners:  rookeryv1connect.NewProvisionerServiceClient(httpClient, base, options...),
+		Tailnet:       rookeryv1connect.NewTailnetServiceClient(httpClient, base, options...),
 		Schedules:     rookeryv1connect.NewScheduleServiceClient(httpClient, base, options...),
 		Events:        rookeryv1connect.NewEventServiceClient(httpClient, base, options...),
 		Topics:        rookeryv1connect.NewTopicServiceClient(httpClient, base, options...),

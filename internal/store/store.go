@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -190,8 +191,8 @@ func (s *Store) applied(ctx context.Context, tx pgx.Tx) (bool, error) {
 // Reset drops the core schema and applies this build's. It is what
 // `rookery server reset` runs after asking.
 //
-// Plugin schemas, and the roles that own them, are dropped here too once the
-// plugin system exists.
+// Plugin schemas and their recorded raw SQL roles are removed in the same
+// transaction as the core reset.
 func (s *Store) Reset(ctx context.Context) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -202,12 +203,64 @@ func (s *Store) Reset(ctx context.Context) error {
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", schemaLock); err != nil {
 		return fmt.Errorf("store: taking the schema lock: %w", err)
 	}
+	if err := dropPluginSchemas(ctx, tx); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `DROP SCHEMA IF EXISTS rookery CASCADE`); err != nil {
 		return fmt.Errorf("store: dropping the schema: %w", err)
+	}
+	if _, err := tx.Exec(ctx, schemaSQL); err != nil {
+		return fmt.Errorf("store: applying the reset schema: %w", err)
+	}
+	if err := s.queries.WithTx(tx).SetMeta(ctx, SetMetaParams{Key: DigestKey, Value: s.digest[:]}); err != nil {
+		return fmt.Errorf("store: recording the reset schema digest: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("store: committing the reset: %w", err)
 	}
+	return nil
+}
 
-	return s.Ensure(ctx)
+func dropPluginSchemas(ctx context.Context, tx pgx.Tx) error {
+	// A reset also accepts older pre-release schemas with only some catalogs.
+	for _, catalog := range []struct {
+		table string
+		query string
+		role  bool
+	}{
+		{"rookery.collections", "SELECT DISTINCT 'p_' || plugin FROM rookery.collections", false},
+		{"rookery.plugins", "SELECT 'p_' || id FROM rookery.plugins", false},
+		{"rookery.sql_roles", "SELECT role FROM rookery.sql_roles", true},
+	} {
+		var exists bool
+		if err := tx.QueryRow(ctx, "SELECT to_regclass($1) IS NOT NULL", catalog.table).Scan(&exists); err != nil {
+			return fmt.Errorf("store: checking reset catalog %s: %w", catalog.table, err)
+		}
+		if !exists {
+			continue
+		}
+		rows, err := tx.Query(ctx, catalog.query)
+		if err != nil {
+			return fmt.Errorf("store: opening reset catalog %s: %w", catalog.table, err)
+		}
+		names, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			return fmt.Errorf("store: reading reset catalog %s: %w", catalog.table, err)
+		}
+		for _, name := range names {
+			if !strings.HasPrefix(name, "p_") {
+				return fmt.Errorf("store: invalid managed schema name %q", name)
+			}
+			quoted := pgx.Identifier{name}.Sanitize()
+			if _, err := tx.Exec(ctx, "DROP SCHEMA IF EXISTS "+quoted+" CASCADE"); err != nil {
+				return fmt.Errorf("store: dropping plugin schema %s: %w", name, err)
+			}
+			if catalog.role {
+				if _, err := tx.Exec(ctx, "DROP ROLE IF EXISTS "+quoted); err != nil {
+					return fmt.Errorf("store: dropping plugin role %s: %w", name, err)
+				}
+			}
+		}
+	}
+	return nil
 }

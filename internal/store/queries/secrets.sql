@@ -31,10 +31,20 @@ WHERE name = $1
 -- name: ListSecretsForRekey :many
 SELECT *
 FROM rookery.secrets
-ORDER BY name, scope;
+ORDER BY name, scope FOR UPDATE;
 
 -- name: ResealSecret :exec
 UPDATE rookery.secrets
 SET value = $3, key_id = $4
 WHERE name = $1
   AND scope = $2;
+
+-- name: LockSecret :one
+SELECT * FROM rookery.secrets WHERE name = $1 AND scope = $2 FOR UPDATE;
+
+-- name: RenameSealedSecret :one
+UPDATE rookery.secrets
+SET name = sqlc.arg('new_name'), value = sqlc.arg('sealed_value'),
+    key_id = sqlc.arg('new_key_id'), updated_at = now()
+WHERE name = sqlc.arg('old_name') AND scope = sqlc.arg('scope')
+RETURNING *;

@@ -451,6 +451,14 @@ type RookerySqlRoles struct {
 	UpdatedAt time.Time
 }
 
+type RookeryTailnetConfig struct {
+	Singleton  bool
+	ControlUrl string
+	Tag        string
+	ApiKey     []byte
+	KeyID      string
+}
+
 type RookeryTailnetState struct {
 	Key       string
 	Value     []byte

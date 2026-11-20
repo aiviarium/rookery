@@ -167,14 +167,23 @@ func (g *Groups) UnbindClaim(ctx context.Context, groupID, claim, value string) 
 // SyncClaims replaces a user's claim-derived memberships with the groups the
 // claims name, leaving the ones added by hand alone. It runs at each sign-in.
 func (g *Groups) SyncClaims(ctx context.Context, userID string, claims map[string][]string) error {
-	if err := g.store.Queries().DeleteClaimMemberships(ctx, userID); err != nil {
+	tx, err := g.store.Pool().Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("authn: beginning claim refresh: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", "oidc-groups:"+userID); err != nil {
+		return fmt.Errorf("authn: locking claim refresh: %w", err)
+	}
+	q := g.store.Queries().WithTx(tx)
+	if err := q.DeleteClaimMemberships(ctx, userID); err != nil {
 		return fmt.Errorf("authn: clearing claim memberships: %w", err)
 	}
 	for claim, values := range claims {
 		if len(values) == 0 {
 			continue
 		}
-		groupIDs, err := g.store.Queries().ListGroupsForClaim(ctx, store.ListGroupsForClaimParams{
+		groupIDs, err := q.ListGroupsForClaim(ctx, store.ListGroupsForClaimParams{
 			Claim:   claim,
 			Column2: values,
 		})
@@ -182,7 +191,7 @@ func (g *Groups) SyncClaims(ctx context.Context, userID string, claims map[strin
 			return fmt.Errorf("authn: reading the groups of the claim %s: %w", claim, err)
 		}
 		for _, groupID := range groupIDs {
-			if err := g.store.Queries().AddGroupMember(ctx, store.AddGroupMemberParams{
+			if err := q.AddGroupMember(ctx, store.AddGroupMemberParams{
 				GroupID: groupID,
 				UserID:  userID,
 				Source:  "claim",
@@ -190,6 +199,9 @@ func (g *Groups) SyncClaims(ctx context.Context, userID string, claims map[strin
 				return fmt.Errorf("authn: adding %s to the group %s: %w", userID, groupID, err)
 			}
 		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("authn: committing claim refresh: %w", err)
 	}
 	return nil
 }
