@@ -171,6 +171,8 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		OIDCAdmins:   s.config.Admins,
 		Interceptors: interceptors,
 		Plugins:      installer,
+		Services:     supervisor,
+		Procedures:   installer,
 		RegisterServices: func(mux *http.ServeMux, options []connect.HandlerOption) {
 			service.register(mux, options)
 		},

@@ -578,3 +578,26 @@ func fileIn(folder, name string) (string, bool) {
 	}
 	return file, true
 }
+
+// Access is what a declared procedure needs, from the installed manifest. It
+// reports whether the plugin declares the procedure at all.
+func (i *Installer) Access(ctx context.Context, id, procedure string) (Level, Resource, bool, error) {
+	plugin, err := i.Get(ctx, id)
+	if err != nil {
+		return "", "", false, err
+	}
+	manifest, err := pluginManifest(plugin)
+	if err != nil {
+		return "", "", false, err
+	}
+	if manifest.Service == nil {
+		return "", "", false, nil
+	}
+	for _, declared := range manifest.Service.RPC {
+		if declared.Procedure != procedure {
+			continue
+		}
+		return declared.Access.Level, declared.Access.Resource, true, nil
+	}
+	return "", "", false, nil
+}

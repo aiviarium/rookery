@@ -45,6 +45,11 @@ type Deps struct {
 	Plugins Plugins
 	// Blobs serves /blobs/{id} when it is set.
 	Blobs http.Handler
+	// Services starts a plugin's service for a call. Without it the edge serves
+	// client halves only.
+	Services PluginServices
+	// Procedures is what the installed plugins declare their procedures need.
+	Procedures PluginProcedures
 
 	// RegisterServices adds the core services to a mux, both listeners.
 	RegisterServices func(mux *http.ServeMux, options []connect.HandlerOption)
@@ -74,6 +79,7 @@ func (e *Edge) Handler() http.Handler {
 	}
 	e.registerAuth(mux)
 	e.registerPlugins(mux)
+	e.registerPluginRPC(mux)
 	mux.HandleFunc("/", e.fallback)
 	return e.authenticate(mux)
 }
