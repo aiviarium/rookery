@@ -19,4 +19,9 @@ test("a first admin signs in with the setup link and sees the shell", async ({ p
 
   // The navigation is built from the core's pages.
   await expect(page.getByRole("link", { name: "Home", exact: true })).toBeVisible();
+
+  // A page of the server's own opens from it.
+  await page.getByRole("link", { name: "Plugins", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Plugins" })).toBeVisible();
+  await expect(page.getByLabel("Reference")).toBeVisible();
 });

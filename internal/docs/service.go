@@ -52,6 +52,23 @@ func (s *Service) Get(ctx context.Context, request *connect.Request[rookeryv1.Do
 	return connect.NewResponse(&rookeryv1.DocumentServiceGetResponse{Document: documentMessage(document)}), nil
 }
 
+// List returns the documents the caller may read, newest first.
+func (s *Service) List(ctx context.Context, request *connect.Request[rookeryv1.DocumentServiceListRequest]) (*connect.Response[rookeryv1.DocumentServiceListResponse], error) {
+	principal, err := s.principal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	found, err := s.documents.List(ctx, principal, request.Msg.GetParent(), int(request.Msg.GetLimit()))
+	if err != nil {
+		return nil, data.ConnectError(err)
+	}
+	out := make([]*rookeryv1.Document, 0, len(found))
+	for _, document := range found {
+		out = append(out, documentMessage(document))
+	}
+	return connect.NewResponse(&rookeryv1.DocumentServiceListResponse{Documents: out}), nil
+}
+
 // Snapshot stores a compacted state covering a sequence.
 func (s *Service) Snapshot(ctx context.Context, request *connect.Request[rookeryv1.SnapshotRequest]) (*connect.Response[rookeryv1.SnapshotResponse], error) {
 	principal, err := s.principal(ctx)

@@ -164,11 +164,11 @@ export function Field(props: {
   children?: JSX.Element;
   for?: string;
 }): JSX.Element {
+  // The control is inside the label, so a reader hears the label whatever a
+  // page gives its fields.
   return (
-    <div class="nc-field">
-      <label class="nc-fieldrow__label" for={props.for}>
-        {props.label}
-      </label>
+    <label class="nc-field" for={props.for}>
+      <span class="nc-fieldrow__label">{props.label}</span>
       {props.children}
       <Show when={props.error !== undefined}>
         <p class="nc-fieldrow__message">{props.error}</p>
@@ -176,7 +176,7 @@ export function Field(props: {
       <Show when={props.error === undefined && props.hint !== undefined}>
         <p class="nc-fieldrow__message">{props.hint}</p>
       </Show>
-    </div>
+    </label>
   );
 }
 
@@ -420,6 +420,74 @@ export const relative: JSX.CSSProperties = { position: "relative" };
 export function useToggle(initial = false): [Accessor<boolean>, (next?: boolean) => void] {
   const [open, setOpen] = createSignal(initial);
   return [open, (next?: boolean) => setOpen((current) => next ?? !current)];
+}
+
+/** Tabs is a row of sections, one of them open. */
+export function Tabs(props: {
+  active: string;
+  tabs: readonly { id: string; label: string }[];
+  onSelect: (id: string) => void;
+}): JSX.Element {
+  return (
+    <div class="nc-tabs" role="tablist">
+      <For each={props.tabs}>
+        {tab => (
+          <button
+            type="button"
+            class="nc-tab"
+            role="tab"
+            aria-selected={props.active === tab.id ? "true" : "false"}
+            onClick={() => props.onSelect(tab.id)}
+          >
+            {tab.label}
+          </button>
+        )}
+      </For>
+    </div>
+  );
+}
+
+/** Table is a list of rows with named columns. */
+export function Table(props: { columns: readonly string[]; children?: JSX.Element }): JSX.Element {
+  return (
+    <div style={{ overflow: "auto" }}>
+      <table class="nc-table">
+        <thead>
+          <tr>
+            <For each={props.columns}>{column => <th scope="col">{column}</th>}</For>
+          </tr>
+        </thead>
+        <tbody>{props.children}</tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Textarea is a field for text longer than a line. */
+export function Textarea(props: {
+  id?: string;
+  value?: string;
+  rows?: number;
+  placeholder?: string;
+  class?: string;
+  onInput?: (value: string) => void;
+}): JSX.Element {
+  return (
+    <textarea
+      id={props.id}
+      class={cx("nc-textarea", props.class)}
+      rows={props.rows ?? 6}
+      placeholder={props.placeholder}
+      onInput={(event) => props.onInput?.(event.currentTarget.value)}
+    >
+      {props.value ?? ""}
+    </textarea>
+  );
+}
+
+/** Code is a value a reader copies, in a monospace block. */
+export function Code(props: { children?: JSX.Element }): JSX.Element {
+  return <pre class="nc-code">{props.children}</pre>;
 }
 
 /** ComponentOf is a component with no props, as a page module exports one. */

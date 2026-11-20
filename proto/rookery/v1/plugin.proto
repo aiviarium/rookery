@@ -116,6 +116,12 @@ service PluginService {
     option (rookery.v1.access) = { level: LEVEL_ADMIN };
   }
 
+  // InstallPackage installs a whole package in one call, for a browser, which
+  // cannot stream a request body. It is bounded by the same size a stream is.
+  rpc InstallPackage(PluginServiceInstallPackageRequest) returns (PluginServiceInstallPackageResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
   rpc Update(PluginServiceUpdateRequest) returns (PluginServiceUpdateResponse) {
     option (rookery.v1.access) = { level: LEVEL_ADMIN };
   }
@@ -131,6 +137,15 @@ service PluginService {
   rpc SetEnabled(PluginServiceSetEnabledRequest) returns (PluginServiceSetEnabledResponse) {
     option (rookery.v1.access) = { level: LEVEL_ADMIN };
   }
+}
+
+message PluginServiceInstallPackageRequest {
+  // Package is the whole package: a .tar.gz with plugin.yaml at its root.
+  bytes package = 1;
+}
+
+message PluginServiceInstallPackageResponse {
+  Plugin plugin = 1;
 }
 
 message PluginServiceInstallFromRegistryRequest {

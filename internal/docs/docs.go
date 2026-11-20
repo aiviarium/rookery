@@ -164,6 +164,45 @@ func (d *Documents) Get(ctx context.Context, principal data.Principal, id string
 	return document, nil
 }
 
+// List returns the documents the caller may read, newest first. A document the
+// caller may not read is left out rather than refused, so one person's
+// documents do not hide the rest.
+func (d *Documents) List(ctx context.Context, principal data.Principal, parent string, limit int) ([]Document, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	rows, err := d.store.Queries().ListDocuments(ctx, store.ListDocumentsParams{
+		Parent:   nullable(parent),
+		RowLimit: int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("docs: listing documents: %w", err)
+	}
+	documents := make([]Document, 0, len(rows))
+	for _, row := range rows {
+		document := documentOf(row)
+		if err := d.require(ctx, principal, document.URI(), readLevel); err != nil {
+			if errors.Is(err, ErrForbidden) {
+				continue
+			}
+			return nil, err
+		}
+		documents = append(documents, document)
+	}
+	return documents, nil
+}
+
+// nullable is a value sqlc's narg reads as SQL NULL when it is empty.
+func nullable(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
 // Delete marks a document deleted and drops it as an access resource. The caller
 // needs manage on it.
 func (d *Documents) Delete(ctx context.Context, principal data.Principal, id string) error {

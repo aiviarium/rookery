@@ -210,6 +210,49 @@ func (q *Queries) ListDocumentVersions(ctx context.Context, documentID string) (
 	return items, nil
 }
 
+const listDocuments = `-- name: ListDocuments :many
+SELECT id, type, parent, owner_id, head, created_at, updated_at, deleted_at
+FROM rookery.documents
+WHERE deleted_at IS NULL
+  AND ($1::text IS NULL OR parent = $1)
+ORDER BY updated_at DESC
+LIMIT $2
+`
+
+type ListDocumentsParams struct {
+	Parent   *string
+	RowLimit int32
+}
+
+func (q *Queries) ListDocuments(ctx context.Context, arg ListDocumentsParams) ([]RookeryDocuments, error) {
+	rows, err := q.db.Query(ctx, listDocuments, arg.Parent, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RookeryDocuments{}
+	for rows.Next() {
+		var i RookeryDocuments
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.Parent,
+			&i.OwnerID,
+			&i.Head,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const pruneDocumentUpdates = `-- name: PruneDocumentUpdates :execrows
 DELETE FROM rookery.document_updates u
 WHERE EXISTS (

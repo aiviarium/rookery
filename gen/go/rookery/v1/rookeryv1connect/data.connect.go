@@ -45,6 +45,9 @@ const (
 	DataServiceGetProcedure = "/rookery.v1.DataService/Get"
 	// DataServiceFindProcedure is the fully-qualified name of the DataService's Find RPC.
 	DataServiceFindProcedure = "/rookery.v1.DataService/Find"
+	// DataServiceListCollectionsProcedure is the fully-qualified name of the DataService's
+	// ListCollections RPC.
+	DataServiceListCollectionsProcedure = "/rookery.v1.DataService/ListCollections"
 	// DataServiceCountProcedure is the fully-qualified name of the DataService's Count RPC.
 	DataServiceCountProcedure = "/rookery.v1.DataService/Count"
 	// DataServiceAggregateProcedure is the fully-qualified name of the DataService's Aggregate RPC.
@@ -79,6 +82,9 @@ type DataServiceClient interface {
 	Get(context.Context, *connect.Request[v1.GetRequest]) (*connect.Response[v1.GetResponse], error)
 	// Find reads the records a filter, an order and a window select.
 	Find(context.Context, *connect.Request[v1.FindRequest]) (*connect.Response[v1.FindResponse], error)
+	// ListCollections lists the collections the caller may browse: those whose
+	// scope the caller holds view on.
+	ListCollections(context.Context, *connect.Request[v1.ListCollectionsRequest]) (*connect.Response[v1.ListCollectionsResponse], error)
 	// Count counts the records a filter selects.
 	Count(context.Context, *connect.Request[v1.CountRequest]) (*connect.Response[v1.CountResponse], error)
 	// Aggregate computes count, sum, min, max or avg, grouped or not.
@@ -129,6 +135,12 @@ func NewDataServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			httpClient,
 			baseURL+DataServiceFindProcedure,
 			connect.WithSchema(dataServiceMethods.ByName("Find")),
+			connect.WithClientOptions(opts...),
+		),
+		listCollections: connect.NewClient[v1.ListCollectionsRequest, v1.ListCollectionsResponse](
+			httpClient,
+			baseURL+DataServiceListCollectionsProcedure,
+			connect.WithSchema(dataServiceMethods.ByName("ListCollections")),
 			connect.WithClientOptions(opts...),
 		),
 		count: connect.NewClient[v1.CountRequest, v1.CountResponse](
@@ -214,21 +226,22 @@ func NewDataServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 
 // dataServiceClient implements DataServiceClient.
 type dataServiceClient struct {
-	get       *connect.Client[v1.GetRequest, v1.GetResponse]
-	find      *connect.Client[v1.FindRequest, v1.FindResponse]
-	count     *connect.Client[v1.CountRequest, v1.CountResponse]
-	aggregate *connect.Client[v1.AggregateRequest, v1.AggregateResponse]
-	insert    *connect.Client[v1.InsertRequest, v1.InsertResponse]
-	update    *connect.Client[v1.UpdateRequest, v1.UpdateResponse]
-	upsert    *connect.Client[v1.UpsertRequest, v1.UpsertResponse]
-	delete    *connect.Client[v1.DeleteRequest, v1.DeleteResponse]
-	restore   *connect.Client[v1.RestoreRequest, v1.RestoreResponse]
-	batch     *connect.Client[v1.BatchRequest, v1.BatchResponse]
-	history   *connect.Client[v1.HistoryRequest, v1.HistoryResponse]
-	refsTo    *connect.Client[v1.RefsToRequest, v1.RefsToResponse]
-	refsFrom  *connect.Client[v1.RefsFromRequest, v1.RefsFromResponse]
-	live      *connect.Client[v1.LiveRequest, v1.LiveResponse]
-	changes   *connect.Client[v1.ChangesRequest, v1.ChangesResponse]
+	get             *connect.Client[v1.GetRequest, v1.GetResponse]
+	find            *connect.Client[v1.FindRequest, v1.FindResponse]
+	listCollections *connect.Client[v1.ListCollectionsRequest, v1.ListCollectionsResponse]
+	count           *connect.Client[v1.CountRequest, v1.CountResponse]
+	aggregate       *connect.Client[v1.AggregateRequest, v1.AggregateResponse]
+	insert          *connect.Client[v1.InsertRequest, v1.InsertResponse]
+	update          *connect.Client[v1.UpdateRequest, v1.UpdateResponse]
+	upsert          *connect.Client[v1.UpsertRequest, v1.UpsertResponse]
+	delete          *connect.Client[v1.DeleteRequest, v1.DeleteResponse]
+	restore         *connect.Client[v1.RestoreRequest, v1.RestoreResponse]
+	batch           *connect.Client[v1.BatchRequest, v1.BatchResponse]
+	history         *connect.Client[v1.HistoryRequest, v1.HistoryResponse]
+	refsTo          *connect.Client[v1.RefsToRequest, v1.RefsToResponse]
+	refsFrom        *connect.Client[v1.RefsFromRequest, v1.RefsFromResponse]
+	live            *connect.Client[v1.LiveRequest, v1.LiveResponse]
+	changes         *connect.Client[v1.ChangesRequest, v1.ChangesResponse]
 }
 
 // Get calls rookery.v1.DataService.Get.
@@ -239,6 +252,11 @@ func (c *dataServiceClient) Get(ctx context.Context, req *connect.Request[v1.Get
 // Find calls rookery.v1.DataService.Find.
 func (c *dataServiceClient) Find(ctx context.Context, req *connect.Request[v1.FindRequest]) (*connect.Response[v1.FindResponse], error) {
 	return c.find.CallUnary(ctx, req)
+}
+
+// ListCollections calls rookery.v1.DataService.ListCollections.
+func (c *dataServiceClient) ListCollections(ctx context.Context, req *connect.Request[v1.ListCollectionsRequest]) (*connect.Response[v1.ListCollectionsResponse], error) {
+	return c.listCollections.CallUnary(ctx, req)
 }
 
 // Count calls rookery.v1.DataService.Count.
@@ -312,6 +330,9 @@ type DataServiceHandler interface {
 	Get(context.Context, *connect.Request[v1.GetRequest]) (*connect.Response[v1.GetResponse], error)
 	// Find reads the records a filter, an order and a window select.
 	Find(context.Context, *connect.Request[v1.FindRequest]) (*connect.Response[v1.FindResponse], error)
+	// ListCollections lists the collections the caller may browse: those whose
+	// scope the caller holds view on.
+	ListCollections(context.Context, *connect.Request[v1.ListCollectionsRequest]) (*connect.Response[v1.ListCollectionsResponse], error)
 	// Count counts the records a filter selects.
 	Count(context.Context, *connect.Request[v1.CountRequest]) (*connect.Response[v1.CountResponse], error)
 	// Aggregate computes count, sum, min, max or avg, grouped or not.
@@ -358,6 +379,12 @@ func NewDataServiceHandler(svc DataServiceHandler, opts ...connect.HandlerOption
 		DataServiceFindProcedure,
 		svc.Find,
 		connect.WithSchema(dataServiceMethods.ByName("Find")),
+		connect.WithHandlerOptions(opts...),
+	)
+	dataServiceListCollectionsHandler := connect.NewUnaryHandler(
+		DataServiceListCollectionsProcedure,
+		svc.ListCollections,
+		connect.WithSchema(dataServiceMethods.ByName("ListCollections")),
 		connect.WithHandlerOptions(opts...),
 	)
 	dataServiceCountHandler := connect.NewUnaryHandler(
@@ -444,6 +471,8 @@ func NewDataServiceHandler(svc DataServiceHandler, opts ...connect.HandlerOption
 			dataServiceGetHandler.ServeHTTP(w, r)
 		case DataServiceFindProcedure:
 			dataServiceFindHandler.ServeHTTP(w, r)
+		case DataServiceListCollectionsProcedure:
+			dataServiceListCollectionsHandler.ServeHTTP(w, r)
 		case DataServiceCountProcedure:
 			dataServiceCountHandler.ServeHTTP(w, r)
 		case DataServiceAggregateProcedure:
@@ -485,6 +514,10 @@ func (UnimplementedDataServiceHandler) Get(context.Context, *connect.Request[v1.
 
 func (UnimplementedDataServiceHandler) Find(context.Context, *connect.Request[v1.FindRequest]) (*connect.Response[v1.FindResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.DataService.Find is not implemented"))
+}
+
+func (UnimplementedDataServiceHandler) ListCollections(context.Context, *connect.Request[v1.ListCollectionsRequest]) (*connect.Response[v1.ListCollectionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.DataService.ListCollections is not implemented"))
 }
 
 func (UnimplementedDataServiceHandler) Count(context.Context, *connect.Request[v1.CountRequest]) (*connect.Response[v1.CountResponse], error) {

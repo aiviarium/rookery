@@ -86,6 +86,25 @@ with `defineClient`'s contract — `mount(context, element)` — through
 A plugin's client half is loaded from `/plugins/{id}/{hash}/index.js`; a half
 that fails to load is reported in the sidebar and left out.
 
+## The server's pages
+
+`pages/admin/` is the server's own area: people, groups and grants; spaces;
+settings, secrets and connections; the key ring and known hosts; the tailnet;
+plugins and registries; the datastore; documents; and the server's status.
+
+Three calls the pages needed are new in the contract, because nothing listed what
+a page could browse:
+
+* `DataService.ListCollections` lists the collections the caller holds view on
+  in the space it is in, with their fields and whether they keep history. The
+  datastore page's table is that list.
+* `DocumentService.List` lists the documents the caller may read, newest first.
+  The documents page has no editor: a document is edited by the CRDT client that
+  syncs it, and the page shows what it is, where it hangs and its versions.
+* `PluginService.InstallPackage` takes a whole package in one call, because a
+  browser cannot stream a request body; the page's file field uses it, and a
+  registry reference uses `InstallFromRegistry`.
+
 ## Tests
 
 `bun test` with happy-dom. `test/transform.ts` compiles JSX with Solid 2's Babel
@@ -106,7 +125,8 @@ the commit of its `solid-2` branch in `web/shell/package.json`; inside
 `aiviarium/mono` the workspace links the sibling `nocturne/` checkout when it is
 built against this one.
 
-Until that branch is published, `src/ui.tsx` draws the parts itself with
-Nocturne's `nc-*` classes and tokens. It is the only file to change when the
-components arrive: re-export Nocturne's `Button`, `TextField`, `Menu`, `Dialog`
-and the rest from it, and the pages keep their imports.
+The branch is published, and the pin is its commit; `src/ui.tsx` still draws the
+parts itself with Nocturne's `nc-*` classes and tokens, because the shell's
+props are not yet the components' props. Adopting them is one change in that
+file at a time — Nocturne's `Button`, `TextField`, `Menu`, `Dialog`, `Badge` and
+the rest — and the pages keep their imports.

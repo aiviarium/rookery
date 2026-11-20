@@ -46,6 +46,9 @@ const (
 	// PluginServiceInstallFromRegistryProcedure is the fully-qualified name of the PluginService's
 	// InstallFromRegistry RPC.
 	PluginServiceInstallFromRegistryProcedure = "/rookery.v1.PluginService/InstallFromRegistry"
+	// PluginServiceInstallPackageProcedure is the fully-qualified name of the PluginService's
+	// InstallPackage RPC.
+	PluginServiceInstallPackageProcedure = "/rookery.v1.PluginService/InstallPackage"
 	// PluginServiceUpdateProcedure is the fully-qualified name of the PluginService's Update RPC.
 	PluginServiceUpdateProcedure = "/rookery.v1.PluginService/Update"
 	// PluginServiceContributionsProcedure is the fully-qualified name of the PluginService's
@@ -70,6 +73,9 @@ type PluginServiceClient interface {
 	Get(context.Context, *connect.Request[v1.PluginServiceGetRequest]) (*connect.Response[v1.PluginServiceGetResponse], error)
 	Install(context.Context) *connect.ClientStreamForClient[v1.PluginServiceInstallRequest, v1.PluginServiceInstallResponse]
 	InstallFromRegistry(context.Context, *connect.Request[v1.PluginServiceInstallFromRegistryRequest]) (*connect.Response[v1.PluginServiceInstallFromRegistryResponse], error)
+	// InstallPackage installs a whole package in one call, for a browser, which
+	// cannot stream a request body. It is bounded by the same size a stream is.
+	InstallPackage(context.Context, *connect.Request[v1.PluginServiceInstallPackageRequest]) (*connect.Response[v1.PluginServiceInstallPackageResponse], error)
 	Update(context.Context, *connect.Request[v1.PluginServiceUpdateRequest]) (*connect.Response[v1.PluginServiceUpdateResponse], error)
 	Contributions(context.Context, *connect.Request[v1.PluginServiceContributionsRequest]) (*connect.Response[v1.PluginServiceContributionsResponse], error)
 	Remove(context.Context, *connect.Request[v1.PluginServiceRemoveRequest]) (*connect.Response[v1.PluginServiceRemoveResponse], error)
@@ -111,6 +117,12 @@ func NewPluginServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(pluginServiceMethods.ByName("InstallFromRegistry")),
 			connect.WithClientOptions(opts...),
 		),
+		installPackage: connect.NewClient[v1.PluginServiceInstallPackageRequest, v1.PluginServiceInstallPackageResponse](
+			httpClient,
+			baseURL+PluginServiceInstallPackageProcedure,
+			connect.WithSchema(pluginServiceMethods.ByName("InstallPackage")),
+			connect.WithClientOptions(opts...),
+		),
 		update: connect.NewClient[v1.PluginServiceUpdateRequest, v1.PluginServiceUpdateResponse](
 			httpClient,
 			baseURL+PluginServiceUpdateProcedure,
@@ -144,6 +156,7 @@ type pluginServiceClient struct {
 	get                 *connect.Client[v1.PluginServiceGetRequest, v1.PluginServiceGetResponse]
 	install             *connect.Client[v1.PluginServiceInstallRequest, v1.PluginServiceInstallResponse]
 	installFromRegistry *connect.Client[v1.PluginServiceInstallFromRegistryRequest, v1.PluginServiceInstallFromRegistryResponse]
+	installPackage      *connect.Client[v1.PluginServiceInstallPackageRequest, v1.PluginServiceInstallPackageResponse]
 	update              *connect.Client[v1.PluginServiceUpdateRequest, v1.PluginServiceUpdateResponse]
 	contributions       *connect.Client[v1.PluginServiceContributionsRequest, v1.PluginServiceContributionsResponse]
 	remove              *connect.Client[v1.PluginServiceRemoveRequest, v1.PluginServiceRemoveResponse]
@@ -168,6 +181,11 @@ func (c *pluginServiceClient) Install(ctx context.Context) *connect.ClientStream
 // InstallFromRegistry calls rookery.v1.PluginService.InstallFromRegistry.
 func (c *pluginServiceClient) InstallFromRegistry(ctx context.Context, req *connect.Request[v1.PluginServiceInstallFromRegistryRequest]) (*connect.Response[v1.PluginServiceInstallFromRegistryResponse], error) {
 	return c.installFromRegistry.CallUnary(ctx, req)
+}
+
+// InstallPackage calls rookery.v1.PluginService.InstallPackage.
+func (c *pluginServiceClient) InstallPackage(ctx context.Context, req *connect.Request[v1.PluginServiceInstallPackageRequest]) (*connect.Response[v1.PluginServiceInstallPackageResponse], error) {
+	return c.installPackage.CallUnary(ctx, req)
 }
 
 // Update calls rookery.v1.PluginService.Update.
@@ -196,6 +214,9 @@ type PluginServiceHandler interface {
 	Get(context.Context, *connect.Request[v1.PluginServiceGetRequest]) (*connect.Response[v1.PluginServiceGetResponse], error)
 	Install(context.Context, *connect.ClientStream[v1.PluginServiceInstallRequest]) (*connect.Response[v1.PluginServiceInstallResponse], error)
 	InstallFromRegistry(context.Context, *connect.Request[v1.PluginServiceInstallFromRegistryRequest]) (*connect.Response[v1.PluginServiceInstallFromRegistryResponse], error)
+	// InstallPackage installs a whole package in one call, for a browser, which
+	// cannot stream a request body. It is bounded by the same size a stream is.
+	InstallPackage(context.Context, *connect.Request[v1.PluginServiceInstallPackageRequest]) (*connect.Response[v1.PluginServiceInstallPackageResponse], error)
 	Update(context.Context, *connect.Request[v1.PluginServiceUpdateRequest]) (*connect.Response[v1.PluginServiceUpdateResponse], error)
 	Contributions(context.Context, *connect.Request[v1.PluginServiceContributionsRequest]) (*connect.Response[v1.PluginServiceContributionsResponse], error)
 	Remove(context.Context, *connect.Request[v1.PluginServiceRemoveRequest]) (*connect.Response[v1.PluginServiceRemoveResponse], error)
@@ -233,6 +254,12 @@ func NewPluginServiceHandler(svc PluginServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(pluginServiceMethods.ByName("InstallFromRegistry")),
 		connect.WithHandlerOptions(opts...),
 	)
+	pluginServiceInstallPackageHandler := connect.NewUnaryHandler(
+		PluginServiceInstallPackageProcedure,
+		svc.InstallPackage,
+		connect.WithSchema(pluginServiceMethods.ByName("InstallPackage")),
+		connect.WithHandlerOptions(opts...),
+	)
 	pluginServiceUpdateHandler := connect.NewUnaryHandler(
 		PluginServiceUpdateProcedure,
 		svc.Update,
@@ -267,6 +294,8 @@ func NewPluginServiceHandler(svc PluginServiceHandler, opts ...connect.HandlerOp
 			pluginServiceInstallHandler.ServeHTTP(w, r)
 		case PluginServiceInstallFromRegistryProcedure:
 			pluginServiceInstallFromRegistryHandler.ServeHTTP(w, r)
+		case PluginServiceInstallPackageProcedure:
+			pluginServiceInstallPackageHandler.ServeHTTP(w, r)
 		case PluginServiceUpdateProcedure:
 			pluginServiceUpdateHandler.ServeHTTP(w, r)
 		case PluginServiceContributionsProcedure:
@@ -298,6 +327,10 @@ func (UnimplementedPluginServiceHandler) Install(context.Context, *connect.Clien
 
 func (UnimplementedPluginServiceHandler) InstallFromRegistry(context.Context, *connect.Request[v1.PluginServiceInstallFromRegistryRequest]) (*connect.Response[v1.PluginServiceInstallFromRegistryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.PluginService.InstallFromRegistry is not implemented"))
+}
+
+func (UnimplementedPluginServiceHandler) InstallPackage(context.Context, *connect.Request[v1.PluginServiceInstallPackageRequest]) (*connect.Response[v1.PluginServiceInstallPackageResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.PluginService.InstallPackage is not implemented"))
 }
 
 func (UnimplementedPluginServiceHandler) Update(context.Context, *connect.Request[v1.PluginServiceUpdateRequest]) (*connect.Response[v1.PluginServiceUpdateResponse], error) {

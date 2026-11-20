@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -82,6 +83,23 @@ func (s *PluginService) Install(ctx context.Context, stream *connect.ClientStrea
 		return nil, access.ToConnect(err)
 	}
 	return connect.NewResponse(&rookeryv1.PluginServiceInstallResponse{Plugin: plugin.Message()}), nil
+}
+
+// InstallPackage installs a whole package in one call, for a browser, which
+// cannot stream a request body.
+func (s *PluginService) InstallPackage(ctx context.Context, request *connect.Request[rookeryv1.PluginServiceInstallPackageRequest]) (*connect.Response[rookeryv1.PluginServiceInstallPackageResponse], error) {
+	contents := request.Msg.GetPackage()
+	if len(contents) == 0 {
+		return nil, access.ToConnect(fmt.Errorf("%w: the package is empty", ErrPackage))
+	}
+	if int64(len(contents)) > MaxPackageSize {
+		return nil, access.ToConnect(fmt.Errorf("%w: the package is larger than %d bytes", ErrPackage, MaxPackageSize))
+	}
+	plugin, err := s.installer.install(ctx, bytes.NewReader(contents), installOptions{requireNew: true})
+	if err != nil {
+		return nil, access.ToConnect(err)
+	}
+	return connect.NewResponse(&rookeryv1.PluginServiceInstallPackageResponse{Plugin: plugin.Message()}), nil
 }
 
 // Remove takes a plugin away.
