@@ -35,7 +35,7 @@ pub use data::{DataLayer, Declared, PluginData, Transforms};
 pub use exthost::HostOptions;
 pub use loaded::Loaded;
 pub use methods::register;
-use wire::{PluginChanged, PluginInfo, PluginState};
+use wire::{PluginChanged, PluginInfo, PluginReloaded, PluginState};
 
 /// What the server gives the plugin system.
 #[derive(Debug, Clone)]
@@ -376,6 +376,23 @@ impl Plugins {
                     plugin: plugin.as_ref().map(|p| self.info_for(p, admin)),
                 };
                 conn.notify("plugins.changed", &message);
+            }
+        }
+    }
+
+    /// Tells every person's connection that the plugin folder was read again, with the client half
+    /// each plugin has now. A shell re-imports the ones whose `hash` changed; [`Self::changed`] is for
+    /// when what a plugin contributes changed.
+    pub fn reloaded(&self, kernel: &Kernel) {
+        for plugin in self.all() {
+            let message = PluginReloaded {
+                id: plugin.id.clone(),
+                hash: plugin.client.as_ref().map(|c| c.hash.clone()),
+            };
+            for conn in kernel.conns.all() {
+                if matches!(conn.caller(), Caller::User { .. } | Caller::Local) {
+                    conn.notify("plugins.reloaded", &message);
+                }
             }
         }
     }

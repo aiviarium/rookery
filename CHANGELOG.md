@@ -9,3 +9,4 @@ Notable changes, newest first. A release's notes on GitHub list every pull reque
 - Host halves of plugins run in an extension host of their own each, on Bun. Its environment is `PATH`, `HOME`, `LANG`, `LC_ALL` and `TZ` from the server's, and `NODE_PATH` and `ROOKERY_EXTHOST_PROTOCOL` set by the server. The server and each host are non-dumpable. A host that holds more memory than `ROOKERY_EXTHOST_MEMORY_MB` (512 MiB) is ended as a crash.
 - A method of a host half (`rookery.rpc.handle`) says its level, `own` or `admin`; one that says none is refused.
 - `contributes.tools` and a host half's `rookery.agents.tool` are reserved for a later version. A package may declare its tools: Rookery accepts them, drops them when it loads the plugin, and says so at install and in `rookery plugin check`. No MCP server serves them.
+- `plugins.reload` sends `plugins.reloaded` for each plugin, so that a shell re-imports the client halves whose hash changed.

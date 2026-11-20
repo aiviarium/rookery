@@ -650,6 +650,33 @@ async fn contributes_tools_installs_with_a_warning_and_is_dropped() {
     k.close().await;
 }
 
+#[tokio::test]
+async fn reading_the_folder_again_tells_shells_that_plugins_reloaded() {
+    let k = test_kernel!(methods());
+    let scratch = tempfile::tempdir().unwrap();
+    let plugins = plugins(&k, scratch.path()).await;
+    let admin = k.person("Ada", true).await;
+    let dir = package(
+        scratch.path(),
+        "panel",
+        "1.0.0",
+        &[
+            ("plugin.json", PANEL),
+            ("client/index.js", "export default {}"),
+            ("panel.css", ".panel {}"),
+        ],
+    );
+    install(&k, &plugins, &dir).await;
+    let mut inbox = k.connect(&admin);
+
+    let reloaded = k.call(&admin, "plugins.reload", json!({})).await.unwrap();
+    let hash = info(&reloaded, "panel").unwrap()["client"]["hash"].clone();
+    let told = inbox.notification("plugins.reloaded").await;
+    assert_eq!(told["id"], json!("panel"), "{told}");
+    assert_eq!(told["hash"], hash, "{told}");
+    k.close().await;
+}
+
 fn bun_ready() -> bool {
     let ready = std::process::Command::new("bun")
         .arg("--version")

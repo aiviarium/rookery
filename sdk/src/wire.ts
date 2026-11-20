@@ -436,9 +436,9 @@ export interface ServerEvents {
 export type ServerEventName = keyof ServerEvents
 
 /**
- * The notifications the client listens for, for a test that checks the names it listens to. All but
- * `plugins.reloaded` are sent by `rookery serve`; that one is declared for a shell that hears of a
- * reload without a change of the plugin's files.
+ * The notifications the client listens for, for a test that checks the names it listens to. All of
+ * them are sent by `rookery serve`: `plugins.reloaded` when the plugin folder is read again, and
+ * `plugins.changed` when what a plugin contributes changed.
  */
 export const NOTIFICATIONS = [
   "data.changed",
