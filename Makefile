@@ -27,7 +27,7 @@ TEST_POSTGRES ?= postgres://$(PG_USER):$(PG_PASSWORD)@127.0.0.1:$(PG_PORT)/postg
 # Every plugin module in the workspace.
 PLUGIN_MODULES := $(patsubst %/go.mod,%,$(wildcard plugins/*/go.mod))
 
-.PHONY: all tools gen gen-proto gen-sql db reset test lint fmt ts e2e dev build cross clean
+.PHONY: all tools gen gen-proto gen-sql db reset test lint fmt ts e2e dev build cross clean ansible
 
 all: gen lint test
 
@@ -86,10 +86,16 @@ lint:
 	$(GO) vet ./...
 	golangci-lint run
 	buf lint
-	@if [ -d ansible ]; then ansible-lint ansible; fi
+	@if [ -d ansible ]; then $(MAKE) ansible; fi
 	@for m in $(PLUGIN_MODULES); do \
 		echo "==> $$m"; (cd $$m && $(GO) vet ./... && golangci-lint run) || exit 1; \
 	done
+
+# The Ansible an apply runs: the roles are linted, and the playbook that runs the
+# base role by hand is syntax-checked. An apply renders site.yml.j2 itself.
+ansible:
+	ansible-lint ansible
+	ansible-playbook --syntax-check -i localhost, ansible/base.yml
 
 # The TypeScript SDK arrives with item 17.
 ts:

@@ -1,0 +1,69 @@
+---
+# What the role refuses to run without. A managed host is Ubuntu 24.04 or Debian
+# 12, or a later release of either; the role uses only apt and systemd.
+- name: Require a distribution the role knows
+  ansible.builtin.assert:
+    that:
+      - (ansible_facts.distribution == 'Ubuntu' and ansible_facts.distribution_major_version | int >= 24)
+        or (ansible_facts.distribution == 'Debian' and ansible_facts.distribution_major_version | int >= 12)
+    fail_msg: >-
+      The base role is written for Ubuntu 24.04 and Debian 12, or newer, and this
+      host is {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}.
+    quiet: true
+
+- name: Note which archive serves the tailnet's package
+  ansible.builtin.set_fact:
+    base_tailscale_archive: "{{ ansible_facts.distribution | lower }}"
+
+- name: Require an operator account that is not root
+  ansible.builtin.assert:
+    that:
+      - base_operator | length > 0
+      - base_operator is match('^[a-z_][a-z0-9_-]*$')
+      - base_operator != 'root'
+    fail_msg: base_operator is the account Rookery logs in as, and it is not root.
+    quiet: true
+
+- name: Require a key before passwords are refused
+  ansible.builtin.assert:
+    that: base_operator_key | length > 0 or base_ssh_password_authentication | bool
+    fail_msg: >-
+      base_operator_key is empty, so turning password logins off would lock the
+      server out. Give the ring's public key, or set
+      base_ssh_password_authentication to true.
+    quiet: true
+
+- name: Require the host programs
+  ansible.builtin.assert:
+    that:
+      - base_rookeryd_path | length > 0
+      - base_box_path | length > 0
+    fail_msg: >-
+      The apply passes the paths of the rookeryd and box binaries in
+      base_rookeryd_path and base_box_path.
+    quiet: true
+
+- name: Require the firewall's sources to be addresses or words
+  ansible.builtin.assert:
+    that: item == 'any' or item is match('^[0-9a-fA-F:./]+$')
+    fail_msg: "base_ssh_allowed_from holds {{ item }}, which is neither any nor an address or network."
+    quiet: true
+  loop: "{{ base_ssh_allowed_from }}"
+  loop_control:
+    label: "{{ item }}"
+
+# The action file is the only thing rookeryd reads that comes from a profile, so
+# its shape is checked here rather than where it is written.
+- name: Require the actions to be name, label, user and run
+  ansible.builtin.assert:
+    that:
+      - item.name | default('') | length > 0
+      - item.user | default('') in ['operator', 'root', 'desktop']
+      - item.run | default('') | length > 0
+    fail_msg: >-
+      An action needs a name, a user of operator, root or desktop, and a run
+      command, and this one is {{ item }}.
+    quiet: true
+  loop: "{{ base_actions }}"
+  loop_control:
+    label: "{{ item.name | default('an action without a name') }}"

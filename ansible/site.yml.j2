@@ -1,0 +1,20 @@
+{{- /*
+  The playbook an apply runs, rendered by internal/apply with Go's text/template
+  into site.yml. The .j2 name is the convention for a template here; the syntax
+  is Go's, not Jinja's.
+
+  It takes the roles to apply, in order: base, desktop for a workstation, then
+  the profile's features as <plugin>__<feature>.
+
+    {{ .HostName }}   the host's name, which is its inventory name
+    {{ .Roles }}      the roles, in order
+*/ -}}
+---
+- name: Set up {{ .HostName }}
+  hosts: all
+  become: true
+  gather_facts: true
+  roles:
+{{- range .Roles }}
+    - {{ . }}
+{{- end }}

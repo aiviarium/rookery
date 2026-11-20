@@ -1,0 +1,27 @@
+---
+# The base role, in the order an apply needs it: check what it was given, then
+# the packages, the operator, SSH, the tailnet, rookeryd and box, the registry
+# logins and last the firewall, so the run is never closed out of the host.
+- name: Check what the role was given
+  ansible.builtin.import_tasks: check.yml
+
+- name: Install the base packages
+  ansible.builtin.import_tasks: packages.yml
+
+- name: Create the operator
+  ansible.builtin.import_tasks: operator.yml
+
+- name: Set up SSH
+  ansible.builtin.import_tasks: ssh.yml
+
+- name: Join the tailnet
+  ansible.builtin.import_tasks: tailnet.yml
+
+- name: Install rookeryd and box
+  ansible.builtin.import_tasks: programs.yml
+
+- name: Write the registry logins
+  ansible.builtin.import_tasks: registries.yml
+
+- name: Set up the firewall
+  ansible.builtin.import_tasks: firewall.yml

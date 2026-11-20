@@ -1,0 +1,54 @@
+---
+# rookeryd and box, and what rookeryd reads: the actions of the host's features.
+# The apply passes the binaries it built; systemd keeps the daemon running.
+- name: Create rookery's directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /etc/rookery, mode: '0755' }
+    - { path: /var/lib/rookeryd, mode: '0700' }
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Install rookeryd and box
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - { src: "{{ base_rookeryd_path }}", dest: "{{ base_rookeryd_bin }}" }
+    - { src: "{{ base_box_path }}", dest: "{{ base_box_bin }}" }
+  loop_control:
+    label: "{{ item.dest }}"
+  notify: Restart rookeryd
+
+- name: Write the actions rookeryd offers
+  ansible.builtin.copy:
+    dest: /etc/rookery/actions.json
+    owner: root
+    group: root
+    mode: '0644'
+    content: "{{ base_actions | to_nice_json }}\n"
+  notify: Restart rookeryd
+
+- name: Install the rookeryd unit
+  ansible.builtin.template:
+    src: rookeryd.service.j2
+    dest: /etc/systemd/system/rookeryd.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart rookeryd
+
+- name: Run rookeryd
+  ansible.builtin.systemd_service:
+    name: rookeryd.service
+    daemon_reload: true
+    enabled: true
+    state: started

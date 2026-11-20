@@ -1,0 +1,106 @@
+---
+# The tailnet: Tailscale's client, joined once with the one-use key an apply
+# minted for this host. A host that is already on the tailnet is left alone, so
+# applying again needs no key and never logs it out.
+- name: Join the tailnet
+  when: base_tailnet | bool
+  block:
+    - name: Add Tailscale's archive key
+      ansible.builtin.get_url:
+        url: >-
+          https://pkgs.tailscale.com/stable/{{ base_tailscale_archive }}/{{ ansible_facts.distribution_release }}.noarmor.gpg
+        dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+        owner: root
+        group: root
+        mode: '0644'
+
+    # deb822, which apt in Ubuntu 24.04 and Debian 12 both read, so the role needs
+    # no module beyond ansible.builtin.
+    - name: Add Tailscale's archive
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/tailscale.sources
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          Types: deb
+          URIs: https://pkgs.tailscale.com/stable/{{ base_tailscale_archive }}
+          Suites: {{ ansible_facts.distribution_release }}
+          Components: main
+          Signed-By: /usr/share/keyrings/tailscale-archive-keyring.gpg
+
+    - name: Install Tailscale
+      ansible.builtin.apt:
+        name: tailscale
+        state: present
+        update_cache: true
+
+    - name: Run tailscaled
+      ansible.builtin.systemd_service:
+        name: tailscaled
+        enabled: true
+        state: started
+
+    - name: Check whether the host is on the tailnet
+      ansible.builtin.command: tailscale status --json
+      register: base_tailnet_state
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Note whether the host is on the tailnet
+      ansible.builtin.set_fact:
+        base_tailnet_joined: >-
+          {{ base_tailnet_state.rc == 0 and
+             (base_tailnet_state.stdout | from_json).BackendState | default('') == 'Running' }}
+
+    - name: Explain a host that cannot join
+      ansible.builtin.debug:
+        msg: >-
+          The host is not on the tailnet and no auth key was given, so it stays
+          reachable at its own address only. Apply it from Rookery to join it.
+      when:
+        - not base_tailnet_joined | bool
+        - base_tailnet_auth_key | length == 0
+
+    - name: Join the tailnet with the server's key
+      when:
+        - not base_tailnet_joined | bool
+        - base_tailnet_auth_key | length > 0
+      block:
+        # The key is a secret, so it goes in a file of mode 0600 that tailscale
+        # reads, never on the command line.
+        - name: Put the auth key where tailscale can read it
+          ansible.builtin.copy:
+            dest: /run/rookery-tailscale-key
+            owner: root
+            group: root
+            mode: '0600'
+            content: "{{ base_tailnet_auth_key }}\n"
+          no_log: true
+
+        - name: Join the tailnet
+          ansible.builtin.command:
+            argv: "{{ base_tailnet_up }}"
+          register: base_tailnet_up_result
+          changed_when: true
+          no_log: true
+          vars:
+            base_tailnet_up: >-
+              {{ ['tailscale', 'up',
+                  '--auth-key=file:/run/rookery-tailscale-key',
+                  '--hostname=' ~ (base_tailnet_hostname if base_tailnet_hostname | length > 0 else inventory_hostname),
+                  '--timeout=' ~ base_tailnet_timeout]
+                 + (['--login-server=' ~ base_tailnet_login_server]
+                    if base_tailnet_login_server | length > 0 else []) }}
+
+        - name: Explain a tailnet that would not join
+          ansible.builtin.fail:
+            msg: "tailscale up failed: {{ base_tailnet_up_result.stderr | default('') | trim }}"
+          when: base_tailnet_up_result.rc != 0
+
+      always:
+        - name: Remove the auth key
+          ansible.builtin.file:
+            path: /run/rookery-tailscale-key
+            state: absent

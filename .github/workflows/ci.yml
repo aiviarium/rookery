@@ -55,6 +55,11 @@ jobs:
 
       - run: make tools
 
+      - name: Install Ansible
+        run: |
+          pipx install --include-deps "ansible-lint==26.11.0"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Generated code is current
         run: |
           make gen
