@@ -466,9 +466,9 @@ impl Plugins {
     ) -> Result<serde_json::Value, RpcError> {
         // A method `contributes.rpc` binds to an app service is that service's.
         if let Some(loaded) = self.get(plugin)
-            && let Some((service, bound, stream)) = services::rpc_handler(&loaded, method)
+            && let Some(bound) = services::rpc_handler(&loaded, method)
         {
-            return services::call_bound(call, plugin, &service, &bound, stream, params).await;
+            return services::call_bound(call, self, plugin, &bound, params).await;
         }
         let loaded = self
             .get(plugin)
@@ -480,6 +480,31 @@ impl Plugins {
         })?
         .result()
         .await
+    }
+
+    /// Opens the stream of a method the plugin's `contributes.rpc` declares as one, served by a
+    /// service its host half provides or by an app service it places.
+    pub async fn rpc_stream(
+        self: &Arc<Self>,
+        call: &rookery_kernel::Call,
+        plugin: &str,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<services::ServiceStream, RpcError> {
+        let loaded = self
+            .get(plugin)
+            .ok_or_else(|| RpcError::not_found(format!("no plugin {plugin} is installed")))?;
+        let Some(bound) = services::rpc_handler(&loaded, method) else {
+            return Err(RpcError::invalid(format!(
+                "{plugin} declares no method {method} in contributes.rpc"
+            )));
+        };
+        if !bound.stream {
+            return Err(RpcError::invalid(format!(
+                "{method} of {plugin} answers in one message: use plugins.rpc"
+            )));
+        }
+        services::open_bound_stream(call, self, plugin, &bound, params).await
     }
 
     /// Stops every host half when the server stops, running their cleanups within `limit` in all. The

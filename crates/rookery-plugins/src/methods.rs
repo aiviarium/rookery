@@ -4,10 +4,13 @@
 use std::sync::Arc;
 
 use rookery_kernel::auth::{AccessChange, AccessEvents};
+use rookery_kernel::streams::Initiator;
 use rookery_kernel::{Call, Caller, Empty, Kernel, Level, Methods, RpcError};
+use rookery_proto::stream::StreamOpened;
 use serde_json::json;
 
 use crate::Plugins;
+use crate::services;
 use crate::wire::{
     PluginAdd, PluginInfo, PluginList, PluginNewer, PluginRef, PluginReport, PluginRpc,
     PluginState, PluginUpdate, PluginUpdates, PluginUpload, RegistryLocation,
@@ -274,4 +277,29 @@ pub fn register(methods: &mut Methods) {
         })
         .summary("Calls a method a plugin's host half registered with rookery.rpc.handle, as the caller. The host half says who may.")
         .level(Level::Own);
+    methods
+        .add(
+            "plugins.rpc.stream",
+            |call: Call, p: PluginRpc| async move {
+                // The caller's connection first: a stream needs one, and nothing is started for none.
+                call.conn()?;
+                let plugins = plugins(&call.kernel)?;
+                plugins.ready_soon().await?;
+                let source = plugins
+                    .rpc_stream(&call, &p.plugin, &p.method, p.params)
+                    .await?;
+                let stream = call.conn()?.streams().open(Initiator::Peer)?;
+                let id = stream.id();
+                let (_reader, writer) = stream.split();
+                tokio::spawn(services::forward_stream(source, writer));
+                Ok(StreamOpened {
+                    stream: id,
+                    offset: None,
+                })
+            },
+        )
+        .summary("Streams a method the plugin's contributes.rpc declares as one, as one JSON value per line.")
+        .stream()
+        .level(Level::Own)
+        .max_timeout(services::max_timeout());
 }

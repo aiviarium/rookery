@@ -23421,6 +23421,59 @@
     }
   },
   {
+    "name": "plugins.rpc.stream",
+    "summary": "Streams a method the plugin's contributes.rpc declares as one, as one JSON value per line.",
+    "level": {
+      "kind": "self"
+    },
+    "stream": true,
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "`plugins.rpc`: a method a plugin's host half registered with `rookery.rpc.handle`.",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "params": {
+          "default": {}
+        },
+        "plugin": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin",
+        "method"
+      ],
+      "title": "PluginRpc",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "description": "The result of a method that opens a stream. A source that can be resumed says where it starts.",
+      "properties": {
+        "offset": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stream": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stream"
+      ],
+      "title": "StreamOpened",
+      "type": "object"
+    }
+  },
+  {
     "name": "plugins.update",
     "summary": "Updates one plugin, or every plugin, to the newest version its registry offers.",
     "level": {
