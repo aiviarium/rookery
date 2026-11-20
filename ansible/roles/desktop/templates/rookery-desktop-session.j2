@@ -1,0 +1,75 @@
+#!/bin/sh
+# Rookery's desktop: one Xvnc and the desktop account's XFCE session on it.
+#
+# The VNC server listens on a Unix socket in the account's runtime directory and
+# on no TCP port: the server reaches the RFB stream through rookeryd's
+# PortService, and a browser speaks RFB over the server's WebSocket. The socket's
+# mode is 0600, so only the account itself may read it.
+set -eu
+
+DISPLAY={{ desktop_display }}
+XAUTHORITY={{ desktop_home }}/.Xauthority
+XDG_RUNTIME_DIR=/run/user/{{ desktop_uid }}
+export DISPLAY XAUTHORITY XDG_RUNTIME_DIR
+
+runtime="$XDG_RUNTIME_DIR/rookery"
+mkdir -p "$runtime"
+chmod 700 "$runtime"
+umask 077
+
+# Xvnc authenticates X clients with a cookie of ours. It is new on every start.
+cookie=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+touch "$XAUTHORITY"
+xauth -f "$XAUTHORITY" add "$DISPLAY" . "$cookie"
+
+# With a GPU, let the virtual screen render on it; without one, Mesa's software
+# driver draws.
+gpu=""
+for node in /dev/dri/renderD*; do
+  if [ -w "$node" ]; then
+    gpu="-rendernode $node"
+    break
+  fi
+done
+
+# shellcheck disable=SC2086
+Xvnc "$DISPLAY" \
+  -geometry {{ desktop_geometry }} \
+  -depth {{ desktop_depth }} \
+  -rfbunixpath "$runtime/vnc.sock" \
+  -rfbunixmode 0600 \
+  -rfbport -1 \
+  -SecurityTypes None \
+  -AlwaysShared \
+  -MaxDisconnectionTime 0 \
+  -MaxIdleTime 0 \
+  $gpu &
+vnc=$!
+
+cleanup() {
+  trap - EXIT INT TERM
+  kill "$vnc" 2>/dev/null || true
+  wait "$vnc" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+# The session draws as soon as the display answers.
+for _ in $(seq 1 300); do
+  if xdpyinfo >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.1
+done
+
+xset s off
+xset -dpms
+dbus-update-activation-environment DISPLAY XAUTHORITY XDG_RUNTIME_DIR || true
+
+# Compositing has no business in a virtual screen, and a shared session must not
+# be saved over itself.
+xfconf-query -c xfwm4 -p /general/use_compositing -n -t bool -s false || true
+xfconf-query -c xfce4-session -p /general/SaveOnExit -n -t bool -s false || true
+
+xfce4-session &
+session=$!
+wait "$session"

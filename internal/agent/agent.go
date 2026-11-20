@@ -221,6 +221,7 @@ func (s *Server) handlers() http.Handler {
 	register(hostv1connect.NewChannelServiceHandler(&channelService{server: s}))
 	register(hostv1connect.NewHostCallServiceHandler(&hostCallService{server: s}))
 	register(hostv1connect.NewActionServiceHandler(&actionService{server: s}))
+	register(hostv1connect.NewDesktopServiceHandler(&desktopService{server: s}))
 	return mux
 }
 
@@ -294,6 +295,9 @@ func (s *Server) version() *hostv1.AgentServiceVersionResponse {
 		Arch:          runtime.GOARCH,
 		Hostname:      hostname,
 		UptimeSeconds: uint64(time.Since(s.started).Seconds()), //nolint:gosec // a process does not run long enough to overflow.
+	}
+	if s.registry.has(DesktopProvider) {
+		response.Desktop = &hostv1.DesktopState{Available: true, User: s.config.DesktopUser}
 	}
 	return response
 }

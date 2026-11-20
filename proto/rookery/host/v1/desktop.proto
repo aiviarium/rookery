@@ -1,0 +1,135 @@
+// DesktopService is a workstation's desktop: its screen, its input, its
+// clipboard and whether callers are paused.
+//
+// A workstation has one shared virtual desktop for its desktop user. The apply
+// installs the desktop role; `box desktop serve` runs inside that session and
+// registers the desktop provider as a host service. This service is the relay:
+// rookeryd answers here and passes each call to the provider, and the desktop's
+// RFB stream for a VNC viewer is not here but a PortService.Dial to the VNC
+// socket, so that a browser speaks RFB itself.
+
+syntax = "proto3";
+
+package rookery.host.v1;
+
+import "rookery/host/v1/common.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/host/v1;hostv1";
+
+service DesktopService {
+  // Screenshot returns the screen as a PNG, scaled when a size is given.
+  rpc Screenshot(DesktopServiceScreenshotRequest) returns (DesktopServiceScreenshotResponse);
+
+  // Input clicks, types, presses a chord or scrolls.
+  rpc Input(DesktopServiceInputRequest) returns (DesktopServiceInputResponse);
+
+  // GetClipboard returns the clipboard's text.
+  rpc GetClipboard(DesktopServiceGetClipboardRequest) returns (DesktopServiceGetClipboardResponse);
+
+  // SetClipboard gives the clipboard text.
+  rpc SetClipboard(DesktopServiceSetClipboardRequest) returns (DesktopServiceSetClipboardResponse);
+
+  // Pause makes callers wait: a screenshot or an input taken now is queued until
+  // Resume, which is what a viewer uses while it is being watched.
+  rpc Pause(DesktopServicePauseRequest) returns (DesktopServicePauseResponse);
+
+  // Resume lets the waiting callers go on.
+  rpc Resume(DesktopServiceResumeRequest) returns (DesktopServiceResumeResponse);
+
+  // State says whether a desktop provider answers, and what the screen is.
+  rpc State(DesktopServiceStateRequest) returns (DesktopServiceStateResponse);
+}
+
+// MouseButton is which button a click uses.
+enum MouseButton {
+  MOUSE_BUTTON_UNSPECIFIED = 0;
+  MOUSE_BUTTON_LEFT = 1;
+  MOUSE_BUTTON_MIDDLE = 2;
+  MOUSE_BUTTON_RIGHT = 3;
+}
+
+// ScrollDirection is which way the wheel turns.
+enum ScrollDirection {
+  SCROLL_DIRECTION_UNSPECIFIED = 0;
+  SCROLL_DIRECTION_UP = 1;
+  SCROLL_DIRECTION_DOWN = 2;
+}
+
+message DesktopServiceScreenshotRequest {
+  // The size to scale to, in pixels. Zero keeps the screen's. One of them alone
+  // keeps the screen's proportions.
+  uint32 width = 1;
+  uint32 height = 2;
+}
+
+message DesktopServiceScreenshotResponse {
+  // The screen as a PNG.
+  bytes png = 1;
+  uint32 width = 2;
+  uint32 height = 3;
+}
+
+message DesktopServiceInputRequest {
+  oneof input {
+    DesktopClick click = 1;
+    DesktopText text = 2;
+    DesktopKey key = 3;
+    DesktopScroll scroll = 4;
+  }
+}
+
+// DesktopClick clicks a pixel.
+message DesktopClick {
+  int32 x = 1;
+  int32 y = 2;
+  MouseButton button = 3;
+
+  // How many clicks. Zero is one.
+  uint32 count = 4;
+}
+
+// DesktopText types text.
+message DesktopText {
+  string text = 1;
+}
+
+// DesktopKey presses a chord, such as "ctrl+shift+t" or "Return".
+message DesktopKey {
+  string chord = 1;
+}
+
+// DesktopScroll turns the wheel where the pointer is.
+message DesktopScroll {
+  ScrollDirection direction = 1;
+
+  // How many steps. Zero is one.
+  uint32 count = 2;
+}
+
+message DesktopServiceInputResponse {}
+
+message DesktopServiceGetClipboardRequest {}
+
+message DesktopServiceGetClipboardResponse {
+  string text = 1;
+}
+
+message DesktopServiceSetClipboardRequest {
+  string text = 1;
+}
+
+message DesktopServiceSetClipboardResponse {}
+
+message DesktopServicePauseRequest {}
+
+message DesktopServicePauseResponse {}
+
+message DesktopServiceResumeRequest {}
+
+message DesktopServiceResumeResponse {}
+
+message DesktopServiceStateRequest {}
+
+message DesktopServiceStateResponse {
+  DesktopState desktop = 1;
+}
