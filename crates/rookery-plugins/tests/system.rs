@@ -1475,6 +1475,16 @@ async fn a_streamed_rpc_method_of_a_host_service_answers_on_the_caller_s_connect
     let stream = u32::try_from(opened["stream"].as_u64().unwrap()).unwrap();
     assert_eq!(inbox.lines(stream).await, [json!(1), json!(2), json!(3)]);
     use rookery_proto::ErrorCode;
+    // A method bound to a host service answers unary too, as the docs say.
+    let routed = k
+        .call(
+            &member,
+            "plugins.rpc",
+            json!({"plugin": "sample", "method": "describe", "params": {"id": "01a1f29a-9205-74ff-9584-61b930804b33"}}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(routed.error_code(), ErrorCode::NotFound, "{routed:?}");
     let unary = k
         .call(
             &member,
@@ -1508,7 +1518,10 @@ async fn a_streamed_rpc_method_of_a_host_service_answers_on_the_caller_s_connect
 const STREAMED_APP: &str = r#"{
   "apiVersion": "1", "name": "Stream", "provides": {"services": ["streamed"]},
   "services": [{"id": "backend", "title": "Backend", "provides": "streamed"}],
-  "contributes": {"rpc": [{"method": "count", "stream": true, "handler": {"service": "streamed", "method": "count"}}]}
+  "contributes": {"rpc": [
+    {"method": "count", "stream": true, "handler": {"service": "streamed", "method": "count"}},
+    {"method": "stall", "stream": true, "timeoutSecs": 1, "handler": {"service": "streamed", "method": "stall"}}
+  ]}
 }"#;
 
 /// A streamed method of a placed app service is read from the response's lines, one item each.
@@ -1549,6 +1562,27 @@ async fn a_streamed_rpc_method_of_an_app_service_answers_one_item_per_line() {
         .unwrap();
     let stream = u32::try_from(opened["stream"].as_u64().unwrap()).unwrap();
     assert_eq!(inbox.lines(stream).await, [json!(1), json!(2), json!(3)]);
+    // A declared `timeoutSecs` bounds the stream: a service that stalls ends it, well before the
+    // call's own deadline.
+    let started = std::time::Instant::now();
+    let opened = k
+        .call_on(
+            &inbox,
+            "plugins.rpc.stream",
+            json!({"plugin": "stream", "method": "stall", "params": {}}),
+        )
+        .await
+        .unwrap();
+    let stream = u32::try_from(opened["stream"].as_u64().unwrap()).unwrap();
+    let closed = tokio::time::timeout(Duration::from_secs(5), inbox.notification("streams.close"))
+        .await
+        .expect("the stalled stream ends");
+    assert_eq!(closed["stream"], stream);
+    assert_eq!(closed["error"]["code"], "TIMEOUT", "{closed}");
+    assert!(
+        started.elapsed() < Duration::from_secs(4),
+        "it honoured timeoutSecs"
+    );
     k.close().await;
 }
 
@@ -1559,6 +1593,9 @@ async fn backend_stream() -> String {
         "/rpc",
         post(|body: String| async move {
             let request: Value = serde_json::from_str(&body).unwrap();
+            if request["method"] == "stall" {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+            }
             let to = request["params"]["to"].as_u64().unwrap_or(0);
             let mut lines = String::new();
             for i in 1..=to {

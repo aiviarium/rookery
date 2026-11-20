@@ -31,6 +31,8 @@ use crate::loaded::Loaded;
 /// How long one call of an app service may take.
 const APP_SERVICE_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_METHOD_TIMEOUT: Duration = Duration::from_secs(300);
+/// The most one line of a streamed app-service answer may hold.
+const MAX_LINE: usize = 1024 * 1024;
 
 /// The longest a method that applies its own deadline may run.
 pub(crate) fn max_timeout() -> Duration {
@@ -617,39 +619,62 @@ pub(crate) async fn forward_stream(mut source: ServiceStream, writer: OwnedWrite
     }
 }
 
-/// The handler `contributes.rpc` names for a method of a plugin, `(service, method)`, if it names one.
-pub fn rpc_handler(plugin: &Loaded, method: &str) -> Option<(String, String, bool)> {
+/// A method `contributes.rpc` binds to a service of the plugin.
+pub struct Bound {
+    pub service: String,
+    pub method: String,
+    /// The method answers with a stream.
+    pub stream: bool,
+    /// How long the whole stream may last, from the entry's `timeoutSecs`.
+    pub timeout_secs: Option<u64>,
+}
+
+/// The handler `contributes.rpc` names for a method of a plugin, if it names one.
+pub fn rpc_handler(plugin: &Loaded, method: &str) -> Option<Bound> {
     let entry = manifest(plugin)?
         .pointer("/contributes/rpc")?
         .as_array()?
         .iter()
         .find(|r| r.get("method").and_then(Value::as_str) == Some(method))?;
     let handler = entry.get("handler")?;
-    Some((
-        handler.get("service")?.as_str()?.to_owned(),
-        handler.get("method")?.as_str()?.to_owned(),
-        entry
+    Some(Bound {
+        service: handler.get("service")?.as_str()?.to_owned(),
+        method: handler.get("method")?.as_str()?.to_owned(),
+        stream: entry
             .get("stream")
             .and_then(Value::as_bool)
             .unwrap_or(false),
-    ))
+        timeout_secs: entry.get("timeoutSecs").and_then(Value::as_u64),
+    })
 }
 
-/// Calls the app service method `contributes.rpc` binds a method to.
+/// Calls a method `contributes.rpc` binds to a service: the host half's, or a placed app service's,
+/// as `services.call` routes it.
 pub async fn call_bound(
     call: &Call,
+    plugins: &Arc<Plugins>,
     plugin: &str,
-    service: &str,
-    method: &str,
-    stream: bool,
+    bound: &Bound,
     params: Value,
 ) -> Result<Value, RpcError> {
-    if stream {
+    if bound.stream {
         return Err(RpcError::invalid(format!(
-            "{method} of {plugin} answers with a stream: use plugins.rpc.stream"
+            "{} of {plugin} answers with a stream: use plugins.rpc.stream",
+            bound.method
         )));
     }
-    call_app_service(&call.kernel, call, plugin, service, method, params).await
+    // A handler names an app service it ships, or a service name the plugin provides.
+    let loaded = plugins
+        .get(plugin)
+        .ok_or_else(|| RpcError::not_found(format!("no plugin {plugin} is installed")))?;
+    if app_services(&loaded)
+        .iter()
+        .any(|(id, ..)| id == &bound.service)
+    {
+        return call_app_service(&call.kernel, call, plugin, &bound.service, &bound.method, params)
+            .await;
+    }
+    call_service(call, plugins, plugin, &bound.service, &bound.method, params).await
 }
 
 /// Opens the stream a `contributes.rpc` method binds to a service: a host half's, with the credit and
@@ -658,24 +683,48 @@ pub(crate) async fn open_bound_stream(
     call: &Call,
     plugins: &Arc<Plugins>,
     plugin: &str,
-    service: &str,
-    method: &str,
+    bound: &Bound,
     params: Value,
 ) -> Result<ServiceStream, RpcError> {
-    let provider = provider(call, plugins, plugin, service)?;
+    // The entry's `timeoutSecs` bounds the whole stream; a streamed method defaults to 30 seconds.
+    let secs = bound
+        .timeout_secs
+        .unwrap_or(30)
+        .clamp(1, MAX_METHOD_TIMEOUT.as_secs());
+    let mut call = call.clone();
+    call.deadline = Instant::now() + Duration::from_secs(secs);
+    let loaded = plugins
+        .get(plugin)
+        .ok_or_else(|| RpcError::not_found(format!("no plugin {plugin} is installed")))?;
+    // The handler names an app service it ships, or a service name the plugin provides.
+    if app_services(&loaded)
+        .iter()
+        .any(|(id, ..)| id == &bound.service)
+    {
+        return stream_app_service(
+            &call.kernel,
+            &call,
+            plugin,
+            &bound.service,
+            &bound.method,
+            params,
+        )
+        .await;
+    }
+    let provider = provider(&call, plugins, plugin, &bound.service)?;
     if let Some((app, ..)) = app_services(&provider)
         .into_iter()
-        .find(|(_, _, _, names)| names.iter().any(|name| name == service))
+        .find(|(_, _, _, names)| names.iter().any(|name| name == &bound.service))
     {
-        return stream_app_service(&call.kernel, call, plugin, &app, method, params).await;
+        return stream_app_service(&call.kernel, &call, plugin, &app, &bound.method, params).await;
     }
     let asked = ServiceCall {
         plugin: plugin.into(),
-        service: service.into(),
-        method: method.into(),
+        service: bound.service.clone(),
+        method: bound.method.clone(),
         params,
     };
-    open_stream(call, plugins, asked, None).await
+    open_stream(&call, plugins, asked, None).await
 }
 
 /// A streamed answer of an app service: the response's lines are its items, and one with an error
@@ -705,9 +754,23 @@ async fn stream_app_service(
     let endpoint = format!("{}/rpc", url.trim_end_matches('/'));
     let (sender, items) = mpsc::channel(1);
     let (settle, result) = InvocationResult::pair();
+    // Every blocking read ends: a stalled service costs its thread for at most the idle read limit,
+    // and the whole stream for at most its deadline.
+    let remaining = call
+        .deadline
+        .saturating_duration_since(Instant::now())
+        .max(Duration::from_secs(1));
+    let connect = APP_SERVICE_TIMEOUT.min(remaining);
+    let idle = APP_SERVICE_TIMEOUT.min(remaining);
     tokio::task::spawn_blocking(move || {
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
+            .timeout_global(Some(remaining))
+            .timeout_connect(Some(connect))
+            .timeout_send_request(Some(connect))
+            .timeout_recv_response(Some(connect))
+            .timeout_recv_body(Some(idle))
+            .timeout_per_read(Some(idle))
             .build()
             .into();
         let mut request = agent
@@ -731,26 +794,46 @@ async fn stream_app_service(
                 RpcError::unavailable(format!("{endpoint} answered {status}")),
             );
         }
-        let mut reader = std::io::BufReader::new(response.body_mut().as_reader());
-        let mut line = String::new();
+        let mut reader = response.body_mut().as_reader();
+        let mut pending: Vec<u8> = Vec::new();
+        let mut chunk = [0u8; 8192];
         loop {
-            line.clear();
-            match std::io::BufRead::read_line(&mut reader, &mut line) {
+            // The caller went away: stop reading, and let the response close with the request.
+            if sender.is_closed() {
+                return;
+            }
+            match std::io::Read::read(&mut reader, &mut chunk) {
                 Ok(0) => break,
-                Ok(_) => {
-                    let Ok(message) = serde_json::from_str::<Value>(line.trim()) else {
-                        continue;
-                    };
-                    if let Some(error) = message.get("error") {
-                        let error = serde_json::from_value::<RpcError>(error.clone())
-                            .unwrap_or_else(|_| RpcError::internal(error.to_string()));
-                        let _ = settle.send(Err(error));
-                        return;
+                Ok(n) => {
+                    pending.extend_from_slice(&chunk[..n]);
+                    while let Some(end) = pending.iter().position(|b| *b == b'\n') {
+                        let line: Vec<u8> = pending.drain(..=end).collect();
+                        let Ok(message) = serde_json::from_slice::<Value>(&line[..end]) else {
+                            continue;
+                        };
+                        if let Some(error) = message.get("error") {
+                            let error = serde_json::from_value::<RpcError>(error.clone())
+                                .unwrap_or_else(|_| RpcError::internal(error.to_string()));
+                            let _ = settle.send(Err(error));
+                            return;
+                        }
+                        // A message with neither a result nor an error, such as the id alone, ends
+                        // the stream: it carries no item.
+                        let Some(item) = message.get("result").cloned() else {
+                            let _ = settle.send(Ok(Value::Null));
+                            return;
+                        };
+                        if sender.blocking_send(item).is_err() {
+                            return;
+                        }
                     }
-                    let item = message.get("result").cloned().unwrap_or(Value::Null);
-                    // A closed stream means the caller went away: stop reading.
-                    if sender.blocking_send(item).is_err() {
-                        return;
+                    if pending.len() > MAX_LINE {
+                        return fail(
+                            settle,
+                            RpcError::unavailable(format!(
+                                "{endpoint} sent a line longer than {MAX_LINE} bytes"
+                            )),
+                        );
                     }
                 }
                 Err(e) => {

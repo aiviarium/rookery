@@ -281,6 +281,8 @@ pub fn register(methods: &mut Methods) {
         .add(
             "plugins.rpc.stream",
             |call: Call, p: PluginRpc| async move {
+                // The caller's connection first: a stream needs one, and nothing is started for none.
+                call.conn()?;
                 let plugins = plugins(&call.kernel)?;
                 plugins.ready_soon().await?;
                 let source = plugins
