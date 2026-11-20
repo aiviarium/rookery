@@ -1,8 +1,10 @@
 package provision
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -14,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aiviarium/rookery/internal/jobs"
 	"github.com/aiviarium/rookery/pkg/sdk"
 )
 
@@ -118,7 +121,15 @@ func (r *Runner) Do(ctx context.Context, call Call, fn func(context.Context, *sd
 	command := exec.CommandContext(ctx, call.Type.Command)
 	command.Env = environment
 	command.Dir = dir
-	output := &lineWriter{line: call.Line}
+	masker := jobs.NewMasker(call.Token)
+	for _, secret := range call.Secrets {
+		masker.Add(secret)
+	}
+	output := &lineWriter{line: func(line string) {
+		if call.Line != nil {
+			call.Line(masker.Mask(line))
+		}
+	}}
 	command.Stdout = output
 	command.Stderr = output
 
@@ -127,8 +138,13 @@ func (r *Runner) Do(ctx context.Context, call Call, fn func(context.Context, *sd
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("provision: starting %s: %w", call.Type.Command, err)
 	}
-	exited := make(chan error, 1)
-	go func() { exited <- command.Wait() }()
+	exited := make(chan struct{})
+	var processErr error
+	go func() {
+		processErr = command.Wait()
+		output.flush()
+		close(exited)
+	}()
 
 	defer func() {
 		if err := stop(command, exited); err != nil {
@@ -136,12 +152,15 @@ func (r *Runner) Do(ctx context.Context, call Call, fn func(context.Context, *sd
 		}
 	}()
 
-	if err := waitForSocket(ctx, socket, exited); err != nil {
+	if err := waitForSocket(ctx, socket, exited, &processErr); err != nil {
 		return fmt.Errorf("provision: %s did not serve on its socket: %w", call.Type.ID, err)
 	}
 	httpClient, base := sdk.DialSocket(socket)
 	client := sdk.NewProvisionerClient(httpClient, base)
 	err = fn(ctx, client)
+	if err != nil && masker.Mask(err.Error()) != err.Error() {
+		err = errors.New(masker.Mask(err.Error()))
+	}
 	r.logger.Debug("a provisioner call ended",
 		slog.String("type", call.Type.ID),
 		slog.String("entry", call.Entry.Name),
@@ -168,7 +187,7 @@ func writeSecrets(dir string, secrets map[string]string) (string, error) {
 
 // waitForSocket waits until the provisioner serves on its socket, or the process
 // ends first.
-func waitForSocket(ctx context.Context, socket string, exited <-chan error) error {
+func waitForSocket(ctx context.Context, socket string, exited <-chan struct{}, processErr *error) error {
 	deadline := time.Now().Add(30 * time.Second)
 	for {
 		var dialer net.Dialer
@@ -178,11 +197,11 @@ func waitForSocket(ctx context.Context, socket string, exited <-chan error) erro
 			return nil
 		}
 		select {
-		case err := <-exited:
-			if err == nil {
+		case <-exited:
+			if *processErr == nil {
 				return fmt.Errorf("it exited before it served")
 			}
-			return fmt.Errorf("it exited: %w", err)
+			return fmt.Errorf("it exited: %w", *processErr)
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
@@ -199,30 +218,25 @@ func waitForSocket(ctx context.Context, socket string, exited <-chan error) erro
 }
 
 // stop asks a provisioner to exit and kills it if it does not.
-func stop(command *exec.Cmd, exited <-chan error) error {
+func stop(command *exec.Cmd, exited <-chan struct{}) error {
 	select {
-	case err := <-exited:
-		// The call's result is what matters; a provisioner that exits with a
-		// status after answering has still answered.
-		_ = err
+	case <-exited:
 		return nil
 	default:
 	}
 	if err := command.Process.Signal(syscall.SIGTERM); err != nil {
-		if killErr := command.Process.Kill(); killErr != nil {
+		if killErr := command.Process.Kill(); killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
 			return fmt.Errorf("provision: stopping the provisioner: %w", killErr)
 		}
 	}
 	select {
-	case err := <-exited:
-		_ = err
+	case <-exited:
 		return nil
 	case <-time.After(10 * time.Second):
-		if err := command.Process.Kill(); err != nil {
+		if err := command.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 			return fmt.Errorf("provision: killing the provisioner: %w", err)
 		}
-		last := <-exited
-		_ = last
+		<-exited
 		return nil
 	}
 }
@@ -238,11 +252,12 @@ type lineWriter struct {
 func (w *lineWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	size := len(p)
 	for {
-		index := strings.IndexByte(string(p), '\n')
+		index := bytes.IndexByte(p, '\n')
 		if index < 0 {
 			w.rest.Write(p)
-			return len(p), nil
+			return size, nil
 		}
 		w.rest.Write(p[:index])
 		if w.line != nil {
@@ -251,4 +266,13 @@ func (w *lineWriter) Write(p []byte) (int, error) {
 		w.rest.Reset()
 		p = p[index+1:]
 	}
+}
+
+func (w *lineWriter) flush() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.line != nil && w.rest.Len() > 0 {
+		w.line(strings.TrimRight(w.rest.String(), "\r"))
+	}
+	w.rest.Reset()
 }

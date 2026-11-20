@@ -217,6 +217,7 @@ type Rollout struct {
 	Selection     Selection
 	Strategy      Strategy
 	CanaryDone    bool
+	failuresSeen  int
 	PausedUntil   time.Time
 	PausedBecause string
 	CreatedAt     time.Time
@@ -349,6 +350,7 @@ func rolloutOf(record store.RookeryRollouts) (Rollout, error) {
 		CreatedBy:     record.CreatedBy,
 		State:         State(record.State),
 		CanaryDone:    record.CanaryDone,
+		failuresSeen:  int(record.FailuresSeen),
 		PausedBecause: record.PausedBecause,
 	}
 	if len(record.Selection) > 0 {

@@ -256,6 +256,11 @@ func (p *Provisioners) CreateMachine(ctx context.Context, request MachineRequest
 		return Resource{}, err
 	}
 
+	machineArgs := request.Args
+	if len(machineArgs) == 0 {
+		machineArgs = entry.Args
+	}
+
 	var instance sdk.Instance
 	err = p.callWithSecrets(ctx, entry, typ, request.Line, func(callCtx context.Context, client *sdk.ProvisionerClient) error {
 		created, err := client.Create(callCtx, sdk.CreateRequest{
@@ -263,7 +268,7 @@ func (p *Provisioners) CreateMachine(ctx context.Context, request MachineRequest
 			Entry:  entry.Name,
 			Kind:   KindMachine,
 			Name:   request.Host,
-			Args:   entry.Args,
+			Args:   machineArgs,
 			Seed:   contents,
 		})
 		if err != nil {
@@ -390,6 +395,8 @@ func (p *Provisioners) callWithSecrets(ctx context.Context, entry Entry, typ Typ
 	if p.runner == nil {
 		return fmt.Errorf("%w: no provisioner runner", access.ErrUnavailable)
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	call := Call{Entry: entry, Type: typ, Engine: engineOf(entry), Line: line}
 	if p.tokens != nil {
 		token, err := p.tokens.PluginToken(ctx, typ.Plugin)
@@ -465,6 +472,8 @@ func validHostName(name string) bool {
 
 // MachineRequest is a host to create through an entry.
 type MachineRequest struct {
+	// Args are the machine's arguments. Empty uses the entry defaults.
+	Args []byte
 	// Host is the host's name.
 	Host string
 

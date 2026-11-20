@@ -116,23 +116,10 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		return nil, err
 	}
 	runner := jobs.NewRunner(opened, registry, events, s.log)
+	runner.OnFailure(notifyJobFailure(notificationStore, s.log))
 	jobRunner := jobs.NewService(opened, checker, registry, runner, s.log)
 
 	schedules := jobs.NewSchedules(opened, registry, jobRunner, s.log)
-
-	// Roll-outs: an apply or one action on a set of hosts, in batches. Their
-	// hosts come from the host registry, which the hosts item fills in.
-	rolloutList := rollouts.New(rollouts.Options{
-		Store:         opened,
-		Checker:       checker,
-		Jobs:          jobRunner,
-		Notifications: notificationStore,
-		Publisher:     events,
-		Logger:        s.log,
-	})
-	schedules.SetRolloutStarter(rolloutList)
-	scheduler := jobs.NewScheduler(schedules)
-	rolloutManager := rollouts.NewManager(rolloutList)
 
 	collections, err := wireCollections(ctx, opened, checker, ring)
 	if err != nil {
@@ -158,9 +145,22 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	})
 	installer.SetServices(supervisor)
 
+	hostStore := hosts.New(opened)
+	rolloutList := rollouts.New(rollouts.Options{
+		Store:         opened,
+		Checker:       checker,
+		Jobs:          jobRunner,
+		Hosts:         rolloutTargets{hosts: hostStore, version: s.config.Version, versions: installedPluginVersions(installer)},
+		Notifications: notificationStore,
+		Publisher:     events,
+		Logger:        s.log,
+	})
+	schedules.SetRolloutStarter(rolloutList)
+	scheduler := jobs.NewScheduler(schedules)
+	rolloutManager := rollouts.NewManager(rolloutList)
+
 	// Hosts, their links and the key ring. A link is opened on demand; the
 	// first one makes the active key on a database that has none.
-	hostStore := hosts.New(opened)
 	keyRing := link.NewRing(opened, ring)
 	trusted := link.NewKnownHosts(opened, s.log)
 	hostService := hosts.NewService(hosts.Deps{
@@ -195,6 +195,13 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		s.log.Info("paused the roll-outs a stopped server left running", slog.Int64("rollouts", paused))
 	}
 
+	provisioners, provisionTokens, err := wireProvisioners(opened, checker, secrets, installer, supervisor, s.config, s.log)
+	if err != nil {
+		return nil, err
+	}
+	if err := provisioners.RunActionsAsJobs(registry, jobRunner); err != nil {
+		return nil, err
+	}
 	service := services{
 		authn:         authn.NewService(users, sessions, tokens),
 		users:         authn.NewUsersService(users, links),
@@ -237,10 +244,12 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		Plugins:      installer,
 		Services:     supervisor,
 		Procedures:   installer,
-		PluginTokens: supervisor,
+		PluginTokens: provisionTokens,
 		RegisterServices: func(mux *http.ServeMux, options []connect.HandlerOption) {
 			service.register(mux, options)
 			collections.register(mux, options)
+			path, handler := rookeryv1connect.NewProvisionerServiceHandler(provisioners, options...)
+			mux.Handle(path, handler)
 		},
 		Blobs:              blobStore.Handler(),
 		Documents:          docs.NewHandler(collections.docs, dataCaller{}),

@@ -209,12 +209,12 @@ func TestPlanSelectsAndSkipsHosts(t *testing.T) {
 		t.Errorf("the plan works %v", names(plan.Hosts))
 	}
 
-	// By name: no registry is consulted, so an unknown name is still planned.
+	// The registry excludes a name that was never recorded.
 	plan, err = harness.service.Plan(t.Context(), rollouts.KindApply, rollouts.Selection{Hosts: []string{"zulu"}})
 	if err != nil {
 		t.Fatalf("planning: %v", err)
 	}
-	if names(plan.Hosts) != "zulu" {
+	if len(plan.Hosts) != 0 {
 		t.Errorf("the plan works %v", names(plan.Hosts))
 	}
 }
@@ -312,8 +312,9 @@ func TestRolloutPausesWhenAHostFails(t *testing.T) {
 	if resumed.State != rollouts.Running {
 		t.Fatalf("the resumed roll-out is %s", resumed.State)
 	}
-	if _, err := harness.service.Resume(t.Context(), rollout.ID); !errors.Is(err, access.ErrConflict) {
-		t.Fatalf("resuming a running roll-out gave %v", err)
+	finished := harness.waitFor(t, rollout.ID, rollouts.Failed)
+	if got := finished.Counts(); got.Failed != 1 || got.Succeeded != 2 {
+		t.Fatalf("the resumed roll-out ended with %+v", got)
 	}
 }
 

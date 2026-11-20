@@ -518,7 +518,7 @@ SET state = 'queued',
     started_at = NULL,
     finished_at = NULL,
     cancel_requested = false
-WHERE id = $1
+WHERE id = $1 AND state IN ('succeeded', 'failed', 'cancelled', 'interrupted')
 RETURNING id, kind, args, resource, created_by, parent, state, attempts, max_attempts, host, claim, heartbeat_at, available_at, result, error, cancel_requested, created_at, started_at, finished_at
 `
 
@@ -584,9 +584,15 @@ func (q *Queries) RetryJob(ctx context.Context, arg RetryJobParams) (int64, erro
 
 const returnExpiredClaims = `-- name: ReturnExpiredClaims :execrows
 UPDATE rookery.jobs
-SET state = 'queued',
+SET state = CASE
+      WHEN cancel_requested THEN 'cancelled'
+      WHEN attempts >= max_attempts THEN 'failed'
+      ELSE 'queued'
+    END,
+    error = CASE WHEN cancel_requested THEN 'cancelled' ELSE 'the worker heartbeat expired' END,
     claim = NULL,
     heartbeat_at = NULL,
+    finished_at = CASE WHEN cancel_requested OR attempts >= max_attempts THEN now() END,
     available_at = now()
 WHERE state = 'running'
   AND claim IS NOT NULL

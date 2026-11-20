@@ -30,7 +30,7 @@ const createRollout = `-- name: CreateRollout :one
 
 INSERT INTO rookery.rollouts (id, kind, args, resource, created_by, state, selection, strategy)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, kind, args, resource, created_by, state, selection, strategy, canary_done, paused_until, paused_because, created_at, started_at, finished_at
+RETURNING id, kind, args, resource, created_by, state, selection, strategy, canary_done, failures_seen, paused_until, paused_because, created_at, started_at, finished_at
 `
 
 type CreateRolloutParams struct {
@@ -68,6 +68,7 @@ func (q *Queries) CreateRollout(ctx context.Context, arg CreateRolloutParams) (R
 		&i.Selection,
 		&i.Strategy,
 		&i.CanaryDone,
+		&i.FailuresSeen,
 		&i.PausedUntil,
 		&i.PausedBecause,
 		&i.CreatedAt,
@@ -148,7 +149,7 @@ SET state = $2,
     paused_because = '',
     finished_at = now()
 WHERE id = $1
-RETURNING id, kind, args, resource, created_by, state, selection, strategy, canary_done, paused_until, paused_because, created_at, started_at, finished_at
+RETURNING id, kind, args, resource, created_by, state, selection, strategy, canary_done, failures_seen, paused_until, paused_because, created_at, started_at, finished_at
 `
 
 type FinishRolloutParams struct {
@@ -169,6 +170,7 @@ func (q *Queries) FinishRollout(ctx context.Context, arg FinishRolloutParams) (R
 		&i.Selection,
 		&i.Strategy,
 		&i.CanaryDone,
+		&i.FailuresSeen,
 		&i.PausedUntil,
 		&i.PausedBecause,
 		&i.CreatedAt,
@@ -179,7 +181,7 @@ func (q *Queries) FinishRollout(ctx context.Context, arg FinishRolloutParams) (R
 }
 
 const getRollout = `-- name: GetRollout :one
-SELECT id, kind, args, resource, created_by, state, selection, strategy, canary_done, paused_until, paused_because, created_at, started_at, finished_at
+SELECT id, kind, args, resource, created_by, state, selection, strategy, canary_done, failures_seen, paused_until, paused_because, created_at, started_at, finished_at
 FROM rookery.rollouts
 WHERE id = $1
 `
@@ -197,6 +199,7 @@ func (q *Queries) GetRollout(ctx context.Context, id string) (RookeryRollouts, e
 		&i.Selection,
 		&i.Strategy,
 		&i.CanaryDone,
+		&i.FailuresSeen,
 		&i.PausedUntil,
 		&i.PausedBecause,
 		&i.CreatedAt,
@@ -281,7 +284,7 @@ func (q *Queries) ListRolloutHostsIn(ctx context.Context, rollouts []string) ([]
 }
 
 const listRollouts = `-- name: ListRollouts :many
-SELECT id, kind, args, resource, created_by, state, selection, strategy, canary_done, paused_until, paused_because, created_at, started_at, finished_at
+SELECT id, kind, args, resource, created_by, state, selection, strategy, canary_done, failures_seen, paused_until, paused_because, created_at, started_at, finished_at
 FROM rookery.rollouts
 WHERE id < $1
   AND ($3::text IS NULL OR state = $3)
@@ -314,6 +317,7 @@ func (q *Queries) ListRollouts(ctx context.Context, arg ListRolloutsParams) ([]R
 			&i.Selection,
 			&i.Strategy,
 			&i.CanaryDone,
+			&i.FailuresSeen,
 			&i.PausedUntil,
 			&i.PausedBecause,
 			&i.CreatedAt,
@@ -331,10 +335,13 @@ func (q *Queries) ListRollouts(ctx context.Context, arg ListRolloutsParams) ([]R
 }
 
 const listRunnableRollouts = `-- name: ListRunnableRollouts :many
-SELECT id, kind, args, resource, created_by, state, selection, strategy, canary_done, paused_until, paused_because, created_at, started_at, finished_at
+SELECT id, kind, args, resource, created_by, state, selection, strategy, canary_done, failures_seen, paused_until, paused_because, created_at, started_at, finished_at
 FROM rookery.rollouts
-WHERE state = 'running'
-  AND (paused_until IS NULL OR paused_until <= now())
+WHERE (state = 'running' AND (paused_until IS NULL OR paused_until <= now()))
+   OR (state = 'paused' AND EXISTS (
+       SELECT 1 FROM rookery.rollout_hosts h
+       WHERE h.rollout_id = rollouts.id AND h.state = 'running'
+   ))
 ORDER BY id
 LIMIT $1
 `
@@ -358,6 +365,7 @@ func (q *Queries) ListRunnableRollouts(ctx context.Context, limit int32) ([]Rook
 			&i.Selection,
 			&i.Strategy,
 			&i.CanaryDone,
+			&i.FailuresSeen,
 			&i.PausedUntil,
 			&i.PausedBecause,
 			&i.CreatedAt,
@@ -423,7 +431,7 @@ SET state = 'paused',
     paused_until = NULL,
     paused_because = $2
 WHERE id = $1
-RETURNING id, kind, args, resource, created_by, state, selection, strategy, canary_done, paused_until, paused_because, created_at, started_at, finished_at
+RETURNING id, kind, args, resource, created_by, state, selection, strategy, canary_done, failures_seen, paused_until, paused_because, created_at, started_at, finished_at
 `
 
 type PauseRolloutParams struct {
@@ -444,6 +452,7 @@ func (q *Queries) PauseRollout(ctx context.Context, arg PauseRolloutParams) (Roo
 		&i.Selection,
 		&i.Strategy,
 		&i.CanaryDone,
+		&i.FailuresSeen,
 		&i.PausedUntil,
 		&i.PausedBecause,
 		&i.CreatedAt,
@@ -474,14 +483,21 @@ UPDATE rookery.rollouts
 SET state = 'running',
     paused_until = NULL,
     paused_because = '',
-    canary_done = true,
+    canary_done = $2,
+    failures_seen = $3,
     started_at = COALESCE(started_at, now())
 WHERE id = $1
-RETURNING id, kind, args, resource, created_by, state, selection, strategy, canary_done, paused_until, paused_because, created_at, started_at, finished_at
+RETURNING id, kind, args, resource, created_by, state, selection, strategy, canary_done, failures_seen, paused_until, paused_because, created_at, started_at, finished_at
 `
 
-func (q *Queries) ResumeRollout(ctx context.Context, id string) (RookeryRollouts, error) {
-	row := q.db.QueryRow(ctx, resumeRollout, id)
+type ResumeRolloutParams struct {
+	ID           string
+	CanaryDone   bool
+	FailuresSeen int32
+}
+
+func (q *Queries) ResumeRollout(ctx context.Context, arg ResumeRolloutParams) (RookeryRollouts, error) {
+	row := q.db.QueryRow(ctx, resumeRollout, arg.ID, arg.CanaryDone, arg.FailuresSeen)
 	var i RookeryRollouts
 	err := row.Scan(
 		&i.ID,
@@ -493,6 +509,7 @@ func (q *Queries) ResumeRollout(ctx context.Context, id string) (RookeryRollouts
 		&i.Selection,
 		&i.Strategy,
 		&i.CanaryDone,
+		&i.FailuresSeen,
 		&i.PausedUntil,
 		&i.PausedBecause,
 		&i.CreatedAt,
@@ -544,7 +561,7 @@ const setRolloutPause = `-- name: SetRolloutPause :one
 UPDATE rookery.rollouts
 SET paused_until = $2
 WHERE id = $1
-RETURNING id, kind, args, resource, created_by, state, selection, strategy, canary_done, paused_until, paused_because, created_at, started_at, finished_at
+RETURNING id, kind, args, resource, created_by, state, selection, strategy, canary_done, failures_seen, paused_until, paused_because, created_at, started_at, finished_at
 `
 
 type SetRolloutPauseParams struct {
@@ -565,6 +582,7 @@ func (q *Queries) SetRolloutPause(ctx context.Context, arg SetRolloutPauseParams
 		&i.Selection,
 		&i.Strategy,
 		&i.CanaryDone,
+		&i.FailuresSeen,
 		&i.PausedUntil,
 		&i.PausedBecause,
 		&i.CreatedAt,
@@ -581,7 +599,7 @@ SET state = 'running',
     paused_because = '',
     started_at = COALESCE(started_at, now())
 WHERE id = $1
-RETURNING id, kind, args, resource, created_by, state, selection, strategy, canary_done, paused_until, paused_because, created_at, started_at, finished_at
+RETURNING id, kind, args, resource, created_by, state, selection, strategy, canary_done, failures_seen, paused_until, paused_because, created_at, started_at, finished_at
 `
 
 func (q *Queries) StartRollout(ctx context.Context, id string) (RookeryRollouts, error) {
@@ -597,6 +615,7 @@ func (q *Queries) StartRollout(ctx context.Context, id string) (RookeryRollouts,
 		&i.Selection,
 		&i.Strategy,
 		&i.CanaryDone,
+		&i.FailuresSeen,
 		&i.PausedUntil,
 		&i.PausedBecause,
 		&i.CreatedAt,

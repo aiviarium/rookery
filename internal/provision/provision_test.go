@@ -186,7 +186,7 @@ func TestCreateMachine(t *testing.T) {
 		"name: ops",
 		"ssh-ed25519 AAAAtest rookery",
 		"ALL=(ALL) NOPASSWD:ALL",
-		"tailscale up --auth-key=tskey-test-1 --hostname=desk-1",
+		"--auth-key=file:/run/rookery-tailnet-key", "content: tskey-test-1", "--hostname=desk-1",
 	} {
 		if !strings.Contains(seed, want) {
 			t.Errorf("the seed does not have %q:\n%s", want, seed)

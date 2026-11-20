@@ -696,6 +696,7 @@ CREATE TABLE rookery.rollouts (
 	selection      bytea       NOT NULL DEFAULT ''::bytea,
 	strategy       bytea       NOT NULL DEFAULT ''::bytea,
 	canary_done    boolean     NOT NULL DEFAULT false,
+	failures_seen  integer     NOT NULL DEFAULT 0,
 	paused_until   timestamptz,
 	paused_because text        NOT NULL DEFAULT '',
 	created_at     timestamptz NOT NULL DEFAULT now(),

@@ -22,8 +22,11 @@ LIMIT $2;
 -- name: ListRunnableRollouts :many
 SELECT *
 FROM rookery.rollouts
-WHERE state = 'running'
-  AND (paused_until IS NULL OR paused_until <= now())
+WHERE (state = 'running' AND (paused_until IS NULL OR paused_until <= now()))
+   OR (state = 'paused' AND EXISTS (
+       SELECT 1 FROM rookery.rollout_hosts h
+       WHERE h.rollout_id = rollouts.id AND h.state = 'running'
+   ))
 ORDER BY id
 LIMIT $1;
 
@@ -62,7 +65,8 @@ UPDATE rookery.rollouts
 SET state = 'running',
     paused_until = NULL,
     paused_because = '',
-    canary_done = true,
+    canary_done = $2,
+    failures_seen = $3,
     started_at = COALESCE(started_at, now())
 WHERE id = $1
 RETURNING *;

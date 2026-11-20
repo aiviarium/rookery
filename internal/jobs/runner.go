@@ -38,6 +38,7 @@ type Runner struct {
 	registry  *Registry
 	logger    *slog.Logger
 	publisher Publisher
+	onFailure func(context.Context, Job)
 
 	poll      time.Duration
 	workers   int
@@ -66,6 +67,9 @@ func NewRunner(opened *store.Store, registry *Registry, publisher Publisher, log
 		busyHosts: make(map[string]bool),
 	}
 }
+
+// OnFailure sets the handler for terminal core job failures before Run starts.
+func (r *Runner) OnFailure(notify func(context.Context, Job)) { r.onFailure = notify }
 
 // Run works jobs until ctx ends. It claims one job at a time, in this goroutine,
 // and runs each in a goroutine of its own, bounded by the runner's workers.
@@ -103,7 +107,15 @@ func (r *Runner) Run(ctx context.Context) error {
 			continue
 		}
 
-		slots <- struct{}{}
+		select {
+		case slots <- struct{}{}:
+		case <-ctx.Done():
+			r.releaseHost(job.Host)
+			recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
+			r.end(recordCtx, job, Interrupted, "the server stopped")
+			cancel()
+			continue
+		}
 		group.Go(func() error {
 			defer func() { <-slots }()
 			r.work(ctx, job)
@@ -192,22 +204,26 @@ func (r *Runner) work(ctx context.Context, job Job) {
 		r.cancelMu.Unlock()
 	}()
 
-	log := NewLog(jobCtx, r.store, job.ID, nil)
-	result, runErr := handler.Run(jobCtx, job, log)
-
-	// A job asked to stop ends cancelled, whatever the handler returned.
-	asked, askErr := r.store.Queries().CancelRequested(context.WithoutCancel(ctx), job.ID)
-	if askErr == nil && asked {
-		r.end(context.WithoutCancel(ctx), job.ID, Cancelled, "cancelled")
-		return
+	log := NewLog(jobCtx, r.store, job.ID, NewMasker())
+	asked, err := r.store.Queries().CancelRequested(jobCtx, job.ID)
+	var result []byte
+	var runErr error
+	if err == nil && !asked {
+		result, runErr = handler.Run(jobCtx, job, log)
+	} else {
+		runErr = err
 	}
-	if errors.Is(runErr, context.Canceled) && ctx.Err() != nil {
-		// The server is stopping: the job is interrupted, and start-up says so.
-		return
-	}
-
-	recordCtx, recordCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	recordCtx, recordCancel := context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
 	defer recordCancel()
+	asked, askErr := r.store.Queries().CancelRequested(recordCtx, job.ID)
+	if askErr == nil && asked {
+		r.end(recordCtx, job, Cancelled, "cancelled")
+		return
+	}
+	if ctx.Err() != nil {
+		r.end(recordCtx, job, Interrupted, "the server stopped")
+		return
+	}
 	switch {
 	case runErr != nil:
 		r.fail(recordCtx, job, kind, runErr, log)
@@ -230,7 +246,7 @@ func (r *Runner) fail(ctx context.Context, job Job, kind Kind, cause error, log 
 	if job.Attempts < job.MaxAttempts {
 		backoff := retryBackoff(kind, job.Attempts)
 		failed, err := r.store.Queries().RetryJob(ctx, store.RetryJobParams{
-			Error:   cause.Error(),
+			Error:   log.mask(cause.Error()),
 			ID:      job.ID,
 			Backoff: interval(backoff),
 		})
@@ -244,20 +260,28 @@ func (r *Runner) fail(ctx context.Context, job Job, kind Kind, cause error, log 
 		return
 	}
 
-	r.end(ctx, job.ID, Failed, cause.Error())
+	r.end(ctx, job, Failed, log.mask(cause.Error()))
 }
 
 // end records the state a job ended in.
-func (r *Runner) end(ctx context.Context, jobID string, state State, why string) {
-	if _, err := r.store.Queries().EndJob(ctx, store.EndJobParams{
+func (r *Runner) end(ctx context.Context, job Job, state State, why string) {
+	count, err := r.store.Queries().EndJob(ctx, store.EndJobParams{
 		State: string(state),
 		Error: why,
-		ID:    jobID,
-	}); err != nil {
-		r.logger.Error("recording an ended job", slog.String("job", jobID), slog.String("error", err.Error()))
+		ID:    job.ID,
+	})
+	if err != nil {
+		r.logger.Error("recording an ended job", slog.String("job", job.ID), slog.String("error", err.Error()))
 		return
 	}
-	r.publish(Job{ID: jobID}, state)
+	if count == 0 {
+		return
+	}
+	job.State, job.Err = state, why
+	r.publish(job, state)
+	if state == Failed && r.onFailure != nil {
+		r.onFailure(ctx, job)
+	}
 }
 
 // publish says a job changed.

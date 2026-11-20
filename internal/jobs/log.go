@@ -54,13 +54,23 @@ func (l *Log) WriteLine(line string) error {
 	return nil
 }
 
+// AddSecret masks a secret in subsequent log lines and the job's final error.
+func (l *Log) AddSecret(value string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.masker == nil {
+		l.masker = NewMasker()
+	}
+	l.masker.Add(value)
+}
+
 // mask is a line with the secrets replaced.
 func (l *Log) mask(line string) string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.masker == nil {
 		return line
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	return l.masker.Mask(line)
 }
 
