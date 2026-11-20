@@ -49,6 +49,8 @@ type Deps struct {
 	Blobs http.Handler
 	// Documents serves /ws/documents/{id} when configured.
 	Documents http.Handler
+	// Webhooks authenticate with the secret declared by each plugin.
+	Webhooks http.Handler
 	// Services starts a plugin's service for a call. Without it the edge serves
 	// client halves only.
 	Services PluginServices
@@ -98,7 +100,17 @@ func (e *Edge) Handler() http.Handler {
 		e.deps.RegisterHostRoutes(mux)
 	}
 	mux.HandleFunc("/", e.fallback)
-	return e.authenticate(mux)
+	if e.deps.Webhooks == nil {
+		return e.authenticate(mux)
+	}
+	public := http.NewServeMux()
+	public.Handle("POST /hooks/{plugin}/{name}", e.deps.Webhooks)
+	public.HandleFunc("/hooks/{plugin}/{name}", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "Method not allowed.", http.StatusMethodNotAllowed)
+	})
+	public.Handle("/", e.authenticate(mux))
+	return public
 }
 
 // SocketHandler is the Unix socket's handler: every core service as the local
