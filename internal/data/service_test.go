@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -422,4 +423,36 @@ func mustDecode(t *testing.T, encoded []byte) map[string]any {
 		t.Fatalf("decoding: %v", err)
 	}
 	return decoded
+}
+
+func TestChangesFiltersAccessAndHonorsCursor(t *testing.T) {
+	t.Parallel()
+	d := newDatastore(t)
+	d.run(t)
+	writer := d.writer(t)
+	d.insertNote(t, writer, map[string]any{"title": "private"})
+	d.grant(stranger, "space://02SPACE", rookeryv1.Level_LEVEL_MANAGE)
+	for _, title := range []string{"first visible", "second visible"} {
+		if _, err := d.Insert(t.Context(), stranger, "example/notes", map[string]any{
+			"title": title, "space_id": "02SPACE",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	client := newClient(t, stranger, d)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	stream, err := client.Changes(ctx, connect.NewRequest(&rookeryv1.ChangesRequest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.Close() }()
+	for _, title := range []string{"first visible", "second visible"} {
+		if !stream.Receive() {
+			t.Fatalf("receiving %q: %v", title, stream.Err())
+		}
+		if record := mustDecode(t, stream.Msg().GetRecordCbor()); record["title"] != title {
+			t.Fatalf("received %v, want %q", record, title)
+		}
+	}
 }

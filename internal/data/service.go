@@ -9,6 +9,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
+	"github.com/aiviarium/rookery/internal/access"
 	"github.com/aiviarium/rookery/internal/cborx"
 	"github.com/aiviarium/rookery/internal/filter"
 )
@@ -72,7 +73,7 @@ func (s *Service) Find(ctx context.Context, request *connect.Request[rookeryv1.F
 		Sorts:  sorts,
 		Limit:  int(request.Msg.GetLimit()),
 		Cursor: request.Msg.GetCursor(),
-		Space:  request.Msg.GetSpace(),
+		Space:  requestSpace(ctx, request.Msg.GetSpace()),
 	})
 	if err != nil {
 		return nil, ConnectError(err)
@@ -99,7 +100,7 @@ func (s *Service) Count(ctx context.Context, request *connect.Request[rookeryv1.
 	if err != nil {
 		return nil, ConnectError(err)
 	}
-	count, err := s.data.Count(ctx, principal, collection.Key(), Query{Filter: parsed, Space: request.Msg.GetSpace()})
+	count, err := s.data.Count(ctx, principal, collection.Key(), Query{Filter: parsed, Space: requestSpace(ctx, request.Msg.GetSpace())})
 	if err != nil {
 		return nil, ConnectError(err)
 	}
@@ -130,7 +131,7 @@ func (s *Service) Aggregate(ctx context.Context, request *connect.Request[rooker
 		Field:   request.Msg.GetField(),
 		GroupBy: request.Msg.GetGroupBy(),
 		Filter:  parsed,
-		Space:   request.Msg.GetSpace(),
+		Space:   requestSpace(ctx, request.Msg.GetSpace()),
 	})
 	if err != nil {
 		return nil, ConnectError(err)
@@ -350,7 +351,7 @@ func (s *Service) Live(ctx context.Context, request *connect.Request[rookeryv1.L
 		Filter:     parsed,
 		Sorts:      sorts,
 		Limit:      int(request.Msg.GetLimit()),
-		Space:      request.Msg.GetSpace(),
+		Space:      requestSpace(ctx, request.Msg.GetSpace()),
 	}, func(event LiveEvent) error {
 		response := &rookeryv1.LiveResponse{
 			Kind:     liveEventKind(event.Kind),
@@ -373,11 +374,23 @@ func (s *Service) Live(ctx context.Context, request *connect.Request[rookeryv1.L
 
 // Changes streams the change feed from a sequence until the caller goes away.
 func (s *Service) Changes(ctx context.Context, request *connect.Request[rookeryv1.ChangesRequest], stream *connect.ServerStream[rookeryv1.ChangesResponse]) error {
-	if _, err := s.principal(ctx); err != nil {
+	principal, err := s.principal(ctx)
+	if err != nil {
 		return err
 	}
 
-	err := s.data.Changes(ctx, request.Msg.GetFromSequence(), request.Msg.GetCollections(), func(change Change) error {
+	err = s.data.Changes(ctx, request.Msg.GetFromSequence(), request.Msg.GetCollections(), func(change Change) error {
+		collection, err := s.data.Collection(change.Collection)
+		if errors.Is(err, ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		allowed, err := s.data.allowed(ctx, principal, collection.resource(change.scopeID()), collection.Access.Read)
+		if err != nil || !allowed {
+			return err
+		}
 		response := &rookeryv1.ChangesResponse{
 			Sequence:   change.Seq,
 			Collection: change.Collection,
@@ -530,35 +543,18 @@ func batchKind(kind rookeryv1.BatchOperationKind) (BatchKind, error) {
 	}
 }
 
-// ConnectError maps a datastore error to a connect code. The access package's
-// ToConnect takes this over when it lands, and this is the same mapping for the
-// errors the datastore reports. The entity registry wraps the same sentinels,
-// which is why it uses this mapping too.
+// ConnectError classifies filter errors before the shared RPC error mapping.
 func ConnectError(err error) error {
-	if err == nil {
-		return nil
+	if errors.Is(err, filter.ErrInvalid) || errors.Is(err, filter.ErrUnknownField) ||
+		errors.Is(err, filter.ErrUnsupported) || errors.Is(err, filter.ErrUnvalidated) {
+		err = fmt.Errorf("%w: %w", access.ErrInvalid, err)
 	}
-	var connectErr *connect.Error
-	if errors.As(err, &connectErr) {
-		return err
-	}
+	return access.ToConnect(err)
+}
 
-	code := connect.CodeInternal
-	switch {
-	case errors.Is(err, context.Canceled):
-		code = connect.CodeCanceled
-	case errors.Is(err, context.DeadlineExceeded):
-		code = connect.CodeDeadlineExceeded
-	case errors.Is(err, ErrInvalid), errors.Is(err, filter.ErrInvalid),
-		errors.Is(err, filter.ErrUnknownField), errors.Is(err, filter.ErrUnsupported),
-		errors.Is(err, filter.ErrUnvalidated):
-		code = connect.CodeInvalidArgument
-	case errors.Is(err, ErrNotFound):
-		code = connect.CodeNotFound
-	case errors.Is(err, ErrForbidden):
-		code = connect.CodePermissionDenied
-	case errors.Is(err, ErrRevision), errors.Is(err, ErrReference):
-		code = connect.CodeAborted
+func requestSpace(ctx context.Context, explicit string) string {
+	if explicit != "" {
+		return explicit
 	}
-	return connect.NewError(code, err)
+	return access.SpaceFrom(ctx)
 }

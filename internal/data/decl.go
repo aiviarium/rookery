@@ -18,7 +18,6 @@ package data
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -27,6 +26,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
+	"github.com/aiviarium/rookery/internal/access"
 	"github.com/aiviarium/rookery/internal/filter"
 )
 
@@ -65,19 +65,19 @@ const (
 var (
 	// ErrInvalid is a declaration or a record that does not follow its
 	// declaration.
-	ErrInvalid = errors.New("data: invalid")
+	ErrInvalid = access.ErrInvalid
 
 	// ErrNotFound is a record or a collection that is not there.
-	ErrNotFound = errors.New("data: not found")
+	ErrNotFound = access.ErrNotFound
 
 	// ErrRevision is a write whose expected revision is not the record's.
-	ErrRevision = errors.New("data: the revision does not match")
+	ErrRevision = fmt.Errorf("revision mismatch: %w", access.ErrConflict)
 
 	// ErrReference is a delete that a restriction refuses.
-	ErrReference = errors.New("data: a record refers to this one")
+	ErrReference = fmt.Errorf("record is referenced: %w", access.ErrConflict)
 
 	// ErrForbidden is a caller without the level an operation needs.
-	ErrForbidden = errors.New("data: forbidden")
+	ErrForbidden = access.ErrDenied
 )
 
 // RevisionError says which revision a write expected and which it found. It
@@ -111,40 +111,18 @@ func (e *ReferenceError) Error() string {
 // Unwrap is ErrReference.
 func (e *ReferenceError) Unwrap() error { return ErrReference }
 
-// PrincipalKind is what a principal is.
-type PrincipalKind string
+// Principal is the authenticated caller recorded with datastore changes.
+type Principal = access.Principal
 
-// The kinds a principal has: a person, a plugin's service, and the local admin
-// of the server's Unix socket.
+// PrincipalKind names a kind of authenticated caller.
+type PrincipalKind = string
+
+// Principal kinds used by the datastore.
 const (
-	PrincipalUser   PrincipalKind = "user"
-	PrincipalPlugin PrincipalKind = "plugin"
-	PrincipalLocal  PrincipalKind = "local"
+	PrincipalUser   = access.KindUser
+	PrincipalPlugin = access.KindPluginPrincipal
+	PrincipalLocal  = access.KindLocal
 )
-
-// Principal is who a call is for.
-type Principal struct {
-	Kind PrincipalKind
-	// ID is the user's or the plugin's id, empty for the local admin.
-	ID string
-}
-
-// String is the principal as access writes it: "user:ID", "plugin:ID" or
-// "local".
-func (p Principal) String() string {
-	if p.Kind == PrincipalLocal {
-		return "local"
-	}
-	return string(p.Kind) + ":" + p.ID
-}
-
-// UserID is the principal's user id, or empty when it is not a user.
-func (p Principal) UserID() string {
-	if p.Kind == PrincipalUser {
-		return p.ID
-	}
-	return ""
-}
 
 // Authorizer decides a principal's level on a resource. The access package
 // implements it.

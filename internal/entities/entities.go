@@ -10,13 +10,18 @@ package entities
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"sort"
+	"math"
+	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
 	"github.com/aiviarium/rookery/internal/data"
+	"github.com/aiviarium/rookery/internal/store"
 )
 
 // The errors this package reports. They wrap the datastore's, so that the one
@@ -46,41 +51,35 @@ type Config struct {
 
 // Registry resolves and searches the entities of the declared collections.
 type Registry struct {
-	data  *data.Data
-	auth  data.Authorizer
-	kinds map[string]string
+	data *data.Data
+	auth data.Authorizer
 }
 
-// New returns a registry of the collections declared now.
+// New returns a registry backed by the datastore's live declarations.
 func New(config Config) *Registry {
-	registry := &Registry{
-		data:  config.Data,
-		auth:  config.Authorizer,
-		kinds: make(map[string]string),
-	}
-	for _, collection := range config.Data.Collections("") {
-		if collection.Entity == nil {
-			continue
+	return &Registry{data: config.Data, auth: config.Authorizer}
+}
+
+// Kind finds the collection that declares an entity kind.
+func (r *Registry) Kind(kind string) (string, bool) {
+	for _, collection := range r.data.Collections("") {
+		if collection.Entity != nil && collection.Entity.Kind == kind {
+			return collection.Key(), true
 		}
-		registry.kinds[collection.Entity.Kind] = collection.Key()
 	}
-	return registry
+	return "", false
 }
 
-// Kind names the collection an entity kind belongs to.
-func (r *Registry) Kind(kind string) (collection string, ok bool) {
-	collection, ok = r.kinds[kind]
-	return collection, ok
-}
-
-// Kinds are the declared entity kinds, sorted.
+// Kinds lists declared entity kinds.
 func (r *Registry) Kinds() []string {
-	kinds := make([]string, 0, len(r.kinds))
-	for kind := range r.kinds {
-		kinds = append(kinds, kind)
+	kinds := make([]string, 0)
+	for _, collection := range r.data.Collections("") {
+		if collection.Entity != nil {
+			kinds = append(kinds, collection.Entity.Kind)
+		}
 	}
-	sort.Strings(kinds)
-	return kinds
+	slices.Sort(kinds)
+	return slices.Compact(kinds)
 }
 
 // Entity is one result of resolution or search.
@@ -104,7 +103,7 @@ func (r *Registry) Resolve(ctx context.Context, principal data.Principal, uri st
 	if err != nil {
 		return Entity{}, err
 	}
-	if err := r.require(ctx, principal, entity.Access); err != nil {
+	if err := r.require(ctx, principal, entity); err != nil {
 		return Entity{}, err
 	}
 	return entity, nil
@@ -117,31 +116,28 @@ func (r *Registry) ResolveMany(ctx context.Context, principal data.Principal, ur
 		return nil, nil
 	}
 
-	rows, err := r.data.Store().Pool().Query(ctx, `
-		SELECT uri, kind, title, access FROM rookery.entities WHERE uri = ANY($1)`, uris)
+	rows, err := r.data.Store().Queries().FindEntities(ctx, uris)
 	if err != nil {
-		return nil, fmt.Errorf("entities: resolving %d entities: %w", len(uris), err)
+		return nil, fmt.Errorf("entities: resolving entities: %w", err)
 	}
-	defer rows.Close()
 
-	found := make([]Entity, 0, len(uris))
-	for rows.Next() {
-		var entity Entity
-		if err := rows.Scan(&entity.URI, &entity.Kind, &entity.Title, &entity.Access); err != nil {
-			return nil, fmt.Errorf("entities: resolving entities: %w", err)
-		}
-		allowed, err := r.allowed(ctx, principal, entity.Access)
+	visible := make(map[string]Entity, len(rows))
+	for _, row := range rows {
+		entity := r.entity(row.Uri, row.Kind, row.Title, row.Access)
+		allowed, err := r.allowed(ctx, principal, entity)
 		if err != nil {
 			return nil, err
 		}
-		if !allowed {
-			continue
+		if allowed {
+			visible[entity.URI] = entity
 		}
-		entity.Collection = r.collectionOf(entity.URI)
-		found = append(found, entity)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("entities: resolving entities: %w", err)
+	found := make([]Entity, 0, len(visible))
+	for _, uri := range uris {
+		if entity, ok := visible[uri]; ok {
+			found = append(found, entity)
+			delete(visible, uri)
+		}
 	}
 	return found, nil
 }
@@ -168,77 +164,70 @@ func (r *Registry) Search(ctx context.Context, principal data.Principal, query s
 		limit = defaultSearchLimit
 	}
 
-	args := []any{}
-	where := ""
-	if strings.TrimSpace(query) != "" {
-		args = append(args, query)
-		where = " WHERE search @@ websearch_to_tsquery('simple', $1)"
+	if len(embedding) > 16000 {
+		return nil, fmt.Errorf("%w: an embedding can have at most 16000 dimensions", ErrInvalid)
 	}
-
-	// The embedding is passed as pgvector's text form, so that the pool needs no
-	// codec for the type.
-	order := ""
-	switch {
-	case len(embedding) > 0 && where != "":
-		args = append(args, vectorLiteral(embedding))
-		order = " ORDER BY (ts_rank(search, websearch_to_tsquery('simple', $1)) + " +
-			"coalesce(1 - (embedding <=> $2::vector), 0)) DESC, updated_at DESC"
-	case len(embedding) > 0:
-		args = append(args, vectorLiteral(embedding))
-		order = " ORDER BY coalesce(1 - (embedding <=> $1::vector), 0) DESC, updated_at DESC"
-	default:
-		order = " ORDER BY ts_rank(search, websearch_to_tsquery('simple', $1)) DESC, updated_at DESC"
+	for _, value := range embedding {
+		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
+			return nil, fmt.Errorf("%w: an embedding must contain finite numbers", ErrInvalid)
+		}
 	}
-
-	// More rows than asked for, because access may hide some.
-	args = append(args, limit*4)
-	statement := "SELECT uri, kind, title, access FROM rookery.entities" + where + order +
-		fmt.Sprintf(" LIMIT $%d", len(args))
-
-	rows, err := r.data.Store().Pool().Query(ctx, statement, args...)
-	if err != nil {
-		return nil, fmt.Errorf("entities: searching: %w", err)
+	params := store.SearchEntitiesParams{TextQuery: query, RowLimit: 128}
+	if len(embedding) != 0 {
+		params.VectorQuery = vectorLiteral(embedding)
 	}
-	defer rows.Close()
-
-	levels := make(map[string]bool)
+	levels := make(map[struct {
+		resource string
+		level    rookeryv1.Level
+	}]bool)
 	results := make([]Entity, 0, limit)
-	for rows.Next() && len(results) < limit {
-		var entity Entity
-		if err := rows.Scan(&entity.URI, &entity.Kind, &entity.Title, &entity.Access); err != nil {
+	for len(results) < limit {
+		rows, err := r.data.Store().Queries().SearchEntities(ctx, params)
+		if err != nil {
 			return nil, fmt.Errorf("entities: searching: %w", err)
 		}
-		allowed, known := levels[entity.Access]
-		if !known {
-			allowed, err = r.allowed(ctx, principal, entity.Access)
-			if err != nil {
-				return nil, err
+		for _, row := range rows {
+			entity := r.entity(row.Uri, row.Kind, row.Title, row.Access)
+			key := struct {
+				resource string
+				level    rookeryv1.Level
+			}{entity.Access, r.readLevel(entity)}
+			allowed, known := levels[key]
+			if !known {
+				allowed, err = r.allowed(ctx, principal, entity)
+				if err != nil {
+					return nil, err
+				}
+				levels[key] = allowed
 			}
-			levels[entity.Access] = allowed
+			if allowed {
+				results = append(results, entity)
+				if len(results) == limit {
+					return results, nil
+				}
+			}
 		}
-		if !allowed {
-			continue
+		if len(rows) < int(params.RowLimit) {
+			break
 		}
-		entity.Collection = r.collectionOf(entity.URI)
-		results = append(results, entity)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("entities: searching: %w", err)
+		params.RowOffset += params.RowLimit
 	}
 	return results, nil
 }
 
-// load reads one entity's row.
 func (r *Registry) load(ctx context.Context, uri string) (Entity, error) {
-	var entity Entity
-	err := r.data.Store().Pool().QueryRow(ctx,
-		`SELECT uri, kind, title, access FROM rookery.entities WHERE uri = $1`, uri).
-		Scan(&entity.URI, &entity.Kind, &entity.Title, &entity.Access)
-	if err != nil {
+	row, err := r.data.Store().Queries().FindEntity(ctx, uri)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return Entity{}, fmt.Errorf("%w: no entity %s", ErrNotFound, uri)
 	}
-	entity.Collection = r.collectionOf(uri)
-	return entity, nil
+	if err != nil {
+		return Entity{}, fmt.Errorf("entities: reading %s: %w", uri, err)
+	}
+	return r.entity(row.Uri, row.Kind, row.Title, row.Access), nil
+}
+
+func (r *Registry) entity(uri, kind, title, resource string) Entity {
+	return Entity{URI: uri, Kind: kind, Title: title, Collection: r.collectionOf(uri), Access: resource}
 }
 
 // collectionOf is the collection a record entity is in, when it is declared.
@@ -254,27 +243,35 @@ func (r *Registry) collectionOf(uri string) string {
 }
 
 // require checks a principal's level on an entity's access parent.
-func (r *Registry) require(ctx context.Context, principal data.Principal, access string) error {
-	allowed, err := r.allowed(ctx, principal, access)
+func (r *Registry) require(ctx context.Context, principal data.Principal, entity Entity) error {
+	allowed, err := r.allowed(ctx, principal, entity)
 	if err != nil {
 		return err
 	}
 	if !allowed {
-		return fmt.Errorf("%w: %s may not read %s", ErrForbidden, principal, access)
+		return fmt.Errorf("%w: %s may not read %s", ErrForbidden, principal, entity.URI)
 	}
 	return nil
 }
 
-// allowed reports whether the principal may read an entity.
-func (r *Registry) allowed(ctx context.Context, principal data.Principal, access string) (bool, error) {
+func (r *Registry) readLevel(entity Entity) rookeryv1.Level {
+	if entity.Collection != "" {
+		if collection, err := r.data.Collection(entity.Collection); err == nil {
+			return collection.Access.Read
+		}
+	}
+	return rookeryv1.Level_LEVEL_VIEW
+}
+
+func (r *Registry) allowed(ctx context.Context, principal data.Principal, entity Entity) (bool, error) {
 	if r.auth == nil {
 		return false, fmt.Errorf("%w: the entity registry has no authorizer", ErrForbidden)
 	}
-	level, err := r.auth.Level(ctx, principal, access)
+	level, err := r.auth.Level(ctx, principal, entity.Access)
 	if err != nil {
-		return false, fmt.Errorf("entities: checking %s on %s: %w", principal, access, err)
+		return false, fmt.Errorf("entities: checking %s on %s: %w", principal, entity.Access, err)
 	}
-	return data.Allows(level, rookeryv1.Level_LEVEL_VIEW), nil
+	return data.Allows(level, r.readLevel(entity)), nil
 }
 
 // vectorLiteral is a vector as Postgres reads one.

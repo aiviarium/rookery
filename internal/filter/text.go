@@ -16,6 +16,27 @@ import (
 // [ … ] lists. A bare word is a string. "field is null" and "field is not null"
 // are the null tests.
 func ParseText(text string, fields Fields) (*Filter, error) {
+	parsed, err := parseText(text)
+	if err != nil {
+		return nil, err
+	}
+	if err := parsed.Validate(fields); err != nil {
+		return nil, err
+	}
+	return parsed, nil
+}
+
+// EncodeText converts a textual filter to its wire form. The server validates
+// its fields and operands against the collection that receives it.
+func EncodeText(text string) ([]byte, error) {
+	parsed, err := parseText(text)
+	if err != nil {
+		return nil, err
+	}
+	return Marshal(parsed)
+}
+
+func parseText(text string) (*Filter, error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, nil
 	}
@@ -31,9 +52,6 @@ func ParseText(text string, fields Fields) (*Filter, error) {
 	}
 	if token := parser.peek(); token.kind != tokEOF {
 		return nil, fmt.Errorf("%w: unexpected %s at offset %d", ErrInvalid, token.describe(), token.pos)
-	}
-	if err := parsed.Validate(fields); err != nil {
-		return nil, err
 	}
 	return parsed, nil
 }

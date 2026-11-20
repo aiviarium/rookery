@@ -2,6 +2,7 @@ package docs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -9,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/aiviarium/rookery/internal/data"
+	"github.com/aiviarium/rookery/internal/store"
 )
 
 // SyncKind is what a sync message is.
@@ -55,10 +57,6 @@ type Sync struct {
 	documents *Documents
 	document  Document
 	principal data.Principal
-	from      int64
-	// head is the log's sequence when the sync started: the state ends there,
-	// and whatever comes after arrives through the hub.
-	head int64
 
 	participant *participant
 	messages    chan SyncMessage
@@ -66,6 +64,7 @@ type Sync struct {
 	cancel      context.CancelFunc
 	done        chan struct{}
 	closeOnce   sync.Once
+	err         error // written before messages and done close
 }
 
 // hub relays a document's updates and awareness to its participants, in memory
@@ -153,19 +152,18 @@ func (d *Documents) Sync(ctx context.Context, principal data.Principal, id strin
 	if from < 0 {
 		return nil, fmt.Errorf("%w: a sequence is not negative", ErrInvalid)
 	}
-	head, err := d.head(ctx, id)
+
+	joined := d.hub.join(id)
+	state, err := d.readState(ctx, id, from)
 	if err != nil {
+		d.hub.leave(id, joined)
 		return nil, err
 	}
-
 	ctx, cancel := context.WithCancel(ctx)
-	joined := d.hub.join(id)
 	sync := &Sync{
 		documents:   d,
 		document:    document,
 		principal:   principal,
-		from:        from,
-		head:        head,
 		participant: joined,
 		messages:    make(chan SyncMessage, outgoingBuffer),
 		resync:      joined.resync,
@@ -175,7 +173,7 @@ func (d *Documents) Sync(ctx context.Context, principal data.Principal, id strin
 
 	// The initial state is handed out by the goroutine, so a slow reader does
 	// not hold up the others.
-	go sync.run(ctx)
+	go sync.run(ctx, state, from)
 	return sync, nil
 }
 
@@ -187,13 +185,13 @@ func (s *Sync) Messages() <-chan SyncMessage { return s.messages }
 func (s *Sync) Send(ctx context.Context, message SyncMessage) error {
 	switch message.Kind {
 	case KindUpdate:
-		sequence, err := s.documents.appendUpdate(ctx, s.principal, s.document.ID, message.Data, s.participant)
-		if err != nil {
+		_, err := s.documents.appendUpdate(ctx, s.principal, s.document.ID, message.Data, s.participant)
+		return err
+	case KindAwareness:
+		if err := s.documents.require(ctx, s.principal, s.document.URI(), readLevel); err != nil {
 			return err
 		}
-		message.Sequence = sequence
-		return nil
-	case KindAwareness:
+		message.Sequence = 0
 		s.documents.hub.publish(s.document.ID, message, s.participant)
 		return nil
 	default:
@@ -206,19 +204,20 @@ func (s *Sync) Close() error {
 	s.closeOnce.Do(func() {
 		s.cancel()
 		<-s.done
-		s.documents.hub.leave(s.document.ID, s.participant)
 	})
 	return nil
 }
 
 // run hands the document's state and then the hub's messages to the outgoing
 // channel, and resyncs the participant when it fell behind.
-func (s *Sync) run(ctx context.Context) {
+func (s *Sync) run(ctx context.Context, state documentState, from int64) {
 	defer close(s.done)
 	defer close(s.messages)
+	defer s.documents.hub.leave(s.document.ID, s.participant)
 
-	last, err := s.sendState(ctx, s.from, s.head)
+	last, err := s.sendState(ctx, state, from, false)
 	if err != nil {
+		s.err = err
 		return
 	}
 	for {
@@ -230,10 +229,19 @@ func (s *Sync) run(ctx context.Context) {
 			// The messages buffered while the participant was behind are older
 			// than the state it is about to get.
 			s.drain()
-			if last, err = s.sendResync(ctx); err != nil {
+			state, err := s.documents.readState(ctx, s.document.ID, 0)
+			if err == nil {
+				last, err = s.sendState(ctx, state, 0, true)
+			}
+			if err != nil {
+				s.err = err
 				return
 			}
 		case message := <-s.participant.messages:
+			if _, err := s.documents.requireDocument(ctx, s.principal, s.document.ID, readLevel); err != nil {
+				s.err = err
+				return
+			}
 			if message.Kind == KindUpdate {
 				// A message the state already covered is no news.
 				if message.Sequence <= last {
@@ -250,57 +258,63 @@ func (s *Sync) run(ctx context.Context) {
 	}
 }
 
-// sendState sends what a participant at from needs, up to head: the latest
-// snapshot when it is behind it, and the updates after that. It returns the last
-// sequence it sent.
-func (s *Sync) sendState(ctx context.Context, from, head int64) (int64, error) {
-	sequence, data, err := s.documents.latestSnapshot(ctx, s.document.ID)
-	if err != nil {
-		return 0, err
-	}
-	if data != nil && from < sequence {
-		if err := s.send(ctx, SyncMessage{Kind: KindSnapshot, Sequence: sequence, Data: data}); err != nil {
-			return 0, err
-		}
-	}
-	last := sequence
-	if from > last {
-		last = from
-	}
+// Err reports why the stream stopped, after Messages has closed.
+func (s *Sync) Err() error { return s.err }
 
-	updates, err := s.documents.updatesAfter(ctx, s.document.ID, last, head)
-	if err != nil {
-		return 0, err
-	}
-	for _, update := range updates {
-		if err := s.send(ctx, update); err != nil {
+// sendState takes both the snapshot and the updates from the same database
+// view. Pruning cannot remove an update between those reads.
+func (s *Sync) sendState(ctx context.Context, state documentState, from int64, resync bool) (int64, error) {
+	snapshot := state.snapshot
+	if resync || from > state.head {
+		if err := s.send(ctx, SyncMessage{Kind: KindResync, Sequence: snapshot.Seq}); err != nil {
 			return 0, err
 		}
-		last = update.Sequence
+		from = 0
 	}
-	return last, nil
+	if snapshot.Data != nil && (from == 0 || from < snapshot.Seq) {
+		if err := s.send(ctx, SyncMessage{Kind: KindSnapshot, Sequence: snapshot.Seq, Data: snapshot.Data}); err != nil {
+			return 0, err
+		}
+	}
+	for _, update := range state.updates {
+		if err := s.send(ctx, SyncMessage{Kind: KindUpdate, Sequence: update.Seq, Data: update.Data}); err != nil {
+			return 0, err
+		}
+	}
+	return state.head, nil
 }
 
-// sendResync tells the participant it fell behind and sends the state again. It
-// returns the last sequence it sent.
-func (s *Sync) sendResync(ctx context.Context) (int64, error) {
-	head, err := s.documents.head(ctx, s.document.ID)
+type documentState struct {
+	head     int64
+	snapshot store.LatestDocumentSnapshotRow
+	updates  []store.ListDocumentUpdatesRow
+}
+
+func (d *Documents) readState(ctx context.Context, id string, from int64) (documentState, error) {
+	tx, err := d.store.Pool().BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
-		return 0, err
+		return documentState{}, fmt.Errorf("docs: opening document state: %w", err)
 	}
-	sequence, data, err := s.documents.latestSnapshot(ctx, s.document.ID)
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := d.store.Queries().WithTx(tx)
+	document, err := q.GetDocument(ctx, id)
 	if err != nil {
-		return 0, err
+		return documentState{}, fmt.Errorf("docs: reading document state: %w", err)
 	}
-	if err := s.send(ctx, SyncMessage{Kind: KindResync, Sequence: sequence}); err != nil {
-		return 0, err
+	snapshot, err := q.LatestDocumentSnapshot(ctx, id)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return documentState{}, fmt.Errorf("docs: reading document snapshot: %w", err)
 	}
-	if data != nil {
-		if err := s.send(ctx, SyncMessage{Kind: KindSnapshot, Sequence: sequence, Data: data}); err != nil {
-			return 0, err
-		}
+	if from > document.Head {
+		from = 0
 	}
-	return s.sendState(ctx, sequence, head)
+	updates, err := q.ListDocumentUpdates(ctx, store.ListDocumentUpdatesParams{
+		DocumentID: id, After: max(from, snapshot.Seq), Through: document.Head,
+	})
+	if err != nil {
+		return documentState{}, fmt.Errorf("docs: reading document updates: %w", err)
+	}
+	return documentState{head: document.Head, snapshot: snapshot, updates: updates}, nil
 }
 
 // send puts a message on the outgoing channel.
@@ -336,96 +350,46 @@ func (d *Documents) appendUpdate(ctx context.Context, principal data.Principal, 
 	if len(update) == 0 {
 		return 0, fmt.Errorf("%w: an update has bytes", ErrInvalid)
 	}
-	document, err := d.requireDocument(ctx, principal, id, writeLevel)
-	if err != nil {
+	if _, err := d.requireDocument(ctx, principal, id, writeLevel); err != nil {
 		return 0, err
 	}
-
+	slot := d.appendSlot(id)
+	select {
+	case slot <- struct{}{}:
+		defer func() { <-slot }()
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	}
 	var sequence int64
-	err = d.transaction(ctx, func(tx pgx.Tx) error {
-		// One append at a time per document, so that two participants cannot
-		// take the same sequence.
-		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext($1))", "document:"+id); err != nil {
-			return fmt.Errorf("docs: locking the document: %w", err)
+	err := d.transaction(ctx, func(tx pgx.Tx) error {
+		q := d.store.Queries().WithTx(tx)
+		var err error
+		sequence, err = q.AdvanceDocument(ctx, id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: no document %s", ErrNotFound, id)
 		}
-		if err := tx.QueryRow(ctx,
-			"SELECT coalesce(max(seq), 0) + 1 FROM rookery.document_updates WHERE document_id = $1", id).
-			Scan(&sequence); err != nil {
-			return fmt.Errorf("docs: reading the document's sequence: %w", err)
-		}
-		_, err := tx.Exec(ctx,
-			"INSERT INTO rookery.document_updates (document_id, seq, data) VALUES ($1, $2, $3)",
-			id, sequence, update)
 		if err != nil {
-			return fmt.Errorf("docs: appending an update: %w", err)
+			return fmt.Errorf("docs: advancing document sequence: %w", err)
 		}
-		_, err = tx.Exec(ctx, "UPDATE rookery.documents SET updated_at = now() WHERE id = $1", id)
-		if err != nil {
-			return fmt.Errorf("docs: touching the document: %w", err)
+		if err := q.AppendDocumentUpdate(ctx, store.AppendDocumentUpdateParams{
+			DocumentID: id, Seq: sequence, Data: update,
+		}); err != nil {
+			return fmt.Errorf("docs: appending document update: %w", err)
 		}
 		return nil
 	})
 	if err != nil {
 		return 0, err
 	}
-
-	d.hub.publish(document.ID, SyncMessage{Kind: KindUpdate, Sequence: sequence, Data: update}, except)
+	d.hub.publish(id, SyncMessage{Kind: KindUpdate, Sequence: sequence, Data: update}, except)
 	return sequence, nil
 }
 
-// head is a document's newest sequence.
-func (d *Documents) head(ctx context.Context, id string) (int64, error) {
-	var head int64
-	err := d.store.Pool().QueryRow(ctx,
-		"SELECT coalesce(max(seq), 0) FROM rookery.document_updates WHERE document_id = $1", id).Scan(&head)
-	if err != nil {
-		return 0, fmt.Errorf("docs: reading the document's sequence: %w", err)
-	}
-	return head, nil
-}
-
-// updatesAfter reads a document's updates after a sequence and up to another,
-// oldest first.
-func (d *Documents) updatesAfter(ctx context.Context, id string, after, until int64) ([]SyncMessage, error) {
-	rows, err := d.store.Pool().Query(ctx,
-		"SELECT seq, data FROM rookery.document_updates WHERE document_id = $1 AND seq > $2 AND seq <= $3 ORDER BY seq",
-		id, after, until)
-	if err != nil {
-		return nil, fmt.Errorf("docs: reading the document's updates: %w", err)
-	}
-	defer rows.Close()
-
-	updates := make([]SyncMessage, 0, 16)
-	for rows.Next() {
-		var (
-			sequence int64
-			data     []byte
-		)
-		if err := rows.Scan(&sequence, &data); err != nil {
-			return nil, fmt.Errorf("docs: reading the document's updates: %w", err)
-		}
-		updates = append(updates, SyncMessage{Kind: KindUpdate, Sequence: sequence, Data: data})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("docs: reading the document's updates: %w", err)
-	}
-	return updates, nil
-}
-
-// Prune deletes the updates a snapshot covers, a day after the snapshot was
-// written. It is what keeps a busy document's log from growing without end; the
-// server runs it periodically.
+// Prune deletes updates covered by a snapshot at least a day old.
 func (d *Documents) Prune(ctx context.Context) (int64, error) {
-	tag, err := d.store.Pool().Exec(ctx, `
-		DELETE FROM rookery.document_updates u
-		WHERE EXISTS (
-			SELECT 1 FROM rookery.document_snapshots s
-			WHERE s.document_id = u.document_id
-			  AND s.seq >= u.seq
-			  AND s.created_at < now() - interval '1 day'
-		)`)
+	count, err := d.store.Queries().PruneDocumentUpdates(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("docs: pruning snapshotted updates: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	return count, nil
 }

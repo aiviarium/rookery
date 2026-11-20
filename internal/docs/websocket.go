@@ -141,7 +141,7 @@ func (h *Handler) write(ctx context.Context, connection *websocket.Conn, sync *S
 			return nil
 		case message, ok := <-sync.Messages():
 			if !ok {
-				return nil
+				return sync.Err()
 			}
 			frame, err := encodeFrame(message)
 			if err != nil {

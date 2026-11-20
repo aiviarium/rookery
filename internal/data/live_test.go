@@ -129,7 +129,8 @@ func TestLive(t *testing.T) {
 		t.Fatalf("the insert = %v", inserted)
 	}
 
-	// A record in another space, which the user may not read, is no event.
+	// A record in another readable space is outside this subscription.
+	d.grant(principal, "space://02SPACE", rookeryv1.Level_LEVEL_VIEW)
 	d.grant(stranger, "space://02SPACE", rookeryv1.Level_LEVEL_MANAGE)
 	if _, err := d.Insert(ctx, stranger, "example/notes", map[string]any{
 		"title": "elsewhere", "done": true, "space_id": "02SPACE",

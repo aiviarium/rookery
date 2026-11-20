@@ -21,6 +21,7 @@ import (
 	"github.com/aiviarium/rookery/internal/authn"
 	"github.com/aiviarium/rookery/internal/blobs"
 	"github.com/aiviarium/rookery/internal/config"
+	"github.com/aiviarium/rookery/internal/docs"
 	"github.com/aiviarium/rookery/internal/edge"
 	"github.com/aiviarium/rookery/internal/hosts"
 	"github.com/aiviarium/rookery/internal/jobs"
@@ -131,12 +132,16 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	scheduler := jobs.NewScheduler(schedules)
 	rolloutManager := rollouts.NewManager(rolloutList)
 
-	// Plugins: the packages installed in this deployment. Their services arrive
-	// with the rest of the plugin item, and their collections with the
-	// datastore's service, which fills in Data.
+	collections, err := wireCollections(ctx, opened, checker, ring)
+	if err != nil {
+		return nil, err
+	}
+
+	// Plugins install their declared collections through the datastore.
 	installer := plugins.NewInstaller(plugins.Options{
 		Version:   s.config.Version,
 		Store:     opened,
+		Data:      collections.data,
 		StateDir:  s.config.StateDir,
 		Jobs:      registry,
 		Schedules: schedules,
@@ -230,8 +235,10 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		PluginTokens: supervisor,
 		RegisterServices: func(mux *http.ServeMux, options []connect.HandlerOption) {
 			service.register(mux, options)
+			collections.register(mux, options)
 		},
-		Blobs: blobStore.Handler(),
+		Blobs:     blobStore.Handler(),
+		Documents: docs.NewHandler(collections.docs, dataCaller{}),
 		RegisterLocal: func(mux *http.ServeMux, options []connect.HandlerOption) {
 			path, handler := rookeryv1connect.NewLocalServiceHandler(service.local, options...)
 			mux.Handle(path, handler)
@@ -241,17 +248,18 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	})
 
 	return &handlers{
-		edge:       build.Handler(),
-		socket:     build.SocketHandler(),
-		log:        s.log,
-		runner:     runner,
-		scheduler:  scheduler,
-		supervisor: supervisor,
-		retention:  time.Duration(s.config.RetentionDays) * 24 * time.Hour,
-		store:      opened,
-		blobs:      blobStore,
-		links:      hostLinks,
-		rollouts:   rolloutManager,
+		edge:        build.Handler(),
+		socket:      build.SocketHandler(),
+		log:         s.log,
+		runner:      runner,
+		scheduler:   scheduler,
+		supervisor:  supervisor,
+		retention:   time.Duration(s.config.RetentionDays) * 24 * time.Hour,
+		store:       opened,
+		blobs:       blobStore,
+		links:       hostLinks,
+		rollouts:    rolloutManager,
+		collections: collections,
 	}, nil
 }
 
@@ -265,6 +273,8 @@ func (h *handlers) start(ctx context.Context) error {
 	group.Go(func() error { return h.runner.Run(ctx) })
 	group.Go(func() error { return h.scheduler.Run(ctx) })
 	group.Go(func() error { return h.rollouts.Run(ctx) })
+	group.Go(func() error { return h.collections.data.Run(ctx) })
+	group.Go(func() error { return h.collectExpiring(ctx) })
 	group.Go(func() error {
 		ticker := time.NewTicker(retentionCheck)
 		defer ticker.Stop()

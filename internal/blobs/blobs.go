@@ -18,6 +18,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
@@ -80,14 +81,18 @@ func blobOf(record store.RookeryBlobs) Blob {
 
 // Blobs stores and reads blobs.
 type Blobs struct {
-	store   *store.Store
-	backend Backend
-	checker *access.Checker
+	store     *store.Store
+	backend   Backend
+	checker   *access.Checker
+	mutations *semaphore.Weighted
 }
+
+// Deletion is exclusive with uploads, which can otherwise run concurrently.
+const exclusiveMutation = 128
 
 // New returns the blobs of a deployment.
 func New(opened *store.Store, backend Backend, checker *access.Checker) *Blobs {
-	return &Blobs{store: opened, backend: backend, checker: checker}
+	return &Blobs{store: opened, backend: backend, checker: checker, mutations: semaphore.NewWeighted(exclusiveMutation)}
 }
 
 // Put stores a stream as a blob that belongs to a resource, and returns its
@@ -98,13 +103,22 @@ func (b *Blobs) Put(ctx context.Context, principal access.Principal, resource, c
 	}
 	resource = strings.TrimSpace(resource)
 	if resource != "" {
-		if _, err := access.ParseResource(resource); err != nil {
+		kind, err := access.ParseResource(resource)
+		if err != nil {
 			return Blob{}, err
+		}
+		if kind == "blob" {
+			return Blob{}, fmt.Errorf("%w: a blob cannot be attached to another blob", access.ErrInvalid)
 		}
 		if err := b.checker.Check(ctx, principal, resource, access.Use); err != nil {
 			return Blob{}, err
 		}
 	}
+
+	if err := b.mutations.Acquire(ctx, 1); err != nil {
+		return Blob{}, err
+	}
+	defer b.mutations.Release(1)
 
 	id, size, err := b.backend.Put(ctx, body)
 	if err != nil {
@@ -117,6 +131,16 @@ func (b *Blobs) Put(ctx context.Context, principal access.Principal, resource, c
 		Owner:       principal.String(),
 		Resource:    resource,
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		blob, err := b.ByID(ctx, id)
+		if err != nil {
+			return Blob{}, err
+		}
+		if err := b.canRead(ctx, principal, blob); err != nil {
+			return Blob{}, err
+		}
+		return blob, nil
+	}
 	if err != nil {
 		return Blob{}, fmt.Errorf("blobs: recording %s: %w", id, err)
 	}
@@ -154,6 +178,10 @@ func (b *Blobs) ByID(ctx context.Context, id string) (Blob, error) {
 
 // Delete removes a blob's bytes and its row.
 func (b *Blobs) Delete(ctx context.Context, principal access.Principal, id string) error {
+	if err := b.mutations.Acquire(ctx, exclusiveMutation); err != nil {
+		return err
+	}
+	defer b.mutations.Release(exclusiveMutation)
 	blob, err := b.ByID(ctx, id)
 	if err != nil {
 		return err
@@ -161,11 +189,55 @@ func (b *Blobs) Delete(ctx context.Context, principal access.Principal, id strin
 	if err := b.canManage(ctx, principal, blob); err != nil {
 		return err
 	}
-	if err := b.backend.Delete(ctx, id); err != nil {
+	deleted, err := b.remove(ctx, id, 0)
+	if err != nil {
 		return err
 	}
-	if _, err := b.store.Queries().DeleteBlob(ctx, id); err != nil {
-		return fmt.Errorf("blobs: deleting %s: %w", id, err)
+	if !deleted {
+		return fmt.Errorf("%w: blob %s still has references", access.ErrConflict, id)
+	}
+	return nil
+}
+
+func (b *Blobs) remove(ctx context.Context, id string, age time.Duration) (bool, error) {
+	tx, err := b.store.Pool().Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("blobs: opening deletion transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	q := b.store.Queries().WithTx(tx)
+	var deleted int64
+	if age == 0 {
+		deleted, err = q.DeleteBlob(ctx, id)
+	} else {
+		deleted, err = q.DeleteUnreferencedBlob(ctx, store.DeleteUnreferencedBlobParams{ID: id, Older: interval(age)})
+	}
+	if err != nil {
+		return false, fmt.Errorf("blobs: deleting metadata for %s: %w", id, err)
+	}
+	if deleted == 0 {
+		return false, nil
+	}
+	if err := b.backend.Delete(ctx, id); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("blobs: committing deletion of %s: %w", id, err)
+	}
+	return true, nil
+}
+
+// Pin controls whether collection may remove a blob after its last reference.
+func (b *Blobs) Pin(ctx context.Context, principal access.Principal, id string, pinned bool) error {
+	blob, err := b.ByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := b.canManage(ctx, principal, blob); err != nil {
+		return err
+	}
+	if _, err := b.store.Queries().PinBlob(ctx, store.PinBlobParams{ID: id, Pinned: pinned}); err != nil {
+		return fmt.Errorf("blobs: pinning %s: %w", id, err)
 	}
 	return nil
 }
@@ -205,24 +277,32 @@ func (b *Blobs) canManage(ctx context.Context, principal access.Principal, blob 
 // Collect removes the blobs nothing references and nobody pinned, once they are
 // older than age.
 func (b *Blobs) Collect(ctx context.Context, age time.Duration) (int64, error) {
+	if age <= 0 {
+		return 0, fmt.Errorf("%w: blob collection age must be positive", access.ErrInvalid)
+	}
 	records, err := b.store.Queries().ListUnreferencedBlobs(ctx, store.ListUnreferencedBlobsParams{
 		Older: interval(age),
 		Limit: 100,
 	})
 	if err != nil {
-		return 0, fmt.Errorf("blobs: listing the blobs to collect: %w", err)
+		return 0, fmt.Errorf("blobs: listing blobs to collect: %w", err)
 	}
 	var removed int64
+	var failures []error
 	for _, record := range records {
-		if err := b.backend.Delete(ctx, record.ID); err != nil {
-			continue
+		if err := b.mutations.Acquire(ctx, exclusiveMutation); err != nil {
+			return removed, errors.Join(append(failures, err)...)
 		}
-		if _, err := b.store.Queries().DeleteBlob(ctx, record.ID); err != nil {
-			continue
+		deleted, err := b.remove(ctx, record.ID, age)
+		b.mutations.Release(exclusiveMutation)
+		if err != nil {
+			failures = append(failures, err)
 		}
-		removed++
+		if deleted {
+			removed++
+		}
 	}
-	return removed, nil
+	return removed, errors.Join(failures...)
 }
 
 // Close closes a blob's bytes.
@@ -258,39 +338,35 @@ func (s *Service) Put(ctx context.Context, stream *connect.ClientStream[rookeryv
 		return nil, access.ToConnect(fmt.Errorf("%w: a blob's stream starts with its info", access.ErrInvalid))
 	}
 
-	// The bytes are read as they arrive: the pipe's writer is this goroutine's
-	// stream, and the reader goes to the backend.
-	reader, writer := io.Pipe()
-	streamErr := make(chan error, 1)
-	go func() {
-		defer func() { _ = writer.Close() }()
-		for stream.Receive() {
-			if chunk := stream.Msg().GetChunk(); len(chunk) > 0 {
-				if _, err := writer.Write(chunk); err != nil {
-					streamErr <- err
-					return
-				}
-			}
-		}
-		if err := stream.Err(); err != nil {
-			streamErr <- err
-			return
-		}
-		streamErr <- nil
-	}()
-
-	blob, err := s.blobs.Put(ctx, principal, info.GetResource(), info.GetContentType(), reader)
+	blob, err := s.blobs.Put(ctx, principal, info.GetResource(), info.GetContentType(), &uploadReader{stream: stream})
 	if err != nil {
-		_ = reader.Close()
-		if streamErr2 := <-streamErr; streamErr2 != nil {
-			s.loggerf("the blob's stream ended with %v after the backend failed", streamErr2)
-		}
-		return nil, access.ToConnect(err)
-	}
-	if err := <-streamErr; err != nil {
 		return nil, access.ToConnect(err)
 	}
 	return connect.NewResponse(&rookeryv1.BlobServicePutResponse{Blob: blob.Message()}), nil
+}
+
+type uploadReader struct {
+	stream *connect.ClientStream[rookeryv1.BlobServicePutRequest]
+	chunk  []byte
+}
+
+func (r *uploadReader) Read(buffer []byte) (int, error) {
+	for len(r.chunk) == 0 {
+		if !r.stream.Receive() {
+			if err := r.stream.Err(); err != nil {
+				return 0, err
+			}
+			return 0, io.EOF
+		}
+		part, ok := r.stream.Msg().GetPart().(*rookeryv1.BlobServicePutRequest_Chunk)
+		if !ok {
+			return 0, fmt.Errorf("%w: expected a blob chunk", access.ErrInvalid)
+		}
+		r.chunk = part.Chunk
+	}
+	count := copy(buffer, r.chunk)
+	r.chunk = r.chunk[count:]
+	return count, nil
 }
 
 // Get streams a blob: its metadata, then its bytes.
@@ -366,7 +442,7 @@ func (b *Blobs) Handler() http.Handler {
 			http.Error(w, "not yours to read", http.StatusForbidden)
 			return
 		}
-		reader, size, err := b.backend.Open(r.Context(), id)
+		reader, _, err := b.backend.Open(r.Context(), id)
 		if err != nil {
 			http.Error(w, "the blob's bytes are not there", http.StatusInternalServerError)
 			return
@@ -378,30 +454,14 @@ func (b *Blobs) Handler() http.Handler {
 			contentType = "application/octet-stream"
 		}
 		w.Header().Set("Content-Type", contentType)
-		w.Header().Set("Cache-Control", "private, max-age=86400")
-		http.ServeContent(w, r, id, blob.CreatedAt, &readSeeker{reader: reader, size: size})
+		w.Header().Set("Cache-Control", "private, no-store")
+		w.Header().Set("Content-Security-Policy", "sandbox")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		http.ServeContent(w, r, id, blob.CreatedAt, reader)
 	})
-}
-
-// readSeeker is a blob's bytes as ServeContent wants them.
-type readSeeker struct {
-	reader io.ReadSeekCloser
-	size   int64
-}
-
-// Read reads.
-func (r *readSeeker) Read(p []byte) (int, error) { return r.reader.Read(p) }
-
-// Seek seeks.
-func (r *readSeeker) Seek(offset int64, whence int) (int64, error) {
-	return r.reader.Seek(offset, whence)
 }
 
 // interval is a duration as a Postgres interval.
 func interval(duration time.Duration) pgtype.Interval {
 	return pgtype.Interval{Microseconds: duration.Microseconds(), Valid: true}
 }
-
-// loggerf writes a debug line about a stream that stopped in an odd way. It has
-// nowhere to go but down: the blob's own error is what the caller gets.
-func (s *Service) loggerf(string, ...any) {}

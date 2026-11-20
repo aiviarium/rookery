@@ -13,11 +13,16 @@ package docs
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"hash/fnv"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
+	"github.com/aiviarium/rookery/internal/access"
 	"github.com/aiviarium/rookery/internal/data"
 	"github.com/aiviarium/rookery/internal/id"
 	"github.com/aiviarium/rookery/internal/store"
@@ -45,23 +50,6 @@ const (
 	manageLevel = rookeryv1.Level_LEVEL_MANAGE
 )
 
-// Resources records a document as an access resource with its parent, and drops
-// it again. The access package implements it; it is optional until it is wired.
-type Resources interface {
-	// Add records the resource uri with its parent.
-	Add(ctx context.Context, uri, parent string) error
-
-	// Remove drops the resource.
-	Remove(ctx context.Context, uri string) error
-}
-
-// Granter gives the creator of a document manage on it. The access package
-// implements it; it is optional until it is wired.
-type Granter interface {
-	// GrantOwner gives a principal manage on a resource.
-	GrantOwner(ctx context.Context, uri string, principal data.Principal) error
-}
-
 // Config is what a document store is opened with.
 type Config struct {
 	// Store is the database the documents live in.
@@ -69,32 +57,35 @@ type Config struct {
 
 	// Authorizer answers a principal's level on a document.
 	Authorizer data.Authorizer
-
-	// Resources records documents as resources. Optional.
-	Resources Resources
-
-	// Granter gives creators manage on their documents. Optional.
-	Granter Granter
 }
 
 // Documents stores and relays live documents.
 type Documents struct {
-	store     *store.Store
-	auth      data.Authorizer
-	resources Resources
-	granter   Granter
-	hub       *hub
+	store       *store.Store
+	auth        data.Authorizer
+	hub         *hub
+	appendSlots [64]chan struct{}
 }
 
 // New returns a document store.
 func New(config Config) *Documents {
-	return &Documents{
-		store:     config.Store,
-		auth:      config.Authorizer,
-		resources: config.Resources,
-		granter:   config.Granter,
-		hub:       newHub(),
+	d := &Documents{
+		store: config.Store,
+		auth:  config.Authorizer,
+		hub:   newHub(),
 	}
+	for i := range d.appendSlots {
+		d.appendSlots[i] = make(chan struct{}, 1)
+	}
+	return d
+}
+
+// appendSlot serializes commits and publication for a document on the leader
+// without holding a database connection while waiting. Stripes bound memory.
+func (d *Documents) appendSlot(id string) chan struct{} {
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(id))
+	return d.appendSlots[hash.Sum32()%uint32(len(d.appendSlots))]
 }
 
 // Document is one live document.
@@ -122,41 +113,41 @@ func (d *Documents) Create(ctx context.Context, principal data.Principal, kind, 
 	if kind == "" || len(kind) > 64 || strings.ContainsAny(kind, "\x00/") {
 		return Document{}, fmt.Errorf("%w: %q is not a document type", ErrInvalid, kind)
 	}
-	if !strings.Contains(parent, "://") {
-		return Document{}, fmt.Errorf("%w: %q is not a resource URI", ErrInvalid, parent)
+	if _, err := access.ParseResource(parent); err != nil {
+		return Document{}, err
 	}
 	if err := d.require(ctx, principal, parent, writeLevel); err != nil {
 		return Document{}, err
 	}
 
-	id := id.New()
-	document := Document{ID: id, Type: kind, Parent: parent, Owner: principal.String()}
-	err := d.store.Pool().QueryRow(ctx, `
-		INSERT INTO rookery.documents (id, type, parent, owner_id)
-		VALUES ($1, $2, $3, $4)
-		RETURNING created_at, updated_at`, id, kind, parent, document.Owner).
-		Scan(&document.CreatedAt, &document.UpdatedAt)
-	if err != nil {
-		return Document{}, fmt.Errorf("docs: creating a document: %w", err)
-	}
-
-	// The document is its own resource, hanging under its parent, and its
-	// creator manages it. If either fails, the document goes again: a document
-	// nobody can reach is worse than no document.
-	if d.resources != nil {
-		if err := d.resources.Add(ctx, document.URI(), parent); err != nil {
-			_ = d.deleteRow(ctx, id)
-			return Document{}, fmt.Errorf("docs: recording the document as a resource: %w", err)
+	var document Document
+	err := d.transaction(ctx, func(tx pgx.Tx) error {
+		q := d.store.Queries().WithTx(tx)
+		row, err := q.CreateDocument(ctx, store.CreateDocumentParams{
+			ID: id.New(), Type: kind, Parent: parent, OwnerID: principal.String(),
+		})
+		if err != nil {
+			return fmt.Errorf("docs: creating a document: %w", err)
 		}
-	}
-	if d.granter != nil {
-		if err := d.granter.GrantOwner(ctx, document.URI(), principal); err != nil {
-			if d.resources != nil {
-				_ = d.resources.Remove(ctx, document.URI())
+		document = documentOf(row)
+		if err := q.UpsertResource(ctx, store.UpsertResourceParams{Uri: parent}); err != nil {
+			return fmt.Errorf("docs: recording the document's parent: %w", err)
+		}
+		if err := q.UpsertResource(ctx, store.UpsertResourceParams{Uri: document.URI(), Parent: &parent}); err != nil {
+			return fmt.Errorf("docs: recording the document resource: %w", err)
+		}
+		if principal.Kind == access.KindUser {
+			_, err := q.UpsertGrant(ctx, store.UpsertGrantParams{
+				Resource: document.URI(), Principal: principal.String(), Level: int16(access.Manage),
+			})
+			if err != nil {
+				return fmt.Errorf("docs: granting the document creator: %w", err)
 			}
-			_ = d.deleteRow(ctx, id)
-			return Document{}, fmt.Errorf("docs: granting the creator of the document: %w", err)
 		}
+		return nil
+	})
+	if err != nil {
+		return Document{}, err
 	}
 	return document, nil
 }
@@ -176,45 +167,42 @@ func (d *Documents) Get(ctx context.Context, principal data.Principal, id string
 // Delete marks a document deleted and drops it as an access resource. The caller
 // needs manage on it.
 func (d *Documents) Delete(ctx context.Context, principal data.Principal, id string) error {
-	document, err := d.load(ctx, id)
+	document, err := d.requireDocument(ctx, principal, id, manageLevel)
 	if err != nil {
 		return err
 	}
-	if err := d.require(ctx, principal, document.URI(), manageLevel); err != nil {
-		return err
-	}
-
-	_, err = d.store.Pool().Exec(ctx,
-		"UPDATE rookery.documents SET deleted_at = now(), updated_at = now() WHERE id = $1", id)
-	if err != nil {
-		return fmt.Errorf("docs: deleting the document: %w", err)
-	}
-	if d.resources != nil {
-		if err := d.resources.Remove(ctx, document.URI()); err != nil {
-			return fmt.Errorf("docs: dropping the document as a resource: %w", err)
+	return d.transaction(ctx, func(tx pgx.Tx) error {
+		q := d.store.Queries().WithTx(tx)
+		deleted, err := q.DeleteDocument(ctx, id)
+		if err != nil {
+			return fmt.Errorf("docs: deleting the document: %w", err)
 		}
-	}
-	return nil
+		if deleted == 0 {
+			return fmt.Errorf("%w: no document %s", ErrNotFound, id)
+		}
+		if _, err := q.DeleteResource(ctx, document.URI()); err != nil {
+			return fmt.Errorf("docs: dropping the document resource: %w", err)
+		}
+		return nil
+	})
 }
 
-// load reads a document that is not deleted.
 func (d *Documents) load(ctx context.Context, id string) (Document, error) {
-	var document Document
-	err := d.store.Pool().QueryRow(ctx, `
-		SELECT id, type, parent, owner_id, created_at, updated_at
-		FROM rookery.documents
-		WHERE id = $1 AND deleted_at IS NULL`, id).
-		Scan(&document.ID, &document.Type, &document.Parent, &document.Owner, &document.CreatedAt, &document.UpdatedAt)
-	if err != nil {
+	row, err := d.store.Queries().GetDocument(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return Document{}, fmt.Errorf("%w: no document %s", ErrNotFound, id)
 	}
-	return document, nil
+	if err != nil {
+		return Document{}, fmt.Errorf("docs: reading document %s: %w", id, err)
+	}
+	return documentOf(row), nil
 }
 
-// deleteRow removes a document's row, for a create that could not finish.
-func (d *Documents) deleteRow(ctx context.Context, id string) error {
-	_, err := d.store.Pool().Exec(ctx, "DELETE FROM rookery.documents WHERE id = $1", id)
-	return err
+func documentOf(row store.RookeryDocuments) Document {
+	return Document{
+		ID: row.ID, Type: row.Type, Parent: row.Parent, Owner: row.OwnerID,
+		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+	}
 }
 
 // require checks a principal's level on a resource.

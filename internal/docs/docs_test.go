@@ -4,87 +4,32 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
-	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
+	"github.com/aiviarium/rookery/internal/access"
 	"github.com/aiviarium/rookery/internal/data"
 	"github.com/aiviarium/rookery/internal/store/storetest"
 )
 
-// testAuth is an Authorizer the tests grant by hand.
-type testAuth struct {
-	mu     sync.Mutex
-	grants map[string]rookeryv1.Level
-}
-
-// Level is the principal's granted level on the resource.
-func (a *testAuth) Level(_ context.Context, principal data.Principal, resource string) (rookeryv1.Level, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.grants[principal.String()+"\x00"+resource], nil
-}
-
-// grant gives a principal a level on a resource.
-func (a *testAuth) grant(principal data.Principal, resource string, level rookeryv1.Level) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.grants[principal.String()+"\x00"+resource] = level
-}
-
-// testResources records the documents the tests create, and the grants with
-// them, as the access package will.
-type testResources struct {
-	auth  *testAuth
-	owner data.Principal
-	added map[string]string
-}
-
-// Add records the resource.
-func (r *testResources) Add(_ context.Context, uri, parent string) error {
-	r.added[uri] = parent
-	return nil
-}
-
-// Remove drops the resource.
-func (r *testResources) Remove(_ context.Context, uri string) error {
-	delete(r.added, uri)
-	return nil
-}
-
-// GrantOwner gives the creator manage on the document.
-func (r *testResources) GrantOwner(_ context.Context, uri string, principal data.Principal) error {
-	r.auth.grant(principal, uri, rookeryv1.Level_LEVEL_MANAGE)
-	return nil
-}
-
 // documents is a document store with a space the tests work in.
 type documents struct {
 	*Documents
-	auth     *testAuth
-	resource *testResources
-	user     data.Principal
-	space    string
+	auth  *access.Checker
+	user  data.Principal
+	space string
 }
 
-// newDocuments returns a document store on a database of the test's own.
 func newDocuments(t *testing.T) *documents {
 	t.Helper()
-
-	auth := &testAuth{grants: make(map[string]rookeryv1.Level)}
+	opened := storetest.New(t)
+	auth := access.NewChecker(opened)
 	user := data.Principal{Kind: data.PrincipalUser, ID: "01USER"}
 	space := "space://01SPACE"
-	auth.grant(user, space, rookeryv1.Level_LEVEL_USE)
-
-	resources := &testResources{auth: auth, owner: user, added: make(map[string]string)}
-	store := New(Config{
-		Store:      storetest.New(t),
-		Authorizer: auth,
-		Resources:  resources,
-		Granter:    resources,
-	})
-	return &documents{Documents: store, auth: auth, resource: resources, user: user, space: space}
+	if err := auth.GrantUser(t.Context(), user.ID, space, access.Use); err != nil {
+		t.Fatal(err)
+	}
+	return &documents{Documents: New(Config{Store: opened, Authorizer: auth}), auth: auth, user: user, space: space}
 }
 
 // created makes a document and fails the test when it cannot.
@@ -108,8 +53,9 @@ func TestCreateGetDelete(t *testing.T) {
 	if document.ID == "" || document.Type != "yjs" || document.Parent != d.space || document.Owner != d.user.String() {
 		t.Fatalf("the document = %+v", document)
 	}
-	if parent := d.resource.added[document.URI()]; parent != d.space {
-		t.Errorf("the resource's parent is %q, want %q", parent, d.space)
+	resource, err := d.store.Queries().GetResource(ctx, document.URI())
+	if err != nil || resource.Parent == nil || *resource.Parent != d.space {
+		t.Fatalf("the document resource = %+v, %v", resource, err)
 	}
 
 	read, err := d.Get(ctx, d.user, document.ID)
@@ -238,6 +184,17 @@ func TestSnapshotsAndPrune(t *testing.T) {
 	if len(remaining) != 1 || remaining[0] != 3 {
 		t.Errorf("the updates left are %v, want [3]", remaining)
 	}
+	if _, err := d.Documents.store.Pool().Exec(ctx,
+		"UPDATE rookery.document_snapshots SET created_at = now() - interval '2 days' WHERE document_id = $1",
+		document.ID); err != nil {
+		t.Fatal(err)
+	}
+	if count, err := d.Prune(ctx); err != nil || count != 1 {
+		t.Fatalf("pruning the last update = %d, %v", count, err)
+	}
+	if seq, err := d.Append(ctx, d.user, document.ID, []byte("after pruning")); err != nil || seq != 4 {
+		t.Fatalf("appending after a full prune = %d, %v", seq, err)
+	}
 }
 
 // TestSyncRelay checks that a participant's update reaches the others, and that
@@ -295,7 +252,9 @@ func TestSyncRelay(t *testing.T) {
 
 	// A participant with only `view` syncs but cannot send.
 	viewer := data.Principal{Kind: data.PrincipalUser, ID: "03USER"}
-	d.auth.grant(viewer, document.URI(), rookeryv1.Level_LEVEL_VIEW)
+	if err := d.auth.GrantUser(t.Context(), viewer.ID, document.URI(), access.View); err != nil {
+		t.Fatal(err)
+	}
 	watcher, err := d.Sync(ctx, viewer, document.ID, 0)
 	if err != nil {
 		t.Fatalf("syncing a viewer: %v", err)
