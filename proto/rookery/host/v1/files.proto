@@ -1,0 +1,109 @@
+// FileService reads and writes a host's files as an account.
+//
+// A file's revision is the SHA-256 of its content, so a write can name the
+// revision it expects and fail instead of overwriting someone else's change. A
+// directory has no revision.
+
+syntax = "proto3";
+
+package rookery.host.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/host/v1/common.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/host/v1;hostv1";
+
+service FileService {
+  rpc Read(FileServiceReadRequest) returns (FileServiceReadResponse);
+  rpc Write(FileServiceWriteRequest) returns (FileServiceWriteResponse);
+  rpc List(FileServiceListRequest) returns (FileServiceListResponse);
+  rpc Stat(FileServiceStatRequest) returns (FileServiceStatResponse);
+  rpc Delete(FileServiceDeleteRequest) returns (FileServiceDeleteResponse);
+}
+
+// File is one path's state.
+message File {
+  string path = 1;
+  string name = 2;
+  bool dir = 3;
+  uint64 size = 4;
+
+  // The permission bits, such as 0644, without the file's type.
+  uint32 mode = 5;
+
+  google.protobuf.Timestamp modified_at = 6;
+
+  // The content's SHA-256 in lowercase hex, prefixed with "sha256:". Empty for a
+  // directory.
+  string revision = 7;
+}
+
+message FileServiceReadRequest {
+  User user = 1;
+  string path = 2;
+
+  // Where to start and how much to read. Zero length reads to the end.
+  uint64 offset = 3;
+  uint64 length = 4;
+}
+
+message FileServiceReadResponse {
+  bytes data = 1;
+  uint64 offset = 2;
+
+  // The file's size, so a caller knows where the end is.
+  uint64 total = 3;
+}
+
+message FileServiceWriteRequest {
+  User user = 1;
+  string path = 2;
+  bytes data = 3;
+
+  // The revision the file must have. A mismatch fails with "aborted", as does a
+  // file that is not there when a revision is given.
+  string revision = 4;
+
+  // Whether the file must not exist yet.
+  bool create = 5;
+
+  // The permission bits for a file that is created. Zero is 0644, or 0755 when
+  // the path ends in a slash.
+  uint32 mode = 6;
+}
+
+message FileServiceWriteResponse {
+  string revision = 1;
+  uint64 size = 2;
+}
+
+message FileServiceListRequest {
+  User user = 1;
+  string path = 2;
+}
+
+message FileServiceListResponse {
+  repeated File entries = 1;
+}
+
+message FileServiceStatRequest {
+  User user = 1;
+  string path = 2;
+}
+
+message FileServiceStatResponse {
+  File file = 1;
+}
+
+message FileServiceDeleteRequest {
+  User user = 1;
+  string path = 2;
+
+  // The revision the file must have, when a file is deleted.
+  string revision = 3;
+
+  // Whether a directory is deleted with everything in it.
+  bool recursive = 4;
+}
+
+message FileServiceDeleteResponse {}

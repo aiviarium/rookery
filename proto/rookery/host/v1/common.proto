@@ -1,0 +1,56 @@
+// What the host-side services share: who a call acts as, and what the desktop
+// looks like.
+//
+// These messages belong to rookeryd, which a managed host runs, and to box, the
+// tool for its users and programs. The server reaches them over an SSH session
+// that runs `sudo -n rookeryd connect`; box reaches them on the socket for local
+// programs.
+
+syntax = "proto3";
+
+package rookery.host.v1;
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/host/v1;hostv1";
+
+// User names the account on the host a call acts as.
+//
+// The server's socket may name any account. On the socket local programs use,
+// the calling account decides, and a name naming anything else is refused.
+message User {
+  // The account's name on the host, such as "dev", "ops" or "root". Empty means
+  // the calling account.
+  string name = 1;
+}
+
+// DesktopState says what the host's desktop is doing.
+//
+// A workstation has one shared virtual desktop for its desktop user. The
+// desktop provider, a host service that `box desktop serve` registers from
+// inside that session, answers for it.
+message DesktopState {
+  // Whether a desktop provider is registered on the host.
+  bool available = 1;
+
+  // Whether callers are told to wait, after Pause and before Resume.
+  bool paused = 2;
+
+  // The X display, such as ":1".
+  string display = 3;
+
+  // The desktop's account, such as "dev".
+  string user = 4;
+
+  // The screen's size in pixels.
+  uint32 width = 5;
+  uint32 height = 6;
+
+  // Why no provider is available, when none is.
+  string reason = 7;
+}
+
+// Exit is how a command ended.
+message Exit {
+  // The command's exit code. A command killed by a signal reports 128 plus the
+  // signal's number, as a shell does.
+  int32 code = 1;
+}
