@@ -143,14 +143,11 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		events:        events,
 		topics:        topics,
 		notifications: notifications,
-<<<<<<< HEAD
 		plugins:       plugins.NewService(installer),
-=======
 		settings:      config.NewSettingsService(settings, checker),
 		secrets:       config.NewSecretsService(secrets),
 		connections:   config.NewConnectionsService(connections),
 		blobs:         blobs.NewService(blobStore),
->>>>>>> 4e7366a (Add settings, secrets, connections and blobs: scopes, sealing, rekey and the two backends)
 	}
 
 	build := edge.New(edge.Deps{
@@ -230,14 +227,11 @@ type services struct {
 	events        *messaging.EventsService
 	topics        *messaging.TopicsService
 	notifications *messaging.NotificationsService
-<<<<<<< HEAD
 	plugins       *plugins.PluginService
-=======
 	settings      *config.SettingsService
 	secrets       *config.SecretsService
 	connections   *config.ConnectionsService
 	blobs         *blobs.Service
->>>>>>> 4e7366a (Add settings, secrets, connections and blobs: scopes, sealing, rekey and the two backends)
 }
 
 // register adds the core services to a mux.
@@ -266,9 +260,8 @@ func (s services) register(mux *http.ServeMux, options []connect.HandlerOption) 
 	handle(path, handler)
 	path, handler = rookeryv1connect.NewNotificationServiceHandler(s.notifications, options...)
 	handle(path, handler)
-<<<<<<< HEAD
 	path, handler = rookeryv1connect.NewPluginServiceHandler(s.plugins, options...)
-=======
+	handle(path, handler)
 	path, handler = rookeryv1connect.NewSettingServiceHandler(s.settings, options...)
 	handle(path, handler)
 	path, handler = rookeryv1connect.NewSecretServiceHandler(s.secrets, options...)
@@ -276,7 +269,6 @@ func (s services) register(mux *http.ServeMux, options []connect.HandlerOption) 
 	path, handler = rookeryv1connect.NewConnectionServiceHandler(s.connections, options...)
 	handle(path, handler)
 	path, handler = rookeryv1connect.NewBlobServiceHandler(s.blobs, options...)
->>>>>>> 4e7366a (Add settings, secrets, connections and blobs: scopes, sealing, rekey and the two backends)
 	handle(path, handler)
 }
 

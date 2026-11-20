@@ -412,7 +412,6 @@ COMMENT ON TABLE rookery.provisioned_resources IS 'Machines and other resources 
 -- A host has at most one machine.
 CREATE UNIQUE INDEX provisioned_resources_one_machine ON rookery.provisioned_resources (name) WHERE kind = 'machine';
 CREATE INDEX provisioned_resources_by_provisioner ON rookery.provisioned_resources (provisioner, id);
-<<<<<<< HEAD
 -- ---------------------------------------------------------------------------
 -- Plugins. A row per installed package: its manifest, its hash, whether it is
 -- enabled, and where its files are (ROOKERY_STATE_DIR/plugins/<id>/<sha256>/).
@@ -434,7 +433,6 @@ COMMENT ON COLUMN rookery.plugins.manifest IS 'The plugin.yaml the package was i
 COMMENT ON COLUMN rookery.plugins.sha256 IS 'The package hash, which is also the folder its files are in.';
 
 CREATE INDEX plugins_enabled ON rookery.plugins (enabled, id);
-=======
 
 
 -- ---------------------------------------------------------------------------
@@ -491,4 +489,3 @@ CREATE TABLE rookery.blobs (
 );
 
 COMMENT ON TABLE rookery.blobs IS 'Blob metadata: size, type, owner and the resource the blob belongs to.';
->>>>>>> 4e7366a (Add settings, secrets, connections and blobs: scopes, sealing, rekey and the two backends)
