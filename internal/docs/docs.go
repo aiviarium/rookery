@@ -19,6 +19,7 @@ import (
 
 	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
 	"github.com/aiviarium/rookery/internal/data"
+	"github.com/aiviarium/rookery/internal/id"
 	"github.com/aiviarium/rookery/internal/store"
 )
 
@@ -128,13 +129,9 @@ func (d *Documents) Create(ctx context.Context, principal data.Principal, kind, 
 		return Document{}, err
 	}
 
-	id, err := data.NewID()
-	if err != nil {
-		return Document{}, err
-	}
-
+	id := id.New()
 	document := Document{ID: id, Type: kind, Parent: parent, Owner: principal.String()}
-	err = d.store.Pool().QueryRow(ctx, `
+	err := d.store.Pool().QueryRow(ctx, `
 		INSERT INTO rookery.documents (id, type, parent, owner_id)
 		VALUES ($1, $2, $3, $4)
 		RETURNING created_at, updated_at`, id, kind, parent, document.Owner).
