@@ -1,7 +1,7 @@
 // The infrastructure pages: the hosts and their page, a job's log, and the
 // machines a provisioner made.
 import { describe, expect, test } from "bun:test";
-import type { Action, Host, Job, JobLine } from "@rookery/proto";
+import type { Action, Host, Job, JobLine, ProvisionerEntry, ProvisionerResource, ProvisionerType } from "@rookery/proto";
 import { HostType } from "@rookery/proto";
 
 import { STATIC_USER, fakeClient } from "./fakes.ts";
@@ -77,6 +77,93 @@ describe("a job's page", () => {
       expect(view.text()).toContain("Installing rookeryd");
       expect(view.text()).toContain("Joining the tailnet");
       expect(view.text()).toContain("Succeeded");
+    } finally {
+      view.unmount();
+    }
+  });
+});
+
+describe("the machines page", () => {
+  test("lists a provisioner, its health and the machine it made", async () => {
+    const type = {
+      id: "incus/container",
+      label: "Incus container",
+      kinds: [{ id: "machine", label: "Machine", machine: true }],
+      sizes: [{ id: "small", label: "Small", cpus: 2, memoryMb: 2048, diskGb: 20 }],
+      actions: [{ name: "images", label: "List images" }],
+    } as unknown as ProvisionerType;
+    const entry = { name: "lab-incus", type: type.id, node: "studio" } as unknown as ProvisionerEntry;
+    const machine = { id: "01hmachine", kind: "machine", name: "desk-3", provisioner: entry.name, address: "192.0.2.31" } as unknown as ProvisionerResource;
+    const view = await mount(
+      fakeClient({
+        user: STATIC_USER,
+        hosts: [STUDIO],
+        types: [type],
+        provisioners: [entry],
+        machines: [machine],
+      }),
+      undefined,
+      "/machines",
+    );
+    try {
+      expect(view.text()).toContain("lab-incus");
+      expect(view.text()).toContain("incus/container");
+      expect(view.text()).toContain("Up");
+      expect(view.text()).toContain("desk-3");
+      expect(view.text()).toContain("192.0.2.31");
+    } finally {
+      view.unmount();
+    }
+  });
+
+  test("makes a machine through the edge's own call", async () => {
+    const type = {
+      id: "example/fake",
+      label: "Fake machine",
+      kinds: [{ id: "machine", label: "Machine", machine: true }],
+      actions: [],
+    } as unknown as ProvisionerType;
+    const entry = { name: "lab", type: type.id, node: "studio" } as unknown as ProvisionerEntry;
+    const calls: string[] = [];
+    const job = { id: "01hcreate", kind: "host.create", state: "queued", resource: "host://desk-4" } as unknown as Job;
+    const view = await mount(
+      fakeClient({ user: STATIC_USER, types: [type], provisioners: [entry], jobs: [job], calls }),
+      undefined,
+      "/machines",
+    );
+    try {
+      const button = view.findAll("button").find(one => one.textContent?.trim() === "New machine");
+      expect(button).toBeDefined();
+      await view.clickElement(button as HTMLElement);
+      await view.type("input[placeholder='desk-3']", "desk-4");
+      const create = view.findAll("button").find(one => one.textContent?.trim() === "Create machine");
+      expect(create).toBeDefined();
+      await view.clickElement(create as HTMLElement);
+      expect(calls).toContain("create desk-4");
+    } finally {
+      view.unmount();
+    }
+  });
+
+  test("removes a machine through the edge's own call", async () => {
+    const type = {
+      id: "example/fake",
+      label: "Fake machine",
+      kinds: [{ id: "machine", label: "Machine", machine: true }],
+      actions: [],
+    } as unknown as ProvisionerType;
+    const entry = { name: "lab", type: type.id } as unknown as ProvisionerEntry;
+    const machine = { id: "01hmachine", kind: "machine", name: "desk-3", provisioner: entry.name } as unknown as ProvisionerResource;
+    const calls: string[] = [];
+    const job = { id: "01hremove", kind: "host.remove", state: "queued", resource: "host://desk-3" } as unknown as Job;
+    const view = await mount(
+      fakeClient({ user: STATIC_USER, types: [type], provisioners: [entry], machines: [machine], jobs: [job], calls }),
+      undefined,
+      "/machines",
+    );
+    try {
+      await view.click("tr[data-row='01hmachine'] button");
+      expect(calls).toContain("remove desk-3");
     } finally {
       view.unmount();
     }

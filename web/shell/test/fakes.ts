@@ -78,6 +78,8 @@ export interface FakeSite {
   types?: ProvisionerType[];
   provisioners?: ProvisionerEntry[];
   machines?: ProvisionerResource[];
+  /** calls records the machine calls a test made, in order. */
+  calls?: string[];
   /** logs are a job's lines as Follow streams them; jobEnd ends the stream. */
   logs?: JobLine[];
   jobEnd?: Job;
@@ -268,7 +270,16 @@ export function fakeTransport(site: FakeSite): Transport {
       listTypes: () => ({ types: site.types ?? [] }),
       list: () => ({ provisioners: site.provisioners ?? [], nextCursor: "" }),
       listResources: () => ({ resources: site.machines ?? [], nextCursor: "" }),
+      listMachines: () => ({ machines: site.machines ?? [], nextCursor: "" }),
       status: () => ({ up: true, message: "up" }),
+      createMachine: (request) => {
+        site.calls?.push(`create ${request.host}`);
+        return { job: "01hcreate" };
+      },
+      removeMachine: (request) => {
+        site.calls?.push(`remove ${request.host}`);
+        return { job: "01hremove" };
+      },
     });
 
     router.service(NotificationService, {

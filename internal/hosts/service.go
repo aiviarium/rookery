@@ -236,7 +236,7 @@ func (s *Service) Add(ctx context.Context, request *connect.Request[rookeryv1.Ho
 	if hostType == profile.TypeWorkstation {
 		p.Desktop = &profile.Desktop{}
 	}
-	record, err := s.deps.Hosts.Add(ctx, AddInput{
+	record, err := s.AddHost(ctx, AddInput{
 		Name:      request.Msg.GetName(),
 		Type:      hostType,
 		Profile:   p,
@@ -245,13 +245,6 @@ func (s *Service) Add(ctx context.Context, request *connect.Request[rookeryv1.Ho
 	if err != nil {
 		return nil, access.ToConnect(err)
 	}
-	// The creator manages the host.
-	if principal.Kind == access.KindUser {
-		if err := s.deps.Checker.GrantUser(ctx, principal.ID, record.URI(), access.Manage); err != nil {
-			return nil, access.ToConnect(err)
-		}
-	}
-	s.publish(ctx, record.Name, "added")
 
 	response := &rookeryv1.HostServiceAddResponse{}
 	host, err := s.message(ctx, record)
@@ -271,14 +264,40 @@ func (s *Service) Add(ctx context.Context, request *connect.Request[rookeryv1.Ho
 	return connect.NewResponse(response), nil
 }
 
+// AddHost records a host, grants its creator manage, and publishes it. A
+// provisioner that makes a machine calls it too.
+func (s *Service) AddHost(ctx context.Context, input AddInput) (Record, error) {
+	record, err := s.deps.Hosts.Add(ctx, input)
+	if err != nil {
+		return Record{}, err
+	}
+	// The creator manages the host.
+	if input.CreatedBy != "" {
+		if err := s.deps.Checker.GrantUser(ctx, input.CreatedBy, record.URI(), access.Manage); err != nil {
+			return Record{}, err
+		}
+	}
+	s.publish(ctx, record.Name, "added")
+	return record, nil
+}
+
 // Remove deletes a host.
 func (s *Service) Remove(ctx context.Context, request *connect.Request[rookeryv1.HostServiceRemoveRequest]) (*connect.Response[rookeryv1.HostServiceRemoveResponse], error) {
-	if err := s.deps.Hosts.Remove(ctx, request.Msg.GetName()); err != nil {
+	if err := s.RemoveHost(ctx, request.Msg.GetName()); err != nil {
 		return nil, access.ToConnect(err)
 	}
-	s.disconnect(request.Msg.GetName())
-	s.publish(ctx, request.Msg.GetName(), "removed")
 	return connect.NewResponse(&rookeryv1.HostServiceRemoveResponse{}), nil
+}
+
+// RemoveHost deletes a host and its grants, and tells watchers it went. A
+// provisioner that removes a machine calls it too.
+func (s *Service) RemoveHost(ctx context.Context, name string) error {
+	if err := s.deps.Hosts.Remove(ctx, name); err != nil {
+		return err
+	}
+	s.disconnect(name)
+	s.publish(ctx, name, "removed")
+	return nil
 }
 
 // Rename renames a host and keeps its grants.

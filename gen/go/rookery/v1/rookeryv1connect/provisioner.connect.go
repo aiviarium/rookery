@@ -66,6 +66,15 @@ const (
 	// ProvisionerServiceRunActionProcedure is the fully-qualified name of the ProvisionerService's
 	// RunAction RPC.
 	ProvisionerServiceRunActionProcedure = "/rookery.v1.ProvisionerService/RunAction"
+	// ProvisionerServiceCreateMachineProcedure is the fully-qualified name of the ProvisionerService's
+	// CreateMachine RPC.
+	ProvisionerServiceCreateMachineProcedure = "/rookery.v1.ProvisionerService/CreateMachine"
+	// ProvisionerServiceListMachinesProcedure is the fully-qualified name of the ProvisionerService's
+	// ListMachines RPC.
+	ProvisionerServiceListMachinesProcedure = "/rookery.v1.ProvisionerService/ListMachines"
+	// ProvisionerServiceRemoveMachineProcedure is the fully-qualified name of the ProvisionerService's
+	// RemoveMachine RPC.
+	ProvisionerServiceRemoveMachineProcedure = "/rookery.v1.ProvisionerService/RemoveMachine"
 )
 
 // ProvisionerServiceClient is a client for the rookery.v1.ProvisionerService service.
@@ -91,6 +100,14 @@ type ProvisionerServiceClient interface {
 	// RunAction runs one of the type's actions against the entry's engine, streaming
 	// its output.
 	RunAction(context.Context, *connect.Request[v1.ProvisionerServiceRunActionRequest]) (*connect.ServerStreamForClient[v1.ProvisionerServiceRunActionResponse], error)
+	// CreateMachine makes a host's machine through an entry: the seed the server
+	// renders, the resource the core records, and the host they become.
+	CreateMachine(context.Context, *connect.Request[v1.ProvisionerServiceCreateMachineRequest]) (*connect.Response[v1.ProvisionerServiceCreateMachineResponse], error)
+	// ListMachines is a page of the machines the caller may view.
+	ListMachines(context.Context, *connect.Request[v1.ProvisionerServiceListMachinesRequest]) (*connect.Response[v1.ProvisionerServiceListMachinesResponse], error)
+	// RemoveMachine removes a host's machine through its entry, and forgets the
+	// host.
+	RemoveMachine(context.Context, *connect.Request[v1.ProvisionerServiceRemoveMachineRequest]) (*connect.Response[v1.ProvisionerServiceRemoveMachineResponse], error)
 }
 
 // NewProvisionerServiceClient constructs a client for the rookery.v1.ProvisionerService service. By
@@ -158,6 +175,24 @@ func NewProvisionerServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(provisionerServiceMethods.ByName("RunAction")),
 			connect.WithClientOptions(opts...),
 		),
+		createMachine: connect.NewClient[v1.ProvisionerServiceCreateMachineRequest, v1.ProvisionerServiceCreateMachineResponse](
+			httpClient,
+			baseURL+ProvisionerServiceCreateMachineProcedure,
+			connect.WithSchema(provisionerServiceMethods.ByName("CreateMachine")),
+			connect.WithClientOptions(opts...),
+		),
+		listMachines: connect.NewClient[v1.ProvisionerServiceListMachinesRequest, v1.ProvisionerServiceListMachinesResponse](
+			httpClient,
+			baseURL+ProvisionerServiceListMachinesProcedure,
+			connect.WithSchema(provisionerServiceMethods.ByName("ListMachines")),
+			connect.WithClientOptions(opts...),
+		),
+		removeMachine: connect.NewClient[v1.ProvisionerServiceRemoveMachineRequest, v1.ProvisionerServiceRemoveMachineResponse](
+			httpClient,
+			baseURL+ProvisionerServiceRemoveMachineProcedure,
+			connect.WithSchema(provisionerServiceMethods.ByName("RemoveMachine")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -172,6 +207,9 @@ type provisionerServiceClient struct {
 	status        *connect.Client[v1.ProvisionerServiceStatusRequest, v1.ProvisionerServiceStatusResponse]
 	listResources *connect.Client[v1.ProvisionerServiceListResourcesRequest, v1.ProvisionerServiceListResourcesResponse]
 	runAction     *connect.Client[v1.ProvisionerServiceRunActionRequest, v1.ProvisionerServiceRunActionResponse]
+	createMachine *connect.Client[v1.ProvisionerServiceCreateMachineRequest, v1.ProvisionerServiceCreateMachineResponse]
+	listMachines  *connect.Client[v1.ProvisionerServiceListMachinesRequest, v1.ProvisionerServiceListMachinesResponse]
+	removeMachine *connect.Client[v1.ProvisionerServiceRemoveMachineRequest, v1.ProvisionerServiceRemoveMachineResponse]
 }
 
 // ListTypes calls rookery.v1.ProvisionerService.ListTypes.
@@ -219,6 +257,21 @@ func (c *provisionerServiceClient) RunAction(ctx context.Context, req *connect.R
 	return c.runAction.CallServerStream(ctx, req)
 }
 
+// CreateMachine calls rookery.v1.ProvisionerService.CreateMachine.
+func (c *provisionerServiceClient) CreateMachine(ctx context.Context, req *connect.Request[v1.ProvisionerServiceCreateMachineRequest]) (*connect.Response[v1.ProvisionerServiceCreateMachineResponse], error) {
+	return c.createMachine.CallUnary(ctx, req)
+}
+
+// ListMachines calls rookery.v1.ProvisionerService.ListMachines.
+func (c *provisionerServiceClient) ListMachines(ctx context.Context, req *connect.Request[v1.ProvisionerServiceListMachinesRequest]) (*connect.Response[v1.ProvisionerServiceListMachinesResponse], error) {
+	return c.listMachines.CallUnary(ctx, req)
+}
+
+// RemoveMachine calls rookery.v1.ProvisionerService.RemoveMachine.
+func (c *provisionerServiceClient) RemoveMachine(ctx context.Context, req *connect.Request[v1.ProvisionerServiceRemoveMachineRequest]) (*connect.Response[v1.ProvisionerServiceRemoveMachineResponse], error) {
+	return c.removeMachine.CallUnary(ctx, req)
+}
+
 // ProvisionerServiceHandler is an implementation of the rookery.v1.ProvisionerService service.
 type ProvisionerServiceHandler interface {
 	// ListTypes is every provisioner type an installed plugin declares, with what
@@ -242,6 +295,14 @@ type ProvisionerServiceHandler interface {
 	// RunAction runs one of the type's actions against the entry's engine, streaming
 	// its output.
 	RunAction(context.Context, *connect.Request[v1.ProvisionerServiceRunActionRequest], *connect.ServerStream[v1.ProvisionerServiceRunActionResponse]) error
+	// CreateMachine makes a host's machine through an entry: the seed the server
+	// renders, the resource the core records, and the host they become.
+	CreateMachine(context.Context, *connect.Request[v1.ProvisionerServiceCreateMachineRequest]) (*connect.Response[v1.ProvisionerServiceCreateMachineResponse], error)
+	// ListMachines is a page of the machines the caller may view.
+	ListMachines(context.Context, *connect.Request[v1.ProvisionerServiceListMachinesRequest]) (*connect.Response[v1.ProvisionerServiceListMachinesResponse], error)
+	// RemoveMachine removes a host's machine through its entry, and forgets the
+	// host.
+	RemoveMachine(context.Context, *connect.Request[v1.ProvisionerServiceRemoveMachineRequest]) (*connect.Response[v1.ProvisionerServiceRemoveMachineResponse], error)
 }
 
 // NewProvisionerServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -305,6 +366,24 @@ func NewProvisionerServiceHandler(svc ProvisionerServiceHandler, opts ...connect
 		connect.WithSchema(provisionerServiceMethods.ByName("RunAction")),
 		connect.WithHandlerOptions(opts...),
 	)
+	provisionerServiceCreateMachineHandler := connect.NewUnaryHandler(
+		ProvisionerServiceCreateMachineProcedure,
+		svc.CreateMachine,
+		connect.WithSchema(provisionerServiceMethods.ByName("CreateMachine")),
+		connect.WithHandlerOptions(opts...),
+	)
+	provisionerServiceListMachinesHandler := connect.NewUnaryHandler(
+		ProvisionerServiceListMachinesProcedure,
+		svc.ListMachines,
+		connect.WithSchema(provisionerServiceMethods.ByName("ListMachines")),
+		connect.WithHandlerOptions(opts...),
+	)
+	provisionerServiceRemoveMachineHandler := connect.NewUnaryHandler(
+		ProvisionerServiceRemoveMachineProcedure,
+		svc.RemoveMachine,
+		connect.WithSchema(provisionerServiceMethods.ByName("RemoveMachine")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/rookery.v1.ProvisionerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ProvisionerServiceListTypesProcedure:
@@ -325,6 +404,12 @@ func NewProvisionerServiceHandler(svc ProvisionerServiceHandler, opts ...connect
 			provisionerServiceListResourcesHandler.ServeHTTP(w, r)
 		case ProvisionerServiceRunActionProcedure:
 			provisionerServiceRunActionHandler.ServeHTTP(w, r)
+		case ProvisionerServiceCreateMachineProcedure:
+			provisionerServiceCreateMachineHandler.ServeHTTP(w, r)
+		case ProvisionerServiceListMachinesProcedure:
+			provisionerServiceListMachinesHandler.ServeHTTP(w, r)
+		case ProvisionerServiceRemoveMachineProcedure:
+			provisionerServiceRemoveMachineHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -368,4 +453,16 @@ func (UnimplementedProvisionerServiceHandler) ListResources(context.Context, *co
 
 func (UnimplementedProvisionerServiceHandler) RunAction(context.Context, *connect.Request[v1.ProvisionerServiceRunActionRequest], *connect.ServerStream[v1.ProvisionerServiceRunActionResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.ProvisionerService.RunAction is not implemented"))
+}
+
+func (UnimplementedProvisionerServiceHandler) CreateMachine(context.Context, *connect.Request[v1.ProvisionerServiceCreateMachineRequest]) (*connect.Response[v1.ProvisionerServiceCreateMachineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.ProvisionerService.CreateMachine is not implemented"))
+}
+
+func (UnimplementedProvisionerServiceHandler) ListMachines(context.Context, *connect.Request[v1.ProvisionerServiceListMachinesRequest]) (*connect.Response[v1.ProvisionerServiceListMachinesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.ProvisionerService.ListMachines is not implemented"))
+}
+
+func (UnimplementedProvisionerServiceHandler) RemoveMachine(context.Context, *connect.Request[v1.ProvisionerServiceRemoveMachineRequest]) (*connect.Response[v1.ProvisionerServiceRemoveMachineResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.ProvisionerService.RemoveMachine is not implemented"))
 }

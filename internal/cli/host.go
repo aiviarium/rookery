@@ -28,6 +28,7 @@ func hostCommand() *cobra.Command {
 		hostListCommand(),
 		hostShowCommand(),
 		hostAddCommand(),
+		hostCreateCommand(),
 		hostRemoveCommand(),
 		hostRenameCommand(),
 		hostProfileCommand(),
@@ -205,16 +206,83 @@ func credentialFromFlags(cmd *cobra.Command) (*rookeryv1.Credential, error) {
 	}
 }
 
+// hostCreateCommand is `rookery host create`: a host made by a provisioner.
+func hostCreateCommand() *cobra.Command {
+	var provisioner, hostType string
+	command := &cobra.Command{
+		Use:   "create NAME --provisioner P [ARG=VALUE…]",
+		Short: "Create a host's machine through a provisioner",
+		Long: `Create a host's machine through a provisioner.
+
+The machine's seed has the operator account with the key ring's public key and
+the tailnet key; the host is recorded when the machine is made, and an apply
+sets the rest up.`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			session, err := open(cmd)
+			if err != nil {
+				return err
+			}
+			if provisioner == "" {
+				return fmt.Errorf("cli: host create needs --provisioner")
+			}
+			values, err := encodeFields(args[1:])
+			if err != nil {
+				return err
+			}
+			request := &rookeryv1.ProvisionerServiceCreateMachineRequest{
+				Host:        args[0],
+				Provisioner: provisioner,
+				ArgsCbor:    values,
+			}
+			if hostType != "" {
+				parsed, err := parseHostType(hostType)
+				if err != nil {
+					return err
+				}
+				request.Type = parsed
+			}
+			created, err := session.api.Provisioners.CreateMachine(cmd.Context(), connect.NewRequest(request))
+			if err != nil {
+				return err
+			}
+			if job := created.Msg.GetJob(); job != "" {
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "creating %s is job %s\n", args[0], job); err != nil {
+					return err
+				}
+				return followJob(cmd.Context(), cmd.OutOrStdout(), session, job, true)
+			}
+			return session.printer.message(created.Msg.GetMachine())
+		},
+	}
+	command.Flags().StringVar(&provisioner, "provisioner", "", "the provisioner entry that makes the machine")
+	command.Flags().StringVar(&hostType, "type", "", "the host's type: ssh (default), managed or workstation")
+	return command
+}
+
 // hostRemoveCommand is `rookery host remove`.
 func hostRemoveCommand() *cobra.Command {
-	return &cobra.Command{
+	var machine bool
+	command := &cobra.Command{
 		Use:   "remove NAME",
-		Short: "Remove a host",
+		Short: "Remove a host, or a host with its machine",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			session, err := open(cmd)
 			if err != nil {
 				return err
+			}
+			if machine {
+				removed, err := session.api.Provisioners.RemoveMachine(cmd.Context(), connect.NewRequest(&rookeryv1.ProvisionerServiceRemoveMachineRequest{Host: args[0]}))
+				if err != nil {
+					return err
+				}
+				if job := removed.Msg.GetJob(); job != "" {
+					if err := followJob(cmd.Context(), cmd.OutOrStdout(), session, job, true); err != nil {
+						return err
+					}
+				}
+				return session.printer.line(args[0], "removed")
 			}
 			if _, err := session.api.Hosts.Remove(cmd.Context(), connect.NewRequest(&rookeryv1.HostServiceRemoveRequest{Name: args[0]})); err != nil {
 				return err
@@ -222,6 +290,8 @@ func hostRemoveCommand() *cobra.Command {
 			return session.printer.line(args[0], "removed")
 		},
 	}
+	command.Flags().BoolVar(&machine, "machine", false, "remove the host's machine through its provisioner as well")
+	return command
 }
 
 // hostRenameCommand is `rookery host rename`.

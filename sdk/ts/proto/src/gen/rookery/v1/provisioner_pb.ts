@@ -16,13 +16,15 @@ import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import { file_rookery_v1_access } from "./access_pb.js";
+import type { HostType } from "./host_pb.js";
+import { file_rookery_v1_host } from "./host_pb.js";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file rookery/v1/provisioner.proto.
  */
 export const file_rookery_v1_provisioner: GenFile = /*@__PURE__*/
-  fileDesc("Chxyb29rZXJ5L3YxL3Byb3Zpc2lvbmVyLnByb3RvEgpyb29rZXJ5LnYxIj0KD1Byb3Zpc2lvbmVyS2luZBIKCgJpZBgBIAEoCRINCgVsYWJlbBgCIAEoCRIPCgdtYWNoaW5lGAMgASgIIpcBChNQcm92aXNpb25lckFyZ3VtZW50EgwKBG5hbWUYASABKAkSDQoFbGFiZWwYAiABKAkSDAoEdHlwZRgDIAEoCRIQCghyZXF1aXJlZBgEIAEoCBIUCgxkZWZhdWx0X2Nib3IYBSABKAwSDwoHY2hvaWNlcxgGIAMoCRIMCgRoZWxwGAcgASgJEg4KBnNlY3JldBgIIAEoCCJeCg9Qcm92aXNpb25lclNpemUSCgoCaWQYASABKAkSDQoFbGFiZWwYAiABKAkSDAoEY3B1cxgDIAEoDRIRCgltZW1vcnlfbWIYBCABKAQSDwoHZGlza19nYhgFIAEoBCJgChBQcm92aXNpb25lckltYWdlEgoKAmlkGAEgASgJEg0KBWxhYmVsGAIgASgJEgoKAm9zGAMgASgJEg8KB3JlbGVhc2UYBCABKAkSFAoMYXJjaGl0ZWN0dXJlGAUgASgJIogBChFQcm92aXNpb25lckFjdGlvbhIMCgRuYW1lGAEgASgJEg0KBWxhYmVsGAIgASgJEg0KBWdyb3VwGAMgASgJEjIKCWFyZ3VtZW50cxgEIAMoCzIfLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJBcmd1bWVudBITCgtkZXN0cnVjdGl2ZRgFIAEoCCLjAgoPUHJvdmlzaW9uZXJUeXBlEgoKAmlkGAEgASgJEg4KBnBsdWdpbhgCIAEoCRINCgVsYWJlbBgDIAEoCRIqCgVraW5kcxgEIAMoCzIbLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJLaW5kEjIKCWFyZ3VtZW50cxgFIAMoCzIfLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJBcmd1bWVudBIPCgdzZWNyZXRzGAYgAygJEioKBXNpemVzGAcgAygLMhsucm9va2VyeS52MS5Qcm92aXNpb25lclNpemUSLAoGaW1hZ2VzGAggAygLMhwucm9va2VyeS52MS5Qcm92aXNpb25lckltYWdlEi4KB2FjdGlvbnMYCSADKAsyHS5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyQWN0aW9uEgwKBG5vZGUYCiABKAgSDQoFbG9jYWwYCyABKAgSDQoFZXJyb3IYDCABKAkizwEKEFByb3Zpc2lvbmVyRW50cnkSDAoEbmFtZRgBIAEoCRIMCgR0eXBlGAIgASgJEg4KBnBsdWdpbhgDIAEoCRIRCglhcmdzX2Nib3IYBCABKAwSDAoEbm9kZRgFIAEoCRIOCgZyZW1vdGUYBiABKAkSLgoKY3JlYXRlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAi1wEKE1Byb3Zpc2lvbmVyUmVzb3VyY2USCgoCaWQYASABKAkSDAoEa2luZBgCIAEoCRIMCgRuYW1lGAMgASgJEhMKC3Byb3Zpc2lvbmVyGAQgASgJEhIKCnN0YXRlX2Nib3IYBSABKAwSDwoHYWRkcmVzcxgGIAEoCRIuCgpjcmVhdGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIkCiJQcm92aXNpb25lclNlcnZpY2VMaXN0VHlwZXNSZXF1ZXN0IlEKI1Byb3Zpc2lvbmVyU2VydmljZUxpc3RUeXBlc1Jlc3BvbnNlEioKBXR5cGVzGAEgAygLMhsucm9va2VyeS52MS5Qcm92aXNpb25lclR5cGUiPgodUHJvdmlzaW9uZXJTZXJ2aWNlTGlzdFJlcXVlc3QSDgoGY3Vyc29yGAEgASgJEg0KBWxpbWl0GAIgASgNImkKHlByb3Zpc2lvbmVyU2VydmljZUxpc3RSZXNwb25zZRIyCgxwcm92aXNpb25lcnMYASADKAsyHC5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyRW50cnkSEwoLbmV4dF9jdXJzb3IYAiABKAkiMwocUHJvdmlzaW9uZXJTZXJ2aWNlR2V0UmVxdWVzdBITCgtwcm92aXNpb25lchgBIAEoCSJSCh1Qcm92aXNpb25lclNlcnZpY2VHZXRSZXNwb25zZRIxCgtwcm92aXNpb25lchgBIAEoCzIcLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJFbnRyeSJrChxQcm92aXNpb25lclNlcnZpY2VBZGRSZXF1ZXN0EgwKBG5hbWUYASABKAkSDAoEdHlwZRgCIAEoCRIRCglhcmdzX2Nib3IYAyABKAwSDAoEbm9kZRgEIAEoCRIOCgZyZW1vdGUYBSABKAkiUgodUHJvdmlzaW9uZXJTZXJ2aWNlQWRkUmVzcG9uc2USMQoLcHJvdmlzaW9uZXIYASABKAsyHC5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyRW50cnkiZwofUHJvdmlzaW9uZXJTZXJ2aWNlVXBkYXRlUmVxdWVzdBITCgtwcm92aXNpb25lchgBIAEoCRIRCglhcmdzX2Nib3IYAiABKAwSDAoEbm9kZRgDIAEoCRIOCgZyZW1vdGUYBCABKAkiVQogUHJvdmlzaW9uZXJTZXJ2aWNlVXBkYXRlUmVzcG9uc2USMQoLcHJvdmlzaW9uZXIYASABKAsyHC5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyRW50cnkiNgofUHJvdmlzaW9uZXJTZXJ2aWNlUmVtb3ZlUmVxdWVzdBITCgtwcm92aXNpb25lchgBIAEoCSIiCiBQcm92aXNpb25lclNlcnZpY2VSZW1vdmVSZXNwb25zZSI2Ch9Qcm92aXNpb25lclNlcnZpY2VTdGF0dXNSZXF1ZXN0EhMKC3Byb3Zpc2lvbmVyGAEgASgJIj8KIFByb3Zpc2lvbmVyU2VydmljZVN0YXR1c1Jlc3BvbnNlEgoKAnVwGAEgASgIEg8KB21lc3NhZ2UYAiABKAkiagomUHJvdmlzaW9uZXJTZXJ2aWNlTGlzdFJlc291cmNlc1JlcXVlc3QSEwoLcHJvdmlzaW9uZXIYASABKAkSDAoEa2luZBgCIAEoCRIOCgZjdXJzb3IYAyABKAkSDQoFbGltaXQYBCABKA0icgonUHJvdmlzaW9uZXJTZXJ2aWNlTGlzdFJlc291cmNlc1Jlc3BvbnNlEjIKCXJlc291cmNlcxgBIAMoCzIfLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJSZXNvdXJjZRITCgtuZXh0X2N1cnNvchgCIAEoCSJcCiJQcm92aXNpb25lclNlcnZpY2VSdW5BY3Rpb25SZXF1ZXN0EhMKC3Byb3Zpc2lvbmVyGAEgASgJEg4KBmFjdGlvbhgCIAEoCRIRCglhcmdzX2Nib3IYAyABKAwiQAojUHJvdmlzaW9uZXJTZXJ2aWNlUnVuQWN0aW9uUmVzcG9uc2USCwoDam9iGAIgASgJEgwKBGxpbmUYASABKAkyyggKElByb3Zpc2lvbmVyU2VydmljZRJ0CglMaXN0VHlwZXMSLi5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyU2VydmljZUxpc3RUeXBlc1JlcXVlc3QaLy5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyU2VydmljZUxpc3RUeXBlc1Jlc3BvbnNlIgaKtRgCCAQSZQoETGlzdBIpLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJTZXJ2aWNlTGlzdFJlcXVlc3QaKi5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyU2VydmljZUxpc3RSZXNwb25zZSIGirUYAggBEm8KA0dldBIoLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJTZXJ2aWNlR2V0UmVxdWVzdBopLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJTZXJ2aWNlR2V0UmVzcG9uc2UiE4q1GA8IARILcHJvdmlzaW9uZXISYgoDQWRkEigucm9va2VyeS52MS5Qcm92aXNpb25lclNlcnZpY2VBZGRSZXF1ZXN0Gikucm9va2VyeS52MS5Qcm92aXNpb25lclNlcnZpY2VBZGRSZXNwb25zZSIGirUYAggEEngKBlVwZGF0ZRIrLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJTZXJ2aWNlVXBkYXRlUmVxdWVzdBosLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJTZXJ2aWNlVXBkYXRlUmVzcG9uc2UiE4q1GA8IAxILcHJvdmlzaW9uZXISeAoGUmVtb3ZlEisucm9va2VyeS52MS5Qcm92aXNpb25lclNlcnZpY2VSZW1vdmVSZXF1ZXN0Giwucm9va2VyeS52MS5Qcm92aXNpb25lclNlcnZpY2VSZW1vdmVSZXNwb25zZSITirUYDwgDEgtwcm92aXNpb25lchJ4CgZTdGF0dXMSKy5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyU2VydmljZVN0YXR1c1JlcXVlc3QaLC5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyU2VydmljZVN0YXR1c1Jlc3BvbnNlIhOKtRgPCAESC3Byb3Zpc2lvbmVyEo0BCg1MaXN0UmVzb3VyY2VzEjIucm9va2VyeS52MS5Qcm92aXNpb25lclNlcnZpY2VMaXN0UmVzb3VyY2VzUmVxdWVzdBozLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJTZXJ2aWNlTGlzdFJlc291cmNlc1Jlc3BvbnNlIhOKtRgPCAESC3Byb3Zpc2lvbmVyEoMBCglSdW5BY3Rpb24SLi5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyU2VydmljZVJ1bkFjdGlvblJlcXVlc3QaLy5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyU2VydmljZVJ1bkFjdGlvblJlc3BvbnNlIhOKtRgPCAMSC3Byb3Zpc2lvbmVyMAFCOlo4Z2l0aHViLmNvbS9haXZpYXJpdW0vcm9va2VyeS9nZW4vZ28vcm9va2VyeS92MTtyb29rZXJ5djFiBnByb3RvMw", [file_google_protobuf_timestamp, file_rookery_v1_access]);
+  fileDesc("Chxyb29rZXJ5L3YxL3Byb3Zpc2lvbmVyLnByb3RvEgpyb29rZXJ5LnYxIj0KD1Byb3Zpc2lvbmVyS2luZBIKCgJpZBgBIAEoCRINCgVsYWJlbBgCIAEoCRIPCgdtYWNoaW5lGAMgASgIIpcBChNQcm92aXNpb25lckFyZ3VtZW50EgwKBG5hbWUYASABKAkSDQoFbGFiZWwYAiABKAkSDAoEdHlwZRgDIAEoCRIQCghyZXF1aXJlZBgEIAEoCBIUCgxkZWZhdWx0X2Nib3IYBSABKAwSDwoHY2hvaWNlcxgGIAMoCRIMCgRoZWxwGAcgASgJEg4KBnNlY3JldBgIIAEoCCJeCg9Qcm92aXNpb25lclNpemUSCgoCaWQYASABKAkSDQoFbGFiZWwYAiABKAkSDAoEY3B1cxgDIAEoDRIRCgltZW1vcnlfbWIYBCABKAQSDwoHZGlza19nYhgFIAEoBCJgChBQcm92aXNpb25lckltYWdlEgoKAmlkGAEgASgJEg0KBWxhYmVsGAIgASgJEgoKAm9zGAMgASgJEg8KB3JlbGVhc2UYBCABKAkSFAoMYXJjaGl0ZWN0dXJlGAUgASgJIogBChFQcm92aXNpb25lckFjdGlvbhIMCgRuYW1lGAEgASgJEg0KBWxhYmVsGAIgASgJEg0KBWdyb3VwGAMgASgJEjIKCWFyZ3VtZW50cxgEIAMoCzIfLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJBcmd1bWVudBITCgtkZXN0cnVjdGl2ZRgFIAEoCCLjAgoPUHJvdmlzaW9uZXJUeXBlEgoKAmlkGAEgASgJEg4KBnBsdWdpbhgCIAEoCRINCgVsYWJlbBgDIAEoCRIqCgVraW5kcxgEIAMoCzIbLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJLaW5kEjIKCWFyZ3VtZW50cxgFIAMoCzIfLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJBcmd1bWVudBIPCgdzZWNyZXRzGAYgAygJEioKBXNpemVzGAcgAygLMhsucm9va2VyeS52MS5Qcm92aXNpb25lclNpemUSLAoGaW1hZ2VzGAggAygLMhwucm9va2VyeS52MS5Qcm92aXNpb25lckltYWdlEi4KB2FjdGlvbnMYCSADKAsyHS5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyQWN0aW9uEgwKBG5vZGUYCiABKAgSDQoFbG9jYWwYCyABKAgSDQoFZXJyb3IYDCABKAkizwEKEFByb3Zpc2lvbmVyRW50cnkSDAoEbmFtZRgBIAEoCRIMCgR0eXBlGAIgASgJEg4KBnBsdWdpbhgDIAEoCRIRCglhcmdzX2Nib3IYBCABKAwSDAoEbm9kZRgFIAEoCRIOCgZyZW1vdGUYBiABKAkSLgoKY3JlYXRlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAi1wEKE1Byb3Zpc2lvbmVyUmVzb3VyY2USCgoCaWQYASABKAkSDAoEa2luZBgCIAEoCRIMCgRuYW1lGAMgASgJEhMKC3Byb3Zpc2lvbmVyGAQgASgJEhIKCnN0YXRlX2Nib3IYBSABKAwSDwoHYWRkcmVzcxgGIAEoCRIuCgpjcmVhdGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIkCiJQcm92aXNpb25lclNlcnZpY2VMaXN0VHlwZXNSZXF1ZXN0IlEKI1Byb3Zpc2lvbmVyU2VydmljZUxpc3RUeXBlc1Jlc3BvbnNlEioKBXR5cGVzGAEgAygLMhsucm9va2VyeS52MS5Qcm92aXNpb25lclR5cGUiPgodUHJvdmlzaW9uZXJTZXJ2aWNlTGlzdFJlcXVlc3QSDgoGY3Vyc29yGAEgASgJEg0KBWxpbWl0GAIgASgNImkKHlByb3Zpc2lvbmVyU2VydmljZUxpc3RSZXNwb25zZRIyCgxwcm92aXNpb25lcnMYASADKAsyHC5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyRW50cnkSEwoLbmV4dF9jdXJzb3IYAiABKAkiMwocUHJvdmlzaW9uZXJTZXJ2aWNlR2V0UmVxdWVzdBITCgtwcm92aXNpb25lchgBIAEoCSJSCh1Qcm92aXNpb25lclNlcnZpY2VHZXRSZXNwb25zZRIxCgtwcm92aXNpb25lchgBIAEoCzIcLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJFbnRyeSJrChxQcm92aXNpb25lclNlcnZpY2VBZGRSZXF1ZXN0EgwKBG5hbWUYASABKAkSDAoEdHlwZRgCIAEoCRIRCglhcmdzX2Nib3IYAyABKAwSDAoEbm9kZRgEIAEoCRIOCgZyZW1vdGUYBSABKAkiUgodUHJvdmlzaW9uZXJTZXJ2aWNlQWRkUmVzcG9uc2USMQoLcHJvdmlzaW9uZXIYASABKAsyHC5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyRW50cnkiZwofUHJvdmlzaW9uZXJTZXJ2aWNlVXBkYXRlUmVxdWVzdBITCgtwcm92aXNpb25lchgBIAEoCRIRCglhcmdzX2Nib3IYAiABKAwSDAoEbm9kZRgDIAEoCRIOCgZyZW1vdGUYBCABKAkiVQogUHJvdmlzaW9uZXJTZXJ2aWNlVXBkYXRlUmVzcG9uc2USMQoLcHJvdmlzaW9uZXIYASABKAsyHC5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyRW50cnkiNgofUHJvdmlzaW9uZXJTZXJ2aWNlUmVtb3ZlUmVxdWVzdBITCgtwcm92aXNpb25lchgBIAEoCSIiCiBQcm92aXNpb25lclNlcnZpY2VSZW1vdmVSZXNwb25zZSI2Ch9Qcm92aXNpb25lclNlcnZpY2VTdGF0dXNSZXF1ZXN0EhMKC3Byb3Zpc2lvbmVyGAEgASgJIj8KIFByb3Zpc2lvbmVyU2VydmljZVN0YXR1c1Jlc3BvbnNlEgoKAnVwGAEgASgIEg8KB21lc3NhZ2UYAiABKAkiagomUHJvdmlzaW9uZXJTZXJ2aWNlTGlzdFJlc291cmNlc1JlcXVlc3QSEwoLcHJvdmlzaW9uZXIYASABKAkSDAoEa2luZBgCIAEoCRIOCgZjdXJzb3IYAyABKAkSDQoFbGltaXQYBCABKA0icgonUHJvdmlzaW9uZXJTZXJ2aWNlTGlzdFJlc291cmNlc1Jlc3BvbnNlEjIKCXJlc291cmNlcxgBIAMoCzIfLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJSZXNvdXJjZRITCgtuZXh0X2N1cnNvchgCIAEoCSJcCiJQcm92aXNpb25lclNlcnZpY2VSdW5BY3Rpb25SZXF1ZXN0EhMKC3Byb3Zpc2lvbmVyGAEgASgJEg4KBmFjdGlvbhgCIAEoCRIRCglhcmdzX2Nib3IYAyABKAwiQAojUHJvdmlzaW9uZXJTZXJ2aWNlUnVuQWN0aW9uUmVzcG9uc2USCwoDam9iGAIgASgJEgwKBGxpbmUYASABKAkiggEKJlByb3Zpc2lvbmVyU2VydmljZUNyZWF0ZU1hY2hpbmVSZXF1ZXN0EgwKBGhvc3QYASABKAkSEwoLcHJvdmlzaW9uZXIYAiABKAkSEQoJYXJnc19jYm9yGAMgASgMEiIKBHR5cGUYBCABKA4yFC5yb29rZXJ5LnYxLkhvc3RUeXBlImgKJ1Byb3Zpc2lvbmVyU2VydmljZUNyZWF0ZU1hY2hpbmVSZXNwb25zZRILCgNqb2IYASABKAkSMAoHbWFjaGluZRgCIAEoCzIfLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJSZXNvdXJjZSJbCiVQcm92aXNpb25lclNlcnZpY2VMaXN0TWFjaGluZXNSZXF1ZXN0EhMKC3Byb3Zpc2lvbmVyGAEgASgJEg4KBmN1cnNvchgCIAEoCRINCgVsaW1pdBgDIAEoDSJwCiZQcm92aXNpb25lclNlcnZpY2VMaXN0TWFjaGluZXNSZXNwb25zZRIxCghtYWNoaW5lcxgBIAMoCzIfLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJSZXNvdXJjZRITCgtuZXh0X2N1cnNvchgCIAEoCSI2CiZQcm92aXNpb25lclNlcnZpY2VSZW1vdmVNYWNoaW5lUmVxdWVzdBIMCgRob3N0GAEgASgJIjYKJ1Byb3Zpc2lvbmVyU2VydmljZVJlbW92ZU1hY2hpbmVSZXNwb25zZRILCgNqb2IYASABKAky4gsKElByb3Zpc2lvbmVyU2VydmljZRJ0CglMaXN0VHlwZXMSLi5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyU2VydmljZUxpc3RUeXBlc1JlcXVlc3QaLy5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyU2VydmljZUxpc3RUeXBlc1Jlc3BvbnNlIgaKtRgCCAQSZQoETGlzdBIpLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJTZXJ2aWNlTGlzdFJlcXVlc3QaKi5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyU2VydmljZUxpc3RSZXNwb25zZSIGirUYAggBEm8KA0dldBIoLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJTZXJ2aWNlR2V0UmVxdWVzdBopLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJTZXJ2aWNlR2V0UmVzcG9uc2UiE4q1GA8IARILcHJvdmlzaW9uZXISYgoDQWRkEigucm9va2VyeS52MS5Qcm92aXNpb25lclNlcnZpY2VBZGRSZXF1ZXN0Gikucm9va2VyeS52MS5Qcm92aXNpb25lclNlcnZpY2VBZGRSZXNwb25zZSIGirUYAggEEngKBlVwZGF0ZRIrLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJTZXJ2aWNlVXBkYXRlUmVxdWVzdBosLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJTZXJ2aWNlVXBkYXRlUmVzcG9uc2UiE4q1GA8IAxILcHJvdmlzaW9uZXISeAoGUmVtb3ZlEisucm9va2VyeS52MS5Qcm92aXNpb25lclNlcnZpY2VSZW1vdmVSZXF1ZXN0Giwucm9va2VyeS52MS5Qcm92aXNpb25lclNlcnZpY2VSZW1vdmVSZXNwb25zZSITirUYDwgDEgtwcm92aXNpb25lchJ4CgZTdGF0dXMSKy5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyU2VydmljZVN0YXR1c1JlcXVlc3QaLC5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyU2VydmljZVN0YXR1c1Jlc3BvbnNlIhOKtRgPCAESC3Byb3Zpc2lvbmVyEo0BCg1MaXN0UmVzb3VyY2VzEjIucm9va2VyeS52MS5Qcm92aXNpb25lclNlcnZpY2VMaXN0UmVzb3VyY2VzUmVxdWVzdBozLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJTZXJ2aWNlTGlzdFJlc291cmNlc1Jlc3BvbnNlIhOKtRgPCAESC3Byb3Zpc2lvbmVyEoMBCglSdW5BY3Rpb24SLi5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyU2VydmljZVJ1bkFjdGlvblJlcXVlc3QaLy5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyU2VydmljZVJ1bkFjdGlvblJlc3BvbnNlIhOKtRgPCAMSC3Byb3Zpc2lvbmVyMAESjQEKDUNyZWF0ZU1hY2hpbmUSMi5yb29rZXJ5LnYxLlByb3Zpc2lvbmVyU2VydmljZUNyZWF0ZU1hY2hpbmVSZXF1ZXN0GjMucm9va2VyeS52MS5Qcm92aXNpb25lclNlcnZpY2VDcmVhdGVNYWNoaW5lUmVzcG9uc2UiE4q1GA8IAxILcHJvdmlzaW9uZXISfQoMTGlzdE1hY2hpbmVzEjEucm9va2VyeS52MS5Qcm92aXNpb25lclNlcnZpY2VMaXN0TWFjaGluZXNSZXF1ZXN0GjIucm9va2VyeS52MS5Qcm92aXNpb25lclNlcnZpY2VMaXN0TWFjaGluZXNSZXNwb25zZSIGirUYAggBEoYBCg1SZW1vdmVNYWNoaW5lEjIucm9va2VyeS52MS5Qcm92aXNpb25lclNlcnZpY2VSZW1vdmVNYWNoaW5lUmVxdWVzdBozLnJvb2tlcnkudjEuUHJvdmlzaW9uZXJTZXJ2aWNlUmVtb3ZlTWFjaGluZVJlc3BvbnNlIgyKtRgICAMSBGhvc3RCOlo4Z2l0aHViLmNvbS9haXZpYXJpdW0vcm9va2VyeS9nZW4vZ28vcm9va2VyeS92MTtyb29rZXJ5djFiBnByb3RvMw", [file_google_protobuf_timestamp, file_rookery_v1_access, file_rookery_v1_host]);
 
 /**
  * ProvisionerKind is a resource kind a provisioner type makes.
@@ -854,6 +856,163 @@ export const ProvisionerServiceRunActionResponseSchema: GenMessage<ProvisionerSe
   messageDesc(file_rookery_v1_provisioner, 25);
 
 /**
+ * @generated from message rookery.v1.ProvisionerServiceCreateMachineRequest
+ */
+export type ProvisionerServiceCreateMachineRequest = Message<"rookery.v1.ProvisionerServiceCreateMachineRequest"> & {
+  /**
+   * Host is the machine's and the host's name.
+   *
+   * @generated from field: string host = 1;
+   */
+  host: string;
+
+  /**
+   * Provisioner is the entry that makes it.
+   *
+   * @generated from field: string provisioner = 2;
+   */
+  provisioner: string;
+
+  /**
+   * ArgsCbor are the machine's arguments, overriding the entry's defaults.
+   *
+   * @generated from field: bytes args_cbor = 3;
+   */
+  argsCbor: Uint8Array;
+
+  /**
+   * Type is what the host starts as. SSH when unspecified.
+   *
+   * @generated from field: rookery.v1.HostType type = 4;
+   */
+  type: HostType;
+};
+
+/**
+ * Describes the message rookery.v1.ProvisionerServiceCreateMachineRequest.
+ * Use `create(ProvisionerServiceCreateMachineRequestSchema)` to create a new message.
+ */
+export const ProvisionerServiceCreateMachineRequestSchema: GenMessage<ProvisionerServiceCreateMachineRequest> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_provisioner, 26);
+
+/**
+ * @generated from message rookery.v1.ProvisionerServiceCreateMachineResponse
+ */
+export type ProvisionerServiceCreateMachineResponse = Message<"rookery.v1.ProvisionerServiceCreateMachineResponse"> & {
+  /**
+   * Job is the queued job when the server runs the creation in its job runner.
+   *
+   * @generated from field: string job = 1;
+   */
+  job: string;
+
+  /**
+   * Machine is the resource, when the creation ran inside the call.
+   *
+   * @generated from field: rookery.v1.ProvisionerResource machine = 2;
+   */
+  machine?: ProvisionerResource | undefined;
+};
+
+/**
+ * Describes the message rookery.v1.ProvisionerServiceCreateMachineResponse.
+ * Use `create(ProvisionerServiceCreateMachineResponseSchema)` to create a new message.
+ */
+export const ProvisionerServiceCreateMachineResponseSchema: GenMessage<ProvisionerServiceCreateMachineResponse> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_provisioner, 27);
+
+/**
+ * @generated from message rookery.v1.ProvisionerServiceListMachinesRequest
+ */
+export type ProvisionerServiceListMachinesRequest = Message<"rookery.v1.ProvisionerServiceListMachinesRequest"> & {
+  /**
+   * Provisioner narrows the list to one entry; empty lists every entry.
+   *
+   * @generated from field: string provisioner = 1;
+   */
+  provisioner: string;
+
+  /**
+   * Cursor is the last resource of the page before, by id.
+   *
+   * @generated from field: string cursor = 2;
+   */
+  cursor: string;
+
+  /**
+   * @generated from field: uint32 limit = 3;
+   */
+  limit: number;
+};
+
+/**
+ * Describes the message rookery.v1.ProvisionerServiceListMachinesRequest.
+ * Use `create(ProvisionerServiceListMachinesRequestSchema)` to create a new message.
+ */
+export const ProvisionerServiceListMachinesRequestSchema: GenMessage<ProvisionerServiceListMachinesRequest> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_provisioner, 28);
+
+/**
+ * @generated from message rookery.v1.ProvisionerServiceListMachinesResponse
+ */
+export type ProvisionerServiceListMachinesResponse = Message<"rookery.v1.ProvisionerServiceListMachinesResponse"> & {
+  /**
+   * @generated from field: repeated rookery.v1.ProvisionerResource machines = 1;
+   */
+  machines: ProvisionerResource[];
+
+  /**
+   * @generated from field: string next_cursor = 2;
+   */
+  nextCursor: string;
+};
+
+/**
+ * Describes the message rookery.v1.ProvisionerServiceListMachinesResponse.
+ * Use `create(ProvisionerServiceListMachinesResponseSchema)` to create a new message.
+ */
+export const ProvisionerServiceListMachinesResponseSchema: GenMessage<ProvisionerServiceListMachinesResponse> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_provisioner, 29);
+
+/**
+ * @generated from message rookery.v1.ProvisionerServiceRemoveMachineRequest
+ */
+export type ProvisionerServiceRemoveMachineRequest = Message<"rookery.v1.ProvisionerServiceRemoveMachineRequest"> & {
+  /**
+   * Host is the host whose machine goes.
+   *
+   * @generated from field: string host = 1;
+   */
+  host: string;
+};
+
+/**
+ * Describes the message rookery.v1.ProvisionerServiceRemoveMachineRequest.
+ * Use `create(ProvisionerServiceRemoveMachineRequestSchema)` to create a new message.
+ */
+export const ProvisionerServiceRemoveMachineRequestSchema: GenMessage<ProvisionerServiceRemoveMachineRequest> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_provisioner, 30);
+
+/**
+ * @generated from message rookery.v1.ProvisionerServiceRemoveMachineResponse
+ */
+export type ProvisionerServiceRemoveMachineResponse = Message<"rookery.v1.ProvisionerServiceRemoveMachineResponse"> & {
+  /**
+   * Job is the queued job when the server runs the removal in its job runner.
+   *
+   * @generated from field: string job = 1;
+   */
+  job: string;
+};
+
+/**
+ * Describes the message rookery.v1.ProvisionerServiceRemoveMachineResponse.
+ * Use `create(ProvisionerServiceRemoveMachineResponseSchema)` to create a new message.
+ */
+export const ProvisionerServiceRemoveMachineResponseSchema: GenMessage<ProvisionerServiceRemoveMachineResponse> = /*@__PURE__*/
+  messageDesc(file_rookery_v1_provisioner, 31);
+
+/**
  * ProvisionerService is the edge's view of provisioners: the types plugins
  * declare, the entries admins added, the resources they made, and the actions
  * their engines take.
@@ -953,6 +1112,38 @@ export const ProvisionerService: GenService<{
     methodKind: "server_streaming";
     input: typeof ProvisionerServiceRunActionRequestSchema;
     output: typeof ProvisionerServiceRunActionResponseSchema;
+  },
+  /**
+   * CreateMachine makes a host's machine through an entry: the seed the server
+   * renders, the resource the core records, and the host they become.
+   *
+   * @generated from rpc rookery.v1.ProvisionerService.CreateMachine
+   */
+  createMachine: {
+    methodKind: "unary";
+    input: typeof ProvisionerServiceCreateMachineRequestSchema;
+    output: typeof ProvisionerServiceCreateMachineResponseSchema;
+  },
+  /**
+   * ListMachines is a page of the machines the caller may view.
+   *
+   * @generated from rpc rookery.v1.ProvisionerService.ListMachines
+   */
+  listMachines: {
+    methodKind: "unary";
+    input: typeof ProvisionerServiceListMachinesRequestSchema;
+    output: typeof ProvisionerServiceListMachinesResponseSchema;
+  },
+  /**
+   * RemoveMachine removes a host's machine through its entry, and forgets the
+   * host.
+   *
+   * @generated from rpc rookery.v1.ProvisionerService.RemoveMachine
+   */
+  removeMachine: {
+    methodKind: "unary";
+    input: typeof ProvisionerServiceRemoveMachineRequestSchema;
+    output: typeof ProvisionerServiceRemoveMachineResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_rookery_v1_provisioner, 0);
