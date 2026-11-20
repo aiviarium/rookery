@@ -155,6 +155,20 @@ type RookeryNotifications struct {
 	CreatedAt time.Time
 }
 
+// The packages installed in this deployment, their manifests and their hashes.
+type RookeryPlugins struct {
+	ID      string
+	Name    string
+	Version string
+	// The package hash, which is also the folder its files are in.
+	Sha256 string
+	// The plugin.yaml the package was installed with.
+	Manifest    []byte
+	Enabled     bool
+	InstalledAt time.Time
+	UpdatedAt   time.Time
+}
+
 // Machines and other resources provisioner entries made, with the CBOR state that reaches them.
 type RookeryProvisionedResources struct {
 	ID          string

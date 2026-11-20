@@ -412,3 +412,24 @@ COMMENT ON TABLE rookery.provisioned_resources IS 'Machines and other resources 
 -- A host has at most one machine.
 CREATE UNIQUE INDEX provisioned_resources_one_machine ON rookery.provisioned_resources (name) WHERE kind = 'machine';
 CREATE INDEX provisioned_resources_by_provisioner ON rookery.provisioned_resources (provisioner, id);
+-- ---------------------------------------------------------------------------
+-- Plugins. A row per installed package: its manifest, its hash, whether it is
+-- enabled, and where its files are (ROOKERY_STATE_DIR/plugins/<id>/<sha256>/).
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE rookery.plugins (
+	id           text        PRIMARY KEY,
+	name         text        NOT NULL DEFAULT '',
+	version      text        NOT NULL,
+	sha256       text        NOT NULL,
+	manifest     bytea       NOT NULL,
+	enabled      boolean     NOT NULL DEFAULT true,
+	installed_at timestamptz NOT NULL DEFAULT now(),
+	updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE rookery.plugins IS 'The packages installed in this deployment, their manifests and their hashes.';
+COMMENT ON COLUMN rookery.plugins.manifest IS 'The plugin.yaml the package was installed with.';
+COMMENT ON COLUMN rookery.plugins.sha256 IS 'The package hash, which is also the folder its files are in.';
+
+CREATE INDEX plugins_enabled ON rookery.plugins (enabled, id);

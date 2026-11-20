@@ -20,6 +20,7 @@ import (
 	"github.com/aiviarium/rookery/internal/edge"
 	"github.com/aiviarium/rookery/internal/jobs"
 	"github.com/aiviarium/rookery/internal/messaging"
+	"github.com/aiviarium/rookery/internal/plugins"
 	"github.com/aiviarium/rookery/internal/seal"
 	"github.com/aiviarium/rookery/internal/spaces"
 	"github.com/aiviarium/rookery/internal/store"
@@ -47,6 +48,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	links := authn.NewLinks(opened, s.config.PublicURL)
 	groups := authn.NewGroups(opened)
 	spaceList := spaces.New(opened, checker)
+	spaceKinds := spaces.NewRegistry()
 
 	var provider *authn.OIDC
 	if s.config.OIDCEnabled() {
@@ -87,6 +89,18 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	schedules := jobs.NewSchedules(opened, registry, jobRunner, s.log)
 	scheduler := jobs.NewScheduler(schedules)
 
+	// Plugins: the packages installed in this deployment. Their services arrive
+	// with the rest of the plugin item, and their collections with the
+	// datastore's service, which fills in Data.
+	installer := plugins.NewInstaller(plugins.Options{
+		Store:     opened,
+		StateDir:  s.config.StateDir,
+		Jobs:      registry,
+		Schedules: schedules,
+		Spaces:    spaceKinds,
+		Logger:    s.log,
+	})
+
 	if interrupted, err := jobs.InterruptRunning(ctx, opened); err != nil {
 		return nil, err
 	} else if interrupted > 0 {
@@ -98,7 +112,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		users:         authn.NewUsersService(users, links),
 		groups:        authn.NewGroupsService(groups),
 		access:        access.NewService(checker, opened),
-		spaces:        spaces.NewService(spaceList),
+		spaces:        spaces.NewService(spaceList, spaceKinds),
 		audit:         audit.NewService(recorder),
 		local:         NewLocalService(opened, users, links, s.config.PublicURL),
 		jobs:          jobs.NewJobService(jobRunner),
@@ -106,6 +120,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		events:        events,
 		topics:        topics,
 		notifications: notifications,
+		plugins:       plugins.NewService(installer),
 	}
 
 	build := edge.New(edge.Deps{
@@ -121,6 +136,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		OIDC:         provider,
 		OIDCAdmins:   s.config.Admins,
 		Interceptors: interceptors,
+		Plugins:      installer,
 		RegisterServices: func(mux *http.ServeMux, options []connect.HandlerOption) {
 			service.register(mux, options)
 		},
@@ -182,6 +198,7 @@ type services struct {
 	events        *messaging.EventsService
 	topics        *messaging.TopicsService
 	notifications *messaging.NotificationsService
+	plugins       *plugins.PluginService
 }
 
 // register adds the core services to a mux.
@@ -209,6 +226,8 @@ func (s services) register(mux *http.ServeMux, options []connect.HandlerOption) 
 	path, handler = rookeryv1connect.NewTopicServiceHandler(s.topics, options...)
 	handle(path, handler)
 	path, handler = rookeryv1connect.NewNotificationServiceHandler(s.notifications, options...)
+	handle(path, handler)
+	path, handler = rookeryv1connect.NewPluginServiceHandler(s.plugins, options...)
 	handle(path, handler)
 }
 

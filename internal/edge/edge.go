@@ -40,6 +40,10 @@ type Deps struct {
 	// Interceptors are the access and audit interceptors, outermost first.
 	Interceptors []connect.Interceptor
 
+	// Plugins serves the client halves and the shell of the installed plugins,
+	// when the servers has any.
+	Plugins Plugins
+
 	// RegisterServices adds the core services to a mux, both listeners.
 	RegisterServices func(mux *http.ServeMux, options []connect.HandlerOption)
 	// RegisterLocal adds LocalService, the Unix socket only.
@@ -64,6 +68,7 @@ func (e *Edge) Handler() http.Handler {
 	mux := http.NewServeMux()
 	e.deps.RegisterServices(mux, e.handlerOptions())
 	e.registerAuth(mux)
+	e.registerPlugins(mux)
 	mux.HandleFunc("/", e.fallback)
 	return e.authenticate(mux)
 }

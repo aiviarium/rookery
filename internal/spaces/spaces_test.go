@@ -19,7 +19,7 @@ import (
 func newService(t *testing.T, opened *store.Store, principal access.Principal) (*accesstest.Server, rookeryv1connect.SpaceServiceClient) {
 	t.Helper()
 
-	service := spaces.NewService(spaces.New(opened, access.NewChecker(opened)))
+	service := spaces.NewService(spaces.New(opened, access.NewChecker(opened)), nil)
 	server := accesstest.New(t, access.NewChecker(opened), principal,
 		func(mux *http.ServeMux, options []connect.HandlerOption) {
 			path, handler := rookeryv1connect.NewSpaceServiceHandler(service, options...)

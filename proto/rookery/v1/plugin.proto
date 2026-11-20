@@ -1,0 +1,99 @@
+// Plugins: the packages installed in a deployment, and what they add.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// Plugin is an installed package.
+message Plugin {
+  string id = 1;
+  string name = 2;
+  string version = 3;
+  // Sha256 is the package's hash, which is also the folder its client half is
+  // served from.
+  string sha256 = 4;
+  // Enabled is whether its service runs and its client half is loaded.
+  bool enabled = 5;
+  // Manifest is the plugin.yaml it was installed with.
+  bytes manifest = 6;
+  // Contributes is what its client half adds, as JSON, when it has one.
+  bytes contributes_json = 7;
+  // Shell says this plugin's client half is the UI Rookery serves at /.
+  bool shell = 8;
+  google.protobuf.Timestamp installed_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+message PluginServiceListRequest {
+}
+
+message PluginServiceListResponse {
+  repeated Plugin plugins = 1;
+}
+
+message PluginServiceGetRequest {
+  // Id is the plugin's id.
+  string id = 1;
+}
+
+message PluginServiceGetResponse {
+  Plugin plugin = 1;
+}
+
+message PluginServiceInstallRequest {
+  // Chunk is part of the package: a .tar.gz with plugin.yaml at its root.
+  bytes chunk = 1;
+}
+
+message PluginServiceInstallResponse {
+  Plugin plugin = 1;
+}
+
+message PluginServiceRemoveRequest {
+  // Id is the plugin's id.
+  string id = 1;
+  // Purge drops the plugin's data, which is kept otherwise.
+  bool purge = 2;
+}
+
+message PluginServiceRemoveResponse {
+}
+
+message PluginServiceSetEnabledRequest {
+  // Id is the plugin's id.
+  string id = 1;
+  bool enabled = 2;
+}
+
+message PluginServiceSetEnabledResponse {
+  Plugin plugin = 1;
+}
+
+// PluginService installs plugins, lists them and takes them away. Install
+// streams the package, so that a large one needs no large message.
+service PluginService {
+  rpc List(PluginServiceListRequest) returns (PluginServiceListResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+
+  rpc Get(PluginServiceGetRequest) returns (PluginServiceGetResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW, resource: "id" };
+  }
+
+  rpc Install(stream PluginServiceInstallRequest) returns (PluginServiceInstallResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc Remove(PluginServiceRemoveRequest) returns (PluginServiceRemoveResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc SetEnabled(PluginServiceSetEnabledRequest) returns (PluginServiceSetEnabledResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+}
