@@ -74,10 +74,7 @@ export interface Ctx {
   readonly principal: Principal
   readonly space: string | null
   readonly signal: AbortSignal
-  readonly data: CollectionsOf<Collections> & {
-    readonly refs: Refs
-    space(id: string): CollectionsOf<Collections>
-  }
+  readonly data: ServiceData
   readonly access: Access
 }
 
@@ -280,11 +277,12 @@ export interface BlobOptions {
   filename?: string
 }
 
+/** Files, as the handler's person reads and writes them. */
 export interface Blobs {
-  put(data: Uint8Array, opts?: BlobOptions): Promise<BlobInfo>
-  get(id: string): Promise<BlobInfo>
-  read(id: string): Promise<Uint8Array>
-  delete(id: string): Promise<void>
+  put(ctx: Ctx, data: Uint8Array, opts?: BlobOptions): Promise<BlobInfo>
+  get(ctx: Ctx, id: string): Promise<BlobInfo>
+  read(ctx: Ctx, id: string): Promise<Uint8Array>
+  delete(ctx: Ctx, id: string): Promise<void>
 }
 
 export interface JobHandle {
@@ -349,14 +347,15 @@ export interface Topics {
   ): Promise<Disposable>
 }
 
+/** Recurring jobs, as the handler's person owns them. */
 export interface Schedules {
-  /** Makes or replaces a schedule of one of the plugin's jobs, by cron expression or interval. */
-  create(params: Omit<ScheduleCreate, "plugin">): Promise<ScheduleInfo>
-  list(): Promise<ScheduleInfo[]>
-  setEnabled(id: string, enabled: boolean): Promise<ScheduleInfo>
+  /** Makes or replaces a schedule of one of the plugin's jobs, by cron expression or interval, for the person. */
+  create(ctx: Ctx, params: Omit<ScheduleCreate, "plugin">): Promise<ScheduleInfo>
+  list(ctx: Ctx): Promise<ScheduleInfo[]>
+  setEnabled(ctx: Ctx, id: string, enabled: boolean): Promise<ScheduleInfo>
   /** Runs a schedule's job now, with more params merged in. */
-  fire(id: string, params?: Record<string, unknown>): Promise<{ job: string }>
-  remove(id: string): Promise<void>
+  fire(ctx: Ctx, id: string, params?: Record<string, unknown>): Promise<{ job: string }>
+  remove(ctx: Ctx, id: string): Promise<void>
 }
 
 export type NoticeKind = "info" | "warning" | "action"
@@ -443,8 +442,10 @@ export interface Terminals {
 }
 
 export interface Audit {
+  /** The plugin's own action, recorded under its id. Never the person's: there is no context to serve. */
   record(entry: { action: string; resource?: string; details?: Record<string, unknown> }): Promise<void>
-  list(query?: { action?: string; limit?: number }): Promise<AuditEntry[]>
+  /** The log, for a person who is an admin. */
+  list(ctx: Ctx, query?: { action?: string; limit?: number }): Promise<AuditEntry[]>
 }
 
 export interface Spaces {

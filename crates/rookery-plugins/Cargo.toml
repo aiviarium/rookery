@@ -23,6 +23,7 @@ rookery-core.workspace = true
 rookery-proto.workspace = true
 rookery-store.workspace = true
 rookery-kernel.workspace = true
+rookery-data.workspace = true
 hatchery.workspace = true
 tokio.workspace = true
 tokio-util = { version = "0.7", default-features = false }

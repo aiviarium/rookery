@@ -32,6 +32,7 @@ const ctx: CallContext = {
   callId: "call-1",
   user: { id: "01a1f29a-9205-74ff-9584-61b930804b33", name: "Ada", admin: false },
   principal: { kind: "user", id: "01a1f29a-9205-74ff-9584-61b930804b33" },
+  space: "01a1f29a-9205-74ff-9584-61b930804b99",
   deadline: Date.now() + 5_000,
 }
 
@@ -198,5 +199,168 @@ describe("@rookery/sdk host env", () => {
       params: { env: "studio", path: "/srv/work/one.txt" },
     })
     expect(calls[1]?.params).toEqual({ callId: "call-1", level: "info", text: "read 4" })
+  })
+})
+
+/** A plugin whose service reads and writes its collections for the person it serves. */
+function notesPlugin() {
+  return definePlugin((rookery) => {
+    rookery.services.provide("notes", {
+      find: (context, { query }) => context.data.notes.find(query),
+      insert: (context, { values }) => context.data.notes.insert(values),
+      elsewhere: (context, { space, query }) => context.data.space(space).notes.find(query),
+      level: (context, { resource }) => context.access.level(resource),
+      may: (context, { resource, level }) => context.access.check(resource, level),
+      who: (context) => context.space,
+      own: () => rookery.data.notes.find({ limit: 1 }),
+      watch: async (context, { collection }) => {
+        const seen: unknown[] = []
+        const off = await context.data.changes.subscribe(collection, (change) => seen.push(change))
+        // Hold the call open for the test to deliver a change through it.
+        for (let i = 0; i < 500 && seen.length === 0; i++) await Bun.sleep(1)
+        return { seen, off }
+      },
+      blob: (context, { id }) => rookery.blobs.get(context, id),
+      schedule: (context) => rookery.schedules.list(context),
+      log: (context) => rookery.audit.list(context, { limit: 5 }),
+      record: () => rookery.audit.record({ action: "mapping.set" }),
+    })
+  })
+}
+
+const notesManifest = {
+  apiVersion: "1",
+  id: "notes",
+  name: "Notes",
+  version: "1.0.0",
+  provides: { services: ["notes"] },
+  contributes: {
+    collections: [{ name: "notes", fields: [{ name: "title", type: "text" }] }],
+  },
+} as unknown as Manifest
+
+async function notes(transport: HostTransport, method: string, params: Record<string, unknown>) {
+  const { runtime, rookery } = createHost("notes", notesManifest, transport)
+  await activate(runtime, rookery, notesPlugin())
+  return runtime.invoke({
+    plugin: "notes",
+    kind: "service",
+    key: "notes",
+    params: { method, params },
+    ctx,
+  })
+}
+
+describe("@rookery/sdk host data", () => {
+  test("a handler's data call names its invocation, so the server runs it as its person", async () => {
+    const { transport, calls } = recorder(() => ({ rows: [], next: null }))
+    await notes(transport, "find", { query: { where: { title: "One" } } })
+    expect(calls).toEqual([
+      {
+        method: "host.data",
+        params: {
+          callId: "call-1",
+          method: "data.find",
+          params: {
+            plugin: "notes",
+            collection: "notes",
+            space: "01a1f29a-9205-74ff-9584-61b930804b99",
+            query: { where: { title: "One" } },
+          },
+        },
+      },
+    ])
+  })
+
+  test("a write carries its values, and the invocation's space, through the same pipe", async () => {
+    const { transport, calls } = recorder(() => ({ row: { id: "note-1", title: "One" } }))
+    expect(await notes(transport, "insert", { values: { title: "One" } })).toMatchObject({
+      id: "note-1",
+    })
+    expect(calls[0]?.params).toMatchObject({
+      method: "data.insert",
+      params: { plugin: "notes", collection: "notes", values: { title: "One" } },
+    })
+  })
+
+  test("a space of its own takes the place of the invocation's", async () => {
+    const { transport, calls } = recorder(() => ({ rows: [], next: null }))
+    await notes(transport, "elsewhere", { space: "01a1f29a-9205-74ff-9584-61b930804baa", query: {} })
+    expect(calls[0]?.params.params.space).toBe("01a1f29a-9205-74ff-9584-61b930804baa")
+  })
+
+  test("the plugin's own data handle stays the plugin's, with no space of a person's", async () => {
+    const { transport, calls } = recorder(() => ({ rows: [], next: null }))
+    await notes(transport, "own", {})
+    expect(calls[0]).toEqual({
+      method: "data.find",
+      params: { plugin: "notes", collection: "notes", query: { limit: 1 } },
+    })
+  })
+
+  test("the context carries the invocation's space", async () => {
+    const { transport } = recorder(() => ({}))
+    expect(await notes(transport, "who", {})).toBe(ctx.space)
+  })
+
+  test("a level is checked for the person, by one call", async () => {
+    const { transport, calls } = recorder(() => ({ level: "use" }))
+    expect(await notes(transport, "level", { resource: "space://x" })).toBe("use")
+    expect(await notes(transport, "may", { resource: "space://x", level: "use" })).toBe(true)
+    expect(calls.map((c) => c.params.method)).toEqual(["access.level", "access.level"])
+  })
+
+  test("a change feed is a live query for the person, and ends with the call", async () => {
+    const { transport, calls } = recorder(() => ({ subscription: "sub-1" }))
+    const { runtime, rookery } = createHost("notes", notesManifest, transport)
+    await activate(runtime, rookery, notesPlugin())
+    const running = runtime.invoke({
+      plugin: "notes",
+      kind: "service",
+      key: "notes",
+      params: { method: "watch", params: { collection: "notes" } },
+      ctx,
+    })
+    await Bun.sleep(10)
+    expect(calls[0]?.params).toEqual({
+      callId: "call-1",
+      method: "data.live",
+      params: {
+        plugin: "notes",
+        collection: "notes",
+        space: ctx.space ?? undefined,
+        query: {},
+      },
+    })
+    runtime.notified("data.changed", {
+      subscription: "sub-1",
+      changes: [{ seq: 1, collection: "notes", id: "n1", op: "insert", rev: 1, row: null }],
+    })
+    const watched = (await running) as { seen: unknown[] }
+    expect(watched.seen).toHaveLength(1)
+    // The handler's call is over: its feed is not left running.
+    expect(calls[1]?.params).toEqual({
+      callId: "call-1",
+      method: "data.unlive",
+      params: { plugin: "notes", space: ctx.space, subscription: "sub-1" },
+    })
+  })
+
+  test("blobs, schedules and the audit log run for the person; audit.record stays the plugin's", async () => {
+    const { transport, calls } = recorder((_method, params) => {
+      if (params.method === "blobs.get") return { id: "b1" }
+      if (params.method === "schedules.list") return { schedules: [] }
+      if (params.method === "audit.list") return { entries: [] }
+      return {}
+    })
+    expect(await notes(transport, "blob", { id: "b1" })).toEqual({ id: "b1" })
+    expect(await notes(transport, "schedule", {})).toEqual([])
+    expect(await notes(transport, "log", {})).toEqual([])
+    await notes(transport, "record", {})
+    expect(calls.map((call) => call.method)).toEqual(["host.data", "host.data", "host.data", "audit.record"])
+    expect(calls[0]?.params).toMatchObject({ callId: "call-1", method: "blobs.get" })
+    expect(calls[1]?.params).toMatchObject({ callId: "call-1", method: "schedules.list" })
+    expect(calls[2]?.params).toMatchObject({ callId: "call-1", method: "audit.list" })
+    expect(calls[3]?.params).toEqual({ action: "mapping.set" })
   })
 })

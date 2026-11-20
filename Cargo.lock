@@ -3465,6 +3465,7 @@ dependencies = [
  "libc",
  "rookery-api",
  "rookery-core",
+ "rookery-data",
  "rookery-facilities",
  "rookery-hosts",
  "rookery-jobs",

@@ -1270,6 +1270,44 @@
     }
   },
   {
+    "name": "audit.record",
+    "summary": "Records an action of the plugin that made the call, under its id. The resource is free text; the actor is what a reader can trust.",
+    "level": {
+      "kind": "plugin"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`audit.record`: a plugin's own action in the log, under its id. `resource` is free text: the\nactor and the plugin are the fields a reader can trust, not a claim about a resource.",
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "details": {
+          "default": null
+        },
+        "resource": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "AuditRecord",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
     "name": "auth.createLink",
     "summary": "Makes a one-time sign-in link: a device link for oneself, an invite or a device link for another as admin, the first admin's setup link on the server's own machine.",
     "level": {
@@ -1951,6 +1989,35 @@
   {
     "name": "auth.revokeToken",
     "summary": "Ends one of the caller's access tokens, and its connections.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "A thing named by its id.",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "IdRef",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "blobs.delete",
+    "summary": "Deletes a blob the caller put.",
     "level": {
       "kind": "self"
     },

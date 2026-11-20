@@ -31,6 +31,13 @@ fn methods() -> Methods {
     methods
 }
 
+/// The server's methods with the data layer, for a host half that reads its collections.
+fn methods_with_data() -> Methods {
+    let mut methods = methods();
+    rookery_data::register(&mut methods);
+    methods
+}
+
 /// A plugin system with its folders in `scratch`, whose registries are those of the checkout.
 async fn plugins(k: &TestKernel, scratch: &Path) -> Arc<Plugins> {
     plugins_with(k, scratch, HostOptions::default().memory_mb).await
@@ -73,6 +80,41 @@ fn plugins_with_host(k: &TestKernel, scratch: &Path, host: HostOptions) -> Arc<P
     .unwrap();
     k.kernel.set_facility(Plugins::new(Setup { paths, host }));
     k.kernel.get_facility::<Plugins>().unwrap()
+}
+
+/// The plugins with the datastore, as the server sets it: a plugin's declared collections are applied
+/// before its host half starts.
+async fn plugins_with_data(k: &TestKernel, scratch: &Path) -> Arc<Plugins> {
+    k.kernel
+        .set_facility(rookery_plugins::DataLayer(Arc::new(TestData)));
+    plugins(k, scratch).await
+}
+
+/// The datastore's side of a plugin's declared collections, as `rookery serve` sets it.
+struct TestData;
+
+impl rookery_plugins::data::PluginData for TestData {
+    fn apply<'a>(
+        &'a self,
+        kernel: &'a rookery_kernel::Kernel,
+        plugin: &'a rookery_plugins::loaded::Loaded,
+        declared: &'a rookery_plugins::data::Declared,
+        _transforms: rookery_plugins::data::Transforms,
+    ) -> futures_util::future::BoxFuture<'a, Result<(), rookery_kernel::RpcError>> {
+        Box::pin(async move {
+            rookery_data::plugins::apply(
+                kernel,
+                &rookery_data::plugins::PluginData {
+                    plugin: plugin.id.clone(),
+                    collections: Value::Array(declared.collections.clone()),
+                    ..Default::default()
+                },
+                &rookery_data::plugins::NoTransforms,
+            )
+            .await?;
+            Ok(())
+        })
+    }
 }
 
 /// A package folder of a plugin `id`, or `group/id`, at `version`, with these files in its target.
@@ -590,6 +632,206 @@ fn echo_files(host: &str, manifest: &str) -> Vec<(&'static str, String)> {
         ("plugin.json", manifest.to_owned()),
         ("host.ts", host.to_owned()),
     ]
+}
+
+const NOTES_SERVICE: &str = r#"{"apiVersion": "1", "name": "Notes", "host": "host.ts",
+  "provides": {"services": ["notes"]},
+  "contributes": {
+    "collections": [
+      {"name": "notes", "scope": "space",
+       "fields": [{"name": "title", "type": "text"}]}
+    ],
+    "jobs": [{"id": "notes.scan", "title": "Scan"}]
+  }}"#;
+
+const NOTES_HOST: &str = r#"import { parentPort } from "node:worker_threads"
+import { RookeryError, definePlugin } from "@rookery/sdk"
+
+let next = -1
+/** A host request straight on the worker port, so a test can name a callId itself. */
+function hostCall(method: string, params: Record<string, unknown>): Promise<any> {
+  const id = next--
+  return new Promise((resolve, reject) => {
+    const result = (message: any) => {
+      if (message.type !== "result" || message.id !== id) return
+      parentPort?.off("message", result)
+      if (message.error) reject(new RookeryError(message.error.code, message.error.message, message.error.details))
+      else resolve(message.result)
+    }
+    parentPort?.on("message", result)
+    parentPort?.postMessage({ type: "call", id, method, params })
+  })
+}
+
+export default definePlugin((rookery) => {
+  rookery.services.provide("notes", {
+    insert: async (ctx, { space, title }) => ({ id: (await ctx.data.space(space).notes.insert({ title })).id }),
+    find: async (ctx, { space }) => ({ rows: (await ctx.data.space(space).notes.find({})).rows.length }),
+    level: async (ctx, { space }) => ({ level: await ctx.access.level(`space://${space}`) }),
+    may: (ctx, { space, level }) => ctx.access.check(`space://${space}`, level),
+    where: (ctx) => ({ space: ctx.space, user: ctx.user?.name ?? null }),
+  })
+  rookery.jobs.handle("notes.scan", {
+    async run(_job, { space }) {
+      const page = await rookery.data.space(space).notes.find({})
+      return { rows: page.rows.length }
+    },
+  })
+  // A host.data call for this invocation, and one for a callId the test names.
+  rookery.rpc.handle("bind", {
+    level: "own",
+    run: (ctx, p: { method: string; params: Record<string, unknown> }) =>
+      hostCall("host.data", { callId: ctx.callId, method: p.method, params: p.params }),
+  })
+  rookery.rpc.handle("named", {
+    level: "own",
+    run: (_ctx, p: Record<string, unknown>) => hostCall("host.data", p),
+  })
+})
+"#;
+
+/// A host half reads and writes for the person whose call it serves, and as its plugin in a job.
+#[tokio::test]
+async fn a_host_half_reads_for_the_person_it_serves_and_for_itself_in_a_job() {
+    if !bun_ready() {
+        eprintln!("skipped: the extension host needs bun and `bun install`");
+        return;
+    }
+    let k = test_kernel!(methods_with_data());
+    let scratch = tempfile::tempdir().unwrap();
+    let plugins = plugins_with_data(&k, scratch.path()).await;
+    let ada = k.person("Ada", false).await;
+    let bob = k.person("Bob", false).await;
+    install(
+        &k,
+        &plugins,
+        &package(
+            scratch.path(),
+            "notes",
+            "1.0.0",
+            &[("plugin.json", NOTES_SERVICE), ("host.ts", NOTES_HOST)],
+        ),
+    )
+    .await;
+    let space = k
+        .call(&ada, "spaces.get", json!({ "space": "~" }))
+        .await
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let notes = |caller: &Caller, method: &'static str, params: Value| {
+        let caller = caller.clone();
+        let k = &k;
+        async move {
+            k.call(
+                &caller,
+                "services.call",
+                json!({"plugin": "notes", "service": "notes", "method": method, "params": params}),
+            )
+            .await
+        }
+    };
+    // A handler's data call names its invocation, so the server runs it as the person.
+    let inserted = notes(&ada, "insert", json!({"space": space, "title": "First"}))
+        .await
+        .unwrap();
+    assert!(inserted["id"].is_string(), "{inserted}");
+    assert_eq!(
+        notes(&ada, "find", json!({"space": space})).await.unwrap(),
+        json!({"rows": 1})
+    );
+    // Someone outside the space sees nothing, and may not write into it.
+    let hidden = notes(&bob, "find", json!({"space": space}))
+        .await
+        .unwrap_err();
+    assert_eq!(hidden.error_code(), rookery_proto::ErrorCode::Forbidden);
+    let refused = notes(&bob, "insert", json!({"space": space, "title": "Second"}))
+        .await
+        .unwrap_err();
+    assert_eq!(refused.error_code(), rookery_proto::ErrorCode::Forbidden);
+    // The person's own level decides, as it would from a client.
+    assert_eq!(
+        notes(&ada, "level", json!({"space": space})).await.unwrap(),
+        json!({"level": "manage"})
+    );
+    assert_eq!(
+        notes(&bob, "level", json!({"space": space})).await.unwrap(),
+        json!({"level": null})
+    );
+    assert_eq!(
+        notes(&ada, "may", json!({"space": space, "level": "manage"}))
+            .await
+            .unwrap(),
+        json!(true)
+    );
+    assert_eq!(
+        notes(&bob, "may", json!({"space": space, "level": "view"}))
+            .await
+            .unwrap(),
+        json!(false)
+    );
+    // With no space entered, the context carries none.
+    assert_eq!(
+        notes(&ada, "where", json!({})).await.unwrap(),
+        json!({"space": null, "user": "Ada"})
+    );
+    // A plugin-only method stays the plugin's, whoever the invocation serves.
+    let admin = k.person("Mira", true).await;
+    assert_eq!(
+        k.call(
+            &ada,
+            "plugins.rpc",
+            rpc(
+                "notes",
+                "bind",
+                json!({"method": "audit.record", "params": {"action": "scan"}})
+            ),
+        )
+        .await
+        .unwrap(),
+        json!({})
+    );
+    let log = k.call(&admin, "audit.list", json!({})).await.unwrap();
+    let entry = log["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["action"] == "notes/scan")
+        .expect("the plugin's action");
+    assert_eq!(entry["principal"], "plugin:notes");
+    // A callId whose invocation has ended is refused.
+    let stale = k
+        .call(
+            &ada,
+            "plugins.rpc",
+            rpc(
+                "notes",
+                "named",
+                json!({
+                    "callId": "01a1f29a-9205-74ff-9584-61b930804b33",
+                    "method": "data.find",
+                    "params": {"collection": "notes"}
+                }),
+            ),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(stale.error_code(), rookery_proto::ErrorCode::NotFound);
+
+    // A job runs for the plugin: its own collection is its own, whatever the space's grants are.
+    let job = k
+        .call(
+            &ada,
+            "jobs.enqueue",
+            json!({"kind": "notes/scan", "params": {"space": space}}),
+        )
+        .await
+        .unwrap();
+    let done = job_ends(&k, &ada, &job["id"]).await;
+    assert_eq!(done["state"], "succeeded", "{done}");
+    assert_eq!(done["result"], json!({"rows": 1}));
+    k.close().await;
 }
 
 const ECHO: &str = r#"{"apiVersion": "1", "name": "Echo", "host": "host.ts"}"#;
