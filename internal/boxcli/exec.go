@@ -4,81 +4,84 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
+
+	"connectrpc.com/connect"
+
+	hostv1 "github.com/aiviarium/rookery/gen/go/rookery/host/v1"
 )
 
-// runExec runs a command with the desktop's environment: its display,
-// X authority, session bus and PATH. A host with no desktop runs it with the
-// environment box has.
+// runExec starts the command locally so it inherits the user's terminal and
+// standard streams. The daemon supplies the active desktop's environment.
 func runExec(ctx context.Context, options Options, args []string) error {
-	command := args
-	if len(command) == 0 {
-		command = []string{shellOf(options.Environ)}
-	}
-
-	environ := append([]string(nil), options.Environ...)
-	desktop, err := desktopEnvironment(options.DesktopEnvPath)
+	client, err := dial(options)
 	if err != nil {
 		return err
 	}
-	for name, value := range desktop {
+	defer func() { _ = client.Close() }()
+	response, err := client.Desktop.Environment(ctx, connect.NewRequest(&hostv1.DesktopServiceEnvironmentRequest{}))
+	if err != nil {
+		return connectError("exec", err)
+	}
+
+	environ := append([]string(nil), options.Environ...)
+	for name, value := range response.Msg.GetVariables() {
 		environ = append(environ, name+"="+value)
 	}
-
-	return runCommand(ctx, command, environ, options.Stdin, options.Stdout, options.Stderr, "")
-}
-
-// desktopEnvironment reads the desktop's environment file. A host without a
-// desktop has none, which is not an error: `box exec` still runs something.
-func desktopEnvironment(path string) (map[string]string, error) {
-	raw, err := os.ReadFile(path) //nolint:gosec // the daemon's own configuration file.
+	command := args
+	if len(command) == 0 {
+		shell := environmentValue(environ, "SHELL")
+		if shell == "" {
+			shell = "/bin/sh"
+		}
+		command = []string{shell}
+	}
+	path, err := commandPath(command[0], environ)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("box: reading %s: %w", path, err)
+		return fmt.Errorf("box exec: %w", err)
 	}
-
-	env := make(map[string]string)
-	for _, line := range strings.Split(string(raw), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		name, value, found := strings.Cut(line, "=")
-		if !found {
-			continue
-		}
-		value = strings.TrimSpace(value)
-		if len(value) >= 2 {
-			if (value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'') {
-				value = value[1 : len(value)-1]
-			}
-		}
-		if name = strings.TrimSpace(name); name != "" {
-			env[name] = value
-		}
-	}
-	return env, nil
+	return runCommand(ctx, append([]string{path}, command[1:]...), environ, options.Stdin, options.Stdout, options.Stderr, "")
 }
 
-// shellOf is the account's shell from an environment, for `box exec` with no
-// command.
-func shellOf(environ []string) string {
-	for _, entry := range environ {
-		if name, value, found := strings.Cut(entry, "="); found && name == "SHELL" && value != "" {
+// commandPath searches the desktop PATH. exec.Command would search box's own
+// PATH before its child gets the supplied environment.
+func commandPath(name string, environ []string) (string, error) {
+	if strings.ContainsRune(name, filepath.Separator) {
+		return name, nil
+	}
+	for _, dir := range filepath.SplitList(environmentValue(environ, "PATH")) {
+		candidate := filepath.Join(dir, name)
+		info, err := os.Stat(candidate)
+		if err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+			if !filepath.IsAbs(candidate) {
+				return "", &exec.Error{Name: name, Err: exec.ErrDot}
+			}
+			return candidate, nil
+		}
+	}
+	return "", &exec.Error{Name: name, Err: exec.ErrNotFound}
+}
+
+func environmentValue(environ []string, key string) string {
+	for i := len(environ) - 1; i >= 0; i-- {
+		if name, value, found := strings.Cut(environ[i], "="); found && name == key {
 			return value
 		}
 	}
-	return "/bin/sh"
+	return ""
 }
 
-// runExtension runs a feature's `box <name>` command, which is installed as
-// box-<name> in the box directory.
+// runExtension runs a feature's executable from the configured box directory.
 func runExtension(ctx context.Context, options Options, args []string) error {
-	path := extensionPath(options, args[0])
+	name := args[0]
+	if name == "" || strings.ContainsAny(name, "/\\\x00") {
+		return usage("box: %q is not a command name", name)
+	}
+	path := extensionPath(options, name)
 	if _, err := os.Stat(path); err != nil {
-		return usage("box: there is no command %q and no %s: run `box help`", args[0], path)
+		return usage("box: there is no command %q and no %s: run `box help`", name, path)
 	}
 	return runCommand(ctx, append([]string{path}, args[1:]...), options.Environ, options.Stdin, options.Stdout, options.Stderr, "")
 }

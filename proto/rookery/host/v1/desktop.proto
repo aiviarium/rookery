@@ -38,6 +38,10 @@ service DesktopService {
 
   // State says whether a desktop provider answers, and what the screen is.
   rpc State(DesktopServiceStateRequest) returns (DesktopServiceStateResponse);
+
+  // Environment returns the desktop environment for programs such as box exec.
+  // A host without a desktop environment returns an empty map.
+  rpc Environment(DesktopServiceEnvironmentRequest) returns (DesktopServiceEnvironmentResponse);
 }
 
 // MouseButton is which button a click uses.
@@ -132,4 +136,10 @@ message DesktopServiceStateRequest {}
 
 message DesktopServiceStateResponse {
   DesktopState desktop = 1;
+}
+
+message DesktopServiceEnvironmentRequest {}
+
+message DesktopServiceEnvironmentResponse {
+  map<string, string> variables = 1;
 }

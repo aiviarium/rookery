@@ -2,7 +2,6 @@ package x11
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"sync"
@@ -32,22 +31,17 @@ type clipboard struct {
 	atomAtom      xproto.Atom
 	propertyAtom  xproto.Atom
 
-	requests chan any
-	events   chan xgb.Event
-	failures chan error
-	stop     chan struct{}
-	done     chan struct{}
-	stopOnce sync.Once
+	requests   chan any
+	events     chan xgb.Event
+	readerDone chan struct{}
+	stop       chan struct{}
+	done       chan struct{}
+	stopOnce   sync.Once
 
 	// Only the loop touches these.
 	text    string
 	owner   bool
-	pending *pendingGet
-}
-
-// pendingGet is one GetClipboard waiting for its SelectionNotify.
-type pendingGet struct {
-	result chan getResult
+	pending []chan getResult
 }
 
 type getResult struct {
@@ -76,12 +70,12 @@ func newClipboard(ctx context.Context, display string) (*clipboard, error) {
 	screen := setup.DefaultScreen(conn)
 
 	clipboard := &clipboard{
-		conn:     conn,
-		requests: make(chan any),
-		events:   make(chan xgb.Event, 16),
-		failures: make(chan error, 1),
-		stop:     make(chan struct{}),
-		done:     make(chan struct{}),
+		conn:       conn,
+		requests:   make(chan any),
+		events:     make(chan xgb.Event, 16),
+		readerDone: make(chan struct{}),
+		stop:       make(chan struct{}),
+		done:       make(chan struct{}),
 	}
 
 	atoms := []struct {
@@ -98,8 +92,11 @@ func newClipboard(ctx context.Context, display string) (*clipboard, error) {
 	}
 	for _, atom := range atoms {
 		reply, err := xproto.InternAtom(conn, false, uint16(len(atom.name)), atom.name).Reply() //nolint:gosec // an atom's name is short.
-		if err != nil {
+		if err != nil || reply == nil {
 			conn.Close()
+			if err == nil {
+				err = errNoReply
+			}
 			return nil, fmt.Errorf("x11: asking for the atom %s: %w", atom.name, err)
 		}
 		*atom.into = reply.Atom
@@ -124,20 +121,13 @@ func newClipboard(ctx context.Context, display string) (*clipboard, error) {
 	return clipboard, nil
 }
 
-// read takes the connection's events. It is the only reader, because xgb's
-// WaitForEvent and a request's reply cannot both be waited for at once.
+// read passes selection events to the loop until the X connection closes.
 func (c *clipboard) read() {
+	defer close(c.readerDone)
 	for {
 		event, err := c.conn.WaitForEvent()
-		if err != nil {
-			select {
-			case c.failures <- err:
-			default:
-			}
+		if err != nil || event == nil {
 			return
-		}
-		if event == nil {
-			continue
 		}
 		select {
 		case c.events <- event:
@@ -153,6 +143,7 @@ func (c *clipboard) run() {
 	defer func() {
 		xproto.DestroyWindow(c.conn, c.win)
 		c.conn.Close()
+		<-c.readerDone
 	}()
 
 	for {
@@ -163,8 +154,7 @@ func (c *clipboard) run() {
 			c.handleRequest(request)
 		case event := <-c.events:
 			c.handleEvent(event)
-		case err := <-c.failures:
-			_ = err
+		case <-c.readerDone:
 			return
 		}
 	}
@@ -174,8 +164,14 @@ func (c *clipboard) run() {
 func (c *clipboard) handleRequest(request any) {
 	switch typed := request.(type) {
 	case getRequest:
-		c.pending = &pendingGet{result: typed.result}
-		xproto.ConvertSelection(c.conn, c.win, c.clipboardAtom, c.utf8Atom, c.propertyAtom, xproto.TimeCurrentTime)
+		if c.owner {
+			typed.result <- getResult{text: c.text}
+			return
+		}
+		c.pending = append(c.pending, typed.result)
+		if len(c.pending) == 1 {
+			xproto.ConvertSelection(c.conn, c.win, c.clipboardAtom, c.utf8Atom, c.propertyAtom, xproto.TimeCurrentTime)
+		}
 	case setRequest:
 		if err := xproto.SetSelectionOwnerChecked(c.conn, c.win, c.clipboardAtom, xproto.TimeCurrentTime).Check(); err != nil {
 			typed.result <- fmt.Errorf("x11: taking the clipboard: %w", err)
@@ -212,16 +208,25 @@ func (c *clipboard) answer(request xproto.SelectionRequestEvent) {
 	switch {
 	case c.owner && request.Target == c.targetsAtom:
 		targets := []xproto.Atom{c.targetsAtom, c.utf8Atom, c.textAtom, c.stringAtom}
-		data := make([]byte, 0, len(targets)*4)
-		for _, target := range targets {
-			data = binary.BigEndian.AppendUint32(data, uint32(target))
+		data := make([]byte, len(targets)*4)
+		for i, target := range targets {
+			xgb.Put32(data[4*i:], uint32(target))
 		}
-		_ = xproto.ChangePropertyChecked(c.conn, xproto.PropModeReplace, request.Requestor, property,
-			c.atomAtom, 32, uint32(len(targets)), data).Check() //nolint:gosec // a handful of atoms.
+		if err := xproto.ChangePropertyChecked(c.conn, xproto.PropModeReplace, request.Requestor, property,
+			c.atomAtom, 32, uint32(len(targets)), data).Check(); err != nil { //nolint:gosec // a handful of atoms.
+			property = 0
+		}
 	case c.owner && (request.Target == c.utf8Atom || request.Target == c.textAtom || request.Target == c.stringAtom):
 		data := []byte(c.text)
-		_ = xproto.ChangePropertyChecked(c.conn, xproto.PropModeReplace, request.Requestor, property,
-			request.Target, 8, uint32(len(data)), data).Check() //nolint:gosec // a clipboard is small.
+		target := c.utf8Atom
+		if request.Target == c.stringAtom {
+			target = c.stringAtom
+			data = latin1(c.text)
+		}
+		if err := xproto.ChangePropertyChecked(c.conn, xproto.PropModeReplace, request.Requestor, property,
+			target, 8, uint32(len(data)), data).Check(); err != nil { //nolint:gosec // Set bounds text to the X request limit.
+			property = 0
+		}
 	default:
 		property = 0
 	}
@@ -238,28 +243,53 @@ func (c *clipboard) answer(request xproto.SelectionRequestEvent) {
 
 // receive reads what the selection's owner answered.
 func (c *clipboard) receive(event xproto.SelectionNotifyEvent) {
-	pending := c.pending
-	if pending == nil || event.Requestor != c.win {
+	if len(c.pending) == 0 || event.Requestor != c.win || event.Selection != c.clipboardAtom {
 		return
+	}
+	if event.Property == 0 {
+		if event.Target == c.utf8Atom {
+			xproto.ConvertSelection(c.conn, c.win, c.clipboardAtom, c.stringAtom, c.propertyAtom, xproto.TimeCurrentTime)
+		} else {
+			c.finishGet(getResult{})
+		}
+		return
+	}
+
+	reply, err := xproto.GetProperty(c.conn, true, c.win, event.Property, 0, 0, 1<<20).Reply()
+	switch {
+	case err != nil:
+		c.finishGet(getResult{err: fmt.Errorf("x11: reading the clipboard: %w", err)})
+	case reply == nil:
+		c.finishGet(getResult{err: fmt.Errorf("x11: reading the clipboard: %w", errNoReply)})
+	case reply.Format != 8 || reply.BytesAfter != 0:
+		c.finishGet(getResult{err: errors.New("x11: the clipboard selection is not a supported text value")})
+	case reply.Type == c.stringAtom:
+		text := make([]rune, len(reply.Value))
+		for i, character := range reply.Value {
+			text[i] = rune(character)
+		}
+		c.finishGet(getResult{text: string(text)})
+	default:
+		c.finishGet(getResult{text: string(reply.Value)})
+	}
+}
+
+func (c *clipboard) finishGet(result getResult) {
+	for _, waiter := range c.pending {
+		waiter <- result
 	}
 	c.pending = nil
+}
 
-	if event.Property == 0 {
-		// Nobody owns the selection: the clipboard is empty.
-		pending.result <- getResult{}
-		return
+func latin1(text string) []byte {
+	encoded := make([]byte, 0, len(text))
+	for _, character := range text {
+		if character > 255 {
+			character = '?'
+		}
+		encoded = append(encoded, byte(character))
 	}
-
-	reply, err := xproto.GetProperty(c.conn, true, c.win, event.Property, 0, 0, 1<<22).Reply()
-	if err != nil {
-		pending.result <- getResult{err: fmt.Errorf("x11: reading the clipboard: %w", err)}
-		return
-	}
-	if reply == nil {
-		pending.result <- getResult{err: fmt.Errorf("x11: reading the clipboard: %w", errNoReply)}
-		return
-	}
-	pending.result <- getResult{text: string(reply.Value)}
+	return encoded
 }
 
 // Get reads the clipboard.
@@ -285,6 +315,9 @@ func (c *clipboard) Get(ctx context.Context) (string, error) {
 
 // Set becomes the selection's owner and gives the clipboard the text.
 func (c *clipboard) Set(ctx context.Context, text string) error {
+	if len(text) > int(xproto.Setup(c.conn).MaximumRequestLength)*4-24 {
+		return errors.New("x11: the clipboard text is too large for one X selection reply")
+	}
 	request := setRequest{text: text, result: make(chan error, 1)}
 	select {
 	case c.requests <- request:
@@ -312,10 +345,19 @@ func (c *clipboard) close() {
 
 // selection is the clipboard's connection, opened on first use.
 func (c *Conn) selection(ctx context.Context) (*clipboard, error) {
-	c.clipboardOnce.Do(func() {
-		c.clipboard, c.clipboardErr = newClipboard(ctx, c.display)
-	})
-	return c.clipboard, c.clipboardErr
+	c.clipboardMu.Lock()
+	defer c.clipboardMu.Unlock()
+	if c.closed {
+		return nil, errClipboardClosed
+	}
+	if c.clipboard == nil {
+		clipboard, err := newClipboard(ctx, c.display)
+		if err != nil {
+			return nil, err
+		}
+		c.clipboard = clipboard
+	}
+	return c.clipboard, nil
 }
 
 // GetClipboard reads the desktop's clipboard as text.

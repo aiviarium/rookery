@@ -5,8 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
-	"strings"
 	"sync"
 	"time"
 
@@ -84,10 +84,8 @@ func runCall(ctx context.Context, options Options, args []string) error {
 
 // runServe offers a host service, running a command for each call.
 //
-// The command is run as `COMMAND METHOD` with the call's arguments as CBOR on
-// its standard input and its answer as CBOR on its standard output. Calls are run
-// one at a time, so a service that takes a while holds its own queue and nothing
-// else.
+// The command is run as `COMMAND METHOD` with the call's argument as JSON
+// on stdin and its answer as JSON on stdout.
 func runServe(ctx context.Context, options Options, args []string) error {
 	name, command, err := splitServe(args)
 	if err != nil {
@@ -95,11 +93,7 @@ func runServe(ctx context.Context, options Options, args []string) error {
 	}
 
 	service := &hostv1.HostService{Name: name, Description: "served by box on this host"}
-	handler := commandHandler(ctx, options, command)
-	if err := serveHostService(ctx, options, service, handler); err != nil {
-		return err
-	}
-	return nil
+	return serveHostService(ctx, options, service, commandHandler(options, command))
 }
 
 // splitServe reads `SERVICE -- COMMAND…`.
@@ -111,22 +105,33 @@ func splitServe(args []string) (string, []string, error) {
 }
 
 // commandHandler runs a served command for a call.
-func commandHandler(_ context.Context, options Options, command []string) handlerFunc {
+func commandHandler(options Options, command []string) handlerFunc {
 	return func(ctx context.Context, method string, args []byte) ([]byte, error) {
-		cmd := exec.CommandContext(ctx, command[0], append(command[1:], method)...) //nolint:gosec // the unit's command, on purpose.
-		cmd.Env = options.Environ
-		cmd.Stdin = bytes.NewReader(args)
-
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err != nil {
-			if message := strings.TrimSpace(stderr.String()); message != "" {
-				return nil, fmt.Errorf("%s %s: %s: %w", command[0], method, message, err)
+		var value any
+		if len(args) > 0 {
+			if err := cborx.Unmarshal(args, &value); err != nil {
+				return nil, fmt.Errorf("box: decoding the service request: %w", err)
 			}
-			return nil, fmt.Errorf("%s %s: %w", command[0], method, err)
 		}
-		return stdout.Bytes(), nil
+		var stdin, stdout bytes.Buffer
+		if err := writeJSON(&stdin, jsonable(value)); err != nil {
+			return nil, err
+		}
+
+		arguments := append(append([]string(nil), command[1:]...), method)
+		cmd := exec.CommandContext(ctx, command[0], arguments...) //nolint:gosec // the unit's configured command.
+		cmd.Env = options.Environ
+		cmd.Stdin = &stdin
+		cmd.Stdout = &stdout
+		cmd.WaitDelay = time.Second
+		if err := cmd.Run(); err != nil {
+			return nil, fmt.Errorf("box: the service command failed: %w", err)
+		}
+		answer, err := readJSON(&stdout)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("box: the service command must return one JSON value: %w", err)
+		}
+		return cborx.Marshal(answer)
 	}
 }
 
@@ -138,6 +143,9 @@ func serveHostService(ctx context.Context, options Options, service *hostv1.Host
 		err := registerOnce(ctx, options, service, handler)
 		if ctx.Err() != nil {
 			return nil
+		}
+		if code := connect.CodeOf(err); code == connect.CodeInvalidArgument || code == connect.CodePermissionDenied {
+			return err
 		}
 		options.logf("box: %s is not registered: %v", service.GetName(), err)
 
@@ -154,84 +162,104 @@ func serveHostService(ctx context.Context, options Options, service *hostv1.Host
 
 // registerOnce registers a service for the life of one stream.
 func registerOnce(ctx context.Context, options Options, service *hostv1.HostService, handler handlerFunc) error {
-	client, err := agent.Dial(options.Socket)
+	client, err := dial(options)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = client.Close() }()
 
+	ctx, cancel := context.WithCancel(ctx)
 	stream := client.HostCalls.Register(ctx)
 	if err := stream.Send(&hostv1.HostCallServiceRegisterRequest{
 		Message: &hostv1.HostCallServiceRegisterRequest_Service{Service: service},
-	}); err != nil {
+	}); err != nil && !errors.Is(err, io.EOF) {
+		cancel()
+		_ = stream.CloseRequest()
+		_ = stream.CloseResponse()
 		return err
+	}
+	var calls sync.WaitGroup
+	var sendMu sync.Mutex
+	var pendingMu sync.Mutex
+	pending := make(map[string]context.CancelFunc)
+	requestClosed := make(chan struct{})
+	// The HTTP/2 reader can remain blocked until the request body closes.
+	// Serialize CloseRequest with sends, and wait for both sides before returning.
+	stop := context.AfterFunc(ctx, func() {
+		sendMu.Lock()
+		defer sendMu.Unlock()
+		defer close(requestClosed)
+		_ = stream.CloseRequest()
+	})
+	defer func() {
+		cancel()
+		if stop() {
+			sendMu.Lock()
+			_ = stream.CloseRequest()
+			sendMu.Unlock()
+		} else {
+			<-requestClosed
+		}
+		calls.Wait()
+		_ = stream.CloseResponse()
+	}()
+
+	message, err := stream.Receive()
+	if err != nil {
+		return err
+	}
+	if !message.GetRegistered() {
+		return errors.New("box: the daemon did not acknowledge the service")
 	}
 	options.logf("box: %s is registered", service.GetName())
 
-	// The messages are read in a goroutine so that the daemon going away ends
-	// this: connect's Receive can stay blocked after the call's context is
-	// canceled while the request's own body is still open, and closing it is what
-	// ends the read.
-	// A call's handler may take a while, and a stream has one sender, so the
-	// answers queue on a lock of their own.
-	var (
-		calls   sync.WaitGroup
-		sendMux sync.Mutex
-	)
-
-	received := make(chan *hostv1.HostCallServiceRegisterResponse, 16)
-	receiveErr := make(chan error, 1)
-	go func() {
-		for {
-			message, err := stream.Receive()
-			if err != nil {
-				receiveErr <- err
-				return
-			}
-			select {
-			case received <- message:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
 	for {
-		select {
-		case <-ctx.Done():
-			_ = stream.CloseRequest()
-			_ = stream.CloseResponse()
-			calls.Wait()
-			return nil
-		case err := <-receiveErr:
-			if ctx.Err() != nil {
-				return nil
-			}
+		message, err := stream.Receive()
+		if err != nil {
 			return err
-		case message := <-received:
-			call := message.GetRequest()
-			if call == nil {
-				continue
+		}
+		if id := message.GetCancelCallId(); id != "" {
+			pendingMu.Lock()
+			interrupt := pending[id]
+			pendingMu.Unlock()
+			if interrupt != nil {
+				interrupt()
 			}
-			// Calls run at once: a paused desktop holds its own screenshot while
-			// the resume that ends the pause arrives as another call. A stream
-			// has one sender, so the answers take a turn.
-			calls.Add(1)
-			go func(call *hostv1.HostCallRequest) {
-				defer calls.Done()
+			continue
+		}
+		if call := message.GetRequest(); call != nil {
+			callCtx, finish := context.WithCancel(ctx)
+			pendingMu.Lock()
+			pending[call.GetId()] = finish
+			pendingMu.Unlock()
+			calls.Go(func() {
+				defer func() {
+					finish()
+					pendingMu.Lock()
+					delete(pending, call.GetId())
+					pendingMu.Unlock()
+				}()
 				answer := &hostv1.HostCallResult{Id: call.GetId()}
-				result, callErr := handler(ctx, call.GetMethod(), call.GetArgsCbor())
-				if callErr != nil {
-					answer.Error = callErr.Error()
+				result, err := handler(callCtx, call.GetMethod(), call.GetArgsCbor())
+				if callCtx.Err() != nil {
+					return
+				}
+				if err != nil {
+					answer.Error = err.Error()
 				} else {
 					answer.ResultCbor = result
 				}
-				sendMux.Lock()
-				defer sendMux.Unlock()
-				_ = stream.Send(&hostv1.HostCallServiceRegisterRequest{
+				sendMu.Lock()
+				defer sendMu.Unlock()
+				if callCtx.Err() != nil {
+					return
+				}
+				if err := stream.Send(&hostv1.HostCallServiceRegisterRequest{
 					Message: &hostv1.HostCallServiceRegisterRequest_Result{Result: answer},
-				})
-			}(call)
+				}); err != nil {
+					cancel()
+				}
+			})
 		}
 	}
 }

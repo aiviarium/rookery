@@ -50,6 +50,12 @@ message HostCallServiceRegisterResponse {
   oneof message {
     // A call for the provider to run.
     HostCallRequest request = 1;
+
+    // The daemon acknowledged the registration.
+    bool registered = 2;
+
+    // The original caller ended its request, so the provider can stop the call.
+    string cancel_call_id = 3;
   }
 }
 

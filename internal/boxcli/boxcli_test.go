@@ -36,6 +36,7 @@ func startDaemon(t *testing.T, configure func(*agent.Config)) *daemon {
 		ChannelDB:      filepath.Join(dir, "channel.db"),
 		ActionsPath:    filepath.Join(dir, "actions.json"),
 		DesktopEnvPath: filepath.Join(dir, "desktop.env"),
+		SecretsDir:     filepath.Join(dir, "secrets"),
 		Log:            slog.New(slog.DiscardHandler),
 	}
 	if configure != nil {
@@ -67,15 +68,13 @@ func startDaemon(t *testing.T, configure func(*agent.Config)) *daemon {
 // options is what a test runs box with.
 func (d *daemon) options(stdout, stderr *lockedBuffer) boxcli.Options {
 	return boxcli.Options{
-		Socket:         d.socket,
-		SecretsDir:     filepath.Join(d.dir, "secrets"),
-		DesktopEnvPath: filepath.Join(d.dir, "desktop.env"),
-		BoxDir:         filepath.Join(d.dir, "box"),
-		Version:        "test",
-		Environ:        []string{"PATH=" + os.Getenv("PATH"), "SHELL=/bin/sh"},
-		Stdin:          strings.NewReader(""),
-		Stdout:         stdout,
-		Stderr:         stderr,
+		Socket:  d.socket,
+		BoxDir:  filepath.Join(d.dir, "box"),
+		Version: "test",
+		Environ: []string{"PATH=" + os.Getenv("PATH"), "SHELL=/bin/sh"},
+		Stdin:   strings.NewReader(""),
+		Stdout:  stdout,
+		Stderr:  stderr,
 	}
 }
 
@@ -268,7 +267,7 @@ func TestHostService(t *testing.T) {
 
 	dir := t.TempDir()
 	command := filepath.Join(dir, "echo")
-	writeScript(t, command, "#!/bin/sh\ncat\n")
+	writeScript(t, command, "#!/bin/sh\nread -r payload\nprintf '%s\\n' \"$payload\"\n")
 
 	daemon := startDaemon(t, nil)
 	out, errOut := &lockedBuffer{}, &lockedBuffer{}
@@ -343,18 +342,31 @@ func TestSecret(t *testing.T) {
 	if _, _, err := daemon.run(t, "secret", "not-there"); err == nil {
 		t.Error("a missing secret was printed")
 	}
+	public := filepath.Join(daemon.dir, "secrets", "not_private")
+	if err := os.WriteFile(public, []byte("not granted"), 0o644); err != nil { //nolint:gosec // an intentionally unreadable grant.
+		t.Fatal(err)
+	}
+	if _, _, err := daemon.run(t, "secret", "not_private"); err == nil {
+		t.Error("a file with group or other permissions was printed")
+	}
 }
 
 func TestExec(t *testing.T) {
 	t.Parallel()
 
-	daemon := startDaemon(t, nil)
+	current, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	daemon := startDaemon(t, func(config *agent.Config) { config.DesktopUser = current.Username })
+	path := t.TempDir()
+	writeScript(t, filepath.Join(path, "desktop-command"), "#!/bin/sh\nprintf '%s' \"$DISPLAY\"\n")
 	if err := os.WriteFile(filepath.Join(daemon.dir, "desktop.env"),
-		[]byte("DISPLAY=\":1\"\nXAUTHORITY=/home/dev/.Xauthority\n"), 0o600); err != nil {
+		[]byte("DISPLAY=\":1\"\nXAUTHORITY=/home/dev/.Xauthority\nPATH="+path+"\n"), 0o600); err != nil {
 		t.Fatalf("writing the desktop's environment: %v", err)
 	}
 
-	stdout, _, err := daemon.run(t, "exec", "/bin/sh", "-c", `printf '%s' "$DISPLAY"`)
+	stdout, _, err := daemon.run(t, "exec", "desktop-command")
 	if err != nil {
 		t.Fatalf("exec: %v", err)
 	}

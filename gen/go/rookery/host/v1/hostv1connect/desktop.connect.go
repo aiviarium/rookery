@@ -60,6 +60,9 @@ const (
 	DesktopServiceResumeProcedure = "/rookery.host.v1.DesktopService/Resume"
 	// DesktopServiceStateProcedure is the fully-qualified name of the DesktopService's State RPC.
 	DesktopServiceStateProcedure = "/rookery.host.v1.DesktopService/State"
+	// DesktopServiceEnvironmentProcedure is the fully-qualified name of the DesktopService's
+	// Environment RPC.
+	DesktopServiceEnvironmentProcedure = "/rookery.host.v1.DesktopService/Environment"
 )
 
 // DesktopServiceClient is a client for the rookery.host.v1.DesktopService service.
@@ -79,6 +82,9 @@ type DesktopServiceClient interface {
 	Resume(context.Context, *connect.Request[v1.DesktopServiceResumeRequest]) (*connect.Response[v1.DesktopServiceResumeResponse], error)
 	// State says whether a desktop provider answers, and what the screen is.
 	State(context.Context, *connect.Request[v1.DesktopServiceStateRequest]) (*connect.Response[v1.DesktopServiceStateResponse], error)
+	// Environment returns the desktop environment for programs such as box exec.
+	// A host without a desktop environment returns an empty map.
+	Environment(context.Context, *connect.Request[v1.DesktopServiceEnvironmentRequest]) (*connect.Response[v1.DesktopServiceEnvironmentResponse], error)
 }
 
 // NewDesktopServiceClient constructs a client for the rookery.host.v1.DesktopService service. By
@@ -134,6 +140,12 @@ func NewDesktopServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(desktopServiceMethods.ByName("State")),
 			connect.WithClientOptions(opts...),
 		),
+		environment: connect.NewClient[v1.DesktopServiceEnvironmentRequest, v1.DesktopServiceEnvironmentResponse](
+			httpClient,
+			baseURL+DesktopServiceEnvironmentProcedure,
+			connect.WithSchema(desktopServiceMethods.ByName("Environment")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -146,6 +158,7 @@ type desktopServiceClient struct {
 	pause        *connect.Client[v1.DesktopServicePauseRequest, v1.DesktopServicePauseResponse]
 	resume       *connect.Client[v1.DesktopServiceResumeRequest, v1.DesktopServiceResumeResponse]
 	state        *connect.Client[v1.DesktopServiceStateRequest, v1.DesktopServiceStateResponse]
+	environment  *connect.Client[v1.DesktopServiceEnvironmentRequest, v1.DesktopServiceEnvironmentResponse]
 }
 
 // Screenshot calls rookery.host.v1.DesktopService.Screenshot.
@@ -183,6 +196,11 @@ func (c *desktopServiceClient) State(ctx context.Context, req *connect.Request[v
 	return c.state.CallUnary(ctx, req)
 }
 
+// Environment calls rookery.host.v1.DesktopService.Environment.
+func (c *desktopServiceClient) Environment(ctx context.Context, req *connect.Request[v1.DesktopServiceEnvironmentRequest]) (*connect.Response[v1.DesktopServiceEnvironmentResponse], error) {
+	return c.environment.CallUnary(ctx, req)
+}
+
 // DesktopServiceHandler is an implementation of the rookery.host.v1.DesktopService service.
 type DesktopServiceHandler interface {
 	// Screenshot returns the screen as a PNG, scaled when a size is given.
@@ -200,6 +218,9 @@ type DesktopServiceHandler interface {
 	Resume(context.Context, *connect.Request[v1.DesktopServiceResumeRequest]) (*connect.Response[v1.DesktopServiceResumeResponse], error)
 	// State says whether a desktop provider answers, and what the screen is.
 	State(context.Context, *connect.Request[v1.DesktopServiceStateRequest]) (*connect.Response[v1.DesktopServiceStateResponse], error)
+	// Environment returns the desktop environment for programs such as box exec.
+	// A host without a desktop environment returns an empty map.
+	Environment(context.Context, *connect.Request[v1.DesktopServiceEnvironmentRequest]) (*connect.Response[v1.DesktopServiceEnvironmentResponse], error)
 }
 
 // NewDesktopServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -251,6 +272,12 @@ func NewDesktopServiceHandler(svc DesktopServiceHandler, opts ...connect.Handler
 		connect.WithSchema(desktopServiceMethods.ByName("State")),
 		connect.WithHandlerOptions(opts...),
 	)
+	desktopServiceEnvironmentHandler := connect.NewUnaryHandler(
+		DesktopServiceEnvironmentProcedure,
+		svc.Environment,
+		connect.WithSchema(desktopServiceMethods.ByName("Environment")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/rookery.host.v1.DesktopService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case DesktopServiceScreenshotProcedure:
@@ -267,6 +294,8 @@ func NewDesktopServiceHandler(svc DesktopServiceHandler, opts ...connect.Handler
 			desktopServiceResumeHandler.ServeHTTP(w, r)
 		case DesktopServiceStateProcedure:
 			desktopServiceStateHandler.ServeHTTP(w, r)
+		case DesktopServiceEnvironmentProcedure:
+			desktopServiceEnvironmentHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -302,4 +331,8 @@ func (UnimplementedDesktopServiceHandler) Resume(context.Context, *connect.Reque
 
 func (UnimplementedDesktopServiceHandler) State(context.Context, *connect.Request[v1.DesktopServiceStateRequest]) (*connect.Response[v1.DesktopServiceStateResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.host.v1.DesktopService.State is not implemented"))
+}
+
+func (UnimplementedDesktopServiceHandler) Environment(context.Context, *connect.Request[v1.DesktopServiceEnvironmentRequest]) (*connect.Response[v1.DesktopServiceEnvironmentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.host.v1.DesktopService.Environment is not implemented"))
 }

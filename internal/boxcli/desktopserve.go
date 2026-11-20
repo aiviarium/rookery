@@ -21,24 +21,15 @@ import (
 // The desktop role's systemd user unit runs it inside the desktop session, with
 // the desktop environment in its environment.
 func runDesktopServe(ctx context.Context, options Options, args []string) error {
-	display := ""
-	rest := make([]string, 0, len(args))
-	for i := 0; i < len(args); i++ {
-		switch {
-		case args[i] == "--display" && i+1 < len(args):
-			display = args[i+1]
-			i++
-		case len(args[i]) > len("--display=") && args[i][:len("--display=")] == "--display=":
-			display = args[i][len("--display="):]
-		default:
-			rest = append(rest, args[i])
-		}
+	display, rest, err := takeFlag(args, "--display")
+	if err != nil {
+		return err
 	}
 	if len(rest) != 0 {
 		return usage("usage: box desktop serve [--display :N]")
 	}
 	if display == "" {
-		display = os.Getenv("DISPLAY")
+		display = environmentValue(options.Environ, "DISPLAY")
 	}
 	if display == "" {
 		return usage("box desktop serve: there is no DISPLAY, and no --display")
@@ -78,7 +69,6 @@ type desktopProvider struct {
 	conn *x11.Conn
 	user string
 
-	paused   bool
 	resumed  chan struct{}
 	pauseMux sync.Mutex
 }
@@ -99,7 +89,10 @@ func (p *desktopProvider) handle(ctx context.Context, method string, args []byte
 		if err != nil {
 			return nil, err
 		}
-		picture = x11.Scale(picture, int(request.Width), int(request.Height))
+		picture, err = x11.Scale(picture, request.Width, request.Height)
+		if err != nil {
+			return nil, err
+		}
 
 		var encoded bytes.Buffer
 		if err := png.Encode(&encoded, picture); err != nil {
@@ -154,13 +147,16 @@ func (p *desktopProvider) handle(ctx context.Context, method string, args []byte
 		return nil, nil
 
 	case agent.DesktopMethodState:
-		width, height := p.conn.Size()
+		width, height, err := p.conn.Size(ctx)
+		if err != nil {
+			return nil, err
+		}
 		return cborx.Marshal(&agent.DesktopStateResult{
 			Paused:  p.isPaused(),
 			Display: p.conn.Display(),
 			User:    p.user,
-			Width:   uint32(width),  //nolint:gosec // a screen is not negative.
-			Height:  uint32(height), //nolint:gosec // a screen is not negative.
+			Width:   uint32(width),
+			Height:  uint32(height),
 		})
 
 	default:
@@ -210,7 +206,7 @@ func decodeArgs(args []byte, into any) error {
 // wait holds callers while the desktop is paused, until Resume or the call's end.
 func (p *desktopProvider) wait(ctx context.Context) error {
 	p.pauseMux.Lock()
-	for p.paused {
+	for p.resumed != nil {
 		resumed := p.resumed
 		p.pauseMux.Unlock()
 		select {
@@ -227,25 +223,23 @@ func (p *desktopProvider) wait(ctx context.Context) error {
 func (p *desktopProvider) pause() {
 	p.pauseMux.Lock()
 	defer p.pauseMux.Unlock()
-	if p.paused {
+	if p.resumed != nil {
 		return
 	}
-	p.paused = true
 	p.resumed = make(chan struct{})
 }
 
 func (p *desktopProvider) resume() {
 	p.pauseMux.Lock()
 	defer p.pauseMux.Unlock()
-	if !p.paused {
-		return
+	if p.resumed != nil {
+		close(p.resumed)
+		p.resumed = nil
 	}
-	p.paused = false
-	close(p.resumed)
 }
 
 func (p *desktopProvider) isPaused() bool {
 	p.pauseMux.Lock()
 	defer p.pauseMux.Unlock()
-	return p.paused
+	return p.resumed != nil
 }

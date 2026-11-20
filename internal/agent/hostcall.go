@@ -35,9 +35,11 @@ type hostService struct {
 	calls chan *hostv1.HostCallRequest
 	// done ends the service's stream. It is closed once when the provider goes
 	// away, and a call selects on it rather than send on a closed channel.
-	done    chan struct{}
-	once    sync.Once
-	waiting map[string]chan *hostv1.HostCallResult
+	done             chan struct{}
+	once             sync.Once
+	waiting          map[string]chan *hostv1.HostCallResult
+	cancelled        []string
+	hasCancellations chan struct{}
 }
 
 func newHostCallRegistry() *hostCallRegistry {
@@ -83,10 +85,11 @@ func (r *hostCallRegistry) register(info *hostv1.HostService) (*hostService, err
 	}
 
 	service := &hostService{
-		info:    info,
-		calls:   make(chan *hostv1.HostCallRequest, 64),
-		done:    make(chan struct{}),
-		waiting: make(map[string]chan *hostv1.HostCallResult),
+		info:             info,
+		calls:            make(chan *hostv1.HostCallRequest, 64),
+		done:             make(chan struct{}),
+		waiting:          make(map[string]chan *hostv1.HostCallResult),
+		hasCancellations: make(chan struct{}, 1),
 	}
 	r.services[info.GetName()] = service
 	return service, nil
@@ -143,11 +146,7 @@ func (r *hostCallRegistry) call(ctx context.Context, name, method string, args [
 	service.waiting[id] = waiting
 	r.mu.Unlock()
 
-	defer func() {
-		r.mu.Lock()
-		delete(service.waiting, id)
-		r.mu.Unlock()
-	}()
+	defer r.finishCall(ctx, service, id)
 
 	call := &hostv1.HostCallRequest{Id: id, Method: method, ArgsCbor: args}
 	select {
@@ -168,6 +167,36 @@ func (r *hostCallRegistry) call(ctx context.Context, name, method string, args [
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+}
+
+// finishCall releases the waiter and notifies the provider if work is still
+// outstanding. The wake-up is buffered so a canceled caller need not wait for
+// the provider to read another message.
+func (r *hostCallRegistry) finishCall(ctx context.Context, service *hostService, id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, pending := service.waiting[id]; pending && ctx.Err() != nil {
+		service.cancelled = append(service.cancelled, id)
+		select {
+		case service.hasCancellations <- struct{}{}:
+		default:
+		}
+	}
+	delete(service.waiting, id)
+}
+
+func (r *hostCallRegistry) pending(service *hostService, id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return service.waiting[id] != nil
+}
+
+func (r *hostCallRegistry) takeCancellations(service *hostService) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ids := service.cancelled
+	service.cancelled = nil
+	return ids
 }
 
 // hasMethod says whether a service declares a method.
@@ -210,6 +239,11 @@ func (h *hostCallService) Register(ctx context.Context, stream *connect.BidiStre
 		return toConnect(err)
 	}
 	defer h.server.registry.unregister(service)
+	if err := stream.Send(&hostv1.HostCallServiceRegisterResponse{
+		Message: &hostv1.HostCallServiceRegisterResponse_Registered{Registered: true},
+	}); err != nil {
+		return err
+	}
 	h.server.log.InfoContext(ctx, "a host service registered",
 		"service", service.info.GetName(), "methods", service.info.GetMethods())
 
@@ -219,7 +253,7 @@ func (h *hostCallService) Register(ctx context.Context, stream *connect.BidiStre
 	stop := context.AfterFunc(groupCtx, func() { streamio.InterruptReads(groupCtx) })
 	defer stop()
 
-	group.Go(func() error { return sendHostCalls(stream, service, groupCtx.Done()) })
+	group.Go(func() error { return sendHostCalls(groupCtx, stream, h.server.registry, service) })
 	group.Go(func() error {
 		defer cancel()
 		return receiveHostResults(groupCtx, stream, h.server.registry, service)
@@ -228,14 +262,25 @@ func (h *hostCallService) Register(ctx context.Context, stream *connect.BidiStre
 }
 
 // sendHostCalls passes the registry's calls to the provider.
-func sendHostCalls(stream *connect.BidiStream[hostv1.HostCallServiceRegisterRequest, hostv1.HostCallServiceRegisterResponse], service *hostService, stop <-chan struct{}) error {
+func sendHostCalls(ctx context.Context, stream *connect.BidiStream[hostv1.HostCallServiceRegisterRequest, hostv1.HostCallServiceRegisterResponse], registry *hostCallRegistry, service *hostService) error {
 	for {
 		select {
-		case <-stop:
+		case <-ctx.Done():
 			return nil
 		case <-service.done:
 			return nil
+		case <-service.hasCancellations:
+			for _, id := range registry.takeCancellations(service) {
+				if err := stream.Send(&hostv1.HostCallServiceRegisterResponse{
+					Message: &hostv1.HostCallServiceRegisterResponse_CancelCallId{CancelCallId: id},
+				}); err != nil {
+					return err
+				}
+			}
 		case call := <-service.calls:
+			if !registry.pending(service, call.GetId()) {
+				continue
+			}
 			if err := stream.Send(&hostv1.HostCallServiceRegisterResponse{
 				Message: &hostv1.HostCallServiceRegisterResponse_Request{Request: call},
 			}); err != nil {

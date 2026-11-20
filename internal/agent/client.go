@@ -32,6 +32,7 @@ type Client struct {
 	HostCalls hostv1connect.HostCallServiceClient
 	Actions   hostv1connect.ActionServiceClient
 	Desktop   hostv1connect.DesktopServiceClient
+	Secrets   hostv1connect.SecretServiceClient
 }
 
 // Dial makes a client for a socket. It checks that the socket is there, so a
@@ -78,6 +79,7 @@ func NewClient(httpClient *http.Client, transport *http.Transport) *Client {
 		HostCalls: hostv1connect.NewHostCallServiceClient(httpClient, baseURL, options...),
 		Actions:   hostv1connect.NewActionServiceClient(httpClient, baseURL, options...),
 		Desktop:   hostv1connect.NewDesktopServiceClient(httpClient, baseURL, options...),
+		Secrets:   hostv1connect.NewSecretServiceClient(httpClient, baseURL, options...),
 	}
 }
 

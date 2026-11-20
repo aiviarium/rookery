@@ -17,7 +17,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aiviarium/rookery/internal/agent"
 )
@@ -26,8 +28,6 @@ import (
 const (
 	// SocketPath is rookeryd's socket for local programs.
 	SocketPath = agent.UserSocketPath
-	// SecretsDir is where the apply writes the host's secrets.
-	SecretsDir = "/etc/rookery/secrets" //nolint:gosec // a directory, not a credential.
 	// BoxDir is where features install their `box <name>` commands.
 	BoxDir = "/usr/lib/rookery/box"
 )
@@ -37,12 +37,6 @@ const (
 type Options struct {
 	// Socket is rookeryd's socket for local programs.
 	Socket string
-
-	// SecretsDir is where the host's secrets are.
-	SecretsDir string
-
-	// DesktopEnvPath is the desktop's environment, which exec uses.
-	DesktopEnvPath string
 
 	// BoxDir is where a feature's `box-<name>` commands are.
 	BoxDir string
@@ -67,12 +61,6 @@ type Options struct {
 func (o Options) withDefaults() Options {
 	if o.Socket == "" {
 		o.Socket = SocketPath
-	}
-	if o.SecretsDir == "" {
-		o.SecretsDir = SecretsDir
-	}
-	if o.DesktopEnvPath == "" {
-		o.DesktopEnvPath = agent.DesktopEnvPath
 	}
 	if o.BoxDir == "" {
 		o.BoxDir = BoxDir
@@ -178,10 +166,79 @@ box is the tool for users and programs on a host. Its commands are:
 
 flags:
   --socket PATH        rookeryd's socket for local programs
-  --secrets PATH       where the host's secrets are
-  --desktop-env PATH   the desktop's environment
   --box-dir PATH       where a feature's box-<name> commands are
 `
+}
+
+func readJSON(reader io.Reader) (any, error) {
+	decoder := json.NewDecoder(reader)
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return nil, errors.New("expected a single JSON value")
+	}
+	return numbersToGo(value), nil
+}
+
+// numbersToGo turns JSON's numbers into the Go types CBOR has: integers stay
+// integers.
+func numbersToGo(value any) any {
+	switch typed := value.(type) {
+	case json.Number:
+		if integer, err := typed.Int64(); err == nil {
+			return integer
+		}
+		if unsigned, err := strconv.ParseUint(typed.String(), 10, 64); err == nil {
+			return unsigned
+		}
+		if number, err := typed.Float64(); err == nil {
+			return number
+		}
+		return typed.String()
+	case []any:
+		for i, item := range typed {
+			typed[i] = numbersToGo(item)
+		}
+		return typed
+	case map[string]any:
+		for key, item := range typed {
+			typed[key] = numbersToGo(item)
+		}
+		return typed
+	default:
+		return value
+	}
+}
+
+// jsonable turns a decoded CBOR value into one JSON can write: CBOR's maps have
+// keys of any type and JSON's are strings, and times become RFC 3339.
+func jsonable(value any) any {
+	switch typed := value.(type) {
+	case map[any]any:
+		object := make(map[string]any, len(typed))
+		for key, item := range typed {
+			object[fmt.Sprint(key)] = jsonable(item)
+		}
+		return object
+	case map[string]any:
+		for key, item := range typed {
+			typed[key] = jsonable(item)
+		}
+		return typed
+	case []any:
+		for i, item := range typed {
+			typed[i] = jsonable(item)
+		}
+		return typed
+	case time.Time:
+		return typed.UTC().Format(time.RFC3339Nano)
+	default:
+		return value
+	}
 }
 
 // writeJSON writes a value as one JSON line, which is what box prints.

@@ -389,6 +389,10 @@ func TestHostCallRoutesToARegisteredProvider(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	ack, err := provider.Receive()
+	if err != nil || !ack.GetRegistered() {
+		t.Fatalf("registration: %v %v", ack, err)
+	}
 	answered := make(chan error, 1)
 	go func() {
 		message, err := provider.Receive()

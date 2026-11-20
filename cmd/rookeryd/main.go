@@ -86,6 +86,8 @@ func serve(ctx context.Context, args []string) error {
 		"the file of user actions the apply writes")
 	desktopEnv := flags.String("desktop-env", envOr("ROOKERYD_DESKTOP_ENV", agent.DesktopEnvPath),
 		"the desktop's environment file")
+	secrets := flags.String("secrets", envOr("ROOKERYD_SECRETS_DIR", agent.SecretsDir),
+		"the directory of local accounts' secret grants")
 	operator := flags.String("operator", envOr("ROOKERYD_OPERATOR", agent.DefaultOperator),
 		"the account operator actions run as")
 	desktopUser := flags.String("desktop-user", envOr("ROOKERYD_DESKTOP_USER", agent.DefaultDesktopUser),
@@ -108,6 +110,7 @@ func serve(ctx context.Context, args []string) error {
 		ChannelDB:      *channelDB,
 		ActionsPath:    *actions,
 		DesktopEnvPath: *desktopEnv,
+		SecretsDir:     *secrets,
 		Operator:       *operator,
 		DesktopUser:    *desktopUser,
 		Log:            logger,
