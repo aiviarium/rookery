@@ -1,15 +1,14 @@
 // ServerService is what a plugin process calls on the server's Unix socket,
 // with ROOKERY_PLUGIN_TOKEN as its credential.
 //
-// The rest of the service (events, topics, leases, its own kv and secrets, the
-// jobs it works) arrives with the plugin system. DialNode is here because a
-// provisioner needs it: an engine on a managed host has a Unix socket on that
-// host, and the provisioner reaches it through the server, which already has the
-// link to the host.
-
 syntax = "proto3";
 
 package rookery.plugin.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+import "rookery/v1/job.proto";
+import "rookery/v1/topic.proto";
 
 option go_package = "github.com/aiviarium/rookery/gen/go/rookery/plugin/v1;pluginv1";
 
@@ -55,16 +54,206 @@ message ServerServiceSendNotificationResponse {
   string id = 1;
 }
 
+message ServerServiceGetSecretRequest {
+  string name = 1;
+}
+
+message ServerServiceGetSecretResponse {
+  bytes value = 1;
+}
+
+message ServerServiceGetSettingRequest {
+  string name = 1;
+}
+
+message ServerServiceGetSettingResponse {
+  bytes value_cbor = 1;
+  string scope = 2;
+}
+
+message ServerServiceGetKVRequest {
+  string key = 1;
+}
+
+message ServerServiceGetKVResponse {
+  bytes value_cbor = 1;
+  int64 revision = 2;
+}
+
+message ServerServiceSetKVRequest {
+  string key = 1;
+  bytes value_cbor = 2;
+  // Omit for an unconditional write. Zero inserts only if absent.
+  optional int64 expected_revision = 3;
+}
+
+message ServerServiceSetKVResponse {
+  int64 revision = 1;
+}
+
+message ServerServicePublishTopicRequest {
+  string topic = 1;
+  bytes payload_cbor = 2;
+}
+
+message ServerServicePublishTopicResponse {
+  int64 id = 1;
+}
+
+message ServerServiceSubscribeTopicRequest {
+  string topic = 1;
+  string consumer = 2;
+}
+
+message ServerServiceSubscribeTopicResponse {
+  rookery.v1.TopicMessage message = 1;
+}
+
+message ServerServiceAckTopicRequest {
+  string topic = 1;
+  string consumer = 2;
+  int64 id = 3;
+}
+
+message ServerServiceAckTopicResponse {}
+
+message ServerServiceNackTopicRequest {
+  string topic = 1;
+  string consumer = 2;
+  int64 id = 3;
+  uint32 delay_seconds = 4;
+  string error = 5;
+}
+
+message ServerServiceNackTopicResponse {}
+
+message ServerServiceAcquireLeaseRequest {
+  string name = 1;
+  string holder = 2;
+  uint32 ttl_seconds = 3;
+}
+
+message ServerServiceAcquireLeaseResponse {
+  int64 fencing = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message ServerServiceRenewLeaseRequest {
+  string name = 1;
+  string holder = 2;
+  int64 fencing = 3;
+  uint32 ttl_seconds = 4;
+}
+
+message ServerServiceRenewLeaseResponse {}
+
+message ServerServiceReleaseLeaseRequest {
+  string name = 1;
+  string holder = 2;
+  int64 fencing = 3;
+}
+
+message ServerServiceReleaseLeaseResponse {}
+
+message ServerServiceWorkRequest {
+  // Local names of declared job kinds. Omit to accept every declared kind.
+  repeated string kinds = 1;
+}
+
+message ServerServiceWorkResponse {
+  rookery.v1.Job job = 1;
+  string claim_token = 2;
+  google.protobuf.Timestamp deadline = 3;
+  string caller_token = 4;
+}
+
+message ServerServiceReportWorkRequest {
+  string job_id = 1;
+  string claim_token = 2;
+  oneof report {
+    bool heartbeat = 3;
+    string line = 4;
+    bytes progress_cbor = 5;
+    bytes result_cbor = 6;
+    string error = 7;
+  }
+}
+
+message ServerServiceReportWorkResponse {}
+
+message ServerServiceRegisterEntityRequest {
+  // Entity URIs are entity://<plugin>/<id>.
+  string uri = 1;
+  string kind = 2;
+  string title = 3;
+  string text = 4;
+  // Access is the resource whose grants apply. Omit to use the plugin.
+  string access = 5;
+  repeated float embedding = 6;
+}
+
+message ServerServiceRegisterEntityResponse {}
+
+message ServerServiceDatabaseCredentialsRequest {}
+
+message ServerServiceDatabaseCredentialsResponse {
+  string dsn = 1;
+}
+
 // ServerService is the server's socket, as a plugin sees it.
 service ServerService {
-  // Publish sends an event to whoever hears the plugin's events.
-  rpc Publish(ServerServicePublishRequest) returns (ServerServicePublishResponse);
-
-  // SendNotification tells one user something.
-  rpc SendNotification(ServerServiceSendNotificationRequest) returns (ServerServiceSendNotificationResponse);
-
-  // DialNode carries bytes to a port on a managed host's loopback or to a Unix
-  // socket there, through the server's link to the host. It is how a provisioner
-  // on the server reaches a Docker or Incus socket on a node.
-  rpc DialNode(stream ServerServiceDialNodeRequest) returns (stream ServerServiceDialNodeResponse);
+  rpc GetSecret(ServerServiceGetSecretRequest) returns (ServerServiceGetSecretResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+  rpc GetSetting(ServerServiceGetSettingRequest) returns (ServerServiceGetSettingResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+  rpc GetKV(ServerServiceGetKVRequest) returns (ServerServiceGetKVResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+  rpc SetKV(ServerServiceSetKVRequest) returns (ServerServiceSetKVResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+  rpc Publish(ServerServicePublishRequest) returns (ServerServicePublishResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+  rpc PublishTopic(ServerServicePublishTopicRequest) returns (ServerServicePublishTopicResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+  rpc SubscribeTopic(ServerServiceSubscribeTopicRequest) returns (stream ServerServiceSubscribeTopicResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+  rpc AckTopic(ServerServiceAckTopicRequest) returns (ServerServiceAckTopicResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+  rpc NackTopic(ServerServiceNackTopicRequest) returns (ServerServiceNackTopicResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+  rpc AcquireLease(ServerServiceAcquireLeaseRequest) returns (ServerServiceAcquireLeaseResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+  rpc RenewLease(ServerServiceRenewLeaseRequest) returns (ServerServiceRenewLeaseResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+  rpc ReleaseLease(ServerServiceReleaseLeaseRequest) returns (ServerServiceReleaseLeaseResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+  rpc Work(ServerServiceWorkRequest) returns (stream ServerServiceWorkResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+  rpc ReportWork(ServerServiceReportWorkRequest) returns (ServerServiceReportWorkResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+  rpc SendNotification(ServerServiceSendNotificationRequest) returns (ServerServiceSendNotificationResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+  rpc RegisterEntity(ServerServiceRegisterEntityRequest) returns (ServerServiceRegisterEntityResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+  rpc DatabaseCredentials(ServerServiceDatabaseCredentialsRequest) returns (ServerServiceDatabaseCredentialsResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+  rpc DialNode(stream ServerServiceDialNodeRequest) returns (stream ServerServiceDialNodeResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
 }

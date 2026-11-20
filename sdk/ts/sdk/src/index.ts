@@ -18,3 +18,4 @@ export {
   readSecrets,
 } from "./config.ts";
 export { type ServedPlugin, type ServeOptions, servePlugin } from "./serve.ts";
+export { CallerTokenHeader, PluginSocketClient, type Work } from "./server.ts";

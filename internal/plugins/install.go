@@ -20,6 +20,8 @@ import (
 
 	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
 	"github.com/aiviarium/rookery/internal/access"
+	"github.com/aiviarium/rookery/internal/cborx"
+	"github.com/aiviarium/rookery/internal/config"
 	"github.com/aiviarium/rookery/internal/data"
 	"github.com/aiviarium/rookery/internal/jobs"
 	"github.com/aiviarium/rookery/internal/spaces"
@@ -41,7 +43,9 @@ type Options struct {
 	// Data is the datastore, whose declaration a plugin's collections are, and
 	// whose schema a purge drops. Without it a plugin's collections are not
 	// declared, which is the case until the datastore's service is wired.
-	Data *data.Data
+	Data     *data.Data
+	SQL      *data.Data
+	Settings *config.Settings
 	// Jobs is the job kinds, which a plugin adds to.
 	Jobs *jobs.Registry
 	// Schedules makes the schedules a plugin starts with.
@@ -62,6 +66,8 @@ type Installer struct {
 	store     *store.Store
 	stateDir  string
 	data      *data.Data
+	sql       *data.Data
+	settings  *config.Settings
 	jobs      *jobs.Registry
 	schedules *jobs.Schedules
 	spaces    *spaces.Registry
@@ -80,6 +86,8 @@ func NewInstaller(options Options) *Installer {
 		version:   options.Version,
 		stateDir:  options.StateDir,
 		data:      options.Data,
+		sql:       options.SQL,
+		settings:  options.Settings,
 		jobs:      options.Jobs,
 		schedules: options.Schedules,
 		spaces:    options.Spaces,
@@ -218,6 +226,7 @@ func (i *Installer) install(ctx context.Context, packageReader io.Reader, requir
 		return Plugin{}, fmt.Errorf("plugins: recording the plugin's resource: %w", err)
 	}
 
+	i.applySettings(manifest.ID, manifest)
 	i.declareAtRuntime(ctx, manifest)
 	i.logger.Info("installed a plugin", slog.String("plugin", manifest.ID), slog.String("version", manifest.Version))
 	plugin, err := pluginOf(record)
@@ -252,6 +261,11 @@ func (i *Installer) declare(ctx context.Context, manifest *Manifest) error {
 		}
 	}
 
+	if manifest.Database == "sql" && i.sql != nil {
+		if _, err := i.sql.EnsureSQLRole(ctx, manifest.ID); err != nil {
+			return err
+		}
+	}
 	if i.jobs != nil {
 		kinds := make([]jobs.Kind, 0, len(manifest.Jobs))
 		for _, declared := range manifest.Jobs {
@@ -364,6 +378,20 @@ func (i *Installer) Remove(ctx context.Context, id string, purge bool) error {
 	if i.services != nil {
 		i.services.Stop(id)
 	}
+	if purge {
+		if err := i.store.Queries().DeletePluginKV(ctx, id); err != nil {
+			return fmt.Errorf("plugins: dropping private state: %w", err)
+		}
+		if err := i.store.Queries().DeletePluginEntities(ctx, "entity://"+id+"/"); err != nil {
+			return fmt.Errorf("plugins: dropping entities: %w", err)
+		}
+		if i.sql != nil {
+			if err := i.sql.DropSQLRole(ctx, id); err != nil {
+				return err
+			}
+		}
+	}
+	i.applySettings(id, nil)
 	if purge && i.data != nil {
 		if err := i.data.Drop(ctx, id); err != nil {
 			return err
@@ -400,6 +428,16 @@ func (i *Installer) SetEnabled(ctx context.Context, id string, enabled bool) (Pl
 	if err != nil {
 		return Plugin{}, err
 	}
+	if enabled {
+		manifest, err := pluginManifest(plugin)
+		if err != nil {
+			return Plugin{}, err
+		}
+		i.applySettings(id, manifest)
+	} else {
+		i.applySettings(id, nil)
+	}
+
 	if i.services != nil && enabled {
 		if manifest, err := pluginManifest(plugin); err == nil && manifest.Service != nil && manifest.Service.Start != StartLazy {
 			if err := i.services.Start(context.WithoutCancel(ctx), plugin); err != nil {
@@ -678,4 +716,63 @@ func (i *Installer) Webhook(ctx context.Context, pluginID, name string) (Webhook
 		}
 	}
 	return Webhook{}, access.ErrNotFound
+}
+
+// Manifest returns the manifest of an enabled, installed plugin.
+func (i *Installer) Manifest(ctx context.Context, id string) (*Manifest, error) {
+	plugin, err := i.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !plugin.Enabled {
+		return nil, access.ErrNotFound
+	}
+	return pluginManifest(plugin)
+}
+
+func (i *Installer) applySettings(plugin string, manifest *Manifest) {
+	if i.settings == nil {
+		return
+	}
+	var definitions []config.Definition
+	if manifest != nil {
+		for name, setting := range manifest.Settings {
+			value, err := cborx.Marshal(setting.Default)
+			if err != nil {
+				i.logger.Error("encoding a setting default", "plugin", plugin, "setting", name, "error", err.Error())
+				continue
+			}
+			scopes := make([]string, 0, len(setting.Scopes))
+			for _, scope := range setting.Scopes {
+				scopes = append(scopes, string(scope))
+			}
+			definitions = append(definitions, config.Definition{Key: name, Type: string(setting.Type), Default: value, Scopes: scopes})
+		}
+	}
+	i.settings.ReplacePluginDefinitions(plugin, definitions)
+}
+
+// InitSettings resolves the defaults and global values of a plugin.
+func (i *Installer) InitSettings(ctx context.Context, plugin string) ([]byte, error) {
+	manifest, err := i.Manifest(ctx, plugin)
+	if err != nil {
+		return nil, err
+	}
+	values := make(map[string]any, len(manifest.Settings))
+	for name, setting := range manifest.Settings {
+		values[name] = setting.Default
+		if i.settings == nil {
+			continue
+		}
+		value, err := i.settings.Get(ctx, plugin+"/"+name, access.Plugin(plugin), "")
+		if err != nil {
+			return nil, err
+		}
+		var decoded any
+		if err := cborx.Unmarshal(value.Value, &decoded); err != nil {
+			return nil, err
+		}
+		values[name] = decoded
+	}
+	return cborx.Marshal(values)
 }

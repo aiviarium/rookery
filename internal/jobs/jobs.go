@@ -220,6 +220,7 @@ type Job struct {
 	MaxAttempts int
 	Host        string
 	Result      []byte
+	Progress    []byte
 	Err         string
 	CancelAsked bool
 	CreatedAt   time.Time
@@ -241,6 +242,7 @@ func JobOf(record store.RookeryJobs) Job {
 		MaxAttempts: int(record.MaxAttempts),
 		Host:        record.Host,
 		Result:      record.Result,
+		Progress:    record.Progress,
 		Err:         record.Error,
 		CancelAsked: record.CancelRequested,
 	}
@@ -259,17 +261,18 @@ func JobOf(record store.RookeryJobs) Job {
 // Message is a job as the edge API has it.
 func Message(job Job) *rookeryv1.Job {
 	out := &rookeryv1.Job{
-		Id:          job.ID,
-		Kind:        job.Kind,
-		ArgsCbor:    job.Args,
-		Resource:    job.Resource,
-		CreatedBy:   job.CreatedBy,
-		Parent:      job.Parent,
-		State:       string(job.State),
-		Attempts:    int32(min(job.Attempts, math.MaxInt32)),    //nolint:gosec // clamped to int32
-		MaxAttempts: int32(min(job.MaxAttempts, math.MaxInt32)), //nolint:gosec // clamped to int32
-		ResultCbor:  job.Result,
-		Error:       job.Err,
+		Id:           job.ID,
+		Kind:         job.Kind,
+		ArgsCbor:     job.Args,
+		Resource:     job.Resource,
+		CreatedBy:    job.CreatedBy,
+		Parent:       job.Parent,
+		State:        string(job.State),
+		Attempts:     int32(min(job.Attempts, math.MaxInt32)),    //nolint:gosec // clamped to int32
+		MaxAttempts:  int32(min(job.MaxAttempts, math.MaxInt32)), //nolint:gosec // clamped to int32
+		ResultCbor:   job.Result,
+		ProgressCbor: job.Progress,
+		Error:        job.Err,
 	}
 	if !job.CreatedAt.IsZero() {
 		out.CreatedAt = timestamppb.New(job.CreatedAt)

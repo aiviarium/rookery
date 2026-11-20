@@ -124,6 +124,9 @@ func (m *Manifest) Validate() error {
 	if !pluginID.MatchString(m.ID) {
 		return invalid("id %q is not a plugin id: lower-case letters, digits and hyphens", m.ID)
 	}
+	if m.ID == "rookery" {
+		return invalid("rookery is reserved for core resources")
+	}
 	if m.Name == "" {
 		return invalid("the plugin %s has no name", m.ID)
 	}

@@ -34,6 +34,7 @@ message Job {
   google.protobuf.Timestamp created_at = 12;
   google.protobuf.Timestamp started_at = 13;
   google.protobuf.Timestamp finished_at = 14;
+  bytes progress_cbor = 15;
 }
 
 // JobLine is one line of a job's log.

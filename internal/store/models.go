@@ -193,6 +193,8 @@ type RookeryJobs struct {
 	Host            string
 	Claim           *string
 	HeartbeatAt     *time.Time
+	ClaimStartedAt  *time.Time
+	Progress        []byte
 	AvailableAt     time.Time
 	Result          []byte
 	Error           string
@@ -276,6 +278,13 @@ type RookeryNotifications struct {
 	Answers   []byte
 	ReadAt    *time.Time
 	CreatedAt time.Time
+}
+
+type RookeryPluginKv struct {
+	Plugin   string
+	Key      string
+	Value    []byte
+	Revision int64
 }
 
 // The packages installed in this deployment, their manifests and their hashes.

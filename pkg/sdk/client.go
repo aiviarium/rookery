@@ -12,11 +12,15 @@ import (
 
 	pluginv1 "github.com/aiviarium/rookery/gen/go/rookery/plugin/v1"
 	"github.com/aiviarium/rookery/gen/go/rookery/plugin/v1/pluginv1connect"
+	"github.com/aiviarium/rookery/internal/access"
 )
 
 // TokenHeader is where a plugin presents ROOKERY_PLUGIN_TOKEN on the server's
 // socket.
 const TokenHeader = "Authorization"
+
+// CallerTokenHeader is the delegated user credential forwarded to a plugin RPC.
+const CallerTokenHeader = access.CallerTokenHeader
 
 // Client is a plugin's connection to the server's Unix socket.
 type Client struct {
@@ -40,6 +44,38 @@ func NewClient(config Config) (*Client, error) {
 		http:   httpClient,
 		server: pluginv1connect.NewServerServiceClient(httpClient, base, connect.WithGRPC()),
 	}, nil
+}
+
+// Server exposes the generated plugin-only socket calls.
+func (c *Client) Server() pluginv1connect.ServerServiceClient { return c.server }
+
+// AsCaller uses the delegated user of a forwarded plugin request or job.
+func (c *Client) AsCaller(token string) *Client {
+	if token == "" {
+		return c
+	}
+	cloned := *c
+	httpClient := *c.http
+	httpClient.Transport = callerTransport{base: c.http.Transport, token: token}
+	cloned.http = &httpClient
+	cloned.server = pluginv1connect.NewServerServiceClient(cloned.http, c.BaseURL(), connect.WithGRPC())
+	return &cloned
+}
+
+// CoreClient connects a generated edge API client to the authenticated socket.
+func CoreClient[T any](c *Client, create func(connect.HTTPClient, string, ...connect.ClientOption) T) T {
+	return create(c.HTTPClient(), c.BaseURL(), connect.WithGRPC())
+}
+
+type callerTransport struct {
+	base  http.RoundTripper
+	token string
+}
+
+func (c callerTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	cloned := request.Clone(request.Context())
+	cloned.Header.Set(CallerTokenHeader, c.token)
+	return c.base.RoundTrip(cloned)
 }
 
 // Config is the configuration the client was made with.

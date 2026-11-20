@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -58,6 +59,7 @@ func CoreSettings() []Definition {
 // Settings reads and writes setting values.
 type Settings struct {
 	store       *store.Store
+	mu          sync.RWMutex
 	definitions map[string]Definition
 }
 
@@ -73,6 +75,8 @@ func NewSettings(opened *store.Store, definitions ...Definition) *Settings {
 
 // Define adds a setting's definition.
 func (s *Settings) Define(definition Definition) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if definition.Key == "" {
 		return errors.New("config: a setting needs a key")
 	}
@@ -91,6 +95,8 @@ func (s *Settings) Define(definition Definition) error {
 
 // Definitions are the settings this deployment knows.
 func (s *Settings) Definitions() []Definition {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	out := make([]Definition, 0, len(s.definitions))
 	for _, definition := range s.definitions {
 		out = append(out, definition)
@@ -127,7 +133,7 @@ func (v Value) Message() *rookeryv1.Setting {
 
 // Get resolves a setting for a caller and the space it is working in.
 func (s *Settings) Get(ctx context.Context, key string, principal access.Principal, space string) (Value, error) {
-	definition, known := s.definitions[key]
+	definition, known := s.definition(key)
 	if !known {
 		return Value{}, fmt.Errorf("%w: there is no setting %s", access.ErrNotFound, key)
 	}
@@ -146,7 +152,10 @@ func (s *Settings) Get(ctx context.Context, key string, principal access.Princip
 		scope string
 		id    string
 	}
-	lookups := []lookup{{scope: ScopeUser, id: principal.ID}}
+	var lookups []lookup
+	if principal.Kind == access.KindUser {
+		lookups = append(lookups, lookup{scope: ScopeUser, id: principal.ID})
+	}
 	if space != "" {
 		lookups = append(lookups, lookup{scope: ScopeSpace, id: space})
 	}
@@ -177,15 +186,19 @@ func (s *Settings) Get(ctx context.Context, key string, principal access.Princip
 
 // List resolves every setting the deployment knows for a caller.
 func (s *Settings) List(ctx context.Context, principal access.Principal, space string) ([]Value, error) {
-	keys := make([]string, 0, len(s.definitions))
-	for key := range s.definitions {
-		keys = append(keys, key)
+	definitions := s.Definitions()
+	keys := make([]string, 0, len(definitions))
+	for _, definition := range definitions {
+		keys = append(keys, definition.Key)
 	}
 	sortStrings(keys)
 
 	out := make([]Value, 0, len(keys))
 	for _, key := range keys {
 		value, err := s.Get(ctx, key, principal, space)
+		if errors.Is(err, access.ErrNotFound) {
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -197,7 +210,7 @@ func (s *Settings) List(ctx context.Context, principal access.Principal, space s
 // Set writes a setting at a scope. A global value is an admin's, a space's is
 // for whoever manages the space, and a user's is the caller's own.
 func (s *Settings) Set(ctx context.Context, key, scope, space string, value []byte, principal access.Principal, checker *access.Checker) error {
-	definition, known := s.definitions[key]
+	definition, known := s.definition(key)
 	if !known {
 		return fmt.Errorf("%w: there is no setting %s", access.ErrNotFound, key)
 	}
@@ -227,7 +240,7 @@ func (s *Settings) Set(ctx context.Context, key, scope, space string, value []by
 // Reset removes a setting's value at a scope, so the nearer or the default value
 // resolves again.
 func (s *Settings) Reset(ctx context.Context, key, scope, space string, principal access.Principal, checker *access.Checker) error {
-	definition, known := s.definitions[key]
+	definition, known := s.definition(key)
 	if !known {
 		return fmt.Errorf("%w: there is no setting %s", access.ErrNotFound, key)
 	}
@@ -409,4 +422,27 @@ func valueOr(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func (s *Settings) definition(key string) (Definition, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	definition, ok := s.definitions[key]
+	return definition, ok
+}
+
+// ReplacePluginDefinitions refreshes the declarations of one plugin only.
+func (s *Settings) ReplacePluginDefinitions(plugin string, definitions []Definition) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	prefix := plugin + "/"
+	for key := range s.definitions {
+		if strings.HasPrefix(key, prefix) {
+			delete(s.definitions, key)
+		}
+	}
+	for _, definition := range definitions {
+		definition.Key = prefix + definition.Key
+		s.definitions[definition.Key] = definition
+	}
 }

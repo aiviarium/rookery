@@ -5,12 +5,9 @@
 // other. A plugin passes `servePlugin` the router its declared procedures are
 // registered on; a provisioner registers its own service there.
 //
-// On Node the socket speaks HTTP/2, so a gRPC caller reaches it. Bun has no
-// HTTP/2 server, so a plugin running on Bun speaks Connect and gRPC-Web over
-// HTTP/1.1 instead, which a caller that knows the plugin's runtime picks.
-
 import { connectNodeAdapter } from "@connectrpc/connect-node";
-import type { ConnectRouter } from "@connectrpc/connect";
+import { Code, ConnectError, type ConnectRouter, type ServiceImpl } from "@connectrpc/connect";
+import { pluginLifecycle } from "@rookery/proto";
 
 import { pluginConfig } from "./config.ts";
 
@@ -22,10 +19,10 @@ export interface ServeOptions {
    */
   readonly socket?: string;
   /**
-   * http2 serves HTTP/2, which gRPC needs. It is the default on Node and
-   * refused on Bun, which has no HTTP/2 server.
+   * http2 serves HTTP/2, which gRPC needs. It is enabled by default.
    */
   readonly http2?: boolean;
+  readonly lifecycle?: Partial<ServiceImpl<typeof pluginLifecycle.PluginService>>;
 }
 
 /** ServedPlugin is a plugin's socket while it serves. */
@@ -47,8 +44,18 @@ export async function servePlugin(
   options: ServeOptions = {},
 ): Promise<ServedPlugin> {
   const socket = options.socket ?? pluginConfig({ ...process.env }).pluginSocket;
-  const handler = connectNodeAdapter({ routes: register });
-  const wantHTTP2 = options.http2 ?? !runningOnBun();
+  const handler = connectNodeAdapter({
+    routes(router) {
+      router.service(pluginLifecycle.PluginService, {
+        init: () => ({}),
+        health: () => ({ healthy: true }),
+        testConnection: () => { throw new ConnectError("No connection test", Code.Unimplemented); },
+        ...options.lifecycle,
+      });
+      register(router);
+    },
+  });
+  const wantHTTP2 = options.http2 ?? true;
   const server = await listen(socket, handler, wantHTTP2);
   let closed: Promise<void> | undefined;
 
@@ -100,14 +107,8 @@ async function http2Server(handler: ReturnType<typeof connectNodeAdapter>): Prom
   return createServer({}, handler) as unknown as SocketServer;
 }
 
-/** httpServer is an HTTP/1.1 server, which is what Bun can serve. */
+/** httpServer serves HTTP/1.1 when explicitly requested. */
 async function httpServer(handler: ReturnType<typeof connectNodeAdapter>): Promise<SocketServer> {
   const { createServer } = await import("node:http");
   return createServer(handler) as unknown as SocketServer;
-}
-
-/** runningOnBun says whether the process is Bun, which has no HTTP/2 server. */
-function runningOnBun(): boolean {
-  const versions = process.versions as Record<string, string | undefined>;
-  return typeof versions["bun"] === "string";
 }

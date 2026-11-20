@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	pluginv1 "github.com/aiviarium/rookery/gen/go/rookery/plugin/v1"
 	"github.com/aiviarium/rookery/internal/access"
 	"github.com/aiviarium/rookery/internal/messaging"
+	"github.com/aiviarium/rookery/internal/store/storetest"
 )
 
 // TestAPluginPublishesUnderItsOwnName checks the namespace and the principal
@@ -47,5 +49,42 @@ func TestAPluginPublishesUnderItsOwnName(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("the event was not published")
+	}
+}
+
+func TestPluginKVComparesRevision(t *testing.T) {
+	t.Parallel()
+	ctx := access.WithPrincipal(t.Context(), access.Plugin("example"))
+	server := &PluginServer{store: storetest.New(t)}
+	key := "counter"
+	zero, first := int64(0), int64(1)
+	write := func(expected *int64, value byte) (*pluginv1.ServerServiceSetKVResponse, error) {
+		out, err := server.SetKV(ctx, connect.NewRequest(&pluginv1.ServerServiceSetKVRequest{
+			Key: key, ValueCbor: []byte{value}, ExpectedRevision: expected,
+		}))
+		if err != nil {
+			return nil, err
+		}
+		return out.Msg, nil
+	}
+	if out, err := write(&zero, 1); err != nil || out.GetRevision() != 1 {
+		t.Fatalf("insert: %v, %v", out, err)
+	}
+	if _, err := write(&zero, 2); connect.CodeOf(err) != connect.CodeAborted {
+		t.Fatalf("create raced without a conflict: %v", err)
+	}
+	if out, err := write(&first, 2); err != nil || out.GetRevision() != 2 {
+		t.Fatalf("compare and set: %v, %v", out, err)
+	}
+	if _, err := write(&first, 3); connect.CodeOf(err) != connect.CodeAborted {
+		t.Fatalf("stale revision wrote a value: %v", err)
+	}
+	out, err := server.GetKV(ctx, connect.NewRequest(&pluginv1.ServerServiceGetKVRequest{Key: key}))
+	if err != nil || out.Msg.GetRevision() != 2 || !bytes.Equal(out.Msg.GetValueCbor(), []byte{2}) {
+		t.Fatalf("get: %v, %v", out, err)
+	}
+	other := access.WithPrincipal(t.Context(), access.Plugin("other"))
+	if _, err := server.GetKV(other, connect.NewRequest(&pluginv1.ServerServiceGetKVRequest{Key: key})); connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("other plugin read private state: %v", err)
 	}
 }

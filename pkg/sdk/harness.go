@@ -238,7 +238,10 @@ func (h *Harness) ServeProvisioner(provisioner Provisioner) *ProvisionerClient {
 }
 
 // harnessServer serves ServerService for a test.
-type harnessServer struct{ harness *Harness }
+type harnessServer struct {
+	pluginv1connect.UnimplementedServerServiceHandler
+	harness *Harness
+}
 
 // Publish records the event.
 func (s harnessServer) Publish(_ context.Context, request *connect.Request[pluginv1.ServerServicePublishRequest]) (*connect.Response[pluginv1.ServerServicePublishResponse], error) {

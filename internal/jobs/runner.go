@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -373,6 +374,8 @@ func NewWorker(opened *store.Store, registry *Registry, logger *slog.Logger) *Wo
 
 // Claim is a job a worker holds.
 type Claim struct {
+	Job      Job
+	Deadline time.Time
 	// ID is the job's id.
 	ID string
 	// Token is the claim's token: pass it with every report, and the job is
@@ -398,16 +401,7 @@ func (w *Worker) Claim(ctx context.Context, kinds []string, wait time.Duration) 
 		})
 		switch {
 		case err == nil:
-			job := JobOf(record)
-			return &Claim{
-				ID:          job.ID,
-				Token:       token,
-				Kind:        job.Kind,
-				Args:        job.Args,
-				Resource:    job.Resource,
-				Attempts:    job.Attempts,
-				MaxAttempts: job.MaxAttempts,
-			}, nil
+			return w.claimOf(record, token), nil
 		case !errors.Is(err, pgx.ErrNoRows):
 			return nil, fmt.Errorf("jobs: claiming a job for a plugin: %w", err)
 		}
@@ -425,15 +419,13 @@ func (w *Worker) Claim(ctx context.Context, kinds []string, wait time.Duration) 
 
 // Line adds a line to the job's log, masked.
 func (w *Worker) Line(ctx context.Context, claim *Claim, line string) error {
-	held, err := w.store.Queries().HeartbeatJob(ctx, store.HeartbeatJobParams{ID: claim.ID, Claim: &claim.Token})
-	if err != nil {
-		return fmt.Errorf("jobs: holding the claim on %s: %w", claim.ID, err)
+	if err := w.Heartbeat(ctx, claim); err != nil {
+		return err
 	}
-	if held == 0 {
-		return fmt.Errorf("%w: the claim on %s is gone", access.ErrConflict, claim.ID)
-	}
-	log := NewLog(ctx, w.store, claim.ID, nil)
-	return log.Write(line) //nolint:contextcheck // the log carries the job's context
+	count, err := w.store.Queries().InsertPluginJobLine(ctx, store.InsertPluginJobLineParams{
+		ID: claim.ID, Claim: &claim.Token, Line: strings.TrimRight(line, "\n"),
+	})
+	return workReport(count, err, claim.ID)
 }
 
 // Heartbeat says the worker is still there.
@@ -493,6 +485,60 @@ func (w *Worker) Fail(ctx context.Context, claim *Claim, cause error) error {
 	}
 	if failed == 0 {
 		return fmt.Errorf("%w: the claim on %s is gone", access.ErrConflict, claim.ID)
+	}
+	return nil
+}
+
+func (w *Worker) claimOf(record store.RookeryJobs, token string) *Claim {
+	job := JobOf(record)
+	timeout := 10 * time.Minute
+	if kind, ok := w.registry.Kind(job.Kind); ok && kind.Timeout > 0 {
+		timeout = kind.Timeout
+	}
+	claim := &Claim{
+		ID: job.ID, Token: token, Kind: job.Kind, Args: job.Args, Resource: job.Resource,
+		Attempts: job.Attempts, MaxAttempts: job.MaxAttempts, Job: job,
+	}
+	if record.ClaimStartedAt != nil {
+		claim.Deadline = record.ClaimStartedAt.Add(timeout)
+	}
+	return claim
+}
+
+// OwnedClaim returns a current claim if it belongs to the plugin.
+func (w *Worker) OwnedClaim(ctx context.Context, plugin, job, token string) (*Claim, error) {
+	record, err := w.store.Queries().GetPluginJobClaim(ctx, store.GetPluginJobClaimParams{ID: job, Claim: &token})
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !strings.HasPrefix(record.Kind, plugin+"/")) {
+		return nil, access.ErrConflict
+	}
+	if err != nil {
+		return nil, fmt.Errorf("jobs: reading claim on %s: %w", job, err)
+	}
+	return w.claimOf(record, token), nil
+}
+
+// Progress records opaque progress and keeps the claim alive.
+func (w *Worker) Progress(ctx context.Context, claim *Claim, value []byte) error {
+	count, err := w.store.Queries().SetPluginJobProgress(ctx, store.SetPluginJobProgressParams{
+		ID: claim.ID, Claim: &claim.Token, Progress: value,
+	})
+	return workReport(count, err, claim.ID)
+}
+
+// Cancel ends a running claim after a cancellation was requested.
+func (w *Worker) Cancel(ctx context.Context, claim *Claim) error {
+	count, err := w.store.Queries().CancelClaimedPluginJob(ctx, store.CancelClaimedPluginJobParams{
+		ID: claim.ID, Claim: &claim.Token,
+	})
+	return workReport(count, err, claim.ID)
+}
+
+func workReport(count int64, err error, job string) error {
+	if err != nil {
+		return fmt.Errorf("jobs: reporting on %s: %w", job, err)
+	}
+	if count == 0 {
+		return fmt.Errorf("%w: the claim on %s is gone", access.ErrConflict, job)
 	}
 	return nil
 }
