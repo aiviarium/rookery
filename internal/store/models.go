@@ -326,6 +326,40 @@ type RookeryResources struct {
 	CreatedAt time.Time
 }
 
+// What a roll-out does to one host: its batch, its child job and how it ended.
+type RookeryRolloutHosts struct {
+	RolloutID  string
+	Host       string
+	Batch      int32
+	State      string
+	Job        string
+	Reason     string
+	Error      string
+	StartedAt  *time.Time
+	FinishedAt *time.Time
+}
+
+// An apply or one action on a set of hosts, in batches.
+type RookeryRollouts struct {
+	ID        string
+	Kind      string
+	Args      []byte
+	Resource  string
+	CreatedBy string
+	State     string
+	// The selection as CBOR, so a roll-out says what it was for even after its hosts changed.
+	Selection []byte
+	// The strategy as CBOR: batch size, failures allowed, the pause and the canary.
+	Strategy   []byte
+	CanaryDone bool
+	// When the pause between batches ends; set while the roll-out is still running.
+	PausedUntil   *time.Time
+	PausedBecause string
+	CreatedAt     time.Time
+	StartedAt     *time.Time
+	FinishedAt    *time.Time
+}
+
 // Jobs the deployment runs on a cron expression.
 type RookerySchedules struct {
 	ID        string
@@ -339,6 +373,8 @@ type RookerySchedules struct {
 	NextRunAt *time.Time
 	LastRunAt *time.Time
 	CreatedAt time.Time
+	// The roll-out to start as CBOR, instead of a job kind, when it is set.
+	Rollout []byte
 }
 
 // Sealed secrets, by name and scope, with the key that sealed each one.

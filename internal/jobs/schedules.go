@@ -32,19 +32,23 @@ type Schedule struct {
 	NextRunAt time.Time
 	LastRunAt time.Time
 	CreatedAt time.Time
+	// Rollout is the roll-out the schedule starts as CBOR, instead of a job
+	// kind, when it is set.
+	Rollout []byte
 }
 
 // Message is a schedule as the edge API has it.
 func (s Schedule) Message() *rookeryv1.Schedule {
 	out := &rookeryv1.Schedule{
-		Id:       s.ID,
-		Name:     s.Name,
-		Kind:     s.Kind,
-		ArgsCbor: s.Args,
-		Resource: s.Resource,
-		Cron:     s.Cron,
-		Timezone: s.Timezone,
-		Enabled:  s.Enabled,
+		Id:          s.ID,
+		Name:        s.Name,
+		Kind:        s.Kind,
+		ArgsCbor:    s.Args,
+		Resource:    s.Resource,
+		Cron:        s.Cron,
+		Timezone:    s.Timezone,
+		Enabled:     s.Enabled,
+		RolloutCbor: s.Rollout,
 	}
 	if !s.NextRunAt.IsZero() {
 		out.NextRunAt = timestamppb.New(s.NextRunAt)
@@ -69,6 +73,7 @@ func scheduleOf(record store.RookerySchedules) Schedule {
 		Cron:     record.Cron,
 		Timezone: record.Timezone,
 		Enabled:  record.Enabled,
+		Rollout:  record.Rollout,
 	}
 	if record.NextRunAt != nil {
 		schedule.NextRunAt = *record.NextRunAt
@@ -85,6 +90,7 @@ type Schedules struct {
 	registry *Registry
 	jobs     *Service
 	parser   cron.Parser
+	rollouts RolloutStarter
 	logger   *slog.Logger
 }
 
@@ -120,10 +126,27 @@ func nextRun(schedule cron.Schedule, location *time.Location, from time.Time) ti
 	return schedule.Next(from.In(location)).UTC()
 }
 
+// checkTarget checks what a schedule runs: a job kind this server knows, or a
+// roll-out, and not both.
+func (s *Schedules) checkTarget(kind string, rollout []byte) error {
+	switch {
+	case len(rollout) > 0 && strings.TrimSpace(kind) != "":
+		return fmt.Errorf("%w: a schedule runs a job kind or a roll-out, not both", access.ErrInvalid)
+	case len(rollout) > 0:
+		return nil
+	case strings.TrimSpace(kind) == "":
+		return fmt.Errorf("%w: a schedule runs a job kind or a roll-out", access.ErrInvalid)
+	}
+	if _, known := s.registry.Kind(kind); !known {
+		return fmt.Errorf("%w: there is no job kind %q", access.ErrInvalid, kind)
+	}
+	return nil
+}
+
 // Create makes a schedule.
 func (s *Schedules) Create(ctx context.Context, request ScheduleRequest) (Schedule, error) {
-	if _, known := s.registry.Kind(request.Kind); !known {
-		return Schedule{}, fmt.Errorf("%w: there is no job kind %q", access.ErrInvalid, request.Kind)
+	if err := s.checkTarget(request.Kind, request.Rollout); err != nil {
+		return Schedule{}, err
 	}
 	if strings.TrimSpace(request.Name) == "" {
 		return Schedule{}, fmt.Errorf("%w: a schedule needs a name", access.ErrInvalid)
@@ -146,6 +169,7 @@ func (s *Schedules) Create(ctx context.Context, request ScheduleRequest) (Schedu
 		Timezone:  timezone,
 		Enabled:   true,
 		NextRunAt: &next,
+		Rollout:   nonNil(request.Rollout),
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -164,6 +188,8 @@ type ScheduleRequest struct {
 	Resource string
 	Cron     string
 	Timezone string
+	// Rollout is the roll-out to start as CBOR, instead of a job kind.
+	Rollout []byte
 }
 
 // Update changes a schedule's fields, and recomputes when it runs next.
@@ -195,11 +221,14 @@ func (s *Schedules) Update(ctx context.Context, scheduleID string, change Schedu
 	if change.Enabled != nil {
 		next.Enabled = *change.Enabled
 	}
+	if change.Rollout != nil {
+		next.Rollout = change.Rollout
+	}
 	if next.Name == "" {
 		return Schedule{}, fmt.Errorf("%w: a schedule needs a name", access.ErrInvalid)
 	}
-	if _, known := s.registry.Kind(next.Kind); !known {
-		return Schedule{}, fmt.Errorf("%w: there is no job kind %q", access.ErrInvalid, next.Kind)
+	if err := s.checkTarget(next.Kind, next.Rollout); err != nil {
+		return Schedule{}, err
 	}
 
 	parsed, location, err := s.parse(next.Cron, next.Timezone)
@@ -222,6 +251,7 @@ func (s *Schedules) Update(ctx context.Context, scheduleID string, change Schedu
 		Enabled:   next.Enabled,
 		NextRunAt: when,
 		ID:        scheduleID,
+		Rollout:   nonNil(next.Rollout),
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -241,6 +271,8 @@ type ScheduleChange struct {
 	Cron     *string
 	Timezone *string
 	Enabled  *bool
+	// Rollout is the roll-out to start as CBOR, instead of a job kind.
+	Rollout []byte
 }
 
 // ByID returns a schedule.
@@ -280,19 +312,31 @@ func (s *Schedules) Delete(ctx context.Context, scheduleID string) error {
 	return nil
 }
 
-// RunNow enqueues a schedule's job at once, without moving the schedule's clock.
-func (s *Schedules) RunNow(ctx context.Context, scheduleID string) (Job, error) {
+// Run is what running a schedule did: the job it enqueued, or the roll-out it
+// started.
+type Run struct {
+	// Job is the job, when the schedule runs a job kind.
+	Job Job
+	// Rollout is the roll-out's id, when the schedule starts one.
+	Rollout string
+}
+
+// RolloutStarter starts the roll-out a schedule asks for. The roll-outs item
+// fills it in; a schedule that starts one refuses until then.
+type RolloutStarter interface {
+	// StartScheduled starts the roll-out a schedule's CBOR spec asks for.
+	StartScheduled(ctx context.Context, spec []byte) (string, error)
+}
+
+// RunNow runs a schedule at once, without moving the schedule's clock.
+func (s *Schedules) RunNow(ctx context.Context, scheduleID string) (Run, error) {
 	schedule, err := s.ByID(ctx, scheduleID)
 	if err != nil {
-		return Job{}, err
+		return Run{}, err
 	}
-	job, err := s.jobs.EnqueueSystem(ctx, EnqueueRequest{
-		Kind:     schedule.Kind,
-		Args:     schedule.Args,
-		Resource: schedule.Resource,
-	})
+	run, err := s.run(ctx, schedule)
 	if err != nil {
-		return Job{}, err
+		return Run{}, err
 	}
 	var next *time.Time
 	if !schedule.NextRunAt.IsZero() {
@@ -302,9 +346,38 @@ func (s *Schedules) RunNow(ctx context.Context, scheduleID string) (Job, error) 
 		ID:        schedule.ID,
 		NextRunAt: next,
 	}); err != nil {
-		return Job{}, fmt.Errorf("jobs: recording the run of %s: %w", schedule.ID, err)
+		return Run{}, fmt.Errorf("jobs: recording the run of %s: %w", schedule.ID, err)
 	}
-	return job, nil
+	return run, nil
+}
+
+// run does what a schedule asks for: enqueues its job, or starts its roll-out.
+func (s *Schedules) run(ctx context.Context, schedule Schedule) (Run, error) {
+	if len(schedule.Rollout) > 0 {
+		if s.rollouts == nil {
+			return Run{}, fmt.Errorf("%w: this server starts no roll-outs", access.ErrUnavailable)
+		}
+		rollout, err := s.rollouts.StartScheduled(ctx, schedule.Rollout)
+		if err != nil {
+			return Run{}, err
+		}
+		return Run{Rollout: rollout}, nil
+	}
+	job, err := s.jobs.EnqueueSystem(ctx, EnqueueRequest{
+		Kind:     schedule.Kind,
+		Args:     schedule.Args,
+		Resource: schedule.Resource,
+	})
+	if err != nil {
+		return Run{}, err
+	}
+	return Run{Job: job}, nil
+}
+
+// SetRolloutStarter gives the schedules the roll-outs they can start. It is set
+// once at start-up, before the scheduler runs.
+func (s *Schedules) SetRolloutStarter(starter RolloutStarter) {
+	s.rollouts = starter
 }
 
 // Scheduler runs the schedules that are due. It is one loop on the leader.
@@ -345,11 +418,7 @@ func (s *Scheduler) runDue(ctx context.Context) error {
 	}
 	for _, record := range due {
 		schedule := scheduleOf(record)
-		if _, err := s.schedules.jobs.EnqueueSystem(ctx, EnqueueRequest{
-			Kind:     schedule.Kind,
-			Args:     schedule.Args,
-			Resource: schedule.Resource,
-		}); err != nil {
+		if _, err := s.schedules.run(ctx, schedule); err != nil {
 			s.schedules.logger.Error("enqueueing a schedule's job",
 				slog.String("schedule", schedule.Name), slog.String("error", err.Error()))
 			continue
@@ -409,6 +478,7 @@ func (s *SchedulesService) Create(ctx context.Context, request *connect.Request[
 		Resource: request.Msg.GetResource(),
 		Cron:     request.Msg.GetCron(),
 		Timezone: request.Msg.GetTimezone(),
+		Rollout:  request.Msg.GetRolloutCbor(),
 	})
 	if err != nil {
 		return nil, access.ToConnect(err)
@@ -439,6 +509,9 @@ func (s *SchedulesService) Update(ctx context.Context, request *connect.Request[
 	if request.Msg.Enabled != nil {
 		change.Enabled = request.Msg.Enabled
 	}
+	if request.Msg.RolloutCbor != nil {
+		change.Rollout = request.Msg.RolloutCbor
+	}
 	schedule, err := s.schedules.Update(ctx, request.Msg.GetSchedule(), change)
 	if err != nil {
 		return nil, access.ToConnect(err)
@@ -454,13 +527,13 @@ func (s *SchedulesService) Delete(ctx context.Context, request *connect.Request[
 	return connect.NewResponse(&rookeryv1.ScheduleServiceDeleteResponse{}), nil
 }
 
-// RunNow enqueues a schedule's job at once.
+// RunNow runs a schedule at once.
 func (s *SchedulesService) RunNow(ctx context.Context, request *connect.Request[rookeryv1.ScheduleServiceRunNowRequest]) (*connect.Response[rookeryv1.ScheduleServiceRunNowResponse], error) {
-	job, err := s.schedules.RunNow(ctx, request.Msg.GetSchedule())
+	run, err := s.schedules.RunNow(ctx, request.Msg.GetSchedule())
 	if err != nil {
 		return nil, access.ToConnect(err)
 	}
-	return connect.NewResponse(&rookeryv1.ScheduleServiceRunNowResponse{Job: job.ID}), nil
+	return connect.NewResponse(&rookeryv1.ScheduleServiceRunNowResponse{Job: run.Job.ID, Rollout: run.Rollout}), nil
 }
 
 // valueOr is a value, or a fallback when it is empty.

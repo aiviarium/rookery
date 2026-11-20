@@ -1,0 +1,216 @@
+// Roll-outs: an apply, or one action, on a set of hosts in batches.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// RolloutSelection says which hosts a roll-out is for. The criteria combine: a
+// host is in when it meets every one that is set.
+message RolloutSelection {
+  // Hosts are hosts by name.
+  repeated string hosts = 1;
+  // Labels is a label selector, such as "role=desk,site!=lab".
+  string labels = 2;
+  // Behind takes the hosts whose applied digest is not what their profile asks
+  // for.
+  bool behind = 3;
+}
+
+// RolloutStrategy says how a roll-out runs.
+message RolloutStrategy {
+  // BatchSize is how many hosts run at once. Zero takes BatchPercent.
+  int32 batch_size = 1;
+  // BatchPercent is a batch's size as a percentage of the selected hosts.
+  int32 batch_percent = 2;
+  // FailuresAllowed is how many hosts may fail before the roll-out pauses. One
+  // when zero.
+  int32 failures_allowed = 3;
+  // Pause is how long to wait after a batch before the next one. Zero starts
+  // the next batch as soon as the last one is done.
+  google.protobuf.Duration pause = 4;
+  // Canary is how many hosts run first, as a batch of their own, before the
+  // roll-out waits for Resume. Zero has no canary.
+  int32 canary = 5;
+}
+
+// RolloutHost is one host of a roll-out, and what became of it.
+message RolloutHost {
+  string host = 1;
+  // State is pending, running, succeeded, failed, skipped or cancelled.
+  string state = 2;
+  // Batch is which batch the host runs in; the canary is batch zero.
+  int32 batch = 3;
+  // Job is the child job working the host, when there is one.
+  string job = 4;
+  // Reason says why a host was skipped.
+  string reason = 5;
+  // Error says why a host failed.
+  string error = 6;
+  google.protobuf.Timestamp started_at = 7;
+  google.protobuf.Timestamp finished_at = 8;
+}
+
+// Rollout is an apply or an action on a set of hosts, in batches.
+message Rollout {
+  string id = 1;
+  // Kind is the child job's kind: host.apply or host.action.
+  string kind = 2;
+  // ArgsCbor is the child job's arguments, such as which action.
+  bytes args_cbor = 3;
+  // Resource is the resource URI the roll-out is about, and what its access is
+  // checked against.
+  string resource = 4;
+  string created_by = 5;
+  // State is running, paused, succeeded, failed or cancelled.
+  string state = 6;
+  RolloutSelection selection = 7;
+  RolloutStrategy strategy = 8;
+  // Hosts are the hosts of the roll-out, and skipped the ones the selection
+  // named that cannot take it.
+  repeated RolloutHost hosts = 9;
+  repeated RolloutHost skipped = 10;
+  // Counts are the hosts in each state.
+  int32 pending = 11;
+  int32 running = 12;
+  int32 succeeded = 13;
+  int32 failed = 14;
+  google.protobuf.Timestamp created_at = 15;
+  google.protobuf.Timestamp started_at = 16;
+  google.protobuf.Timestamp finished_at = 17;
+  // PausedUntil is when the pause between batches ends, when there is one.
+  google.protobuf.Timestamp paused_until = 18;
+  // PausedBecause says why the roll-out is paused.
+  string paused_because = 19;
+}
+
+message RolloutServicePlanRequest {
+  // Kind is host.apply or host.action.
+  string kind = 1;
+  bytes args_cbor = 2;
+  RolloutSelection selection = 3;
+}
+
+message RolloutServicePlanResponse {
+  // Hosts are the hosts the roll-out would work, and Skipped the ones it would
+  // not, with the reason.
+  repeated RolloutHost hosts = 1;
+  repeated RolloutHost skipped = 2;
+}
+
+message RolloutServiceStartRequest {
+  string kind = 1;
+  bytes args_cbor = 2;
+  // Resource is the resource URI the roll-out is about.
+  string resource = 3;
+  RolloutSelection selection = 4;
+  RolloutStrategy strategy = 5;
+}
+
+message RolloutServiceStartResponse {
+  Rollout rollout = 1;
+}
+
+message RolloutServiceListRequest {
+  // State filters when it is set.
+  string state = 1;
+  int32 limit = 2;
+  string cursor = 3;
+}
+
+message RolloutServiceListResponse {
+  repeated Rollout rollouts = 1;
+  string next_cursor = 2;
+}
+
+message RolloutServiceGetRequest {
+  // Rollout is the roll-out's id.
+  string rollout = 1;
+}
+
+message RolloutServiceGetResponse {
+  Rollout rollout = 1;
+}
+
+message RolloutServiceWatchRequest {
+  // Rollout is the roll-out's id.
+  string rollout = 1;
+}
+
+message RolloutServiceWatchResponse {
+  // Rollout is the roll-out as it is now, sent when it or a host changed.
+  Rollout rollout = 1;
+}
+
+message RolloutServicePauseRequest {
+  // Rollout is the roll-out's id.
+  string rollout = 1;
+  // Why is what the creator is told, when it is the one who started it.
+  string why = 2;
+}
+
+message RolloutServicePauseResponse {
+  Rollout rollout = 1;
+}
+
+message RolloutServiceResumeRequest {
+  // Rollout is the roll-out's id.
+  string rollout = 1;
+}
+
+message RolloutServiceResumeResponse {
+  Rollout rollout = 1;
+}
+
+message RolloutServiceCancelRequest {
+  // Rollout is the roll-out's id.
+  string rollout = 1;
+}
+
+message RolloutServiceCancelResponse {
+  Rollout rollout = 1;
+}
+
+// RolloutService plans, starts and steers roll-outs. Each host's work is a child
+// job, so progress is followed with JobService too.
+service RolloutService {
+  // Plan resolves a selection and says which hosts it would work, and why it
+  // would skip the others.
+  rpc Plan(RolloutServicePlanRequest) returns (RolloutServicePlanResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+
+  rpc Start(RolloutServiceStartRequest) returns (RolloutServiceStartResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE, resource: "resource" };
+  }
+
+  rpc List(RolloutServiceListRequest) returns (RolloutServiceListResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+
+  rpc Get(RolloutServiceGetRequest) returns (RolloutServiceGetResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW, resource: "rollout" };
+  }
+
+  // Watch streams the roll-out until it has ended.
+  rpc Watch(RolloutServiceWatchRequest) returns (stream RolloutServiceWatchResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW, resource: "rollout" };
+  }
+
+  rpc Pause(RolloutServicePauseRequest) returns (RolloutServicePauseResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "rollout" };
+  }
+
+  rpc Resume(RolloutServiceResumeRequest) returns (RolloutServiceResumeResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "rollout" };
+  }
+
+  rpc Cancel(RolloutServiceCancelRequest) returns (RolloutServiceCancelResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "rollout" };
+  }
+}

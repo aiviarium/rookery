@@ -27,6 +27,7 @@ import (
 	"github.com/aiviarium/rookery/internal/link"
 	"github.com/aiviarium/rookery/internal/messaging"
 	"github.com/aiviarium/rookery/internal/plugins"
+	"github.com/aiviarium/rookery/internal/rollouts"
 	"github.com/aiviarium/rookery/internal/seal"
 	"github.com/aiviarium/rookery/internal/spaces"
 	"github.com/aiviarium/rookery/internal/store"
@@ -115,7 +116,20 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	jobRunner := jobs.NewService(opened, checker, registry, runner, s.log)
 
 	schedules := jobs.NewSchedules(opened, registry, jobRunner, s.log)
+
+	// Roll-outs: an apply or one action on a set of hosts, in batches. Their
+	// hosts come from the host registry, which the hosts item fills in.
+	rolloutList := rollouts.New(rollouts.Options{
+		Store:         opened,
+		Checker:       checker,
+		Jobs:          jobRunner,
+		Notifications: notificationStore,
+		Publisher:     events,
+		Logger:        s.log,
+	})
+	schedules.SetRolloutStarter(rolloutList)
 	scheduler := jobs.NewScheduler(schedules)
+	rolloutManager := rollouts.NewManager(rolloutList)
 
 	// Plugins: the packages installed in this deployment. Their services arrive
 	// with the rest of the plugin item, and their collections with the
@@ -165,6 +179,12 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	} else if interrupted > 0 {
 		s.log.Info("interrupted the jobs a stopped server left running", slog.Int64("jobs", interrupted))
 	}
+	// A roll-out is never resumed by itself after a leader change.
+	if paused, err := rollouts.PauseLeftRunning(ctx, opened); err != nil {
+		return nil, err
+	} else if paused > 0 {
+		s.log.Info("paused the roll-outs a stopped server left running", slog.Int64("rollouts", paused))
+	}
 
 	service := services{
 		authn:         authn.NewService(users, sessions, tokens),
@@ -186,6 +206,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		blobs:         blobs.NewService(blobStore),
 		hosts:         hostService,
 		keys:          link.NewKeysService(keyRing, trusted),
+		rollouts:      rollouts.NewRolloutService(rolloutList),
 	}
 
 	build := edge.New(edge.Deps{
@@ -228,6 +249,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		store:      opened,
 		blobs:      blobStore,
 		links:      hostLinks,
+		rollouts:   rolloutManager,
 	}, nil
 }
 
@@ -240,6 +262,7 @@ func (h *handlers) start(ctx context.Context) error {
 	defer h.supervisor.StopAll()
 	group.Go(func() error { return h.runner.Run(ctx) })
 	group.Go(func() error { return h.scheduler.Run(ctx) })
+	group.Go(func() error { return h.rollouts.Run(ctx) })
 	group.Go(func() error {
 		ticker := time.NewTicker(retentionCheck)
 		defer ticker.Stop()
@@ -281,6 +304,7 @@ type services struct {
 	blobs         *blobs.Service
 	hosts         *hosts.Service
 	keys          *link.KeysService
+	rollouts      *rollouts.RolloutService
 }
 
 // register adds the core services to a mux.
@@ -310,6 +334,8 @@ func (s services) register(mux *http.ServeMux, options []connect.HandlerOption) 
 	path, handler = rookeryv1connect.NewNotificationServiceHandler(s.notifications, options...)
 	handle(path, handler)
 	path, handler = rookeryv1connect.NewPluginServiceHandler(s.plugins, options...)
+	handle(path, handler)
+	path, handler = rookeryv1connect.NewRolloutServiceHandler(s.rollouts, options...)
 	handle(path, handler)
 	path, handler = rookeryv1connect.NewSettingServiceHandler(s.settings, options...)
 	handle(path, handler)
