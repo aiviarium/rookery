@@ -95,13 +95,18 @@ func clearClientConfig() error {
 type api struct {
 	Server string
 
-	Auth   rookeryv1connect.AuthServiceClient
-	Users  rookeryv1connect.UserServiceClient
-	Groups rookeryv1connect.GroupServiceClient
-	Access rookeryv1connect.AccessServiceClient
-	Spaces rookeryv1connect.SpaceServiceClient
-	Audit  rookeryv1connect.AuditServiceClient
-	Local  rookeryv1connect.LocalServiceClient
+	Auth          rookeryv1connect.AuthServiceClient
+	Users         rookeryv1connect.UserServiceClient
+	Groups        rookeryv1connect.GroupServiceClient
+	Access        rookeryv1connect.AccessServiceClient
+	Spaces        rookeryv1connect.SpaceServiceClient
+	Audit         rookeryv1connect.AuditServiceClient
+	Local         rookeryv1connect.LocalServiceClient
+	Jobs          rookeryv1connect.JobServiceClient
+	Schedules     rookeryv1connect.ScheduleServiceClient
+	Events        rookeryv1connect.EventServiceClient
+	Topics        rookeryv1connect.TopicServiceClient
+	Notifications rookeryv1connect.NotificationServiceClient
 }
 
 // dial connects to a server at an address: a Unix socket, or an http or https
@@ -115,14 +120,19 @@ func dial(ctx context.Context, address, token string) (*api, error) {
 
 	options := []connectrpc.ClientOption{connectrpc.WithGRPC()}
 	return &api{
-		Server: base,
-		Auth:   rookeryv1connect.NewAuthServiceClient(httpClient, base, options...),
-		Users:  rookeryv1connect.NewUserServiceClient(httpClient, base, options...),
-		Groups: rookeryv1connect.NewGroupServiceClient(httpClient, base, options...),
-		Access: rookeryv1connect.NewAccessServiceClient(httpClient, base, options...),
-		Spaces: rookeryv1connect.NewSpaceServiceClient(httpClient, base, options...),
-		Audit:  rookeryv1connect.NewAuditServiceClient(httpClient, base, options...),
-		Local:  rookeryv1connect.NewLocalServiceClient(httpClient, base, options...),
+		Server:        base,
+		Auth:          rookeryv1connect.NewAuthServiceClient(httpClient, base, options...),
+		Users:         rookeryv1connect.NewUserServiceClient(httpClient, base, options...),
+		Groups:        rookeryv1connect.NewGroupServiceClient(httpClient, base, options...),
+		Access:        rookeryv1connect.NewAccessServiceClient(httpClient, base, options...),
+		Spaces:        rookeryv1connect.NewSpaceServiceClient(httpClient, base, options...),
+		Audit:         rookeryv1connect.NewAuditServiceClient(httpClient, base, options...),
+		Local:         rookeryv1connect.NewLocalServiceClient(httpClient, base, options...),
+		Jobs:          rookeryv1connect.NewJobServiceClient(httpClient, base, options...),
+		Schedules:     rookeryv1connect.NewScheduleServiceClient(httpClient, base, options...),
+		Events:        rookeryv1connect.NewEventServiceClient(httpClient, base, options...),
+		Topics:        rookeryv1connect.NewTopicServiceClient(httpClient, base, options...),
+		Notifications: rookeryv1connect.NewNotificationServiceClient(httpClient, base, options...),
 	}, nil
 }
 

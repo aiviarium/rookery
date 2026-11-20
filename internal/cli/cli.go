@@ -56,6 +56,8 @@ that ` + "`rookery login`" + ` saved.`,
 		grantCommand(),
 		revokeCommand(),
 		grantsCommand(),
+		jobCommand(),
+		scheduleCommand(),
 	)
 	return root
 }

@@ -1,0 +1,37 @@
+// Events: at most once, in memory on the leader, by name with a prefix match.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// Event is something that happened, about a resource when it is about one.
+message Event {
+  // Name is such as rookery/jobs.changed or example/note.changed.
+  string name = 1;
+  // Resource is the resource URI the event is about, for the access filter.
+  string resource = 2;
+  // PayloadCbor is the event's body, CBOR in Core Deterministic mode.
+  bytes payload_cbor = 3;
+  google.protobuf.Timestamp at = 4;
+}
+
+message EventServiceSubscribeResponse {
+  Event event = 1;
+}
+
+message EventServiceSubscribeRequest {
+  // Prefix selects the event names to hear: empty hears every one.
+  string prefix = 1;
+}
+
+// EventService is the events a client hears while it is connected.
+service EventService {
+  rpc Subscribe(EventServiceSubscribeRequest) returns (stream EventServiceSubscribeResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+}

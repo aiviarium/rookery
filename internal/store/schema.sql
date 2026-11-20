@@ -217,3 +217,148 @@ COMMENT ON COLUMN rookery.entities.access IS 'The resource URI whose grants deci
 CREATE INDEX entities_kind ON rookery.entities (kind);
 CREATE INDEX entities_search ON rookery.entities USING gin (search);
 CREATE INDEX entities_access ON rookery.entities (access);
+
+-- ---------------------------------------------------------------------------
+-- Jobs
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE rookery.jobs (
+	id            text        PRIMARY KEY,
+	kind          text        NOT NULL,
+	args          bytea       NOT NULL DEFAULT ''::bytea,
+	resource      text        NOT NULL DEFAULT '',
+	created_by    text        NOT NULL DEFAULT '',
+	parent        text        NOT NULL DEFAULT '',
+	state         text        NOT NULL DEFAULT 'queued'
+		CHECK (state IN ('queued', 'running', 'succeeded', 'failed', 'cancelled', 'interrupted')),
+	attempts      integer     NOT NULL DEFAULT 0,
+	max_attempts  integer     NOT NULL DEFAULT 1,
+	-- host is the host a core kind is about: at most one job per host runs.
+	host          text        NOT NULL DEFAULT '',
+	-- claim is a plugin worker's token for the job it holds.
+	claim         text,
+	heartbeat_at  timestamptz,
+	-- available_at defers a queued job, for a retry's backoff.
+	available_at  timestamptz NOT NULL DEFAULT now(),
+	result        bytea,
+	error         text        NOT NULL DEFAULT '',
+	-- cancel_requested is set when a running job is asked to stop.
+	cancel_requested boolean  NOT NULL DEFAULT false,
+	created_at    timestamptz NOT NULL DEFAULT now(),
+	started_at    timestamptz,
+	finished_at   timestamptz
+);
+
+COMMENT ON TABLE rookery.jobs IS 'Every job: its kind, arguments, resource, state and log.';
+
+CREATE INDEX jobs_claimable ON rookery.jobs (state, available_at, id) WHERE state = 'queued';
+CREATE INDEX jobs_running ON rookery.jobs (state, heartbeat_at) WHERE state = 'running';
+CREATE INDEX jobs_resource ON rookery.jobs (resource, id);
+CREATE INDEX jobs_finished ON rookery.jobs (finished_at) WHERE finished_at IS NOT NULL;
+
+CREATE TABLE rookery.job_lines (
+	id     bigserial   PRIMARY KEY,
+	job_id text        NOT NULL REFERENCES rookery.jobs (id) ON DELETE CASCADE,
+	at     timestamptz NOT NULL DEFAULT now(),
+	line   text        NOT NULL
+);
+
+COMMENT ON TABLE rookery.job_lines IS 'A job''s log, a line at a time, in the order it was written.';
+
+CREATE INDEX job_lines_job ON rookery.job_lines (job_id, id);
+
+CREATE TABLE rookery.schedules (
+	id          text        PRIMARY KEY,
+	name        text        NOT NULL UNIQUE,
+	kind        text        NOT NULL,
+	args        bytea       NOT NULL DEFAULT ''::bytea,
+	resource    text        NOT NULL DEFAULT '',
+	cron        text        NOT NULL,
+	timezone    text        NOT NULL DEFAULT 'UTC',
+	enabled     boolean     NOT NULL DEFAULT true,
+	next_run_at timestamptz,
+	last_run_at timestamptz,
+	created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE rookery.schedules IS 'Jobs the deployment runs on a cron expression.';
+
+CREATE INDEX schedules_due ON rookery.schedules (next_run_at) WHERE enabled;
+
+-- ---------------------------------------------------------------------------
+-- Messaging
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE rookery.topics (
+	name       text        PRIMARY KEY,
+	created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE rookery.topic_messages (
+	id           bigserial   PRIMARY KEY,
+	topic        text        NOT NULL,
+	payload      bytea       NOT NULL,
+	attempts     integer     NOT NULL DEFAULT 0,
+	available_at timestamptz NOT NULL DEFAULT now(),
+	created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE rookery.topic_messages IS 'Durable topic messages, in the order they were published.';
+
+CREATE INDEX topic_messages_topic ON rookery.topic_messages (topic, id);
+
+CREATE TABLE rookery.topic_cursors (
+	topic      text        NOT NULL,
+	consumer   text        NOT NULL,
+	next_seq   bigint      NOT NULL DEFAULT 0,
+	updated_at timestamptz NOT NULL DEFAULT now(),
+	PRIMARY KEY (topic, consumer)
+);
+
+COMMENT ON TABLE rookery.topic_cursors IS 'Where each consumer group of a topic has got to.';
+
+CREATE TABLE rookery.topic_dead (
+	id       bigserial   PRIMARY KEY,
+	topic    text        NOT NULL,
+	consumer text        NOT NULL,
+	payload  bytea       NOT NULL,
+	attempts integer     NOT NULL,
+	error    text        NOT NULL DEFAULT '',
+	at       timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE rookery.topic_dead IS 'Messages a consumer gave up on, for an admin to retry or discard.';
+
+CREATE TABLE rookery.leases (
+	name       text        PRIMARY KEY,
+	holder     text        NOT NULL,
+	fencing    bigint      NOT NULL,
+	expires_at timestamptz NOT NULL,
+	updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE rookery.leases IS 'Named locks whose fencing number rises on each acquire.';
+
+CREATE TABLE rookery.notifications (
+	id         text        PRIMARY KEY,
+	user_id    text        NOT NULL REFERENCES rookery.users (id) ON DELETE CASCADE,
+	title      text        NOT NULL,
+	body       text        NOT NULL DEFAULT '',
+	link       text        NOT NULL DEFAULT '',
+	resource   text        NOT NULL DEFAULT '',
+	actions    bytea,
+	answers    bytea,
+	read_at    timestamptz,
+	created_at timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE rookery.notifications IS 'What a user is told about, and what they answered.';
+
+CREATE INDEX notifications_user ON rookery.notifications (user_id, id);
+
+CREATE TABLE rookery.notification_prefs (
+	user_id    text        PRIMARY KEY REFERENCES rookery.users (id) ON DELETE CASCADE,
+	prefs      bytea       NOT NULL,
+	updated_at timestamptz NOT NULL DEFAULT now()
+);
+

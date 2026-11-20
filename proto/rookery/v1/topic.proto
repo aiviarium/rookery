@@ -1,0 +1,135 @@
+// Topics: durable messages, a cursor per consumer, acknowledgement, retries and
+// dead letters.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// TopicMessage is one message on a topic.
+message TopicMessage {
+  int64 id = 1;
+  string topic = 2;
+  // PayloadCbor is the message's body, CBOR or opaque bytes the core does not
+  // read.
+  bytes payload_cbor = 3;
+  // Attempts is how often it was delivered.
+  int32 attempts = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+// TopicDeadLetter is a message a consumer gave up on.
+message TopicDeadLetter {
+  int64 id = 1;
+  string topic = 2;
+  string consumer = 3;
+  bytes payload_cbor = 4;
+  int32 attempts = 5;
+  google.protobuf.Timestamp at = 6;
+}
+
+message TopicServicePublishRequest {
+  string topic = 1;
+  bytes payload_cbor = 2;
+}
+
+message TopicServicePublishResponse {
+  int64 id = 1;
+}
+
+message TopicServiceSubscribeResponse {
+  TopicMessage message = 1;
+}
+
+message TopicServiceSubscribeRequest {
+  string topic = 1;
+  // Consumer names the consumer group; its cursor is the group's.
+  string consumer = 2;
+}
+
+message TopicServiceAckRequest {
+  string topic = 1;
+  int64 id = 2;
+  // Consumer names the consumer group whose cursor moves.
+  string consumer = 3;
+}
+
+message TopicServiceAckResponse {
+}
+
+message TopicServiceNackRequest {
+  string topic = 1;
+  int64 id = 2;
+  // Consumer names the consumer group whose cursor moves.
+  string consumer = 3;
+  // DelaySeconds is how long to wait before redelivery.
+  int32 delay_seconds = 4;
+  // Error says why the message was not handled, for the dead letter.
+  string error = 5;
+}
+
+message TopicServiceNackResponse {
+}
+
+message TopicServiceInspectRequest {
+  string topic = 1;
+  int32 limit = 2;
+  // Consumer narrows the dead letters to one consumer.
+  string consumer = 3;
+}
+
+message TopicServiceInspectResponse {
+  repeated TopicMessage messages = 1;
+  repeated TopicDeadLetter dead_letters = 2;
+}
+
+message TopicServiceRetryRequest {
+  // DeadLetter is a dead letter's id.
+  int64 dead_letter = 1;
+}
+
+message TopicServiceRetryResponse {
+}
+
+message TopicServiceDiscardRequest {
+  // DeadLetter is a dead letter's id.
+  int64 dead_letter = 1;
+}
+
+message TopicServiceDiscardResponse {
+}
+
+// TopicService is durable messaging between plugins and clients.
+service TopicService {
+  rpc Publish(TopicServicePublishRequest) returns (TopicServicePublishResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE };
+  }
+
+  rpc Subscribe(TopicServiceSubscribeRequest) returns (stream TopicServiceSubscribeResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE };
+  }
+
+  rpc Ack(TopicServiceAckRequest) returns (TopicServiceAckResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE };
+  }
+
+  rpc Nack(TopicServiceNackRequest) returns (TopicServiceNackResponse) {
+    option (rookery.v1.access) = { level: LEVEL_USE };
+  }
+
+  rpc Inspect(TopicServiceInspectRequest) returns (TopicServiceInspectResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc Retry(TopicServiceRetryRequest) returns (TopicServiceRetryResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc Discard(TopicServiceDiscardRequest) returns (TopicServiceDiscardResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+}
