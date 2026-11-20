@@ -4,14 +4,19 @@
 import * as sdkClient from "@rookery/sdk/client"
 import {
   type AdminPageEntry,
+  type BlockComponent,
+  type BlockOptions,
   type ChromeComponentProps,
   type ClientCommandDef,
   type ClientRuntime,
   createClientApi,
+  type EntityRenderer,
   isClientPlugin,
   type NavSection,
   type ViewComponent,
   type ViewOptions,
+  type WidgetComponent,
+  type WidgetType,
 } from "@rookery/sdk/runtime/client"
 import { disposable } from "@rookery/sdk/types"
 import * as solid from "solid-js"
@@ -57,6 +62,29 @@ export interface ViewEntry {
   followsPath: boolean
 }
 
+export interface BlockEntry {
+  plugin: string
+  id: string
+  component: BlockComponent
+  options: BlockOptions
+  version: number
+}
+
+export interface WidgetEntry {
+  plugin: string
+  id: string
+  component: WidgetComponent
+  version: number
+}
+
+export interface EntityRendererEntry {
+  plugin: string
+  kind: "card" | "row"
+  scheme: string
+  component: EntityRenderer
+  version: number
+}
+
 export interface ClientState {
   status: "loading" | "ready" | "failed"
   hash?: string
@@ -82,6 +110,9 @@ export interface PluginLoader {
   readonly plugins: Readonly<Record<string, PluginInfo>>
   readonly clients: Readonly<Record<string, ClientState>>
   readonly views: Accessor<Record<string, ViewEntry>>
+  readonly blocks: Accessor<Record<string, BlockEntry>>
+  readonly widgets: Accessor<Record<string, WidgetEntry>>
+  readonly entityRenderers: Accessor<Record<string, EntityRendererEntry>>
   readonly clientCommands: Accessor<Record<string, { plugin: string; def: ClientCommandDef }>>
   readonly commands: Accessor<CommandInfo[]>
   readonly statusItems: Accessor<Record<string, { plugin: string; component: Component }>>
@@ -97,6 +128,8 @@ export interface PluginLoader {
   refresh(): Promise<void>
   clientsSettled(timeoutMs?: number): Promise<void>
   reloads(plugin: string): number
+  widgetTypes(): WidgetType[]
+  entityRenderer(kind: "card" | "row", scheme: string): EntityRenderer | undefined
   declaredView(
     id: string,
   ):
@@ -131,6 +164,9 @@ export function createPluginLoader(conn: Connection, options: PluginLoaderOption
   const [plugins, setPlugins] = createStore<Record<string, PluginInfo>>({})
   const [clients, setClients] = createStore<Record<string, ClientState>>({})
   const [views, setViews] = createSignal<Record<string, ViewEntry>>({})
+  const [blocks, setBlocks] = createSignal<Record<string, BlockEntry>>({})
+  const [widgets, setWidgets] = createSignal<Record<string, WidgetEntry>>({})
+  const [entityRenderers, setEntityRenderers] = createSignal<Record<string, EntityRendererEntry>>({})
   const [clientCommands, setClientCommands] = createSignal<
     Record<string, { plugin: string; def: ClientCommandDef }>
   >({})
@@ -184,6 +220,60 @@ export function createPluginLoader(conn: Connection, options: PluginLoaderOption
       }),
     )
   }
+
+  const registerBlock = (plugin: string, id: string, component: BlockComponent, opts: BlockOptions = {}) => {
+    const entry: BlockEntry = { plugin, id, component, options: opts, version: ++version }
+    setBlocks((b) => ({ ...b, [id]: entry }))
+    return disposable(() =>
+      setBlocks((b) => {
+        if (b[id] !== entry) return b
+        const { [id]: _, ...rest } = b
+        return rest
+      }),
+    )
+  }
+
+  const registerWidget = (plugin: string, id: string, component: WidgetComponent) => {
+    const entry: WidgetEntry = { plugin, id, component, version: ++version }
+    setWidgets((w) => ({ ...w, [id]: entry }))
+    return disposable(() =>
+      setWidgets((w) => {
+        if (w[id] !== entry) return w
+        const { [id]: _, ...rest } = w
+        return rest
+      }),
+    )
+  }
+
+  const widgetTypes = (): WidgetType[] =>
+    Object.values(plugins).flatMap((p) => {
+      if (!p || p.state === "invalid" || !p.manifest) return []
+      return (p.manifest.contributes.widgets ?? []).map((w) => ({
+        ...w,
+        plugin: p.id,
+      }))
+    })
+
+  const registerEntityRenderer = (
+    plugin: string,
+    kind: "card" | "row",
+    scheme: string,
+    component: EntityRenderer,
+  ) => {
+    const key = `${kind}:${scheme}`
+    const entry: EntityRendererEntry = { plugin, kind, scheme, component, version: ++version }
+    setEntityRenderers((r) => ({ ...r, [key]: entry }))
+    return disposable(() =>
+      setEntityRenderers((r) => {
+        if (r[key] !== entry) return r
+        const { [key]: _, ...rest } = r
+        return rest
+      }),
+    )
+  }
+
+  const entityRenderer = (kind: "card" | "row", scheme: string): EntityRenderer | undefined =>
+    entityRenderers()[`${kind}:${scheme}`]?.component
 
   const registerCommand = (plugin: string, id: string, def: ClientCommandDef) => {
     const entry = { plugin, def }
@@ -268,6 +358,11 @@ export function createPluginLoader(conn: Connection, options: PluginLoaderOption
     onReconnect: (fn) => disposable(conn.onReconnect(fn)),
     subscribe: (names, handler, opts) => bus.subscribe(names, handler, opts),
     registerView,
+    registerBlock,
+    registerWidget,
+    widgetTypes,
+    registerEntityRenderer,
+    entityRenderer,
     registerCommand,
     registerStatusItem,
     registerNavSection,
@@ -427,6 +522,9 @@ export function createPluginLoader(conn: Connection, options: PluginLoaderOption
     plugins,
     clients,
     views,
+    blocks,
+    widgets,
+    entityRenderers,
     clientCommands,
     commands,
     statusItems,
@@ -440,6 +538,8 @@ export function createPluginLoader(conn: Connection, options: PluginLoaderOption
     refresh,
     clientsSettled,
     reloads: (plugin: string) => reloadCounts[plugin] ?? 0,
+    widgetTypes,
+    entityRenderer,
     declaredView,
     adminPages,
     adminPageOfView: (viewId: string) => adminPages().find((e) => e.page.view === viewId),

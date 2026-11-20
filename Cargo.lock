@@ -3456,6 +3456,7 @@ dependencies = [
 name = "rookery-plugins"
 version = "0.6.0"
 dependencies = [
+ "async-trait",
  "axum",
  "chrono",
  "futures-util",
@@ -3471,6 +3472,7 @@ dependencies = [
  "rookery-jobs",
  "rookery-kernel",
  "rookery-proto",
+ "rookery-sdk",
  "rookery-store",
  "schemars",
  "serde",
@@ -3502,6 +3504,22 @@ name = "rookery-pty"
 version = "0.6.0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "rookery-sdk"
+version = "0.6.0"
+dependencies = [
+ "axum",
+ "chrono",
+ "futures-util",
+ "rookery-proto",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "ureq",
 ]
 
 [[package]]

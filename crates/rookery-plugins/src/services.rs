@@ -11,11 +11,18 @@
 //! - A method of `contributes.rpc` with a `handler` is a method of an app service: `plugins.rpc` calls it.
 //! - `services.list` and `services.status` say what app services a plugin declares and where they are.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+use axum::body::Body;
+use axum::extract::State;
+use axum::http::{HeaderMap, StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use rookery_kernel::streams::{Initiator, OwnedWriter};
+use rookery_proto::User;
 use rookery_proto::stream::StreamOpened;
+use sha2::{Digest, Sha256};
 use tokio::sync::{OwnedSemaphorePermit, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
@@ -33,6 +40,144 @@ const APP_SERVICE_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_METHOD_TIMEOUT: Duration = Duration::from_secs(300);
 /// The most one line of a streamed app-service answer may hold.
 const MAX_LINE: usize = 1024 * 1024;
+
+/// Active app-service invocations, binding server-minted `callId`s to caller identity and deadline.
+#[derive(Clone)]
+pub(crate) struct AppInvocation {
+    pub plugin: String,
+    pub service: String,
+    pub user: Option<User>,
+    pub deadline: Instant,
+}
+
+#[derive(Default)]
+pub(crate) struct AppCalls(Mutex<HashMap<String, AppInvocation>>);
+
+pub(crate) struct AppCallGuard {
+    plugins: Arc<Plugins>,
+    id: String,
+}
+
+impl Drop for AppCallGuard {
+    fn drop(&mut self) {
+        self.plugins.app_calls.0.lock().unwrap().remove(&self.id);
+    }
+}
+
+impl AppCalls {
+    pub(crate) fn insert(plugins: &Arc<Plugins>, id: String, inv: AppInvocation) -> AppCallGuard {
+        plugins.app_calls.0.lock().unwrap().insert(id.clone(), inv);
+        AppCallGuard {
+            plugins: plugins.clone(),
+            id,
+        }
+    }
+
+    pub(crate) fn get(&self, id: &str) -> Option<AppInvocation> {
+        self.0.lock().unwrap().get(id).cloned()
+    }
+}
+
+/// SHA-256 hashes of per-service callback credentials, indexed for `POST /services/rpc`.
+#[derive(Default)]
+pub(crate) struct AppCallbacks(RwLock<HashMap<[u8; 32], (String, String)>>);
+
+fn sha256_bytes(secret: &str) -> [u8; 32] {
+    Sha256::digest(secret.as_bytes()).into()
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        use std::fmt::Write;
+        let _ = write!(&mut out, "{b:02x}");
+    }
+    out
+}
+
+fn hex_decode_32(hex: &str) -> Option<[u8; 32]> {
+    if hex.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (i, slot) in out.iter_mut().enumerate() {
+        *slot = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    Some(out)
+}
+
+impl AppCallbacks {
+    pub(crate) async fn load(&self, kernel: &Kernel) {
+        let Ok(listed) = server_call(
+            kernel,
+            "storage.list",
+            json!({"plugin": ROOKERY, "prefix": "app-service-callback."}),
+        )
+        .await
+        else {
+            return;
+        };
+        let Some(keys) = listed.get("keys").and_then(Value::as_array) else {
+            return;
+        };
+        let mut map = HashMap::new();
+        for key in keys.iter().filter_map(Value::as_str) {
+            let Ok(entry) = server_call(
+                kernel,
+                "storage.get",
+                json!({"plugin": ROOKERY, "key": key}),
+            )
+            .await
+            else {
+                continue;
+            };
+            let v = &entry["value"];
+            if let (Some(hash), Some(plugin), Some(service)) = (
+                v["hash"].as_str().and_then(hex_decode_32),
+                v["plugin"].as_str(),
+                v["service"].as_str(),
+            ) {
+                map.insert(hash, (plugin.to_owned(), service.to_owned()));
+            }
+        }
+        *self.0.write().unwrap() = map;
+    }
+
+    pub(crate) fn set(&self, plugin: &str, service: &str, hash: [u8; 32]) -> Result<(), RpcError> {
+        let mut map = self.0.write().unwrap();
+        if let Some((other_plugin, other_service)) = map.get(&hash)
+            && (other_plugin != plugin || other_service != service)
+        {
+            return Err(RpcError::conflict(
+                "callbackSecret is already used by another app service",
+            ));
+        }
+        map.retain(|_, (p, s)| !(p == plugin && s == service));
+        map.insert(hash, (plugin.to_owned(), service.to_owned()));
+        Ok(())
+    }
+
+    pub(crate) fn remove(&self, plugin: &str, service: &str) {
+        self.0
+            .write()
+            .unwrap()
+            .retain(|_, (p, s)| !(p == plugin && s == service));
+    }
+
+    pub(crate) fn hash_for(&self, plugin: &str, service: &str) -> Option<[u8; 32]> {
+        self.0
+            .read()
+            .unwrap()
+            .iter()
+            .find(|(_, (p, s))| p == plugin && s == service)
+            .map(|(h, _)| *h)
+    }
+
+    pub(crate) fn lookup(&self, secret: &str) -> Option<(String, String)> {
+        let hash = sha256_bytes(secret);
+        self.0.read().unwrap().get(&hash).cloned()
+    }
+}
 
 /// The longest a method that applies its own deadline may run.
 pub(crate) fn max_timeout() -> Duration {
@@ -92,7 +237,8 @@ pub struct AppServiceRef {
     pub service: String,
 }
 
-/// `services.setExternal`: an admin places an app service at a URL, with the secret it is called with.
+/// `services.setExternal`: an admin places an app service at a URL, with the secret it is called with
+/// and (optionally) a distinct callback secret the service uses to call Rookery back.
 /// Without `secret` the one kept stays; an empty `url` takes the placement away.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct AppServiceSetExternal {
@@ -101,6 +247,10 @@ pub struct AppServiceSetExternal {
     pub url: String,
     #[serde(default)]
     pub secret: Option<String>,
+    /// Distinct secret the app service presents on `POST /services/rpc`. Must differ from `secret`.
+    /// When omitted on initial placement, Rookery mints one and returns it once in `callbackToken`.
+    #[serde(default, rename = "callbackSecret", alias = "callback_secret")]
+    pub callback_secret: Option<String>,
 }
 
 /// Where an app service is, and whether it can be called.
@@ -113,6 +263,9 @@ pub struct AppServiceStatus {
     pub placement: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// Returned once when `services.setExternal` mints a callback credential for the app service.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub callback_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -190,7 +343,9 @@ fn provider(
         .unwrap_or("own");
     let allowed = match level {
         "own" => true,
-        "plugin" => call.is_admin() || matches!(call.caller, Caller::Plugin(_)),
+        "plugin" => {
+            call.is_admin() || matches!(call.caller, Caller::Plugin(_)) || call.on_behalf.is_some()
+        }
         "admin" => call.is_admin(),
         _ => false,
     };
@@ -253,7 +408,7 @@ pub fn contributions(all: &[Arc<Loaded>], point: &str) -> Vec<ExtensionContribut
 }
 
 /// The app services a plugin declares, as `(id, title, optional, provides)`.
-fn app_services(plugin: &Loaded) -> Vec<(String, String, bool, Vec<String>)> {
+pub(crate) fn app_services(plugin: &Loaded) -> Vec<(String, String, bool, Vec<String>)> {
     manifest(plugin)
         .and_then(|m| m.get("services"))
         .and_then(Value::as_array)
@@ -283,6 +438,10 @@ const ROOKERY: &str = "rookery";
 /// placed, nor read the secret the server calls it with.
 fn placement_key(plugin: &str, service: &str) -> String {
     format!("app-service.{plugin}.{service}")
+}
+
+fn callback_key(plugin: &str, service: &str) -> String {
+    format!("app-service-callback.{plugin}.{service}")
 }
 
 async fn server_call(kernel: &Kernel, method: &str, params: Value) -> Result<Value, RpcError> {
@@ -321,42 +480,76 @@ fn status(url: Option<&str>) -> AppServiceStatus {
             state: "ready".into(),
             placement: Some("external".into()),
             detail: None,
+            callback_token: None,
         },
         None => AppServiceStatus {
             state: "absent".into(),
             placement: None,
             detail: Some("an admin places it at a URL with services.setExternal".into()),
+            callback_token: None,
         },
     }
 }
 
+fn app_ctx(call: &Call, call_id: &str) -> Value {
+    let left = call.deadline.saturating_duration_since(Instant::now());
+    let deadline_ms = chrono::Utc::now().timestamp_millis()
+        + i64::try_from(left.as_millis()).unwrap_or(i64::MAX / 2);
+    let space = rookery_data::spaces::current(call).map(|s| s.to_string());
+    json!({
+        "callId": call_id,
+        "user": call.user(),
+        "principal": call.principal(),
+        "space": space,
+        "deadline": deadline_ms,
+    })
+}
+
 /// Calls a method of an app service placed at a URL, as JSON-RPC 2.0 over `POST <url>/rpc`, with the
-/// caller in `ctx`.
-async fn call_app_service(
-    kernel: &Kernel,
+/// caller and a server-minted `callId` in `ctx`.
+pub(crate) async fn call_app_service(
+    plugins: &Arc<Plugins>,
     call: &Call,
     plugin: &str,
     service: &str,
     method: &str,
     params: Value,
 ) -> Result<Value, RpcError> {
+    let kernel = &call.kernel;
     let Some(url) = placement(kernel, plugin, service).await else {
         return Err(RpcError::unavailable(format!(
             "the app service {service} of {plugin} is placed nowhere: an admin places it with services.setExternal"
         )));
     };
     let secret = secret(kernel, plugin, service).await;
+    let call_id = uuid::Uuid::now_v7().to_string();
+    let ctx = app_ctx(call, &call_id);
+    let _guard = AppCalls::insert(
+        plugins,
+        call_id,
+        AppInvocation {
+            plugin: plugin.to_owned(),
+            service: service.to_owned(),
+            user: call.user().cloned(),
+            deadline: call.deadline,
+        },
+    );
     let body = json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": method,
         "params": params,
-        "ctx": {"user": call.user(), "principal": call.principal()},
+        "ctx": ctx,
     });
+    let remaining = call
+        .deadline
+        .saturating_duration_since(Instant::now())
+        .max(Duration::from_secs(1));
+    let timeout = remaining.min(MAX_METHOD_TIMEOUT);
     let endpoint = format!("{}/rpc", url.trim_end_matches('/'));
     let answer = tokio::task::spawn_blocking(move || {
         let agent: ureq::Agent = ureq::Agent::config_builder()
-            .timeout_global(Some(APP_SERVICE_TIMEOUT))
+            .timeout_global(Some(timeout))
             .http_status_as_error(false)
             .build()
             .into();
@@ -402,7 +595,7 @@ pub async fn call_service(
     {
         return tokio::time::timeout_at(
             call.deadline.into(),
-            call_app_service(&call.kernel, call, plugin, &app, method, params),
+            call_app_service(plugins, call, plugin, &app, method, params),
         )
         .await
         .map_err(|_| RpcError::timeout(format!("{plugin}/{service}.{method} timed out")))?;
@@ -562,13 +755,19 @@ pub(crate) async fn open_stream(
     caller_stream: Option<Arc<OwnedSemaphorePermit>>,
 ) -> Result<ServiceStream, RpcError> {
     let provider = provider(call, plugins, &asked.plugin, &asked.service)?;
-    if app_services(&provider)
-        .iter()
-        .any(|(_, _, _, names)| names.contains(&asked.service))
+    if let Some((app, ..)) = app_services(&provider)
+        .into_iter()
+        .find(|(_, _, _, names)| names.contains(&asked.service))
     {
-        return Err(RpcError::unavailable(
-            "app service streaming is unavailable",
-        ));
+        return stream_app_service(
+            plugins,
+            call,
+            &asked.plugin,
+            &app,
+            &asked.method,
+            asked.params,
+        )
+        .await;
     }
     let (call, target, mut permits) = prepare_host(call, plugins, &provider, &asked, true).await?;
     let capacity = permits.stream.clone();
@@ -671,15 +870,8 @@ pub async fn call_bound(
         .iter()
         .any(|(id, ..)| id == &bound.service)
     {
-        return call_app_service(
-            &call.kernel,
-            call,
-            plugin,
-            &bound.service,
-            &bound.method,
-            params,
-        )
-        .await;
+        return call_app_service(plugins, call, plugin, &bound.service, &bound.method, params)
+            .await;
     }
     call_service(call, plugins, plugin, &bound.service, &bound.method, params).await
 }
@@ -709,7 +901,7 @@ pub(crate) async fn open_bound_stream(
         .any(|(id, ..)| id == &bound.service)
     {
         return stream_app_service(
-            &call.kernel,
+            plugins,
             &call,
             plugin,
             &bound.service,
@@ -723,7 +915,7 @@ pub(crate) async fn open_bound_stream(
         .into_iter()
         .find(|(_, _, _, names)| names.iter().any(|name| name == &bound.service))
     {
-        return stream_app_service(&call.kernel, &call, plugin, &app, &bound.method, params).await;
+        return stream_app_service(plugins, &call, plugin, &app, &bound.method, params).await;
     }
     let asked = ServiceCall {
         plugin: plugin.into(),
@@ -737,26 +929,39 @@ pub(crate) async fn open_bound_stream(
 /// A streamed answer of an app service: the response's lines are its items, and one with an error
 /// ends it. A body that ends is a stream that ended well.
 async fn stream_app_service(
-    kernel: &Kernel,
+    plugins: &Arc<Plugins>,
     call: &Call,
     plugin: &str,
     service: &str,
     method: &str,
     params: Value,
 ) -> Result<ServiceStream, RpcError> {
+    let kernel = &call.kernel;
     let Some(url) = placement(kernel, plugin, service).await else {
         return Err(RpcError::unavailable(format!(
             "the app service {service} of {plugin} is placed nowhere: an admin places it with services.setExternal"
         )));
     };
     let secret = secret(kernel, plugin, service).await;
+    let call_id = uuid::Uuid::now_v7().to_string();
+    let ctx = app_ctx(call, &call_id);
+    let guard = AppCalls::insert(
+        plugins,
+        call_id,
+        AppInvocation {
+            plugin: plugin.to_owned(),
+            service: service.to_owned(),
+            user: call.user().cloned(),
+            deadline: call.deadline,
+        },
+    );
     let body = json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": method,
         "params": params,
         "stream": true,
-        "ctx": {"user": call.user(), "principal": call.principal()},
+        "ctx": ctx,
     });
     let endpoint = format!("{}/rpc", url.trim_end_matches('/'));
     let (sender, items) = mpsc::channel(1);
@@ -770,6 +975,7 @@ async fn stream_app_service(
     let connect = APP_SERVICE_TIMEOUT.min(remaining);
     let idle = APP_SERVICE_TIMEOUT.min(remaining);
     tokio::task::spawn_blocking(move || {
+        let _guard = guard;
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
             .timeout_global(Some(remaining))
@@ -881,6 +1087,317 @@ async fn infos(call: &Call, plugins: &Plugins, only: Option<&str>) -> Vec<AppSer
     found
 }
 
+/// Methods an app service may call back on `POST /services/rpc` as the person an invocation serves
+/// (when `callId` carries a person) or as its own plugin (when plugin-level or serving no person).
+const APP_CALLBACK_PERSON: &[&str] = &[
+    "data.find",
+    "data.scan",
+    "data.count",
+    "data.aggregate",
+    "data.search",
+    "data.get",
+    "data.tail",
+    "data.insert",
+    "data.upsert",
+    "data.update",
+    "data.delete",
+    "data.restore",
+    "data.purge",
+    "data.batch",
+    "data.import",
+    "data.history",
+    "data.refsTo",
+    "data.refsFrom",
+    "documents.create",
+    "documents.get",
+    "documents.list",
+    "documents.delete",
+    "documents.read",
+    "documents.convert",
+    "documents.edit",
+    "documents.history",
+    "documents.saveVersion",
+    "documents.restore",
+    "documents.flush",
+    "entities.resolve",
+    "entities.resolveMany",
+    "entities.search",
+    "entities.text",
+    "spaces.list",
+    "spaces.get",
+    "spaces.kinds",
+    "users.search",
+    "blobs.get",
+    "blobs.put",
+    "blobs.delete",
+    "blobs.url",
+    "connections.list",
+    "connections.get",
+    "access.filter",
+    "access.grant",
+    "access.grants",
+    "access.level",
+    "access.levelOf",
+    "access.require",
+    "access.revoke",
+    "extensions.list",
+    "services.list",
+    "services.status",
+    "services.call",
+    "services.stream",
+    "jobs.enqueue",
+    "jobs.get",
+    "jobs.cancel",
+    "events.publish",
+    "topics.publish",
+    "notify.send",
+    "audit.list",
+];
+
+/// Methods an app service may call back on `POST /services/rpc` that ALWAYS stay at the plugin's
+/// own level (`Caller::Plugin`), never escalating to a person or admin. When `callId` carries a
+/// person, `call.acting_user` is set so `connections.resolve` can see that person's own or space
+/// connections of the plugin's own declared type.
+const APP_CALLBACK_PLUGIN: &[&str] = &[
+    "connections.resolve",
+    "entities.register",
+    "entities.remove",
+    "entities.alias",
+    "settings.get",
+    "settings.set",
+    "settings.reset",
+    "storage.get",
+    "storage.set",
+    "storage.list",
+    "storage.delete",
+    "secrets.get",
+    "secrets.set",
+    "secrets.list",
+    "secrets.delete",
+    "secrets.rename",
+    "leases.acquire",
+    "leases.renew",
+    "leases.release",
+    "audit.record",
+    "sql.query",
+    "sql.execute",
+    "sql.begin",
+    "sql.txQuery",
+    "sql.txExecute",
+    "sql.txPublish",
+    "sql.commit",
+    "sql.rollback",
+];
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CallbackRequest {
+    #[serde(default)]
+    id: Value,
+    method: String,
+    #[serde(default = "empty")]
+    params: Value,
+    #[serde(default)]
+    call_id: Option<String>,
+    #[serde(default)]
+    stream: bool,
+}
+
+fn rpc_json(status: StatusCode, id: Value, res: Result<Value, RpcError>) -> Response {
+    let body = match res {
+        Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+        Err(error) => json!({ "jsonrpc": "2.0", "id": id, "error": error }),
+    };
+    (status, axum::Json(body)).into_response()
+}
+
+/// `POST /services/rpc`: authenticated callback endpoint for placed app services.
+///
+/// Authenticates strictly against the per-service callback credential (never the inbound secret or
+/// a user token). When `callId` is supplied, binds to that active invocation of the authenticated
+/// service: person-level methods run as the person it serves (with `on_behalf`), plugin-level
+/// methods stay `Caller::Plugin` with `acting_user` set. Without `callId`, runs at the plugin's
+/// own level.
+pub async fn callback(
+    State(kernel): State<Kernel>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    let Some(plugins) = kernel.get_facility::<Plugins>() else {
+        return rpc_json(
+            StatusCode::SERVICE_UNAVAILABLE,
+            Value::Null,
+            Err(RpcError::unavailable("this server has no plugin folder")),
+        );
+    };
+    if plugins.ready_soon().await.is_err() {
+        return rpc_json(
+            StatusCode::SERVICE_UNAVAILABLE,
+            Value::Null,
+            Err(RpcError::unavailable("the server is reading its plugins")),
+        );
+    }
+    let Some(token) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| {
+            v.strip_prefix("Bearer ")
+                .or_else(|| v.strip_prefix("bearer "))
+        })
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    else {
+        return rpc_json(
+            StatusCode::UNAUTHORIZED,
+            Value::Null,
+            Err(RpcError::unauthenticated(
+                "missing service callback bearer token",
+            )),
+        );
+    };
+    let Some((plugin, service)) = plugins.callbacks.lookup(token) else {
+        return rpc_json(
+            StatusCode::UNAUTHORIZED,
+            Value::Null,
+            Err(RpcError::unauthenticated(
+                "invalid service callback credential",
+            )),
+        );
+    };
+    let req: CallbackRequest = match serde_json::from_slice(&body) {
+        Ok(req) => req,
+        Err(e) => {
+            return rpc_json(
+                StatusCode::BAD_REQUEST,
+                Value::Null,
+                Err(RpcError::invalid(format!("invalid JSON-RPC callback: {e}"))),
+            );
+        }
+    };
+    let method = req.method.as_str();
+    let as_person = APP_CALLBACK_PERSON.contains(&method);
+    let as_plugin = APP_CALLBACK_PLUGIN.contains(&method);
+    if !as_person && !as_plugin {
+        return rpc_json(
+            StatusCode::OK,
+            req.id,
+            Err(RpcError::forbidden(format!(
+                "{method} is not allowed on /services/rpc"
+            ))),
+        );
+    }
+    let mut call = Call::new(kernel.clone(), Caller::Plugin(plugin.clone()), None);
+    if let Some(call_id) = req.call_id.as_deref() {
+        let Some(inv) = plugins.app_calls.get(call_id) else {
+            return rpc_json(
+                StatusCode::OK,
+                req.id,
+                Err(RpcError::not_found(
+                    "the invocation for this callId does not exist or has ended",
+                )),
+            );
+        };
+        if inv.plugin != plugin || inv.service != service {
+            return rpc_json(
+                StatusCode::OK,
+                req.id,
+                Err(RpcError::forbidden(
+                    "this callId does not belong to this app service",
+                )),
+            );
+        }
+        call.deadline = inv.deadline;
+        if let Some(user) = inv.user {
+            if as_person && kernel.methods.level(method) != Some(Level::Plugin) {
+                call.on_behalf = Some(plugin.clone());
+                call.caller = Caller::User {
+                    user,
+                    session: None,
+                    token: None,
+                };
+            } else {
+                call.acting_user = Some(user);
+            }
+        }
+    }
+    if req.stream {
+        if method != "services.stream" {
+            return rpc_json(
+                StatusCode::OK,
+                req.id,
+                Err(RpcError::invalid(format!(
+                    "{method} does not support streaming on /services/rpc"
+                ))),
+            );
+        }
+        let asked: ServiceCall = match serde_json::from_value(req.params) {
+            Ok(asked) => asked,
+            Err(e) => {
+                return rpc_json(
+                    StatusCode::OK,
+                    req.id,
+                    Err(RpcError::invalid(format!("params: {e}"))),
+                );
+            }
+        };
+        let source = match open_stream(&call, &plugins, asked, None).await {
+            Ok(source) => source,
+            Err(e) => return rpc_json(StatusCode::OK, req.id, Err(e)),
+        };
+        let id = req.id;
+        let stream = futures_util::stream::unfold(
+            (source, false, id),
+            |(mut source, done, id)| async move {
+                if done {
+                    return None;
+                }
+                match source.next().await {
+                    Ok(Some(item)) => {
+                        let mut line = serde_json::to_vec(&json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": item,
+                        }))
+                        .unwrap_or_default();
+                        line.push(b'\n');
+                        Some((
+                            Ok::<_, std::io::Error>(axum::body::Bytes::from(line)),
+                            (source, false, id),
+                        ))
+                    }
+                    Ok(None) => {
+                        let mut line = serde_json::to_vec(&json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                        }))
+                        .unwrap_or_default();
+                        line.push(b'\n');
+                        Some((Ok(axum::body::Bytes::from(line)), (source, true, id)))
+                    }
+                    Err(err) => {
+                        let mut line = serde_json::to_vec(&json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": err,
+                        }))
+                        .unwrap_or_default();
+                        line.push(b'\n');
+                        Some((Ok(axum::body::Bytes::from(line)), (source, true, id)))
+                    }
+                }
+            },
+        );
+        return (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "application/x-ndjson")],
+            Body::from_stream(stream),
+        )
+            .into_response();
+    }
+    let result = kernel.methods.dispatch(call, method, req.params).await;
+    rpc_json(StatusCode::OK, req.id, result)
+}
+
 /// Adds `extensions.list`, `services.call`, `services.list`, `services.status` and `services.setExternal`.
 pub fn register(methods: &mut Methods) {
     methods
@@ -920,7 +1437,7 @@ pub fn register(methods: &mut Methods) {
                 offset: None,
             })
         })
-        .summary("Streams a host service method as one JSON value per line.")
+        .summary("Streams a service method (host half or app service) as one JSON value per line.")
         .stream()
         .level(Level::Own);
     methods
@@ -969,6 +1486,39 @@ pub fn register(methods: &mut Methods) {
                 if !p.url.is_empty() && !(p.url.starts_with("http://") || p.url.starts_with("https://")) {
                     return Err(RpcError::invalid("an app service's url starts with http:// or https://"));
                 }
+                let existing_inbound = secret(&call.kernel, &p.plugin, &p.service).await;
+                let effective_inbound = p.secret.as_deref().or(existing_inbound.as_deref());
+                let mut minted_callback: Option<String> = None;
+                let new_callback_hash: Option<[u8; 32]> = if p.url.is_empty() {
+                    None
+                } else if let Some(cb) = &p.callback_secret {
+                    if cb.trim().is_empty() {
+                        return Err(RpcError::invalid("callbackSecret must not be empty"));
+                    }
+                    if effective_inbound == Some(cb.as_str()) {
+                        return Err(RpcError::invalid(
+                            "callbackSecret must differ from the inbound secret",
+                        ));
+                    }
+                    Some(sha256_bytes(cb))
+                } else if let Some(existing_cb) = plugins.callbacks.hash_for(&p.plugin, &p.service) {
+                    if let Some(inbound) = &p.secret
+                        && sha256_bytes(inbound) == existing_cb
+                    {
+                        return Err(RpcError::invalid(
+                            "inbound secret must differ from callbackSecret",
+                        ));
+                    }
+                    None
+                } else {
+                    let minted = rookery_store::util::random_token("rksvc_");
+                    let hash = sha256_bytes(&minted);
+                    minted_callback = Some(minted);
+                    Some(hash)
+                };
+                if let Some(hash) = new_callback_hash {
+                    plugins.callbacks.set(&p.plugin, &p.service, hash)?;
+                }
                 server_call(
                     &call.kernel,
                     "storage.set",
@@ -983,15 +1533,41 @@ pub fn register(methods: &mut Methods) {
                     )
                     .await?;
                 }
+                if p.url.is_empty() {
+                    plugins.callbacks.remove(&p.plugin, &p.service);
+                    let _ = server_call(
+                        &call.kernel,
+                        "storage.delete",
+                        json!({"plugin": ROOKERY, "key": callback_key(&p.plugin, &p.service)}),
+                    )
+                    .await;
+                } else if let Some(hash) = new_callback_hash {
+                    server_call(
+                        &call.kernel,
+                        "storage.set",
+                        json!({
+                            "plugin": ROOKERY,
+                            "key": callback_key(&p.plugin, &p.service),
+                            "value": {
+                                "hash": hex_encode(&hash),
+                                "plugin": p.plugin,
+                                "service": p.service,
+                            }
+                        }),
+                    )
+                    .await?;
+                }
                 call.audit(
                     "service.place",
                     None,
                     json!({"plugin": p.plugin, "service": p.service, "url": p.url}),
                 )
                 .await;
-                Ok(status(Some(&p.url).filter(|u| !u.is_empty()).map(|u| u.as_str())))
+                let mut out = status(Some(&p.url).filter(|u| !u.is_empty()).map(|u| u.as_str()));
+                out.callback_token = minted_callback;
+                Ok(out)
             },
         )
-        .summary("Places an app service of a plugin at a URL, with the secret the server calls it with.")
+        .summary("Places an app service of a plugin at a URL, with its inbound secret and distinct callback secret.")
         .level(Level::Admin);
 }

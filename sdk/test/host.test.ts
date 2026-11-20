@@ -363,4 +363,74 @@ describe("@rookery/sdk host data", () => {
     expect(calls[2]?.params).toMatchObject({ callId: "call-1", method: "audit.list" })
     expect(calls[3]?.params).toEqual({ action: "mapping.set" })
   })
+
+  test("connections.test, connections.resolve(ctx, id), and entities.text(scheme, fn) register and route cleanly", async () => {
+    const { transport, calls } = recorder((_method, params) => {
+      if (params.method === "connections.resolve") return { id: "c1", credential: "tok" }
+      return {}
+    })
+    const manifest = {
+      ...notesManifest,
+      contributes: {
+        ...notesManifest.contributes,
+        connectionTypes: [{ id: "notes.api", title: "Notes API", test: true }],
+        entityTypes: [{ scheme: "note", title: "Note" }],
+      },
+    } as unknown as Manifest
+    const { runtime, rookery } = createHost("notes", manifest, transport)
+    const plugin = definePlugin((r) => {
+      r.connections.test("notes.api", async (_c, conn) => ({
+        ok: conn.values?.url === "https://example.test",
+        message: "checked",
+      }))
+      r.entities.text("note", async (_c, entity) => ({
+        title: `Note ${entity.id}`,
+        text: `${entity.scheme}:${entity.uri}`,
+      }))
+      r.services.provide("notes", {
+        resolveForUser: (c, p: { id: string }) => r.connections.resolve(c, p.id),
+      })
+    })
+    const regs = await activate(runtime, rookery, plugin)
+    expect(regs.some((reg) => reg.kind === "connection-test" && reg.key === "notes.api")).toBe(true)
+    expect(regs.some((reg) => reg.kind === "entity-text" && reg.key === "note")).toBe(true)
+
+    const tested = await runtime.invoke({
+      plugin: "notes",
+      kind: "connection-test",
+      key: "notes.api",
+      params: {
+        connection: {
+          id: "c1",
+          type: "notes.api",
+          name: "Mine",
+          config: {},
+          values: { url: "https://example.test" },
+        },
+      },
+      ctx,
+    })
+    expect(tested).toEqual({ ok: true, message: "checked" })
+
+    const text = await runtime.invoke({
+      plugin: "notes",
+      kind: "entity-text",
+      key: "note",
+      params: { uri: "note:1", scheme: "note", id: "1" },
+      ctx,
+    })
+    expect(text).toEqual({ title: "Note 1", text: "note:note:1" })
+
+    await runtime.invoke({
+      plugin: "notes",
+      kind: "service",
+      key: "notes",
+      params: { method: "resolveForUser", params: { id: "c1" } },
+      ctx,
+    })
+    expect(calls[0]).toEqual({
+      method: "host.data",
+      params: { callId: "call-1", method: "connections.resolve", params: { id: "c1" } },
+    })
+  })
 })

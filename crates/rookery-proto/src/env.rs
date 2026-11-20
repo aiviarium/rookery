@@ -279,6 +279,64 @@ wire! {
 }
 
 wire! {
+    /// `env.process`: a process with piped stdio on a host. The stream it opens carries, from the
+    /// server, frames whose first byte is the tag: `1` stdout, `2` stderr, `3` exit (JSON
+    /// `ProcessExit`). Bytes written to the stream go to stdin; `streams.eof` closes stdin; closing
+    /// the stream ends the process.
+    pub struct ProcessStart {
+        pub env: String,
+        /// The words of the command: a program and its arguments, not a shell line.
+        pub command: Vec<String>,
+        /// An absolute folder inside the host's roots.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        pub cwd: Option<String>,
+        /// Variables for the command, which the host adds to the agent's own environment.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        #[cfg_attr(feature = "ts", ts(as = "Option<BTreeMap<String, String>>", optional))]
+        pub vars: BTreeMap<String, String>,
+        /// `agent` unless the caller has manage on the host.
+        #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(as = "Option<EnvUser>", optional))]
+        pub user: EnvUser,
+        /// Ends the process after this long. Default 1 hour, at most 1 hour.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        pub timeout_ms: Option<u64>,
+    }
+}
+
+wire! {
+    /// The result of `env.process`.
+    pub struct ProcessStarted {
+        pub stream: u32,
+        /// For `env.signal`.
+        pub process: String,
+    }
+}
+
+wire! {
+    /// `env.signal`: sends a POSIX signal (such as `INT`, `TERM`, `KILL`) to a running `env.process`.
+    pub struct ProcessSignal {
+        pub env: String,
+        pub process: String,
+        pub signal: String,
+    }
+}
+
+wire! {
+    /// The JSON body of a tag-3 exit frame on an `env.process` stream.
+    pub struct ProcessExit {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional))]
+        pub exit_code: Option<i32>,
+        #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
+        pub lost: bool,
+    }
+}
+
+wire! {
     /// A clone of a repository on one host, or a git worktree of one, under the host's checkouts
     /// folder.
     pub struct Checkout {

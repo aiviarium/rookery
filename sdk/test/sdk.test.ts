@@ -187,4 +187,159 @@ describe("@rookery/sdk definePlugin & defineClient", () => {
     dispose()
     expect(disposed).toEqual(["event", "cmd", "view"])
   })
+
+  test("client blocks, widgets, entity renderers, workbench.share, and env.process", async () => {
+    const blocks = new Map<string, unknown>()
+    const widgets = new Map<string, unknown>()
+    const renderers = new Map<string, (props: any) => any>()
+    const shared: string[] = []
+    const opened: string[] = []
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = []
+    const streamCallbacks: { onData?: (b: Uint8Array) => void; onEnd?: (e?: Error) => void } = {}
+    const written: Uint8Array[] = []
+    let eofCalled = false
+    let closed = false
+
+    const manifest = {
+      id: "demo",
+      name: "Demo",
+      version: "0.1.0",
+      contributes: {
+        views: [],
+        routes: [],
+        commands: [],
+        collections: [],
+        settings: [],
+        adminPages: [],
+        nav: [],
+        blocks: [{ id: "demo.card", title: "Card" }],
+        widgets: [{ id: "demo.clock", title: "Clock", sizes: { default: { w: 4, h: 2 } } }],
+        entityTypes: [{ scheme: "demo", title: "Demo" }],
+      },
+    } as unknown as Manifest
+
+    const { rookery, dispose } = createClientApi(
+      {
+        call: async (method, params) => {
+          calls.push({ method, params })
+          return {}
+        },
+        stream: async (method, params) => {
+          calls.push({ method, params })
+          const s = {
+            id: 7,
+            result: { stream: 7, process: "proc-42" },
+            write: (bytes: Uint8Array) => written.push(bytes),
+            eof: () => {
+              eofCalled = true
+            },
+            close: () => {
+              closed = true
+            },
+            set onData(fn: (b: Uint8Array) => void) {
+              streamCallbacks.onData = fn
+            },
+            set onEnd(fn: (e?: Error) => void) {
+              streamCallbacks.onEnd = fn
+            },
+          }
+          return s as any
+        },
+        subscribe: async () => disposable(() => {}),
+        onNotification: () => disposable(() => {}),
+        onReconnect: () => disposable(() => {}),
+        runCommand: async () => ({}),
+        registerView: () => disposable(() => {}),
+        registerCommand: () => disposable(() => {}),
+        registerBlock: (_p, id, component) => {
+          blocks.set(id, component)
+          return disposable(() => blocks.delete(id))
+        },
+        registerWidget: (_p, id, component) => {
+          widgets.set(id, component)
+          return disposable(() => widgets.delete(id))
+        },
+        widgetTypes: () => [
+          { plugin: "demo", id: "demo.clock", title: "Clock", sizes: { default: { w: 4, h: 2 } } } as any,
+        ],
+        registerEntityRenderer: (_p, kind, scheme, component) => {
+          const key = `${kind}:${scheme}`
+          renderers.set(key, component)
+          return disposable(() => renderers.delete(key))
+        },
+        entityRenderer: (kind, scheme) => renderers.get(`${kind}:${scheme}`),
+        openEntity: (uri) => opened.push(uri),
+        share: (uri) => shared.push(uri),
+      },
+      "demo",
+      manifest,
+    )
+
+    // Blocks
+    expect(() => rookery.blocks.register("demo.nope", () => null)).toThrow(
+      "not declared in contributes.blocks",
+    )
+    rookery.blocks.register("demo.card", () => "block-el")
+    expect(blocks.has("demo.card")).toBe(true)
+
+    // Widgets
+    rookery.widgets.register("demo.clock", () => "widget-el")
+    expect(widgets.has("demo.clock")).toBe(true)
+    expect(rookery.widgets.types().map((w) => w.id)).toEqual(["demo.clock"])
+
+    // Entities
+    expect(() => rookery.entities.card("other", () => null)).toThrow("not declared in plugin.json")
+    expect(rookery.entities.renders("card", "demo")).toBe(false)
+    rookery.entities.card("demo", (p) => `card:${p.scheme}:${p.id}:${p.density}`)
+    rookery.entities.row("demo", (p) => `row:${p.scheme}:${p.id}`)
+    expect(rookery.entities.renders("card", "demo")).toBe(true)
+    expect(rookery.entities.renders("row", "demo")).toBe(true)
+    expect(rookery.entities.Card({ uri: "demo:123" })).toBe("card:demo:123:compact")
+    expect(rookery.entities.Row({ uri: "demo:123" })).toBe("row:demo:123")
+    expect(rookery.entities.Card({ uri: "unknown:1", fallback: "fb" })).toBe("fb")
+    rookery.entities.open("demo:123")
+    expect(opened).toEqual(["demo:123"])
+
+    // Workbench share
+    rookery.workbench.share("doc:abc")
+    expect(shared).toEqual(["doc:abc"])
+
+    // env.process demux & signal
+    const proc = await rookery.env.process("local", ["rg", "needle"], { cwd: "/repo" })
+    expect(proc.id).toBe("proc-42")
+    const out: string[] = []
+    const err: string[] = []
+    let exit: unknown
+    const dec = new TextDecoder()
+    proc.onStdout = (b) => out.push(dec.decode(b))
+    proc.onStderr = (b) => err.push(dec.decode(b))
+    proc.onExit = (e) => {
+      exit = e
+    }
+    const enc = new TextEncoder()
+    streamCallbacks.onData?.(new Uint8Array([1, ...enc.encode("match\n")]))
+    streamCallbacks.onData?.(new Uint8Array([2, ...enc.encode("warn\n")]))
+    streamCallbacks.onData?.(new Uint8Array([3, ...enc.encode(JSON.stringify({ exitCode: 0, lost: false }))]))
+    expect(out).toEqual(["match\n"])
+    expect(err).toEqual(["warn\n"])
+    expect(exit).toEqual({ exitCode: 0, lost: false })
+
+    proc.write("hi")
+    proc.eof()
+    await proc.signal("INT")
+    proc.close()
+    expect(written.length).toBe(1)
+    expect(dec.decode(written[0])).toBe("hi")
+    expect(eofCalled).toBe(true)
+    expect(closed).toBe(true)
+    expect(calls[1]).toEqual({
+      method: "env.signal",
+      params: { env: "local", process: "proc-42", signal: "INT" },
+    })
+
+    dispose()
+    expect(blocks.size).toBe(0)
+    expect(widgets.size).toBe(0)
+    expect(renderers.size).toBe(0)
+  })
 })

@@ -295,6 +295,7 @@ const HOST_DATA_PERSON: &[&str] = &[
 /// The methods `host.data` may run for an invocation that stay the plugin's own whatever person it
 /// serves: its raw SQL, which is its schema, and its audit entry, which is recorded under its id.
 const HOST_DATA_PLUGIN: &[&str] = &[
+    "connections.resolve",
     "sql.query",
     "sql.execute",
     "sql.begin",
@@ -908,6 +909,11 @@ impl ExtHost {
             "space": rookery_data::spaces::current(call),
         });
         let stream = matches!(invocation, Some(Invocation::Stream { .. }));
+        if kind == "connection-test"
+            && let Some(conn) = params.get("connection")
+        {
+            link.remember_credential(&Ok(conn.clone()));
+        }
         let invoke = json!({"plugin": plugin, "kind": kind, "key": key, "params": params, "ctx": ctx, "stream": stream});
         let job = match &invocation {
             Some(Invocation::Job(run)) => Some(run.clone()),
@@ -1631,6 +1637,23 @@ fn check_registration(loaded: &Loaded, registration: &Registration) -> Result<()
         "job" => crate::jobs::declared(loaded)
             .iter()
             .any(|job| &job.id == key),
+        "connection-test" => loaded.manifest.as_ref().is_some_and(|m| {
+            m.pointer("/contributes/connectionTypes")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .any(|c| {
+                    c.get("id").and_then(Value::as_str) == Some(key.as_str())
+                        && c.get("test").and_then(Value::as_bool) == Some(true)
+                })
+        }),
+        "entity-text" => loaded.manifest.as_ref().is_some_and(|m| {
+            m.pointer("/contributes/entityTypes")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .any(|e| e.get("scheme").and_then(Value::as_str) == Some(key.as_str()))
+        }),
         "rpc" | "command" => true,
         _ => false,
     };
@@ -1776,23 +1799,28 @@ async fn host_request(
             call.deadline = acting.deadline;
             // A method that stays the plugin's is on its own list, and a level of its own is a
             // backstop for one added there by mistake.
-            if let Some(user) = acting.user
-                && as_person
-                && call.kernel.methods.level(&method) != Some(Level::Plugin)
-            {
-                // The audit log names the person whose level ran the call, and the plugin that did it.
-                // A plugin never names a user: the person is the one the invocation is for.
-                if let Caller::Plugin(plugin) = &call.caller {
-                    call.on_behalf = Some(plugin.clone());
+            if let Some(user) = acting.user {
+                if as_person && call.kernel.methods.level(&method) != Some(Level::Plugin) {
+                    // The audit log names the person whose level ran the call, and the plugin that did it.
+                    // A plugin never names a user: the person is the one the invocation is for.
+                    if let Caller::Plugin(plugin) = &call.caller {
+                        call.on_behalf = Some(plugin.clone());
+                    }
+                    call.caller = Caller::User {
+                        user,
+                        session: None,
+                        token: None,
+                    };
+                } else {
+                    call.acting_user = Some(user);
                 }
-                call.caller = Caller::User {
-                    user,
-                    session: None,
-                    token: None,
-                };
             }
             let methods = call.kernel.methods.clone();
-            methods.dispatch(call, &method, params).await
+            let done = methods.dispatch(call, &method, params).await;
+            if method == "connections.resolve" {
+                link.remember_credential(&done);
+            }
+            done
         }
         "host.services.open" => {
             let capacity = Arc::new(reserve(&link.0.capacity.streams)?);

@@ -100,6 +100,13 @@ port.on("message", async (m: ToWorker) => {
       return
     case "invoke":
       try {
+        if (m.invoke.kind === "connection-test") {
+          const conn = (m.invoke.params as { connection?: { credential?: unknown } } | undefined)?.connection
+          if (typeof conn?.credential === "string" && conn.credential) {
+            credentials.add(conn.credential)
+            credentials.add(JSON.stringify(conn.credential).slice(1, -1))
+          }
+        }
         post({ type: "invoked", id: m.id, result: clean(await runtime.invoke(m.invoke)) })
       } catch (e) {
         post({ type: "invoked", id: m.id, error: body(e) })

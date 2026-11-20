@@ -38,7 +38,15 @@ export {
 export type { EventBus, EventHandler, EventSubscriptionOptions } from "./events"
 export { createEventBus } from "./events"
 export type * from "./generated"
-export type { ClientState, PluginLoader, PluginLoaderOptions, ViewEntry } from "./loader"
+export type {
+  BlockEntry,
+  ClientState,
+  EntityRendererEntry,
+  PluginLoader,
+  PluginLoaderOptions,
+  ViewEntry,
+  WidgetEntry,
+} from "./loader"
 export { createPluginLoader, publishSharedModules, SHARED_MODULE_GLOBAL } from "./loader"
 export type { RouteEntry, RouteMatch } from "./routes"
 export { buildRouteTable, matchUrl, viewUrl } from "./routes"

@@ -10,15 +10,22 @@
 use std::path::Path;
 
 use axum::Router;
-use axum::extract::{Path as UrlPath, State};
+use axum::extract::{DefaultBodyLimit, Path as UrlPath, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use rookery_kernel::Kernel;
+
+const MAX_SERVICE_RPC_BODY: usize = 12 * 1024 * 1024;
 
 /// The routes the server mounts beside `/ws` and `/rpc`.
 pub fn routes() -> Router<Kernel> {
-    Router::new().route("/plugins/{id}/{hash}/{*path}", get(serve))
+    Router::new()
+        .route("/plugins/{id}/{hash}/{*path}", get(serve))
+        .route(
+            "/services/rpc",
+            post(crate::services::callback).layer(DefaultBodyLimit::max(MAX_SERVICE_RPC_BODY)),
+        )
 }
 
 async fn serve(

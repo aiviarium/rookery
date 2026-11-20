@@ -62,6 +62,8 @@ pub struct Plugins {
     /// One change of the plugin folder at a time.
     changing: tokio::sync::Mutex<()>,
     pub(crate) host: exthost::ExtHost,
+    pub(crate) app_calls: services::AppCalls,
+    pub(crate) callbacks: services::AppCallbacks,
     started: AtomicBool,
     /// The folder was read, as a new leader reads it before anything else uses the plugins.
     ready: std::sync::OnceLock<()>,
@@ -73,6 +75,8 @@ impl Plugins {
     pub fn new(setup: Setup) -> Plugins {
         Plugins {
             host: exthost::ExtHost::new(setup.host.clone()),
+            app_calls: services::AppCalls::default(),
+            callbacks: services::AppCallbacks::default(),
             setup,
             loaded: RwLock::default(),
             rows: RwLock::default(),
@@ -288,6 +292,51 @@ impl Plugins {
             ),
         );
         let old = std::mem::replace(&mut *self.loaded.write().unwrap(), new.clone());
+        for id in old.keys().filter(|id| !new.contains_key(*id)) {
+            rookery_data::entities::set_entity_types(kernel, id, vec![]);
+            rookery_data::spaces::set_kinds(kernel, id, vec![]);
+        }
+        for (id, plugin) in &new {
+            let schemes = if plugin.valid() {
+                plugin
+                    .manifest
+                    .as_ref()
+                    .and_then(|m| m.pointer("/contributes/entityTypes"))
+                    .and_then(|v| v.as_array())
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|e| e.get("scheme").and_then(|s| s.as_str()).map(str::to_owned))
+                    .collect()
+            } else {
+                vec![]
+            };
+            rookery_data::entities::set_entity_types(kernel, id, schemes);
+            let kinds = if plugin.valid() {
+                plugin
+                    .manifest
+                    .as_ref()
+                    .and_then(|m| m.pointer("/contributes/spaceKinds"))
+                    .and_then(|v| v.as_array())
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|e| {
+                        Some(rookery_proto::data::SpaceKindInfo {
+                            id: e.get("id")?.as_str()?.to_owned(),
+                            plugin: id.clone(),
+                            title: e.get("title")?.as_str()?.to_owned(),
+                            icon: e.get("icon").and_then(|v| v.as_str()).map(str::to_owned),
+                            description: e
+                                .get("description")
+                                .and_then(|v| v.as_str())
+                                .map(str::to_owned),
+                        })
+                    })
+                    .collect()
+            } else {
+                vec![]
+            };
+            rookery_data::spaces::set_kinds(kernel, id, kinds);
+        }
         *self.rows.write().unwrap() = rows;
         let declared: BTreeMap<String, jobs::DeclaredJob> = new
             .values()
@@ -555,8 +604,12 @@ impl Plugins {
                 jobs::may_enqueue(&jobs, call, kind)
             }),
         );
+        let hooks = Arc::new(PluginHooks(Arc::downgrade(self)));
+        rookery_data::entities::set_text_provider(kernel, hooks.clone());
+        rookery_facilities::connections::set_connection_tester(kernel, hooks);
         let done = async {
             Self::folder_ready(kernel).await;
+            self.callbacks.load(kernel).await;
             // The folder is read under the change lock, before anything else may use the plugins.
             let _one = self.changing.lock().await;
             self.reload_held(kernel, &[]).await
@@ -719,5 +772,170 @@ fn with_dependencies(mut found: Vec<Loaded>) -> Vec<Loaded> {
         if !marked {
             return found;
         }
+    }
+}
+
+struct PluginHooks(std::sync::Weak<Plugins>);
+
+async fn dispatch_service_handler(
+    plugins: &Arc<Plugins>,
+    call: &rookery_kernel::Call,
+    loaded: &Arc<Loaded>,
+    service: &str,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, RpcError> {
+    if services::app_services(loaded)
+        .iter()
+        .any(|(id, ..)| id == service)
+    {
+        return services::call_app_service(plugins, call, &loaded.id, service, method, params)
+            .await;
+    }
+    services::call_service(call, plugins, &loaded.id, service, method, params).await
+}
+
+fn manifest_service_handler(entry: &serde_json::Value, field: &str) -> Option<(String, String)> {
+    let h = entry.get(field)?;
+    Some((
+        h.get("service")?.as_str()?.to_owned(),
+        h.get("method")?.as_str()?.to_owned(),
+    ))
+}
+
+#[async_trait::async_trait]
+impl rookery_data::entities::TextProvider for PluginHooks {
+    async fn text(
+        &self,
+        call: &rookery_kernel::Call,
+        plugin: &str,
+        entity: rookery_proto::data::EntityTextCall,
+    ) -> Result<Option<rookery_proto::data::EntityTextResult>, RpcError> {
+        let Some(plugins) = self.0.upgrade() else {
+            return Ok(None);
+        };
+        let Some(loaded) = plugins.get(plugin).filter(|p| p.valid()) else {
+            return Ok(None);
+        };
+        let entry = loaded
+            .manifest
+            .as_ref()
+            .and_then(|m| m.pointer("/contributes/entityTypes"))
+            .and_then(serde_json::Value::as_array)
+            .and_then(|arr| {
+                arr.iter().find(|e| {
+                    e.get("scheme").and_then(|s| s.as_str()) == Some(entity.scheme.as_str())
+                })
+            });
+        let params =
+            serde_json::to_value(&entity).map_err(|e| RpcError::internal(e.to_string()))?;
+        let raw = if let Some((service, method)) =
+            entry.and_then(|e| manifest_service_handler(e, "textHandler"))
+        {
+            dispatch_service_handler(&plugins, call, &loaded, &service, &method, params).await?
+        } else if loaded.host().is_some() {
+            let (target, permits) = services::host_target(
+                call,
+                &plugins,
+                &loaded,
+                "entity-text",
+                &entity.scheme,
+                false,
+            )
+            .await?;
+            match plugins
+                .with_current(&loaded, || {
+                    plugins.host.begin(call, target, params, None, permits)
+                })?
+                .result()
+                .await
+            {
+                Ok(v) => v,
+                Err(e) if e.error_code() == ErrorCode::NotFound => return Ok(None),
+                Err(e) => return Err(e),
+            }
+        } else {
+            return Ok(None);
+        };
+        if raw.is_null() {
+            return Ok(None);
+        }
+        serde_json::from_value(raw)
+            .map(Some)
+            .map_err(|e| RpcError::internal(format!("bad entity text from {plugin}: {e}")))
+    }
+}
+
+impl rookery_facilities::connections::ConnectionTester for PluginHooks {
+    fn test<'a>(
+        &'a self,
+        call: &'a rookery_kernel::Call,
+        plugin: &'a str,
+        kind: &'a str,
+        resolved: rookery_proto::facilities::ConnectionResolved,
+        values: serde_json::Value,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<rookery_proto::facilities::ConnectionTested, RpcError>,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            let plugins = self
+                .0
+                .upgrade()
+                .ok_or_else(|| RpcError::unavailable("the plugin system is not running"))?;
+            let loaded = plugins
+                .get(plugin)
+                .filter(|p| p.valid())
+                .ok_or_else(|| RpcError::not_found(format!("no plugin {plugin} is installed")))?;
+            let entry = loaded
+                .manifest
+                .as_ref()
+                .and_then(|m| m.pointer("/contributes/connectionTypes"))
+                .and_then(serde_json::Value::as_array)
+                .and_then(|arr| {
+                    arr.iter()
+                        .find(|e| e.get("id").and_then(|s| s.as_str()) == Some(kind))
+                });
+            let mut conn = serde_json::to_value(&resolved.connection)
+                .map_err(|e| RpcError::internal(e.to_string()))?;
+            if let Some(obj) = conn.as_object_mut() {
+                if let Some(cred) = &resolved.credential {
+                    obj.insert("credential".into(), serde_json::Value::String(cred.clone()));
+                }
+                obj.insert("values".into(), values);
+            }
+            let params = serde_json::json!({ "connection": conn });
+            let raw = if let Some((service, method)) =
+                entry.and_then(|e| manifest_service_handler(e, "testHandler"))
+            {
+                dispatch_service_handler(&plugins, call, &loaded, &service, &method, params).await?
+            } else if entry
+                .and_then(|e| e.get("test"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+                && loaded.host().is_some()
+            {
+                let (target, permits) =
+                    services::host_target(call, &plugins, &loaded, "connection-test", kind, false)
+                        .await?;
+                plugins
+                    .with_current(&loaded, || {
+                        plugins.host.begin(call, target, params, None, permits)
+                    })?
+                    .result()
+                    .await?
+            } else {
+                return Err(RpcError::invalid(format!(
+                    "connection type {kind} has no test"
+                )));
+            };
+            serde_json::from_value(raw).map_err(|e| {
+                RpcError::internal(format!("bad connection test result from {plugin}: {e}"))
+            })
+        })
     }
 }

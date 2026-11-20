@@ -21,6 +21,7 @@ import type {
   ConnectionInfo,
   ConnectionList,
   ConnectionResolved,
+  ConnectionTested,
   DirListing,
   DocumentContent,
   DocumentConvert,
@@ -30,6 +31,7 @@ import type {
   DocumentEdited,
   DocumentInfo,
   EntityInfo,
+  EntityTextCall,
   EntityTextList,
   EnvInfo,
   EnvPresence,
@@ -59,7 +61,9 @@ import { type Disposable, disposable } from "../types"
 import type {
   Access,
   Changes,
+  ConnectionTestInfo,
   Ctx,
+  EntityTextHandler,
   HostCommandDef,
   HostPlugin,
   JobDef,
@@ -78,7 +82,7 @@ export type LogLevel = "debug" | "info" | "warn" | "error"
 
 /** Something a host half registered, as the server knows it. */
 export interface Registration {
-  kind: "rpc" | "command" | "job" | "service"
+  kind: "rpc" | "command" | "job" | "service" | "connection-test" | "entity-text"
   key: string
   /** For `rpc`: who may call it. */
   level?: "own" | "admin"
@@ -779,11 +783,28 @@ function createApi(rt: HostRuntime): Rookery {
             ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
           })) as { entities: EntityInfo[] }
         ).entities,
-      text: (ctx, uris, opts = {}) =>
-        invocationCall(rt, asInvocation(ctx))("entities.text", {
-          uris,
+      text: ((
+        ctxOrScheme: Ctx | string,
+        urisOrFn: string[] | EntityTextHandler,
+        opts: { maxChars?: number } = {},
+      ) => {
+        if (typeof ctxOrScheme === "string") {
+          const scheme = ctxOrScheme
+          const fn = urisOrFn as EntityTextHandler
+          if (!rt.manifest.contributes?.entityTypes?.some((t) => t.scheme === scheme)) {
+            throw new RookeryError("INVALID", `${plugin} declares no entity type with scheme ${scheme}`)
+          }
+          return rt.register({
+            kind: "entity-text",
+            key: scheme,
+            run: async (ctx, p: EntityTextCall) => (await fn(ctx, p)) ?? null,
+          })
+        }
+        return invocationCall(rt, asInvocation(ctxOrScheme))("entities.text", {
+          uris: urisOrFn as string[],
           ...(opts.maxChars !== undefined ? { maxChars: opts.maxChars } : {}),
-        }) as Promise<EntityTextList>,
+        }) as Promise<EntityTextList>
+      }) as Rookery["entities"]["text"],
       // The index of what a plugin contributed is its own to change, whoever its handler serves.
       register: (entity) => rt.call("entities.register", { ...entity }) as Promise<EntityInfo>,
       remove: async (uri) => {
@@ -836,7 +857,30 @@ function createApi(rt: HostRuntime): Rookery {
           })
         ).connections,
       get: (id) => rt.call<ConnectionInfo>("connections.get", { id }),
-      resolve: (id) => rt.call<ConnectionResolved>("connections.resolve", { id }),
+      resolve: ((ctxOrId: Ctx | string, maybeId?: string) => {
+        if (typeof ctxOrId === "string") {
+          return rt.call<ConnectionResolved>("connections.resolve", { id: ctxOrId })
+        }
+        return invocationCall(rt, asInvocation(ctxOrId))("connections.resolve", {
+          id: maybeId,
+        }) as Promise<ConnectionResolved>
+      }) as Rookery["connections"]["resolve"],
+      test: (
+        type: string,
+        fn: (ctx: Ctx, connection: ConnectionTestInfo) => ConnectionTested | Promise<ConnectionTested>,
+      ) => {
+        if (!type.startsWith(`${plugin}.`)) {
+          throw new RookeryError(
+            "INVALID",
+            `${plugin} may only test its own connection types (starting with ${plugin}.)`,
+          )
+        }
+        return rt.register({
+          kind: "connection-test",
+          key: type,
+          run: (ctx, p: { connection: ConnectionTestInfo }) => fn(ctx, p.connection),
+        })
+      },
     },
     blobs: {
       put: (ctx, data, opts = {}) =>

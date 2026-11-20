@@ -2615,3 +2615,162 @@ async fn env_and_terminal_changes_reach_those_with_a_level() {
     assert!(quiet.is_err(), "{:?}", quiet.unwrap());
     server.close().await;
 }
+
+#[tokio::test]
+async fn env_process_streams_signals_and_enforces_user_levels() {
+    let Some(host) = Rookeryd::start().await else {
+        return;
+    };
+    let Some(server) = Server::start().await else {
+        return;
+    };
+    let (admin, _) = server.person("Ada", true).await;
+    let (ann, ann_id) = server.person("Ann", false).await;
+    let (vic, vic_id) = server.person("Vic", false).await;
+    let (mia, mia_id) = server.person("Mia", false).await;
+    server
+        .call(
+            &Caller::Local,
+            "hosts.save",
+            json!({"host": "studio", "profile": host.profile()}),
+        )
+        .await
+        .unwrap();
+    server.grant(&admin, &ann_id, "use").await;
+    server.grant(&admin, &vic_id, "view").await;
+    server.grant(&admin, &mia_id, "manage").await;
+
+    let mut ann_inbox = server.connect(&ann);
+    let vic_inbox = server.connect(&vic);
+    let mia_inbox = server.connect(&mia);
+
+    // 1. view cannot start a process; use cannot run as operator or root.
+    assert_eq!(
+        code(
+            server
+                .call_on(
+                    &vic_inbox,
+                    "env.process",
+                    json!({"env": "studio", "command": ["echo", "nope"]})
+                )
+                .await
+        ),
+        Some(ErrorCode::Forbidden)
+    );
+    for privileged in ["operator", "root"] {
+        assert_eq!(
+            code(
+                server
+                    .call_on(
+                        &ann_inbox,
+                        "env.process",
+                        json!({"env": "studio", "command": ["id"], "user": privileged})
+                    )
+                    .await
+            ),
+            Some(ErrorCode::Forbidden),
+            "use must not run env.process as {privileged}"
+        );
+    }
+
+    // 2. Streamed stdout (tag 1), stderr (tag 2), stdin + EOF, and ProcessExit (tag 3).
+    let root = host.file("").trim_end_matches('/').to_owned();
+    let started = server
+        .call_on(
+            &ann_inbox,
+            "env.process",
+            json!({
+                "env": "studio",
+                "command": ["sh", "-c", "cat; echo errline >&2"],
+                "cwd": root
+            }),
+        )
+        .await
+        .unwrap();
+    let stream = started["stream"].as_u64().unwrap() as u32;
+    ann_inbox
+        .conn
+        .streams()
+        .deliver(&rookery_proto::stream::encode_frame(
+            stream,
+            b"hello-stdin\n",
+        ));
+    ann_inbox.conn.streams().remote_eof(stream);
+
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    let mut exit: Option<Value> = None;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while exit.is_none() {
+        let frame = tokio::time::timeout_at(deadline, ann_inbox.frame(stream))
+            .await
+            .expect("process exit frame");
+        match frame[0] {
+            1 => stdout.push_str(&String::from_utf8_lossy(&frame[1..])),
+            2 => stderr.push_str(&String::from_utf8_lossy(&frame[1..])),
+            3 => exit = Some(serde_json::from_slice(&frame[1..]).unwrap()),
+            other => panic!("unexpected env.process tag {other}"),
+        }
+    }
+    assert_eq!(stdout, "hello-stdin\n");
+    assert_eq!(stderr, "errline\n");
+    assert_eq!(exit.as_ref().unwrap()["exitCode"], 0);
+    assert_eq!(exit.as_ref().unwrap()["lost"], false);
+
+    // 3. env.signal cancels a running process; another user cannot signal Ann's process without manage.
+    let long = server
+        .call_on(
+            &ann_inbox,
+            "env.process",
+            json!({
+                "env": "studio",
+                "command": ["sh", "-c", "echo ready; sleep 60"]
+            }),
+        )
+        .await
+        .unwrap();
+    let long_stream = long["stream"].as_u64().unwrap() as u32;
+    let long_proc = long["process"].as_str().unwrap().to_owned();
+    let _ = until(&mut ann_inbox, long_stream, 1, "ready").await;
+
+    server
+        .call(
+            &ann,
+            "env.signal",
+            json!({"env": "studio", "process": long_proc, "signal": "TERM"}),
+        )
+        .await
+        .unwrap();
+
+    let mut sig_exit: Option<Value> = None;
+    let sig_deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while sig_exit.is_none() {
+        let frame = tokio::time::timeout_at(sig_deadline, ann_inbox.frame(long_stream))
+            .await
+            .expect("signaled process exit frame");
+        if frame[0] == 3 {
+            sig_exit = Some(serde_json::from_slice(&frame[1..]).unwrap());
+        }
+    }
+    assert_ne!(sig_exit.as_ref().unwrap()["exitCode"], 0);
+
+    // 4. manage passes the server check for operator/root, and in single-user mode the host answers Unavailable.
+    assert_eq!(
+        code(
+            server
+                .call_on(
+                    &mia_inbox,
+                    "env.process",
+                    json!({
+                        "env": "studio",
+                        "command": ["echo", "as-op"],
+                        "user": "operator"
+                    }),
+                )
+                .await
+        ),
+        Some(ErrorCode::Unavailable)
+    );
+
+    server.close().await;
+}
