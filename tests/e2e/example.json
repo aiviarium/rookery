@@ -1,0 +1,33 @@
+{
+  "hostname": "",
+  "target": "cloud",
+  "operator_username": "ops",
+  "operator_ssh_public_keys": [],
+  "operator_password_hash": "",
+  "agent_username": "agent",
+  "agent_ssh_public_keys": [],
+  "agent_password_hash": "",
+  "agent_passwordless_sudo": true,
+  "agent_privileges": "limited",
+  "target_disk_mode": "auto",
+  "target_disk_ssd": "any",
+  "target_disk_serial": "",
+  "keyboard": "de",
+  "release_url": "https://example.test/rookery-release.tar.gz",
+  "wifi_enabled": false,
+  "wifi": null,
+  "ansible_vars": {
+    "rookery_plugin_features": [],
+    "rookery_start_services": false,
+    "rookery_software_rendering": false,
+    "rookery_selected_commands": [],
+    "rookery_enabled_categories": [],
+    "rookery_install_docker": false,
+    "rookery_install_tailscale": false,
+    "rookery_install_cockpit": false,
+    "rookery_install_playwright": false
+  },
+  "access": {
+    "auth": "rookery"
+  }
+}

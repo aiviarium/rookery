@@ -39,13 +39,22 @@
       ansible.builtin.getent:
         database: passwd
         key: "{{ rookery_user }}"
-    - name: Require systemd and an unprivileged agent account
+    - name: Require an unprivileged agent account
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.getent_passwd[rookery_user][1] | int > 0
+        fail_msg: >-
+          the Parrot broker needs an account that is not root
+    # The socket and service units are systemd's; a host that runs no services
+    # gets the pinned release alone, and whatever starts its programs runs
+    # `parrot serve` itself.
+    - name: Require systemd for the Parrot units
       ansible.builtin.assert:
         that:
           - ansible_facts.service_mgr == 'systemd'
-          - ansible_facts.getent_passwd[rookery_user][1] | int > 0
         fail_msg: >-
-          the Parrot broker needs systemd and an account that is not root
+          the Parrot broker's socket and service are systemd units
+      when: rookery_start_services
     - name: Require the platform the staged driver is built for
       ansible.builtin.assert:
         that:
@@ -156,6 +165,7 @@
         dest: "/etc/systemd/system/rookery-parrot.{{ item }}"
         mode: '0644'
       loop: [socket, service]
+      when: rookery_start_services
       register: rookery_parrot_units
     - name: Restart a running Parrot after an update
       ansible.builtin.systemd_service:
@@ -164,7 +174,7 @@
         state: stopped
       when:
         - rookery_start_services
-        - rookery_parrot_selected.changed or rookery_parrot_units.changed
+        - rookery_parrot_selected.changed or (rookery_parrot_units.changed | default(false))
     - name: Enable the socket that starts Parrot on demand
       ansible.builtin.systemd_service:
         name: rookery-parrot.socket

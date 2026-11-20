@@ -1,0 +1,104 @@
+{
+  "$schema": "https://github.com/aiviarium/rookery/blob/main/schemas/plugin.schema.json",
+  "apiVersion": "1",
+  "name": "e2e machine",
+  "description": "A provisioner for the end-to-end tests, with no provider behind it: it records the machine, and the seed rookery renders is never handed anywhere.",
+  "contributes": {
+    "provisioners": [
+      {
+        "id": "machine",
+        "label": "e2e machine",
+        "description": "Records a machine and renders the seed rookery would hand a provider. The stack runs no provider, so nothing is started and the machine has no address.",
+        "command": "bin/provision",
+        "protocol": 2,
+        "verbs": [
+          "list"
+        ],
+        "arguments": [
+          {
+            "name": "flavor",
+            "label": "Flavor",
+            "default": "small",
+            "help": "A made-up flavor of the machine, which the test profile carries through."
+          }
+        ],
+        "kinds": [
+          {
+            "id": "machine",
+            "label": "Machine",
+            "description": "A machine record with a rendered seed, which no provider has made.",
+            "setup": "seed",
+            "archive": false,
+            "verbs": [
+              "start",
+              "stop",
+              "logs"
+            ],
+            "arguments": [
+              {
+                "name": "cpus",
+                "label": "CPUs",
+                "default": "2",
+                "kind": "resource",
+                "help": "How many CPUs the machine is recorded with."
+              },
+              {
+                "name": "memory",
+                "label": "Memory",
+                "default": "2GiB",
+                "kind": "resource",
+                "help": "How much memory it is recorded with, such as 2GiB."
+              },
+              {
+                "name": "disk",
+                "label": "Disk size",
+                "default": "20GiB",
+                "kind": "resource",
+                "help": "The size of its root disk, such as 20GiB."
+              },
+              {
+                "name": "image",
+                "label": "Image",
+                "default": "example/cloud",
+                "help": "The image the record names, which no provider fetches."
+              }
+            ],
+            "catalogue": {
+              "sizes": [
+                {
+                  "id": "small",
+                  "label": "Small (2 vCPU, 2 GiB)",
+                  "default": true,
+                  "values": {
+                    "cpus": "2",
+                    "memory": "2GiB",
+                    "disk": "20GiB"
+                  }
+                },
+                {
+                  "id": "large",
+                  "label": "Large (4 vCPU, 8 GiB)",
+                  "values": {
+                    "cpus": "4",
+                    "memory": "8GiB",
+                    "disk": "80GiB"
+                  }
+                }
+              ],
+              "images": [
+                {
+                  "id": "example-cloud",
+                  "label": "Example cloud image",
+                  "default": true,
+                  "values": {
+                    "image": "example/cloud"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
