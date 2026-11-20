@@ -89,11 +89,59 @@ service PluginService {
     option (rookery.v1.access) = { level: LEVEL_ADMIN };
   }
 
+  rpc InstallFromRegistry(PluginServiceInstallFromRegistryRequest) returns (PluginServiceInstallFromRegistryResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
   rpc Remove(PluginServiceRemoveRequest) returns (PluginServiceRemoveResponse) {
     option (rookery.v1.access) = { level: LEVEL_ADMIN };
   }
 
   rpc SetEnabled(PluginServiceSetEnabledRequest) returns (PluginServiceSetEnabledResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+}
+
+message PluginServiceInstallFromRegistryRequest {
+  string reference = 1;
+}
+
+message PluginServiceInstallFromRegistryResponse {
+  Plugin plugin = 1;
+}
+
+message Registry {
+  string name = 1;
+  string url = 2;
+  bytes public_key = 3;
+}
+
+message RegistryServiceAddRequest {
+  Registry registry = 1;
+}
+
+message RegistryServiceAddResponse {}
+
+message RegistryServiceListRequest {}
+
+message RegistryServiceListResponse {
+  repeated Registry registries = 1;
+}
+
+message RegistryServiceRemoveRequest {
+  string name = 1;
+}
+
+message RegistryServiceRemoveResponse {}
+
+service RegistryService {
+  rpc Add(RegistryServiceAddRequest) returns (RegistryServiceAddResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+  rpc List(RegistryServiceListRequest) returns (RegistryServiceListResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+  rpc Remove(RegistryServiceRemoveRequest) returns (RegistryServiceRemoveResponse) {
     option (rookery.v1.access) = { level: LEVEL_ADMIN };
   }
 }

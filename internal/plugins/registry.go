@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -90,9 +91,18 @@ func DecodeIndex(data []byte) (Index, error) {
 			return Index{}, invalid("the index lists plugin %s twice", plugin.ID)
 		}
 		seen[plugin.ID] = true
+		versions := make(map[string]bool, len(plugin.Versions))
 		for _, version := range plugin.Versions {
-			if _, err := releaseVersion(version.Version); err != nil {
+			parsed, err := releaseVersion(version.Version)
+			if err != nil {
 				return Index{}, fmt.Errorf("index: plugin %s: %w", plugin.ID, err)
+			}
+			if versions[parsed.String()] {
+				return Index{}, invalid("the index lists %s@%s twice", plugin.ID, version.Version)
+			}
+			versions[parsed.String()] = true
+			if _, err := ParseRequirement(version.Requires); err != nil {
+				return Index{}, err
 			}
 			if version.URL == "" {
 				return Index{}, invalid("the index has no URL for %s@%s", plugin.ID, version.Version)
@@ -172,7 +182,7 @@ func (i Index) Resolve(reference string) (IndexVersion, error) {
 		return IndexVersion{}, err
 	}
 	for _, version := range plugin.Versions {
-		if compareVersionsOrZero(version.Version, want.String()) == 0 {
+		if candidate, err := releaseVersion(version.Version); err == nil && candidate == want {
 			return version, nil
 		}
 	}
@@ -293,7 +303,7 @@ func indexPackage(dir, name string) (IndexVersion, *Manifest, error) {
 	}
 	return IndexVersion{
 		Version:  manifest.Version,
-		URL:      filepath.ToSlash(relative),
+		URL:      (&url.URL{Path: filepath.ToSlash(relative)}).String(),
 		SHA256:   hex.EncodeToString(hash.Sum(nil)),
 		Size:     counted.n,
 		Requires: manifest.Requires,

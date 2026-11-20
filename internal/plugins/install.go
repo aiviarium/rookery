@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -31,6 +32,7 @@ var ErrPlugin = errors.New("plugins: refused")
 
 // Options are what an installer is made of.
 type Options struct {
+	Version string
 	// Store is the database the plugin rows are in.
 	Store *store.Store
 	// StateDir is where the packages' files are unpacked:
@@ -55,6 +57,8 @@ type Options struct {
 // Installer installs, updates and removes plugin packages: it records the
 // package, unpacks its files, and registers what it declares.
 type Installer struct {
+	mu        sync.Mutex
+	version   string
 	store     *store.Store
 	stateDir  string
 	data      *data.Data
@@ -73,6 +77,7 @@ func NewInstaller(options Options) *Installer {
 	}
 	return &Installer{
 		store:     options.Store,
+		version:   options.Version,
 		stateDir:  options.StateDir,
 		data:      options.Data,
 		jobs:      options.Jobs,
@@ -135,6 +140,10 @@ func (i *Installer) Dir(id, sha string) string {
 // whose id is installed already replaces it, as long as its collection
 // declarations are the same.
 func (i *Installer) Install(ctx context.Context, packageReader io.Reader) (Plugin, error) {
+	return i.install(ctx, packageReader, false)
+}
+
+func (i *Installer) install(ctx context.Context, packageReader io.Reader, requireNew bool) (Plugin, error) {
 	staging, err := os.MkdirTemp(i.stagingDir(), "install-")
 	if err != nil {
 		return Plugin{}, fmt.Errorf("plugins: making a place for the package: %w", err)
@@ -147,6 +156,12 @@ func (i *Installer) Install(ctx context.Context, packageReader io.Reader) (Plugi
 	}
 	manifest := unpacked.Manifest
 
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if err := i.checkRequirements(ctx, manifest); err != nil {
+		return Plugin{}, err
+	}
+
 	previous, err := i.Get(ctx, manifest.ID)
 	switch {
 	case errors.Is(err, access.ErrNotFound):
@@ -158,6 +173,9 @@ func (i *Installer) Install(ctx context.Context, packageReader io.Reader) (Plugi
 	case err != nil:
 		return Plugin{}, err
 	default:
+		if requireNew {
+			return Plugin{}, fmt.Errorf("%w: %s is installed", access.ErrConflict, manifest.ID)
+		}
 		if err := sameCollections(previous, manifest); err != nil {
 			return Plugin{}, err
 		}
@@ -319,6 +337,8 @@ func (i *Installer) List(ctx context.Context) ([]Plugin, error) {
 // Remove takes a plugin away. It refuses while another plugin needs it, and
 // keeps its data unless purge is set.
 func (i *Installer) Remove(ctx context.Context, id string, purge bool) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	plugin, err := i.Get(ctx, id)
 	if err != nil {
 		return err
@@ -364,6 +384,8 @@ func (i *Installer) Remove(ctx context.Context, id string, purge bool) error {
 
 // SetEnabled turns a plugin on or off.
 func (i *Installer) SetEnabled(ctx context.Context, id string, enabled bool) (Plugin, error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	if i.services != nil && !enabled {
 		i.services.Stop(id)
 	}
@@ -600,4 +622,40 @@ func (i *Installer) Access(ctx context.Context, id, procedure string) (Level, Re
 		return declared.Access.Level, declared.Access.Resource, true, nil
 	}
 	return "", "", false, nil
+}
+
+func (i *Installer) checkRequirements(ctx context.Context, manifest *Manifest) error {
+	if manifest.Requires != "" && i.version != "" && i.version != "dev" {
+		if err := checkRequirement(i.version, manifest.Requires); err != nil {
+			return fmt.Errorf("plugin %s needs Rookery %s: %w", manifest.ID, manifest.Requires, err)
+		}
+	}
+	for id, requirement := range manifest.Dependencies {
+		dependency, err := i.Get(ctx, id)
+		if err != nil {
+			return fmt.Errorf("plugin %s depends on %s: %w", manifest.ID, id, err)
+		}
+		if !dependency.Enabled {
+			return fmt.Errorf("%w: plugin %s depends on disabled plugin %s", access.ErrConflict, manifest.ID, id)
+		}
+		if err := checkRequirement(dependency.Version, requirement); err != nil {
+			return fmt.Errorf("plugin %s needs %s %s: %w", manifest.ID, id, requirement, err)
+		}
+	}
+	return nil
+}
+
+func checkRequirement(version, constraint string) error {
+	v, err := ParseVersion(version)
+	if err != nil {
+		return err
+	}
+	requirement, err := ParseRequirement(constraint)
+	if err != nil {
+		return err
+	}
+	if !requirement.Allows(v) {
+		return fmt.Errorf("%w: version %s does not satisfy %s", access.ErrInvalid, version, constraint)
+	}
+	return nil
 }

@@ -112,6 +112,7 @@ type api struct {
 	Connections   rookeryv1connect.ConnectionServiceClient
 	Blobs         rookeryv1connect.BlobServiceClient
 	Plugins       rookeryv1connect.PluginServiceClient
+	Registries    rookeryv1connect.RegistryServiceClient
 	Hosts         rookeryv1connect.HostServiceClient
 	Keys          rookeryv1connect.KeyServiceClient
 }
@@ -145,6 +146,7 @@ func dial(ctx context.Context, address, token string) (*api, error) {
 		Connections:   rookeryv1connect.NewConnectionServiceClient(httpClient, base, options...),
 		Blobs:         rookeryv1connect.NewBlobServiceClient(httpClient, base, options...),
 		Plugins:       rookeryv1connect.NewPluginServiceClient(httpClient, base, options...),
+		Registries:    rookeryv1connect.NewRegistryServiceClient(httpClient, base, options...),
 		Hosts:         rookeryv1connect.NewHostServiceClient(httpClient, base, options...),
 		Keys:          rookeryv1connect.NewKeyServiceClient(httpClient, base, options...),
 	}, nil

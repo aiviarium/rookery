@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/spf13/cobra"
@@ -55,15 +58,16 @@ func pluginCommand() *cobra.Command {
 				return err
 			}
 			source := args[0]
-			if _, err := os.Stat(source); err != nil {
-				// A registry reference is resolved by the server, which knows
-				// the registries and their keys; the edge API's install is a
-				// package, so that arrives with the registry client.
-				return fmt.Errorf("cli: %s is not a package: install from a package file until the registry client lands", source)
-			}
 			file, err := os.Open(source) //nolint:gosec // the file the caller named
 			if err != nil {
-				return fmt.Errorf("cli: reading %s: %w", source, err)
+				if !errors.Is(err, os.ErrNotExist) || strings.ContainsAny(source, `/\`) || strings.HasSuffix(source, ".tar.gz") {
+					return fmt.Errorf("cli: reading %s: %w", source, err)
+				}
+				installed, err := session.api.Plugins.InstallFromRegistry(cmd.Context(), connect.NewRequest(&rookeryv1.PluginServiceInstallFromRegistryRequest{Reference: source}))
+				if err != nil {
+					return err
+				}
+				return printPlugin(session.printer, installed.Msg.GetPlugin())
 			}
 			defer func() { _ = file.Close() }()
 
@@ -87,9 +91,7 @@ func pluginCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return session.printer.one(installed.Msg.GetPlugin(), []string{"ID", "VERSION", "NAME"}, []string{
-				installed.Msg.GetPlugin().GetId(), installed.Msg.GetPlugin().GetVersion(), installed.Msg.GetPlugin().GetName(),
-			})
+			return printPlugin(session.printer, installed.Msg.GetPlugin())
 		},
 	}
 
@@ -178,8 +180,14 @@ func pluginCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s\n", packed.Manifest.ID, packed.Manifest.Version, output)
-			return err
+			entry := struct {
+				ID string `json:"id"`
+				plugins.IndexVersion
+			}{packed.Manifest.ID, plugins.IndexVersion{
+				Version: packed.Manifest.Version, URL: filepath.Base(output), SHA256: packed.SHA256,
+				Size: packed.Size, Requires: packed.Manifest.Requires,
+			}}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(entry)
 		},
 	}
 	pack.Flags().String("output", "", "where to write the package, by default beside the folder")
@@ -199,4 +207,10 @@ func setPluginEnabled(cmd *cobra.Command, id string, enabled bool) error {
 		return err
 	}
 	return session.printer.line(changed.Msg.GetPlugin().GetId())
+}
+
+func printPlugin(printer *printer, plugin *rookeryv1.Plugin) error {
+	return printer.one(plugin, []string{"ID", "VERSION", "NAME"}, []string{
+		plugin.GetId(), plugin.GetVersion(), plugin.GetName(),
+	})
 }

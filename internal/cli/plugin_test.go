@@ -49,7 +49,7 @@ client: web/
 	if err != nil {
 		t.Fatalf("the package is not there: %v", err)
 	}
-	if info.Size() == 0 || !strings.Contains(out.String(), packed) {
+	if info.Size() == 0 || !strings.Contains(out.String(), filepath.Base(packed)) {
 		t.Fatalf("pack wrote %d bytes and said %q", info.Size(), out.String())
 	}
 }

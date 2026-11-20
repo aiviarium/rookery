@@ -62,6 +62,7 @@ that ` + "`rookery login`" + ` saved.`,
 		settingCommand(),
 		connectionCommand(),
 		pluginCommand(),
+		registryCommand(),
 		hostCommand(),
 		keyCommand(),
 	)
