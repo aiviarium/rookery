@@ -41,7 +41,7 @@ func start(t *testing.T, config server.Config) (health func() (int, string), sto
 	built := server.New(config, slog.New(slog.DiscardHandler))
 	go func() {
 		err := built.Run(ctx)
-		if err != nil {
+		if err != nil && ctx.Err() == nil {
 			t.Logf("the server stopped: %v", err)
 		}
 		done <- err

@@ -22,7 +22,9 @@ import (
 	"github.com/aiviarium/rookery/internal/blobs"
 	"github.com/aiviarium/rookery/internal/config"
 	"github.com/aiviarium/rookery/internal/edge"
+	"github.com/aiviarium/rookery/internal/hosts"
 	"github.com/aiviarium/rookery/internal/jobs"
+	"github.com/aiviarium/rookery/internal/link"
 	"github.com/aiviarium/rookery/internal/messaging"
 	"github.com/aiviarium/rookery/internal/plugins"
 	"github.com/aiviarium/rookery/internal/seal"
@@ -111,6 +113,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	}
 	runner := jobs.NewRunner(opened, registry, events, s.log)
 	jobRunner := jobs.NewService(opened, checker, registry, runner, s.log)
+
 	schedules := jobs.NewSchedules(opened, registry, jobRunner, s.log)
 	scheduler := jobs.NewScheduler(schedules)
 
@@ -132,6 +135,30 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		Logger:   s.log,
 	})
 	installer.SetServices(supervisor)
+
+	// Hosts, their links and the key ring. A link is opened on demand; the
+	// first one makes the active key on a database that has none.
+	hostStore := hosts.New(opened)
+	keyRing := link.NewRing(opened, ring)
+	trusted := link.NewKnownHosts(opened, s.log)
+	hostService := hosts.NewService(hosts.Deps{
+		Hosts:    hostStore,
+		Checker:  checker,
+		Bus:      bus,
+		Version:  s.config.Version,
+		Log:      s.log,
+		Versions: installedPluginVersions(installer),
+	})
+	hostLinks := link.NewManager(opened, keyRing, trusted, link.Options{
+		Targets: hostService.Targets(),
+		Log:     s.log,
+	})
+
+	hostService.SetJobs(jobRunner)
+	hostService.SetLinks(hostLinks)
+	if err := registry.Handle("host.contact", hostService.ContactHandler()); err != nil {
+		return nil, err
+	}
 
 	if interrupted, err := jobs.InterruptRunning(ctx, opened); err != nil {
 		return nil, err
@@ -157,6 +184,8 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		secrets:       config.NewSecretsService(secrets),
 		connections:   config.NewConnectionsService(connections),
 		blobs:         blobs.NewService(blobStore),
+		hosts:         hostService,
+		keys:          link.NewKeysService(keyRing, trusted),
 	}
 
 	build := edge.New(edge.Deps{
@@ -198,6 +227,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		retention:  time.Duration(s.config.RetentionDays) * 24 * time.Hour,
 		store:      opened,
 		blobs:      blobStore,
+		links:      hostLinks,
 	}, nil
 }
 
@@ -249,6 +279,8 @@ type services struct {
 	secrets       *config.SecretsService
 	connections   *config.ConnectionsService
 	blobs         *blobs.Service
+	hosts         *hosts.Service
+	keys          *link.KeysService
 }
 
 // register adds the core services to a mux.
@@ -287,6 +319,27 @@ func (s services) register(mux *http.ServeMux, options []connect.HandlerOption) 
 	handle(path, handler)
 	path, handler = rookeryv1connect.NewBlobServiceHandler(s.blobs, options...)
 	handle(path, handler)
+	path, handler = rookeryv1connect.NewHostServiceHandler(s.hosts, options...)
+	handle(path, handler)
+	path, handler = rookeryv1connect.NewKeyServiceHandler(s.keys, options...)
+	handle(path, handler)
+}
+
+// installedPluginVersions is the versions of the installed plugins, which the
+// applied digest is taken over: a plugin update makes every host whose profile
+// names it behind.
+func installedPluginVersions(installer *plugins.Installer) func(context.Context) (map[string]string, error) {
+	return func(ctx context.Context) (map[string]string, error) {
+		installed, err := installer.List(ctx)
+		if err != nil {
+			return nil, err
+		}
+		versions := make(map[string]string, len(installed))
+		for _, plugin := range installed {
+			versions[plugin.ID] = plugin.Version
+		}
+		return versions, nil
+	}
 }
 
 // LocalService is what the server's own machine may do without signing in. It is

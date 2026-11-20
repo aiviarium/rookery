@@ -55,29 +55,37 @@ func Dial(socket string) (*Client, error) {
 		// gRPC frames its own messages; the transport must not decode them.
 		DisableCompression: true,
 	}
-	client := &http.Client{Transport: transport}
+	return NewClient(&http.Client{Transport: transport}, transport), nil
+}
+
+// NewClient makes a client for an HTTP connection the caller already has: a
+// pipe through an SSH session, as a link's is, or a Unix socket. The transport
+// is the one to close when the client is done, and may be nil.
+func NewClient(httpClient *http.Client, transport *http.Transport) *Client {
 	options := []connect.ClientOption{connect.WithGRPC()}
-	// The socket is the address; the URL's host only has to be a host.
+	// The connection is the address; the URL's host only has to be a host.
 	const baseURL = "http://rookeryd"
 
 	return &Client{
-		http:      client,
+		http:      httpClient,
 		transport: transport,
-		Agent:     hostv1connect.NewAgentServiceClient(client, baseURL, options...),
-		Sessions:  hostv1connect.NewSessionServiceClient(client, baseURL, options...),
-		Exec:      hostv1connect.NewExecServiceClient(client, baseURL, options...),
-		Files:     hostv1connect.NewFileServiceClient(client, baseURL, options...),
-		Ports:     hostv1connect.NewPortServiceClient(client, baseURL, options...),
-		Channel:   hostv1connect.NewChannelServiceClient(client, baseURL, options...),
-		HostCalls: hostv1connect.NewHostCallServiceClient(client, baseURL, options...),
-		Actions:   hostv1connect.NewActionServiceClient(client, baseURL, options...),
-		Desktop:   hostv1connect.NewDesktopServiceClient(client, baseURL, options...),
-	}, nil
+		Agent:     hostv1connect.NewAgentServiceClient(httpClient, baseURL, options...),
+		Sessions:  hostv1connect.NewSessionServiceClient(httpClient, baseURL, options...),
+		Exec:      hostv1connect.NewExecServiceClient(httpClient, baseURL, options...),
+		Files:     hostv1connect.NewFileServiceClient(httpClient, baseURL, options...),
+		Ports:     hostv1connect.NewPortServiceClient(httpClient, baseURL, options...),
+		Channel:   hostv1connect.NewChannelServiceClient(httpClient, baseURL, options...),
+		HostCalls: hostv1connect.NewHostCallServiceClient(httpClient, baseURL, options...),
+		Actions:   hostv1connect.NewActionServiceClient(httpClient, baseURL, options...),
+		Desktop:   hostv1connect.NewDesktopServiceClient(httpClient, baseURL, options...),
+	}
 }
 
 // Close ends the client's idle connections.
 func (c *Client) Close() error {
-	c.transport.CloseIdleConnections()
+	if c.transport != nil {
+		c.transport.CloseIdleConnections()
+	}
 	return nil
 }
 

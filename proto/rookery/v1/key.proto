@@ -1,0 +1,108 @@
+// Keys: the SSH key ring the server logs in to its hosts with, and the host
+// keys it trusts.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// Key is one key of the ring. Its private half never leaves the server.
+message Key {
+  string id = 1;
+  string name = 2;
+  // Type is the key algorithm, such as ssh-ed25519.
+  string type = 3;
+  // PublicKey is the key's authorized_keys line, without a comment.
+  string public_key = 4;
+  // Fingerprint is the key's SHA-256 fingerprint.
+  string fingerprint = 5;
+  google.protobuf.Timestamp created_at = 6;
+  // RetiredAt is set on a key a rotation replaced; the servers keeps it until no
+  // host's authorized_keys names it.
+  google.protobuf.Timestamp retired_at = 7;
+  // Active says the key is the one links log in with.
+  bool active = 8;
+}
+
+// KnownHost is a host key the server trusts, by the address it dials.
+message KnownHost {
+  // Address is the address as known_hosts writes it: "192.0.2.4:22".
+  string address = 1;
+  // Host is the host the address belongs to, empty when it has none.
+  string host = 2;
+  string type = 3;
+  // PublicKey is the key's authorized_keys line.
+  string public_key = 4;
+  string fingerprint = 5;
+  // PendingFingerprint is the fingerprint of a key a later connection offered
+  // when it did not match. Empty when there is none.
+  string pending_fingerprint = 6;
+  google.protobuf.Timestamp pending_at = 7;
+  google.protobuf.Timestamp first_seen_at = 8;
+  google.protobuf.Timestamp trusted_at = 9;
+}
+
+message KeyServiceListRequest {}
+
+message KeyServiceListResponse {
+  repeated Key keys = 1;
+}
+
+message KeyServiceRotateRequest {
+  // Name is the new key's name, "default" when empty.
+  string name = 1;
+}
+
+message KeyServiceRotateResponse {
+  Key key = 1;
+  // Previous is the key it replaced, when there was one.
+  Key previous = 2;
+}
+
+message KeyServiceListKnownHostsRequest {}
+
+message KeyServiceListKnownHostsResponse {
+  repeated KnownHost hosts = 1;
+}
+
+message KeyServiceTrustHostKeyRequest {
+  // Address is the host key's address, as KnownHost.Address writes it.
+  string address = 1;
+  // Fingerprint is the fingerprint of the key offered; it must be the one the
+  // server was offered, so a mismatch cannot be trusted blind.
+  string fingerprint = 2;
+}
+
+message KeyServiceTrustHostKeyResponse {
+  KnownHost host = 1;
+}
+
+message KeyServiceForgetHostKeyRequest {
+  string address = 1;
+}
+
+message KeyServiceForgetHostKeyResponse {}
+
+// KeyService is the key ring and the host keys the server trusts. Only an admin
+// changes them: a trusted key is what every link to a host rests on.
+service KeyService {
+  rpc List(KeyServiceListRequest) returns (KeyServiceListResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+  rpc Rotate(KeyServiceRotateRequest) returns (KeyServiceRotateResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+  rpc ListKnownHosts(KeyServiceListKnownHostsRequest) returns (KeyServiceListKnownHostsResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+  rpc TrustHostKey(KeyServiceTrustHostKeyRequest) returns (KeyServiceTrustHostKeyResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+  rpc ForgetHostKey(KeyServiceForgetHostKeyRequest) returns (KeyServiceForgetHostKeyResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+}

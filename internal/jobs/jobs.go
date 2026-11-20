@@ -151,6 +151,19 @@ func (r *Registry) RegisterKinds(kinds ...Kind) error {
 	return nil
 }
 
+// Handle gives an existing kind its in-process handler, for the item that
+// arrives after the kind's declaration.
+func (r *Registry) Handle(name string, handler Handler) error {
+	if _, ok := r.kinds[name]; !ok {
+		return fmt.Errorf("jobs: there is no kind %s to handle", name)
+	}
+	if handler == nil {
+		return errors.New("jobs: a handler cannot be nil")
+	}
+	r.handlers[name] = handler
+	return nil
+}
+
 // Kind returns a kind.
 func (r *Registry) Kind(name string) (Kind, bool) {
 	r.mu.RLock()

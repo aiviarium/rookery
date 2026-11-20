@@ -29,8 +29,12 @@ type hostCallRegistry struct {
 
 // hostService is one registered service, and the calls it has not answered.
 type hostService struct {
-	info    *hostv1.HostService
-	calls   chan *hostv1.HostCallRequest
+	info  *hostv1.HostService
+	calls chan *hostv1.HostCallRequest
+	// done ends the service's stream. It is closed once when the provider goes
+	// away, and a call selects on it rather than send on a closed channel.
+	done    chan struct{}
+	once    sync.Once
 	waiting map[string]chan *hostv1.HostCallResult
 }
 
@@ -79,6 +83,7 @@ func (r *hostCallRegistry) register(info *hostv1.HostService) (*hostService, err
 	service := &hostService{
 		info:    info,
 		calls:   make(chan *hostv1.HostCallRequest, 64),
+		done:    make(chan struct{}),
 		waiting: make(map[string]chan *hostv1.HostCallResult),
 	}
 	r.services[info.GetName()] = service
@@ -93,10 +98,14 @@ func (r *hostCallRegistry) unregister(service *hostService) {
 	if r.services[service.info.GetName()] == service {
 		delete(r.services, service.info.GetName())
 	}
-	close(service.calls)
+	service.once.Do(func() { close(service.done) })
 	for id, waiting := range service.waiting {
 		delete(service.waiting, id)
-		waiting <- &hostv1.HostCallResult{Id: id, Error: "the provider went away"}
+		// The waiter may already have given up; its channel holds one answer.
+		select {
+		case waiting <- &hostv1.HostCallResult{Id: id, Error: "the provider went away"}:
+		default:
+		}
 	}
 }
 
@@ -111,7 +120,10 @@ func (r *hostCallRegistry) deliver(result *hostv1.HostCallResult) {
 			continue
 		}
 		delete(service.waiting, result.GetId())
-		waiting <- result
+		select {
+		case waiting <- result:
+		default:
+		}
 		return
 	}
 }
@@ -144,6 +156,8 @@ func (r *hostCallRegistry) call(ctx context.Context, name, method string, args [
 	call := &hostv1.HostCallRequest{Id: id, Method: method, ArgsCbor: args}
 	select {
 	case service.calls <- call:
+	case <-service.done:
+		return nil, fmt.Errorf("%w: host service %s went away", ErrUnavailable, name)
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -219,10 +233,9 @@ func sendHostCalls(stream *connect.BidiStream[hostv1.HostCallServiceRegisterRequ
 		select {
 		case <-stop:
 			return nil
-		case call, open := <-service.calls:
-			if !open {
-				return nil
-			}
+		case <-service.done:
+			return nil
+		case call := <-service.calls:
 			if err := stream.Send(&hostv1.HostCallServiceRegisterResponse{
 				Message: &hostv1.HostCallServiceRegisterResponse_Request{Request: call},
 			}); err != nil {

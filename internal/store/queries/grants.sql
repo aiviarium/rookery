@@ -53,3 +53,7 @@ SELECT COALESCE(max(g.level), 0)::int AS level
 FROM rookery.grants g
 JOIN chain c ON g.resource = c.uri
 WHERE g.principal = ANY($2::text[]);
+
+-- name: DeleteGrantsForResource :exec
+DELETE FROM rookery.grants
+WHERE resource = $1;

@@ -118,6 +118,9 @@ type handlers struct {
 	scheduler  *jobs.Scheduler
 	supervisor *plugins.Supervisor
 	retention  time.Duration
+	// links are the SSH connections to the hosts; a stopping leader closes
+	// them.
+	links interface{ Close() }
 }
 
 // logger is the server's logger, for the loops the handlers own.
