@@ -1,0 +1,28 @@
+{
+  "name": "@rookery/sdk",
+  "version": "0.1.0",
+  "description": "Rookery's TypeScript SDK: defineClient for client halves, and the runtime a plugin's service runs on Bun or Node.",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./client": {
+      "types": "./src/client.ts",
+      "default": "./src/client.ts"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.17.0",
+    "@connectrpc/connect": "^2.3.0",
+    "@connectrpc/connect-node": "^2.3.0",
+    "@rookery/client": "workspace:*",
+    "@rookery/proto": "workspace:*",
+    "cbor-x": "^1.6.9"
+  }
+}

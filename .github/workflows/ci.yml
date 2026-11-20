@@ -38,6 +38,17 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # buf generate runs protoc-gen-es too, and `make tools` installs it from
+      # the TypeScript workspace's dependencies.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('sdk/ts/bun.lock') }}
+
       - name: Prepare the environment
         run: |
           mkdir -p "$RUNNER_TEMP/tmp" "$RUNNER_TEMP/go/bin"

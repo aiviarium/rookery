@@ -1,0 +1,19 @@
+{
+  "name": "@rookery/proto",
+  "version": "0.1.0",
+  "description": "The generated protobuf messages and services of Rookery's contract.",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.17.0"
+  }
+}

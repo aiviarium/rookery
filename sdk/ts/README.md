@@ -1,0 +1,83 @@
+# Rookery's TypeScript SDK
+
+A bun workspace with the browser's contract and the SDK a plugin's client half and
+service are written against. The protos are the contract, so its API types are
+generated with buf: `make gen` writes `proto/src/gen`, and CI fails while it is
+stale.
+
+| Package | Covers |
+| --- | --- |
+| `@rookery/proto` | The generated messages and service descriptors, and nothing hand-written |
+| `@rookery/client` | The edge in a browser: one typed client per service, sign-in, the current space, live queries, live documents, terminals, a host's desktop, the client-half loader |
+| `@rookery/client/solid` | SolidJS 2 bindings: signals and async primitives over the client |
+| `@rookery/sdk` | `defineClient` for a client half, and the runtime a plugin's service runs on Bun or Node |
+
+```bash
+make ts          # bun install --frozen-lockfile, tsc --noEmit, bun test
+```
+
+## The browser
+
+```ts
+import { createRookery } from "@rookery/client";
+
+const rookery = createRookery();               // the page's own origin
+await rookery.signIn.refresh();                // AuthService.Me through the cookie
+rookery.setSpace(spaceId);                     // Rookery-Space on every call after
+const { records } = await rookery.data.find({ collection: "example/notes" });
+```
+
+`RookeryOptions.baseUrl`, `fetch` and `transport` are for a page served from
+another address and for tests. `fetch` is wrapped so every call carries cookies,
+the CSRF token from the edge's `rookery_csrf` cookie in the `Rookery-CSRF` header,
+and the current space in `Rookery-Space`.
+
+A new core service drops in by regeneration: its descriptor arrives in
+`@rookery/proto`, and one line in `services` in `src/transport.ts` gives it a typed
+client and a name on `createRookery()`.
+
+### Live queries
+
+`DataService.Live` is a server stream that sends the matching records and then
+each change. A subscriber that falls behind is sent `resync` and then the records
+that match now; `LiveQuery` keeps a keyed snapshot, replaces it on a resync, and
+reconnects with backoff when the stream ends. Until `DataService`'s proto is on
+`go`, the query takes a structural `LiveSource` and `rookery.data` is its adapter.
+
+### The routes that are not Connect
+
+The browser cannot set a header on a WebSocket, so the current space travels in
+the query (`?space=…`) and the session cookie authenticates as usual.
+
+| Route | Frames |
+| --- | --- |
+| `/ws/documents/{id}` | binary: kind byte 1 (`update`, stored and relayed) or 2 (`awareness`, relayed only), then the CRDT's bytes. The server sends the latest snapshot first, as an update |
+| `/ws/terminals/{id}` | binary: the PTY's bytes in both directions. text: JSON control, `{"type":"resize","cols":…,"rows":…}` to the server and `{"type":"exit","code":…}` from it |
+| `/ws/hosts/{name}/desktop` | binary: the RFB byte stream, unread. `desktop.url(host)` is what noVNC opens itself; `desktop.open(host)` is a socket with the WebSocket interface for a client that takes one |
+
+The document and terminal frames are this client's proposal for item 12's and item
+6's routes; when those land, the server follows these bytes or this client is
+changed with them.
+
+### Client halves
+
+```ts
+import { defineClient } from "@rookery/sdk/client";
+
+export default defineClient({
+  views: {
+    notes: (context, element) => {
+      const { records } = context.rookery.live({ collection: "example/notes" });
+      // draw into element; return what removes it
+    },
+  },
+});
+```
+
+`loadClientHalves()` asks `PluginService.Contributions`, imports each plugin's
+`index.js` from `/plugins/{id}/{hash}/`, and hands the shell the halves with a
+context: the typed API, the plugin's id and contributions, and navigation. That
+proto is not on `go` yet, so the call speaks Connect's JSON encoding against the
+shape in `src/contributions.ts`, which mirrors the manifest's `contributions`
+block; when the proto lands, the generated message replaces the hand-written type
+and nothing else changes.

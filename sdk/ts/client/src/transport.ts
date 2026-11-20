@@ -1,0 +1,231 @@
+// The edge, as a browser talks to it: Connect over HTTP with the session cookie,
+// the CSRF token in a header, the current space in another, and one typed client
+// per service.
+//
+// A new core service joins `services` below with one line when its proto lands;
+// everything else follows from the generated service descriptor.
+import {
+  AccessService,
+  AuthService,
+  GroupService,
+  SpaceService,
+  UserService,
+} from "@rookery/proto";
+import {
+  type Client,
+  Code,
+  ConnectError,
+  type Transport,
+  createClient,
+} from "@connectrpc/connect";
+import { createConnectTransport } from "@connectrpc/connect-web";
+
+import { CSRF_COOKIE, CSRF_HEADER, SPACE_HEADER, readCookie } from "./cookies.ts";
+import type { PluginContributions } from "./contributions.ts";
+import { fetchContributions } from "./contributions.ts";
+import { DocumentSync, type DocumentOptions } from "./documents.ts";
+import { DesktopStream, type DesktopOptions, desktopUrl } from "./desktop.ts";
+import type { RookeryEndpoints } from "./endpoints.ts";
+import { type LoadedClientHalf, type LoaderOptions, loadClientHalves } from "./loader.ts";
+import { type SignIn, createSignIn } from "./session.ts";
+import { TerminalSession, type TerminalOptions } from "./terminals.ts";
+
+/**
+ * services is every core service the browser may call, by the name the client
+ * exposes it under. The proto's descriptor carries the procedure names, so
+ * nothing here names an RPC.
+ */
+export const services = {
+  access: AccessService,
+  auth: AuthService,
+  groups: GroupService,
+  spaces: SpaceService,
+  users: UserService,
+} as const;
+
+/** ServiceName is one of the names in `services`. */
+export type ServiceName = keyof typeof services;
+
+/** Clients is one typed client per core service. */
+export type Clients = { readonly [K in ServiceName]: Client<(typeof services)[K]> };
+
+/** RookeryOptions configures a client for one server. */
+export interface RookeryOptions {
+  /**
+   * baseUrl is the edge's address, such as "https://rookery.example.com". It
+   * defaults to the page's own origin, which is where the shell is served.
+   */
+  baseUrl?: string;
+  /** fetch overrides the platform's fetch, for tests and unusual hosts. */
+  fetch?: typeof fetch;
+  /** transport overrides the whole Connect transport, for tests. */
+  transport?: Transport;
+  /**
+   * csrf returns the session's CSRF token. It defaults to the edge's cookie,
+   * which a page may read; a page that keeps the token elsewhere passes its own.
+   */
+  csrf?: () => string | undefined;
+  /** credentials is what a call sends cookies with: "include" by default. */
+  credentials?: RequestCredentials;
+  /** space is the space the client starts in. */
+  space?: string;
+  /**
+   * autoSignIn asks AuthService.Me as soon as the client is made, so that a
+   * page knows who it is before it renders. It defaults to true.
+   */
+  autoSignIn?: boolean;
+}
+
+/** Rookery is the edge's typed API, and what a client half builds on. */
+export type Rookery = Clients &
+  RookeryEndpoints & {
+    /** transport is the Connect transport every client shares. */
+    readonly transport: Transport;
+    /** signIn is who the caller is, and the calls that change it. */
+    readonly signIn: SignIn;
+    /** setSpace changes the space every following call is scoped to. */
+    setSpace(space: string): void;
+    /** documents open a live document over `/ws/documents/{id}`. */
+    readonly documents: {
+      open(id: string, options?: DocumentOptions): DocumentSync;
+    };
+    /** terminals attach to a terminal over `/ws/terminals/{id}`. */
+    readonly terminals: {
+      attach(id: string, options?: TerminalOptions): TerminalSession;
+    };
+    /** desktop is a host's RFB stream over `/ws/hosts/{name}/desktop`. */
+    readonly desktop: {
+      url(host: string): string;
+      open(host: string, options?: DesktopOptions): DesktopStream;
+    };
+    /** contributions is what the installed plugins add to the shell. */
+    contributions(options?: { fetch?: typeof fetch; credentials?: RequestCredentials }): Promise<
+      readonly PluginContributions[]
+    >;
+    /** loadClientHalves imports every installed plugin's client half. */
+    loadClientHalves(options?: LoaderOptions): Promise<readonly LoadedClientHalf[]>;
+  };
+
+/** createRookery makes the client for one server. */
+export function createRookery(options: RookeryOptions = {}): Rookery {
+  const baseUrl = (options.baseUrl ?? originOf()).replace(/\/+$/, "");
+  const csrf = options.csrf ?? (() => readCookie(CSRF_COOKIE));
+  let space = options.space ?? "";
+
+  const transport =
+    options.transport ??
+    createConnectTransport({
+      baseUrl,
+      // Connect's binary encoding, which is smaller than its JSON and what the
+      // edge answers with.
+      useBinaryFormat: true,
+      // The CSRF token and the space go on every HTTP call, streams included,
+      // which is why they are set on the fetch rather than in an interceptor.
+      fetch: edgeFetch(options.fetch ?? globalThis.fetch, {
+        credentials: options.credentials ?? "include",
+        headers: () => ({
+          [CSRF_HEADER]: csrf(),
+          [SPACE_HEADER]: space === "" ? undefined : space,
+        }),
+      }),
+    });
+
+  const clients: Clients = {} as Clients;
+  const made = clients as unknown as Record<ServiceName, Client<never>>;
+  for (const [name, service] of Object.entries(services)) {
+    made[name as ServiceName] = createClient(service, transport) as Client<never>;
+  }
+
+  const rookery: Rookery = {
+    ...(clients as unknown as Clients),
+    baseUrl,
+    transport,
+    signIn: createSignIn({
+      me: async () => {
+        const { user } = await clients.auth.me({});
+        if (user === undefined) {
+          throw new ConnectError("AuthService.Me answered without a user", Code.Internal);
+        }
+        return user;
+      },
+      signOut: async () => {
+        const response = await (options.fetch ?? globalThis.fetch)(
+          `${baseUrl}/auth/logout`,
+          {
+            method: "POST",
+            credentials: options.credentials ?? "include",
+            headers: withToken({}, csrf()),
+          },
+        );
+        if (!response.ok) {
+          throw new Error(`signing out: ${response.status} ${response.statusText}`);
+        }
+      },
+    }),
+    space: () => space,
+    setSpace: (next) => {
+      space = next;
+    },
+    url: (path) => `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`,
+    webSocketUrl: (path, query) => {
+      const url = new URL(rookery.url(path));
+      url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+      if (space !== "") url.searchParams.set("space", space);
+      for (const [key, value] of Object.entries(query ?? {})) {
+        if (value !== undefined) url.searchParams.set(key, value);
+      }
+      return url.toString();
+    },
+    documents: {
+      open: (id, documentOptions) =>
+        new DocumentSync(rookery, id, documentOptions as DocumentOptions | undefined),
+    },
+    terminals: {
+      attach: (id, terminalOptions) =>
+        new TerminalSession(rookery, id, terminalOptions as TerminalOptions | undefined),
+    },
+    desktop: {
+      url: (host) => desktopUrl(rookery, host),
+      open: (host, desktopOptions) =>
+        new DesktopStream(rookery, host, desktopOptions as DesktopOptions | undefined).open(),
+    },
+    contributions: (contributionOptions) => fetchContributions(rookery, contributionOptions),
+    loadClientHalves: (loaderOptions) => loadClientHalves(rookery, loaderOptions),
+  };
+
+  if (options.autoSignIn ?? true) {
+    void rookery.signIn.refresh().catch(() => undefined);
+  }
+  return rookery;
+}
+
+/** originOf is the page's origin, or the empty string where there is none. */
+function originOf(): string {
+  return typeof location === "undefined" ? "" : location.origin;
+}
+
+/**
+ * edgeFetch is the platform's fetch with what every call to the edge needs:
+ * cookies, and the headers that are not the call's own.
+ */
+function edgeFetch(
+  fetchImpl: typeof fetch,
+  options: {
+    credentials: RequestCredentials;
+    headers: () => Record<string, string | undefined>;
+  },
+): typeof fetch {
+  return ((input: RequestInfo | URL, init?: RequestInit) => {
+    const headers = new Headers(init?.headers);
+    for (const [name, value] of Object.entries(options.headers())) {
+      if (value !== undefined && value !== "") headers.set(name, value);
+    }
+    return fetchImpl(input, { ...init, headers, credentials: options.credentials });
+  }) as typeof fetch;
+}
+
+/** withToken adds the CSRF header to a plain HTTP call, such as sign-out. */
+function withToken(headers: Record<string, string>, token: string | undefined): HeadersInit {
+  if (token !== undefined && token !== "") headers[CSRF_HEADER] = token;
+  return headers;
+}
