@@ -671,8 +671,15 @@ pub async fn call_bound(
         .iter()
         .any(|(id, ..)| id == &bound.service)
     {
-        return call_app_service(&call.kernel, call, plugin, &bound.service, &bound.method, params)
-            .await;
+        return call_app_service(
+            &call.kernel,
+            call,
+            plugin,
+            &bound.service,
+            &bound.method,
+            params,
+        )
+        .await;
     }
     call_service(call, plugins, plugin, &bound.service, &bound.method, params).await
 }
