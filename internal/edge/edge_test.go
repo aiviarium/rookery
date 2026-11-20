@@ -18,7 +18,9 @@ import (
 	"github.com/aiviarium/rookery/internal/access"
 	"github.com/aiviarium/rookery/internal/audit"
 	"github.com/aiviarium/rookery/internal/authn"
+	"github.com/aiviarium/rookery/internal/config"
 	"github.com/aiviarium/rookery/internal/edge"
+	"github.com/aiviarium/rookery/internal/seal"
 	"github.com/aiviarium/rookery/internal/server"
 	"github.com/aiviarium/rookery/internal/spaces"
 	"github.com/aiviarium/rookery/internal/store"
@@ -49,8 +51,21 @@ func start(t *testing.T) (*store.Store, *site) {
 	tokens := authn.NewTokens(opened)
 	links := authn.NewLinks(opened, "https://rookery.example.test")
 	groups := authn.NewGroups(opened)
+<<<<<<< HEAD
 	spaceService := spaces.NewService(spaces.New(opened, checker), nil)
 	localService := server.NewLocalService(opened, users, links, "https://rookery.example.test")
+=======
+	spaceService := spaces.NewService(spaces.New(opened, checker))
+	secrets, err := seal.New()
+	if err != nil {
+		t.Fatalf("making a sealing key: %v", err)
+	}
+	ring, err := seal.NewRing(secrets.ID(), secrets)
+	if err != nil {
+		t.Fatalf("making the sealing ring: %v", err)
+	}
+	localService := server.NewLocalService(opened, users, links, config.NewSecrets(opened, ring), "https://rookery.example.test")
+>>>>>>> 4e7366a (Add settings, secrets, connections and blobs: scopes, sealing, rekey and the two backends)
 
 	built := edge.New(edge.Deps{
 		Logger:       testLogger(),

@@ -21,6 +21,18 @@ type RookeryAudit struct {
 	Detail    string
 }
 
+// Blob metadata: size, type, owner and the resource the blob belongs to.
+type RookeryBlobs struct {
+	ID           string
+	Size         int64
+	ContentType  string
+	Owner        string
+	Resource     string
+	Pinned       bool
+	CreatedAt    time.Time
+	ReferencedAt *time.Time
+}
+
 // One row per datastore write, in one order: the live queries and the change feed read them.
 type RookeryChanges struct {
 	Seq        int64
@@ -35,6 +47,17 @@ type RookeryChanges struct {
 	// The record as a CBOR map, or null for a delete.
 	Data []byte
 	At   time.Time
+}
+
+// External credentials of a declared type, sealed as one value.
+type RookeryConnections struct {
+	ID        string
+	Type      string
+	Name      string
+	Values    []byte
+	KeyID     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // What search resolves: a record or document by URI, with its title, its searchable text and its access parent.
@@ -225,6 +248,16 @@ type RookerySchedules struct {
 	CreatedAt time.Time
 }
 
+// Sealed secrets, by name and scope, with the key that sealed each one.
+type RookerySecrets struct {
+	Name      string
+	Scope     string
+	Value     []byte
+	KeyID     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 // Device sessions: a browser cookie, held by its secret hash, with its CSRF token.
 type RookerySessions struct {
 	ID         string
@@ -234,6 +267,15 @@ type RookerySessions struct {
 	UserAgent  string
 	CreatedAt  time.Time
 	SeenAt     time.Time
+}
+
+// Setting values per scope; the definition and its default are the server's.
+type RookerySettings struct {
+	Key       string
+	Scope     string
+	ScopeID   string
+	Value     []byte
+	UpdatedAt time.Time
 }
 
 type RookerySpaces struct {
