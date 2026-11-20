@@ -1,0 +1,53 @@
+// ExecService runs one command on a host and streams what it writes.
+
+syntax = "proto3";
+
+package rookery.host.v1;
+
+import "rookery/host/v1/common.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/host/v1;hostv1";
+
+service ExecService {
+  // Run runs a command as an account, with its stdin, environment, directory and
+  // timeout, and streams its output and exit. An interactive program is a
+  // session instead.
+  rpc Run(ExecServiceRunRequest) returns (stream ExecServiceRunResponse);
+}
+
+message ExecServiceRunRequest {
+  User user = 1;
+
+  // The command and its arguments. It is run directly, never through a shell.
+  string command = 2;
+  repeated string args = 3;
+
+  // The working directory. Empty is the account's home directory.
+  string dir = 4;
+
+  // Extra environment variables, on top of the account's.
+  map<string, string> env = 5;
+
+  // Run with the desktop's environment, from the host's desktop.env: its
+  // display, X authority, session bus and PATH.
+  bool desktop = 6;
+
+  // Standard input, written before it is closed. Empty gives the command none.
+  bytes stdin = 7;
+
+  // How long the command may run. Zero is no limit beyond the caller's.
+  uint32 timeout_seconds = 8;
+}
+
+message ExecServiceRunResponse {
+  oneof event {
+    // Bytes the command wrote to standard output.
+    bytes stdout = 1;
+
+    // Bytes it wrote to standard error.
+    bytes stderr = 2;
+
+    // How it ended. The last message.
+    Exit exit = 3;
+  }
+}

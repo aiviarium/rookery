@@ -1,0 +1,36 @@
+// PortService carries bytes to a service on a host.
+//
+// A client never needs a route to a host: the server reaches a port on the
+// host's loopback or a Unix socket there and proxies it. That is how a desktop's
+// RFB socket, an engine's Docker socket or a program's HTTP port is reached.
+
+syntax = "proto3";
+
+package rookery.host.v1;
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/host/v1;hostv1";
+
+service PortService {
+  // Dial connects to a port on 127.0.0.1 or to a Unix socket, and carries bytes
+  // both ways until either side closes.
+  rpc Dial(stream PortServiceDialRequest) returns (stream PortServiceDialResponse);
+}
+
+message PortServiceDialRequest {
+  // Where to connect. Only the first message sets it.
+  oneof target {
+    // A port on the host's loopback, as in "127.0.0.1:5901". Nothing else on the
+    // host's network is reachable this way.
+    uint32 tcp_port = 1;
+
+    // The path of a Unix socket, such as /run/user/1000/rookery/vnc.sock.
+    string unix_path = 2;
+  }
+
+  // Bytes for the other side. The first message's bytes go after it connects.
+  bytes data = 3;
+}
+
+message PortServiceDialResponse {
+  bytes data = 1;
+}

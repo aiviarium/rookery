@@ -1,0 +1,159 @@
+// SessionService runs terminals on a host.
+//
+// A session is a process on a pseudo-terminal, owned by an account, and it
+// outlives the links that made and watch it. Its last 1 MiB of output is kept:
+// a client that attaches with an offset is replayed from there, then streams.
+// There is no terminal emulation, so a browser draws the bytes itself.
+
+syntax = "proto3";
+
+package rookery.host.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/host/v1/common.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/host/v1;hostv1";
+
+service SessionService {
+  // Create starts a command on a new pseudo-terminal as an account and returns
+  // its session.
+  rpc Create(SessionServiceCreateRequest) returns (SessionServiceCreateResponse);
+
+  // List returns the sessions the caller may see: its own on the socket for
+  // local programs, every session on the server's.
+  rpc List(SessionServiceListRequest) returns (SessionServiceListResponse);
+
+  // Attach replays a session's output from an offset, then streams it while the
+  // caller's input reaches the terminal. Several clients may attach at once.
+  rpc Attach(stream SessionServiceAttachRequest) returns (stream SessionServiceAttachResponse);
+
+  // Resize sets the terminal's size in characters.
+  rpc Resize(SessionServiceResizeRequest) returns (SessionServiceResizeResponse);
+
+  // Signal sends a signal to the session's process.
+  rpc Signal(SessionServiceSignalRequest) returns (SessionServiceSignalResponse);
+
+  // Close ends the session's process and drops it.
+  rpc Close(SessionServiceCloseRequest) returns (SessionServiceCloseResponse);
+}
+
+// Session is a terminal on the host.
+message Session {
+  string id = 1;
+
+  // The account it runs as.
+  string user = 2;
+
+  // The command as it was started, for listing.
+  string command = 3;
+
+  // The process's id on the host.
+  uint32 pid = 4;
+
+  // The terminal's size in characters.
+  uint32 cols = 5;
+  uint32 rows = 6;
+
+  google.protobuf.Timestamp created_at = 7;
+
+  // Whether the process is still running, and how it ended when it is not.
+  bool running = 8;
+  int32 exit_code = 9;
+
+  // How many bytes the session has written in all. An attach offset is an index
+  // into that.
+  uint64 output_bytes = 10;
+
+  // How many clients are attached.
+  uint32 attached = 11;
+}
+
+message SessionServiceCreateRequest {
+  User user = 1;
+
+  // The command and its arguments. Empty runs the account's login shell.
+  string command = 2;
+  repeated string args = 3;
+
+  // The working directory. Empty is the account's home directory.
+  string dir = 4;
+
+  // Extra environment variables, on top of the account's.
+  map<string, string> env = 5;
+
+  // The terminal's size in characters. Zero is 80 by 24.
+  uint32 cols = 6;
+  uint32 rows = 7;
+}
+
+message SessionServiceCreateResponse {
+  Session session = 1;
+}
+
+message SessionServiceListRequest {}
+
+message SessionServiceListResponse {
+  repeated Session sessions = 1;
+}
+
+message SessionServiceAttachRequest {
+  // The session to attach to, on the first message only.
+  string id = 1;
+
+  // Bytes for the terminal. The first message's input is written after the
+  // replay.
+  bytes input = 2;
+
+  // Where to start the replay, in bytes of the session's output. Zero replays
+  // all that is kept. Later messages leave it alone.
+  uint64 offset = 3;
+
+  // The size to give the terminal when it is not the one it has. Zero keeps it.
+  uint32 cols = 4;
+  uint32 rows = 5;
+}
+
+message SessionServiceAttachResponse {
+  // Output, starting at offset.
+  bytes output = 1;
+
+  // The offset of output's first byte.
+  uint64 offset = 2;
+
+  // Set on the last output before the stream ends because the process ended.
+  bool exited = 3;
+  int32 exit_code = 4;
+
+  // Set when output the caller asked for from its offset was overwritten before
+  // it was read: the replay starts at the oldest output kept instead.
+  bool truncated = 5;
+
+  // Set when the caller fell this far behind that output was dropped. The
+  // stream ends after this message.
+  bool dropped = 6;
+}
+
+message SessionServiceResizeRequest {
+  string id = 1;
+  uint32 cols = 2;
+  uint32 rows = 3;
+}
+
+message SessionServiceResizeResponse {}
+
+message SessionServiceSignalRequest {
+  // The session to signal.
+  string id = 1;
+
+  // The signal's name, without the "SIG" prefix, such as "TERM" or "INT".
+  // Empty or unknown sends TERM.
+  string signal = 2;
+}
+
+message SessionServiceSignalResponse {}
+
+message SessionServiceCloseRequest {
+  string id = 1;
+}
+
+message SessionServiceCloseResponse {}
