@@ -12,6 +12,7 @@ require (
 	github.com/pgvector/pgvector-go v0.4.1
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/cobra v1.10.2
+	go.etcd.io/bbolt v1.5.0
 	golang.org/x/crypto v0.59.0
 	golang.org/x/oauth2 v0.38.0
 	golang.org/x/sync v0.25.0

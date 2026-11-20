@@ -1,0 +1,107 @@
+// ChannelService carries messages from a host to the server, and back.
+//
+// A host has topic spaces of its own: `PLUGIN/TOPIC` for what a feature
+// publishes, and `user/ACCOUNT/TOPIC` for a person. Each message is kept as the
+// publisher asks: not at all, only the last one, or a log bounded to 10,000 per
+// topic. The server follows the channel from the sequence it last saw and
+// publishes the messages into its own topics; box publishes and listens on the
+// host.
+
+syntax = "proto3";
+
+package rookery.host.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/host/v1;hostv1";
+
+service ChannelService {
+  // Publish adds a message to a topic.
+  rpc Publish(ChannelServicePublishRequest) returns (ChannelServicePublishResponse);
+
+  // Read returns a topic's kept messages after a sequence.
+  rpc Read(ChannelServiceReadRequest) returns (ChannelServiceReadResponse);
+
+  // Follow streams messages whose topic starts with a prefix, from a sequence
+  // on, and then each one as it arrives.
+  rpc Follow(ChannelServiceFollowRequest) returns (stream ChannelServiceFollowResponse);
+}
+
+// ChannelKeep is how a topic keeps a message.
+enum ChannelKeep {
+  // The same as none.
+  CHANNEL_KEEP_UNSPECIFIED = 0;
+
+  // Not kept: only followers that are there when it arrives see it.
+  CHANNEL_KEEP_NONE = 1;
+
+  // Kept as the topic's only message, replacing the one before it.
+  CHANNEL_KEEP_LAST = 2;
+
+  // Kept in the topic's log, bounded to 10,000 messages.
+  CHANNEL_KEEP_LOG = 3;
+}
+
+// ChannelMessage is one message on a topic.
+message ChannelMessage {
+  string topic = 1;
+
+  // The channel's sequence number for it. One sequence counts every message on
+  // the host, so a follower's cursor is a single number for all topics.
+  uint64 sequence = 2;
+
+  // The message, CBOR in core deterministic mode.
+  bytes payload_cbor = 3;
+
+  google.protobuf.Timestamp published_at = 4;
+}
+
+message ChannelServicePublishRequest {
+  // The topic, as PLUGIN/TOPIC or user/ACCOUNT/TOPIC. A local program publishes
+  // only under user/ACCOUNT/, for its own account.
+  string topic = 1;
+
+  // The message, CBOR in core deterministic mode.
+  bytes payload_cbor = 2;
+
+  // How it is kept.
+  ChannelKeep keep = 3;
+}
+
+message ChannelServicePublishResponse {
+  // The message as it was stored, with its sequence.
+  ChannelMessage message = 1;
+}
+
+message ChannelServiceReadRequest {
+  string topic = 1;
+
+  // Only messages after this sequence are returned. Zero reads from the oldest
+  // one kept.
+  uint64 after = 2;
+
+  // The most messages to return. Zero returns them all.
+  uint32 limit = 3;
+}
+
+message ChannelServiceReadResponse {
+  // The messages, oldest first.
+  repeated ChannelMessage messages = 1;
+
+  // The sequence to read after next: the last message's, or the request's after
+  // when there is none.
+  uint64 next = 2;
+}
+
+message ChannelServiceFollowRequest {
+  // The prefix topics must start with, such as "example/" or "user/dev/".
+  string prefix = 1;
+
+  // The sequence to follow from: messages after it are streamed. Zero starts at
+  // the oldest one kept.
+  uint64 since = 2;
+}
+
+message ChannelServiceFollowResponse {
+  ChannelMessage message = 1;
+}

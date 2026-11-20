@@ -75,8 +75,16 @@ func serve(ctx context.Context, args []string) error {
 		"the socket the server uses, mode 0600")
 	userSocket := flags.String("user-socket", envOr("ROOKERYD_USER_SOCKET", agent.UserSocketPath),
 		"the socket local programs use, mode 0666")
+	channelDB := flags.String("channel-db", envOr("ROOKERYD_CHANNEL_DB", agent.ChannelDBPath),
+		"the channel store")
+	actions := flags.String("actions", envOr("ROOKERYD_ACTIONS", agent.ActionsPath),
+		"the file of user actions the apply writes")
 	desktopEnv := flags.String("desktop-env", envOr("ROOKERYD_DESKTOP_ENV", agent.DesktopEnvPath),
 		"the desktop's environment file")
+	operator := flags.String("operator", envOr("ROOKERYD_OPERATOR", agent.DefaultOperator),
+		"the account operator actions run as")
+	desktopUser := flags.String("desktop-user", envOr("ROOKERYD_DESKTOP_USER", agent.DefaultDesktopUser),
+		"the account that owns the desktop")
 	logLevel := flags.String("log-level", envOr("ROOKERYD_LOG_LEVEL", "info"), "debug, info, warn or error")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -92,7 +100,11 @@ func serve(ctx context.Context, args []string) error {
 		Version:        version,
 		RootSocket:     *rootSocket,
 		UserSocket:     *userSocket,
+		ChannelDB:      *channelDB,
+		ActionsPath:    *actions,
 		DesktopEnvPath: *desktopEnv,
+		Operator:       *operator,
+		DesktopUser:    *desktopUser,
 		Log:            logger,
 	})
 	if err != nil {

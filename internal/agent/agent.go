@@ -42,9 +42,16 @@ const (
 	UserSocketPath = "/run/rookeryd/user.sock"
 	// ChannelDBPath is the channel store.
 	ChannelDBPath = "/var/lib/rookeryd/channel.db"
+	// ActionsPath is the file of user actions the apply writes.
+	ActionsPath = "/etc/rookery/actions.json"
 	// DesktopEnvPath is the desktop's environment, which `box exec` and an exec
 	// with Desktop set use.
 	DesktopEnvPath = "/etc/rookery/desktop.env"
+
+	// DefaultOperator is the account that runs operator work.
+	DefaultOperator = "ops"
+	// DefaultDesktopUser is the account that owns the desktop on a workstation.
+	DefaultDesktopUser = "dev"
 )
 
 // Config is what a daemon is built from. It is read once, from flags and
@@ -57,8 +64,20 @@ type Config struct {
 	RootSocket string
 	UserSocket string
 
+	// ChannelDB is the bbolt file the channel keeps its messages in. Empty
+	// leaves the daemon without a channel, which only a test wants.
+	ChannelDB string
+
+	// ActionsPath is the JSON file of the host's user actions.
+	ActionsPath string
+
 	// DesktopEnvPath is the desktop's environment file.
 	DesktopEnvPath string
+
+	// Operator and DesktopUser are the accounts operator work and the desktop
+	// belong to.
+	Operator    string
+	DesktopUser string
 
 	// Log is the logger. Nil uses slog.Default.
 	Log *slog.Logger
@@ -75,6 +94,9 @@ type Server struct {
 
 	mux      http.Handler
 	sessions *sessionSet
+	channels *channelStore
+	registry *hostCallRegistry
+	actions  *actionSet
 }
 
 // New builds a daemon and opens its sockets. Serve then answers on them.
@@ -88,8 +110,17 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	if config.RootSocket == "" || config.UserSocket == "" {
 		return nil, errors.New("agent: both socket paths are required")
 	}
+	if config.ActionsPath == "" {
+		config.ActionsPath = ActionsPath
+	}
 	if config.DesktopEnvPath == "" {
 		config.DesktopEnvPath = DesktopEnvPath
+	}
+	if config.Operator == "" {
+		config.Operator = DefaultOperator
+	}
+	if config.DesktopUser == "" {
+		config.DesktopUser = DefaultDesktopUser
 	}
 	if config.Log == nil {
 		config.Log = slog.Default()
@@ -101,16 +132,27 @@ func New(ctx context.Context, config Config) (*Server, error) {
 		started: time.Now(),
 	}
 
+	var err error
+	if config.ChannelDB != "" {
+		if s.channels, err = openChannelStore(config.ChannelDB, defaultChannelLogLimit); err != nil {
+			return nil, err
+		}
+	}
+
 	s.sessions = newSessionSet()
+	s.registry = newHostCallRegistry()
+	s.actions = newActionSet(config.ActionsPath)
 
 	root, err := listen(ctx, config.RootSocket, 0o600)
 	if err != nil {
+		s.closeState()
 		return nil, err
 	}
 	s.root = root
 	user, err := listen(ctx, config.UserSocket, 0o666)
 	if err != nil {
 		_ = s.root.Close()
+		s.closeState()
 		return nil, err
 	}
 	s.user = user
@@ -141,11 +183,20 @@ func (s *Server) Close() error {
 		errs = append(errs, s.user.Close())
 	}
 	errs = append(errs, s.sessions.closeAll())
+	s.closeState()
 	// A Unix socket survives its listener; removing it here means a restart does
 	// not have to clean up after a crash.
 	_ = os.Remove(s.config.RootSocket)
 	_ = os.Remove(s.config.UserSocket)
 	return errors.Join(errs...)
+}
+
+// closeState closes what New opened before the sockets.
+func (s *Server) closeState() {
+	if s.channels != nil {
+		_ = s.channels.Close()
+		s.channels = nil
+	}
 }
 
 // RootSocket is the socket the server uses.
@@ -167,6 +218,9 @@ func (s *Server) handlers() http.Handler {
 	register(hostv1connect.NewExecServiceHandler(&execService{server: s}))
 	register(hostv1connect.NewFileServiceHandler(&fileService{server: s}))
 	register(hostv1connect.NewPortServiceHandler(&portService{server: s}))
+	register(hostv1connect.NewChannelServiceHandler(&channelService{server: s}))
+	register(hostv1connect.NewHostCallServiceHandler(&hostCallService{server: s}))
+	register(hostv1connect.NewActionServiceHandler(&actionService{server: s}))
 	return mux
 }
 

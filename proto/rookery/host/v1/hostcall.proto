@@ -1,0 +1,94 @@
+// HostCallService is how programs on a host offer a service to the server and to
+// each other.
+//
+// A host feature installs a systemd unit that runs `box serve NAME -- COMMAND`,
+// or a program that registers itself; the server and other local programs then
+// call its methods with CBOR arguments and answers. A call to a service that is
+// not registered fails with "unavailable".
+
+syntax = "proto3";
+
+package rookery.host.v1;
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/host/v1;hostv1";
+
+service HostCallService {
+  // Register is a provider's stream: it announces its service, then receives
+  // each call and answers it. The registration lasts as long as the stream.
+  rpc Register(stream HostCallServiceRegisterRequest) returns (stream HostCallServiceRegisterResponse);
+
+  // List returns the services registered on the host.
+  rpc List(HostCallServiceListRequest) returns (HostCallServiceListResponse);
+
+  // Call runs one of a service's methods and returns its answer.
+  rpc Call(HostCallServiceCallRequest) returns (HostCallServiceCallResponse);
+}
+
+// HostService is a service a program on the host offers.
+message HostService {
+  // The name, by convention PLUGIN/NAME, such as "example/hello".
+  string name = 1;
+
+  // Its methods. Empty accepts any method name.
+  repeated string methods = 2;
+
+  // A line for listings.
+  string description = 3;
+}
+
+message HostCallServiceRegisterRequest {
+  oneof message {
+    // The first message: what the provider offers.
+    HostService service = 1;
+
+    // The provider's answer to a call.
+    HostCallResult result = 2;
+  }
+}
+
+message HostCallServiceRegisterResponse {
+  oneof message {
+    // A call for the provider to run.
+    HostCallRequest request = 1;
+  }
+}
+
+// HostCallRequest is one call to a host service.
+message HostCallRequest {
+  // The call's id, which its answer repeats.
+  string id = 1;
+
+  // The method to run.
+  string method = 2;
+
+  // The arguments, CBOR in core deterministic mode.
+  bytes args_cbor = 3;
+}
+
+// HostCallResult is a provider's answer.
+message HostCallResult {
+  // The call's id.
+  string id = 1;
+
+  // The answer, CBOR in core deterministic mode.
+  bytes result_cbor = 2;
+
+  // Why the method failed, when it did. The answer's result_cbor is then empty.
+  string error = 3;
+}
+
+message HostCallServiceListRequest {}
+
+message HostCallServiceListResponse {
+  repeated HostService services = 1;
+}
+
+message HostCallServiceCallRequest {
+  string service = 1;
+  string method = 2;
+  bytes args_cbor = 3;
+}
+
+message HostCallServiceCallResponse {
+  bytes result_cbor = 1;
+}
