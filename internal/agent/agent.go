@@ -32,6 +32,7 @@ import (
 
 	hostv1 "github.com/aiviarium/rookery/gen/go/rookery/host/v1"
 	"github.com/aiviarium/rookery/gen/go/rookery/host/v1/hostv1connect"
+	"github.com/aiviarium/rookery/internal/streamio"
 )
 
 // Where rookeryd's files are unless the flags say otherwise.
@@ -217,9 +218,11 @@ func (s *Server) handlers() http.Handler {
 	register(hostv1connect.NewSessionServiceHandler(&sessionService{server: s}))
 	register(hostv1connect.NewExecServiceHandler(&execService{server: s}))
 	register(hostv1connect.NewFileServiceHandler(&fileService{server: s}))
-	register(hostv1connect.NewPortServiceHandler(&portService{server: s}))
+	portPath, portHandler := hostv1connect.NewPortServiceHandler(&portService{server: s})
+	register(portPath, streamio.WithReadInterrupt(portHandler))
 	register(hostv1connect.NewChannelServiceHandler(&channelService{server: s}))
-	register(hostv1connect.NewHostCallServiceHandler(&hostCallService{server: s}))
+	hostCallPath, hostCallHandler := hostv1connect.NewHostCallServiceHandler(&hostCallService{server: s})
+	register(hostCallPath, streamio.WithReadInterrupt(hostCallHandler))
 	register(hostv1connect.NewActionServiceHandler(&actionService{server: s}))
 	register(hostv1connect.NewDesktopServiceHandler(&desktopService{server: s}))
 	return mux

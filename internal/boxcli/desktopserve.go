@@ -53,7 +53,7 @@ func runDesktopServe(ctx context.Context, options Options, args []string) error 
 	provider := &desktopProvider{conn: conn, user: accountName()}
 	service := &hostv1.HostService{
 		Name:        agent.DesktopProvider,
-		Methods:     agent.DesktopMethods,
+		Methods:     agent.DesktopMethods(),
 		Description: "the desktop of this host, served by box",
 	}
 	options.logf("box: the desktop on %s is serving", display)

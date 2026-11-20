@@ -37,6 +37,10 @@ func (h *portService) Dial(ctx context.Context, stream *connect.BidiStream[hostv
 		return err
 	}
 
+	if first.GetDesktop() {
+		return h.dialDesktop(ctx, stream, first)
+	}
+
 	network, address, err := targetOf(first)
 	if err != nil {
 		return toConnect(err)

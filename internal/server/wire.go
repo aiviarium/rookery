@@ -21,6 +21,7 @@ import (
 	"github.com/aiviarium/rookery/internal/authn"
 	"github.com/aiviarium/rookery/internal/blobs"
 	"github.com/aiviarium/rookery/internal/config"
+	"github.com/aiviarium/rookery/internal/desktop"
 	"github.com/aiviarium/rookery/internal/docs"
 	"github.com/aiviarium/rookery/internal/edge"
 	"github.com/aiviarium/rookery/internal/hosts"
@@ -32,6 +33,7 @@ import (
 	"github.com/aiviarium/rookery/internal/seal"
 	"github.com/aiviarium/rookery/internal/spaces"
 	"github.com/aiviarium/rookery/internal/store"
+	"github.com/aiviarium/rookery/internal/streamio"
 )
 
 // wire builds every service and both listeners' handlers. Every dependency goes
@@ -212,6 +214,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		connections:   config.NewConnectionsService(connections),
 		blobs:         blobs.NewService(blobStore),
 		hosts:         hostService,
+		desktop:       desktop.New(hostStore, hostLinks, checker),
 		keys:          link.NewKeysService(keyRing, trusted),
 		rollouts:      rollouts.NewRolloutService(rolloutList),
 	}
@@ -239,6 +242,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		},
 		Blobs:     blobStore.Handler(),
 		Documents: docs.NewHandler(collections.docs, dataCaller{}),
+		Desktop:   service.desktop.WebSocket(),
 		RegisterLocal: func(mux *http.ServeMux, options []connect.HandlerOption) {
 			path, handler := rookeryv1connect.NewLocalServiceHandler(service.local, options...)
 			mux.Handle(path, handler)
@@ -316,6 +320,7 @@ type services struct {
 	connections   *config.ConnectionsService
 	blobs         *blobs.Service
 	hosts         *hosts.Service
+	desktop       *desktop.Service
 	keys          *link.KeysService
 	rollouts      *rollouts.RolloutService
 }
@@ -362,6 +367,8 @@ func (s services) register(mux *http.ServeMux, options []connect.HandlerOption) 
 	handle(path, handler)
 	path, handler = rookeryv1connect.NewHostServiceHandler(s.hosts, options...)
 	handle(path, handler)
+	path, handler = rookeryv1connect.NewDesktopServiceHandler(s.desktop, options...)
+	handle(path, streamio.WithReadInterrupt(handler))
 	path, handler = rookeryv1connect.NewKeyServiceHandler(s.keys, options...)
 	handle(path, handler)
 }

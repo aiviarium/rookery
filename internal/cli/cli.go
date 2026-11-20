@@ -65,6 +65,8 @@ that ` + "`rookery login`" + ` saved.`,
 		pluginCommand(),
 		registryCommand(),
 		hostCommand(),
+		desktopCommand(),
+		screenshotCommand(),
 		keyCommand(),
 	)
 	return root

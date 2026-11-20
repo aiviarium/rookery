@@ -25,6 +25,9 @@ message PortServiceDialRequest {
 
     // The path of a Unix socket, such as /run/user/1000/rookery/vnc.sock.
     string unix_path = 2;
+
+    // The configured desktop user's RFB Unix socket.
+    bool desktop = 4;
   }
 
   // Bytes for the other side. The first message's bytes go after it connects.
@@ -32,5 +35,8 @@ message PortServiceDialRequest {
 }
 
 message PortServiceDialResponse {
+  // The first response acknowledges that the connection was opened.
+  bool connected = 2;
+
   bytes data = 1;
 }

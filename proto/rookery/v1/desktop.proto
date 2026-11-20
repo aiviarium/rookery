@@ -1,0 +1,114 @@
+syntax = "proto3";
+
+package rookery.v1;
+
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// DesktopService reaches the shared desktop of a workstation.
+service DesktopService {
+  rpc Screenshot(DesktopServiceScreenshotRequest) returns (DesktopServiceScreenshotResponse) {
+    option (rookery.v1.access) = {level: LEVEL_VIEW, resource: "host"};
+  }
+  rpc Input(DesktopServiceInputRequest) returns (DesktopServiceInputResponse) {
+    option (rookery.v1.access) = {level: LEVEL_USE, resource: "host"};
+  }
+  rpc GetClipboard(DesktopServiceGetClipboardRequest) returns (DesktopServiceGetClipboardResponse) {
+    option (rookery.v1.access) = {level: LEVEL_USE, resource: "host"};
+  }
+  rpc SetClipboard(DesktopServiceSetClipboardRequest) returns (DesktopServiceSetClipboardResponse) {
+    option (rookery.v1.access) = {level: LEVEL_USE, resource: "host"};
+  }
+  rpc Pause(DesktopServicePauseRequest) returns (DesktopServicePauseResponse) {
+    option (rookery.v1.access) = {level: LEVEL_USE, resource: "host"};
+  }
+  rpc Resume(DesktopServiceResumeRequest) returns (DesktopServiceResumeResponse) {
+    option (rookery.v1.access) = {level: LEVEL_USE, resource: "host"};
+  }
+  // Connect carries raw RFB bytes for a VNC viewer. Browser viewers use the
+  // binary WebSocket at /ws/hosts/{name}/desktop.
+  rpc Connect(stream DesktopServiceConnectRequest) returns (stream DesktopServiceConnectResponse) {
+    option (rookery.v1.access) = {level: LEVEL_USE, resource: "host"};
+  }
+}
+
+message DesktopServiceScreenshotRequest {
+  string host = 1;
+  // Zero keeps the screen's size. Giving one dimension preserves proportions.
+  uint32 width = 2;
+  uint32 height = 3;
+}
+message DesktopServiceScreenshotResponse {
+  bytes png = 1;
+  uint32 width = 2;
+  uint32 height = 3;
+}
+
+enum MouseButton {
+  MOUSE_BUTTON_UNSPECIFIED = 0;
+  MOUSE_BUTTON_LEFT = 1;
+  MOUSE_BUTTON_MIDDLE = 2;
+  MOUSE_BUTTON_RIGHT = 3;
+}
+enum ScrollDirection {
+  SCROLL_DIRECTION_UNSPECIFIED = 0;
+  SCROLL_DIRECTION_UP = 1;
+  SCROLL_DIRECTION_DOWN = 2;
+}
+message DesktopClick {
+  int32 x = 1;
+  int32 y = 2;
+  MouseButton button = 3;
+  uint32 count = 4;
+}
+message DesktopText {
+  string text = 1;
+}
+message DesktopKey {
+  string chord = 1;
+}
+message DesktopScroll {
+  ScrollDirection direction = 1;
+  uint32 count = 2;
+}
+message DesktopServiceInputRequest {
+  string host = 1;
+  oneof input {
+    DesktopClick click = 2;
+    DesktopText text = 3;
+    DesktopKey key = 4;
+    DesktopScroll scroll = 5;
+  }
+}
+message DesktopServiceInputResponse {}
+
+message DesktopServiceGetClipboardRequest {
+  string host = 1;
+}
+message DesktopServiceGetClipboardResponse {
+  string text = 1;
+}
+message DesktopServiceSetClipboardRequest {
+  string host = 1;
+  string text = 2;
+}
+message DesktopServiceSetClipboardResponse {}
+
+message DesktopServicePauseRequest {
+  string host = 1;
+}
+message DesktopServicePauseResponse {}
+message DesktopServiceResumeRequest {
+  string host = 1;
+}
+message DesktopServiceResumeResponse {}
+
+message DesktopServiceConnectRequest {
+  // The host to connect to. Only the first message sets it.
+  string host = 1;
+  bytes data = 2;
+}
+message DesktopServiceConnectResponse {
+  bytes data = 1;
+}
