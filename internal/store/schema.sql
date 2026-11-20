@@ -214,6 +214,21 @@ CREATE TABLE rookery.entities (
 COMMENT ON TABLE rookery.entities IS 'What search resolves: a record or document by URI, with its title, its searchable text and its access parent.';
 COMMENT ON COLUMN rookery.entities.access IS 'The resource URI whose grants decide who may see the entity.';
 
+-- sql_roles is the Postgres role of each plugin that declares `database: sql`.
+-- The role owns p_<plugin>_sql and may read the plugin's own collections; its
+-- password is sealed under the deployment's key, with the plugin's id as the
+-- associated data.
+CREATE TABLE rookery.sql_roles (
+	plugin     text        PRIMARY KEY,
+	role       text        NOT NULL,
+	password   bytea       NOT NULL,
+	key_id     text        NOT NULL,
+	created_at timestamptz NOT NULL DEFAULT now(),
+	updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE rookery.sql_roles IS 'The raw SQL role of each plugin that declares database: sql, with its sealed password.';
+
 CREATE INDEX entities_kind ON rookery.entities (kind);
 CREATE INDEX entities_search ON rookery.entities USING gin (search);
 CREATE INDEX entities_access ON rookery.entities (access);

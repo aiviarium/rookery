@@ -11,6 +11,7 @@ import (
 
 	"github.com/aiviarium/rookery/internal/cborx"
 	"github.com/aiviarium/rookery/internal/filter"
+	"github.com/aiviarium/rookery/internal/id"
 )
 
 // ChangeKind is what a write did.
@@ -615,7 +616,7 @@ func (c *Collection) idOf(record map[string]any, generate bool) (string, error) 
 	raw, given := record["id"]
 	if !given || raw == nil {
 		if generate {
-			return newID()
+			return id.New(), nil
 		}
 		return "", nil
 	}

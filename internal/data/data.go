@@ -2,8 +2,6 @@ package data
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base32"
 	"errors"
 	"fmt"
 	"sort"
@@ -28,16 +26,38 @@ type Config struct {
 	// Authorizer answers a principal's level on a resource. It is required:
 	// every read and write checks the record's scope.
 	Authorizer Authorizer
+
+	// DatabaseURL is the server's own connection string, from which a plugin's
+	// raw SQL connection is made. It is only needed for plugins that declare
+	// `database: sql`.
+	DatabaseURL string
+
+	// Sealer keeps the raw SQL roles' passwords sealed. It is only needed for
+	// plugins that declare `database: sql`.
+	Sealer Sealer
 }
 
 // Data is the datastore: the declarations it knows and the database they are
 // in.
 type Data struct {
-	store *store.Store
-	auth  Authorizer
+	store       *store.Store
+	auth        Authorizer
+	databaseURL string
+	sealer      Sealer
 
 	mu          sync.RWMutex
 	collections map[string]*Collection
+
+	// The change feed, which Run follows and the live queries read.
+	feedMu          sync.Mutex
+	feedLast        int64
+	feedRecent      []Change
+	feedSubscribers map[*subscription]struct{}
+
+	// feedReady is closed when the feed has read where it is, which a live
+	// query waits for before it reads, so that no change falls between.
+	feedReady     chan struct{}
+	feedReadyOnce sync.Once
 }
 
 // New returns a datastore with no declarations yet.
@@ -45,7 +65,10 @@ func New(config Config) *Data {
 	return &Data{
 		store:       config.Store,
 		auth:        config.Authorizer,
+		databaseURL: config.DatabaseURL,
+		sealer:      config.Sealer,
 		collections: make(map[string]*Collection),
+		feedReady:   make(chan struct{}),
 	}
 }
 
@@ -116,7 +139,7 @@ func (d *Data) require(ctx context.Context, principal Principal, resource string
 	if err != nil {
 		return fmt.Errorf("data: checking %s on %s: %w", principal, resource, err)
 	}
-	if !allows(have, need) {
+	if !Allows(have, need) {
 		return fmt.Errorf("%w: %s has level %d on %s and needs %d", ErrForbidden, principal, have, resource, need)
 	}
 	return nil
@@ -131,12 +154,12 @@ func (d *Data) allowed(ctx context.Context, principal Principal, resource string
 	if err != nil {
 		return false, fmt.Errorf("data: checking %s on %s: %w", principal, resource, err)
 	}
-	return allows(have, need), nil
+	return Allows(have, need), nil
 }
 
-// allows reports whether a level satisfies a requirement. Admin and local are
-// every level; self is the caller's own principal, which manages its own.
-func allows(have, need rookeryv1.Level) bool {
+// Allows reports whether a level satisfies a requirement, which is what the
+// datastore and the entity registry ask of an Authorizer's answer.
+func Allows(have, need rookeryv1.Level) bool {
 	switch have {
 	case rookeryv1.Level_LEVEL_ADMIN, rookeryv1.Level_LEVEL_LOCAL:
 		return true
@@ -160,6 +183,9 @@ func levelRank(level rookeryv1.Level) int {
 		return 0
 	}
 }
+
+// cReadLevel is the level reading a record takes.
+const cReadLevel = rookeryv1.Level_LEVEL_VIEW
 
 // transaction runs a function in one transaction, rolling it back on an error
 // and on a panic.
@@ -243,23 +269,6 @@ func recordMap(record map[string]any) map[string]any {
 	}
 	return out
 }
-
-// newID is a ULID: 48 bits of milliseconds and 80 random bits, in Crockford
-// base32, so that ids sort by creation time.
-func newID() (string, error) {
-	var raw [16]byte
-	millis := uint64(time.Now().UnixMilli())
-	for i := range 6 {
-		raw[i] = byte(millis >> (8 * (5 - i)) & 0xff) //nolint:gosec // the mask keeps the byte
-	}
-	if _, err := rand.Read(raw[6:]); err != nil {
-		return "", fmt.Errorf("data: reading an id: %w", err)
-	}
-	return ulidEncoding.EncodeToString(raw[:]), nil
-}
-
-// ulidEncoding is Crockford base32 without the letters ULID leaves out.
-var ulidEncoding = base32.NewEncoding("0123456789ABCDEFGHJKMNPQRSTVWXYZ").WithPadding(base32.NoPadding)
 
 // isNotFound reports whether an error is pgx's no-rows error.
 func isNotFound(err error) bool { return errors.Is(err, pgx.ErrNoRows) }

@@ -288,6 +288,16 @@ type RookerySpaces struct {
 	UpdatedAt time.Time
 }
 
+// The raw SQL role of each plugin that declares database: sql, with its sealed password.
+type RookerySqlRoles struct {
+	Plugin    string
+	Role      string
+	Password  []byte
+	KeyID     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type RookeryTailnetState struct {
 	Key       string
 	Value     []byte

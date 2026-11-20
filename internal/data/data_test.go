@@ -124,9 +124,10 @@ func newDatastore(t *testing.T) *datastore {
 
 // user, plugin and local are the principals the tests act as.
 var (
-	user   = Principal{Kind: PrincipalUser, ID: "01USER"}
-	other  = Principal{Kind: PrincipalUser, ID: "02USER"}
-	plugin = Principal{Kind: PrincipalPlugin, ID: "example"}
+	user     = Principal{Kind: PrincipalUser, ID: "01USER"}
+	other    = Principal{Kind: PrincipalUser, ID: "02USER"}
+	plugin   = Principal{Kind: PrincipalPlugin, ID: "example"}
+	stranger = Principal{Kind: PrincipalUser, ID: "03USER"}
 )
 
 // space is the space the tests work in.

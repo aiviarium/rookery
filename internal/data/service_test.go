@@ -50,13 +50,36 @@ func newClient(t *testing.T, principal Principal, d *datastore) rookeryv1connect
 
 	return rookeryv1connect.NewDataServiceClient(server.Client(), server.URL,
 		connect.WithGRPC(),
-		connect.WithInterceptors(connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
-			return func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
-				request.Header().Set("X-Test-Principal", principal.String())
-				return next(ctx, request)
-			}
-		})),
+		connect.WithInterceptors(principalInterceptor{principal: principal}),
 	)
+}
+
+// principalInterceptor sends the test's caller as a header on every call,
+// unary and streaming.
+type principalInterceptor struct {
+	principal Principal
+}
+
+// WrapUnary sets the header.
+func (i principalInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
+	return func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
+		request.Header().Set("X-Test-Principal", i.principal.String())
+		return next(ctx, request)
+	}
+}
+
+// WrapStreamingClient sets the header.
+func (i principalInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
+	return func(ctx context.Context, spec connect.Spec) connect.StreamingClientConn {
+		connection := next(ctx, spec)
+		connection.RequestHeader().Set("X-Test-Principal", i.principal.String())
+		return connection
+	}
+}
+
+// WrapStreamingHandler does nothing: this is a client interceptor.
+func (i principalInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
+	return next
 }
 
 // TestServiceRoundTrip drives the service as a client does.
@@ -319,6 +342,65 @@ func TestServiceReferences(t *testing.T) {
 	}
 	if len(from.Msg.GetReferences()) != 1 || from.Msg.GetReferences()[0].GetTarget() != targetURI {
 		t.Fatalf("refs from = %v", from.Msg.GetReferences())
+	}
+}
+
+// TestServiceStreams checks the two streams over a connect client.
+func TestServiceStreams(t *testing.T) {
+	t.Parallel()
+
+	d := newDatastore(t)
+	d.run(t)
+	principal := d.writer(t)
+	client := newClient(t, principal, d)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	// The record is written before the streams open: a stream sends nothing
+	// until it has something to send.
+	inserted, err := client.Insert(ctx, connect.NewRequest(&rookeryv1.InsertRequest{
+		Collection: "example/notes",
+		RecordCbor: mustEncode(t, map[string]any{"title": "streamed", "space_id": space}),
+	}))
+	if err != nil {
+		t.Fatalf("inserting: %v", err)
+	}
+	id := mustDecode(t, inserted.Msg.GetRecordCbor())["id"].(string)
+
+	live, err := client.Live(ctx, connect.NewRequest(&rookeryv1.LiveRequest{
+		Collection: "example/notes", Space: space,
+	}))
+	if err != nil {
+		t.Fatalf("opening the live stream: %v", err)
+	}
+	changes, err := client.Changes(ctx, connect.NewRequest(&rookeryv1.ChangesRequest{}))
+	if err != nil {
+		t.Fatalf("opening the changes stream: %v", err)
+	}
+
+	if !live.Receive() {
+		t.Fatalf("receiving a live event: %v", live.Err())
+	}
+	event := live.Msg()
+	if event.GetKind() != rookeryv1.LiveEventKind_LIVE_EVENT_KIND_INSERT {
+		t.Errorf("the live event = %v", event)
+	}
+	if got := mustDecode(t, event.GetRecordCbor())["id"]; got != id {
+		t.Errorf("the live event's record is %v, want %s", got, id)
+	}
+	if !strings.HasSuffix(event.GetResource(), "/"+id) {
+		t.Errorf("the live event's resource is %q", event.GetResource())
+	}
+
+	if !changes.Receive() {
+		t.Fatalf("receiving a change: %v", changes.Err())
+	}
+	change := changes.Msg()
+	if change.GetKind() != rookeryv1.ChangeKind_CHANGE_KIND_INSERT || change.GetCollection() != "example/notes" {
+		t.Errorf("the change = %v", change)
+	}
+	if change.GetSequence() == 0 || change.GetAt() == nil {
+		t.Errorf("the change has no sequence or time: %v", change)
 	}
 }
 

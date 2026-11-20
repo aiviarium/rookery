@@ -1,0 +1,89 @@
+// The entity API's edge contract: what search and resolution hand a client.
+//
+// An entity is a record whose collection declares an entity block, or a
+// document that is one. Its URI names it, and the level on its access parent
+// decides who sees it, which the entity registry checks per entity; no method
+// option can name that resource.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// EntityService resolves entities and searches them.
+service EntityService {
+  // Resolve returns one entity.
+  rpc Resolve(ResolveRequest) returns (ResolveResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // ResolveMany returns the entities of several URIs that the caller may read.
+  rpc ResolveMany(ResolveManyRequest) returns (ResolveManyResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+
+  // Search finds entities by full text, by vector similarity, or both.
+  rpc Search(SearchRequest) returns (SearchResponse) {
+    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+  }
+}
+
+// Entity is what a client shows for a resource.
+message Entity {
+  // Uri is the entity's resource URI.
+  string uri = 1;
+
+  // Kind is what it is, such as "Note".
+  string kind = 2;
+
+  // Title is its title.
+  string title = 3;
+
+  // Collection is the record's collection, "plugin/collection", when it is a
+  // record.
+  string collection = 4;
+}
+
+// ResolveRequest names one entity.
+message ResolveRequest {
+  // Uri is the entity's resource URI.
+  string uri = 1;
+}
+
+// ResolveResponse carries the entity.
+message ResolveResponse {
+  Entity entity = 1;
+}
+
+// ResolveManyRequest names several entities.
+message ResolveManyRequest {
+  // Uris are the entities' resource URIs.
+  repeated string uris = 1;
+}
+
+// ResolveManyResponse carries the entities the caller may read.
+message ResolveManyResponse {
+  repeated Entity entities = 1;
+}
+
+// SearchRequest is a search.
+message SearchRequest {
+  // Query is the text, in Postgres's websearch syntax: "rook -notes" is "rook
+  // but not notes". Empty searches by the embedding alone.
+  string query = 1;
+
+  // EmbeddingCbor is the query's embedding as a CBOR list of numbers, when the
+  // caller has one.
+  bytes embedding_cbor = 2;
+
+  // Limit is how many entities to return: 20 when zero, 100 at most.
+  int32 limit = 3;
+}
+
+// SearchResponse carries the entities that match, best first.
+message SearchResponse {
+  repeated Entity entities = 1;
+}
