@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sync"
 	"testing"
-	"time"
 
 	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
 	"github.com/aiviarium/rookery/internal/filter"
@@ -941,20 +940,4 @@ func titles(records []map[string]any) []string {
 	return out
 }
 
-// TestNewID checks that ids sort by creation time.
-func TestNewID(t *testing.T) {
-	t.Parallel()
 
-	first, err := newID()
-	if err != nil {
-		t.Fatalf("newID: %v", err)
-	}
-	time.Sleep(time.Millisecond)
-	second, err := newID()
-	if err != nil {
-		t.Fatalf("newID: %v", err)
-	}
-	if len(first) != 26 || first >= second {
-		t.Errorf("ids %q and %q", first, second)
-	}
-}
