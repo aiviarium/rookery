@@ -3,7 +3,8 @@
 //! older `rookery.json` that Rookery still reads for one release, and the
 //! checks Rookery makes of a package beyond them. Installing an egg runs the
 //! checks of its files, and `rookery plugin check` runs all of them on a
-//! package folder.
+//! package folder. A declaration this version does not serve is a warning,
+//! not a refusal: the package installs and the server drops it.
 
 use hatchery::{Problem, TargetFiles};
 use serde_json::{Map, Value, json};
@@ -193,6 +194,43 @@ pub fn check_files(files: &TargetFiles) -> Vec<Problem> {
         }
     }
     problems
+}
+
+/// What a manifest declares that this version of Rookery does not serve.
+///
+/// A package with such a declaration still installs, and the server drops
+/// what is named here when it loads the plugin, so that nothing a client
+/// reads promises it. `rookery plugin check` and an install print each line.
+pub fn warnings(read: &Read) -> Vec<String> {
+    let mut warnings = vec![];
+    let tools = read
+        .manifest
+        .pointer("/contributes/tools")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    if tools > 0 {
+        warnings.push(format!(
+            "{}: contributes.tools is for a later version: this Rookery has no MCP server, so it drops the {tools} tool{} declared",
+            read.format.file(),
+            if tools == 1 { "" } else { "s" }
+        ));
+    }
+    warnings
+}
+
+/// [`warnings`] for a package folder: the manifest of its `rookery` target. Empty when the package
+/// or its manifest cannot be read: that is a problem, which [`check_dir`] reports.
+pub fn warnings_of_package(dir: &Path) -> Vec<String> {
+    let Ok(package) = hatchery::Manifest::load(dir) else {
+        return vec![];
+    };
+    let Some(target) = package.target(TARGET) else {
+        return vec![];
+    };
+    read_dir(&dir.join(target.dir()))
+        .map(|read| warnings(&read))
+        .unwrap_or_default()
 }
 
 /// What is wrong with a manifest beyond its schema: what it names that is

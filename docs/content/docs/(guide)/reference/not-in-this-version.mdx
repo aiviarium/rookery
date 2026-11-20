@@ -26,6 +26,15 @@ An installation speaks one version of the API. A client refuses a server with an
 
 A plugin's host half registers methods with `rookery.rpc.handle`, and a client calls one with `plugins.rpc`. Rookery has no MCP server, so a plugin's methods and tools are not offered to an agent as MCP tools. The MCP server of a host is `box mcp`, which offers the desktop and nothing of the plugins ([box](/docs/reference/box)).
 
+`contributes.tools` and `rookery.agents.tool` are for a later version. This Rookery accepts a plugin's tools and drops them when the plugin loads, so nothing promises what it cannot run. `rookery plugin check` and an install say so.
+
+A host half's runtime answers `UNAVAILABLE` for these parts in this version:
+
+| Left out | What to do instead |
+| --- | --- |
+| `rookery.streams`: a stream from a client to a host half, which would be served by `rookery.streams.handle` | Call the host half with `rookery.host.call`; for a stream, declare the method with `"stream": true` in `contributes.rpc` and read it with `rookery.host.stream` |
+| `rookery.topics.subscribe`: a host half that reads a durable topic | Publish from the host half, and subscribe from a client half or an app service |
+
 ## From an older store
 
 `rookery server import` brings an existing Rookery store into the server's database. It leaves out these, and its report says so:

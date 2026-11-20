@@ -228,6 +228,35 @@ mod tests {
     }
 
     #[test]
+    fn a_declaration_this_version_does_not_serve_installs_with_a_warning() {
+        let base = tempfile::tempdir().unwrap();
+        let dir = plugin_json(
+            base.path(),
+            "tools",
+            r#"{"apiVersion": "1", "name": "Tools", "contributes": {
+                "tools": [{"id": "tools.echo", "description": "Echo what it is given"}]}}"#,
+        );
+        assert_eq!(check_dir(&dir), Vec::<String>::new());
+        let warnings = rookery_api::plugin_contract::warnings_of_package(&dir);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(
+            warnings[0].contains("contributes.tools is for a later version"),
+            "{warnings:?}"
+        );
+
+        // A package without tools has nothing to warn about.
+        let plain = plugin_json(
+            base.path(),
+            "plain",
+            r#"{"apiVersion": "1", "name": "Plain"}"#,
+        );
+        assert!(
+            rookery_api::plugin_contract::warnings_of_package(&plain).is_empty(),
+            "{plain:?}"
+        );
+    }
+
+    #[test]
     fn the_ids_rookery_keeps_are_refused() {
         let base = tempfile::tempdir().unwrap();
         for id in ["rookery", "sign-in"] {
