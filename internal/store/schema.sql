@@ -136,3 +136,13 @@ CREATE TABLE rookery.audit (
 COMMENT ON TABLE rookery.audit IS 'Every call that changes state, or tries to: who, what, on what, how it ended.';
 
 CREATE INDEX audit_at ON rookery.audit (at DESC);
+-- ── internal/tailnet ─────────────────────────────────────────────────────────
+-- The server's own tailnet node keeps its state here: its keys, its preferences
+-- and what the control server told it. tsnet asks for it through ipn.StateStore,
+-- so a standby that takes the lead has the same identity as the server it
+-- replaces. Values are opaque.
+CREATE TABLE rookery.tailnet_state (
+	key        text        PRIMARY KEY,
+	value      bytea       NOT NULL,
+	updated_at timestamptz NOT NULL DEFAULT now()
+);
