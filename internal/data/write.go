@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/aiviarium/rookery/internal/access"
 	"github.com/aiviarium/rookery/internal/cborx"
 	"github.com/aiviarium/rookery/internal/filter"
 	"github.com/aiviarium/rookery/internal/id"
@@ -49,6 +50,25 @@ type Change struct {
 	At time.Time
 }
 
+// writeTransaction orders sequence assignment with commit. A feed cursor
+// cannot advance past an earlier change whose transaction is still open.
+func (d *Data) writeTransaction(ctx context.Context, run func(pgx.Tx) error) error {
+	// Wait outside the pool so other writers cannot starve the active
+	// transaction's authorization queries of connections.
+	select {
+	case d.writeSlot <- struct{}{}:
+		defer func() { <-d.writeSlot }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return d.transaction(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(18921181, 1)"); err != nil {
+			return fmt.Errorf("data: locking change writers: %w", err)
+		}
+		return run(tx)
+	})
+}
+
 // Insert writes a record and returns it as it was stored, with its id, revision
 // and timestamps.
 func (d *Data) Insert(ctx context.Context, principal Principal, collection string, record map[string]any) (map[string]any, error) {
@@ -58,7 +78,7 @@ func (d *Data) Insert(ctx context.Context, principal Principal, collection strin
 	}
 
 	var written map[string]any
-	err = d.transaction(ctx, func(tx pgx.Tx) error {
+	err = d.writeTransaction(ctx, func(tx pgx.Tx) error {
 		var err error
 		written, err = d.insertTx(ctx, tx, principal, declared, record, true)
 		return err
@@ -79,7 +99,7 @@ func (d *Data) Update(ctx context.Context, principal Principal, collection, id s
 	}
 
 	var written map[string]any
-	err = d.transaction(ctx, func(tx pgx.Tx) error {
+	err = d.writeTransaction(ctx, func(tx pgx.Tx) error {
 		var err error
 		written, err = d.updateTx(ctx, tx, principal, declared, id, record, revision, true)
 		return err
@@ -98,7 +118,7 @@ func (d *Data) Upsert(ctx context.Context, principal Principal, collection strin
 	}
 
 	var written map[string]any
-	err = d.transaction(ctx, func(tx pgx.Tx) error {
+	err = d.writeTransaction(ctx, func(tx pgx.Tx) error {
 		var err error
 		written, err = d.upsertTx(ctx, tx, principal, declared, record, revision)
 		return err
@@ -116,7 +136,7 @@ func (d *Data) Delete(ctx context.Context, principal Principal, collection, id s
 	if err != nil {
 		return err
 	}
-	return d.transaction(ctx, func(tx pgx.Tx) error {
+	return d.writeTransaction(ctx, func(tx pgx.Tx) error {
 		return d.deleteTx(ctx, tx, principal, declared, id, revision, true, nil)
 	})
 }
@@ -129,7 +149,7 @@ func (d *Data) Restore(ctx context.Context, principal Principal, collection, id 
 	}
 
 	var written map[string]any
-	err = d.transaction(ctx, func(tx pgx.Tx) error {
+	err = d.writeTransaction(ctx, func(tx pgx.Tx) error {
 		var err error
 		written, err = d.restoreTx(ctx, tx, principal, declared, id, revision)
 		return err
@@ -174,7 +194,7 @@ func (d *Data) Batch(ctx context.Context, principal Principal, collection string
 	}
 
 	records := make([]map[string]any, 0, len(operations))
-	err = d.transaction(ctx, func(tx pgx.Tx) error {
+	err = d.writeTransaction(ctx, func(tx pgx.Tx) error {
 		for i, operation := range operations {
 			var (
 				record map[string]any
@@ -219,7 +239,7 @@ func (d *Data) insertTx(ctx context.Context, tx pgx.Tx, principal Principal, c *
 	if err != nil {
 		return nil, err
 	}
-	scopeID, err := c.scopeForInsert(record, principal)
+	scopeID, err := c.scopeForInsert(ctx, record, principal)
 	if err != nil {
 		return nil, err
 	}
@@ -485,7 +505,7 @@ func (d *Data) afterWrite(ctx context.Context, tx pgx.Tx, principal Principal, c
 		return err
 	}
 	if !deleted {
-		if err := writeRefs(ctx, tx, c, record); err != nil {
+		if err := d.writeRefs(ctx, tx, principal, c, record); err != nil {
 			return err
 		}
 		if err := writeEntity(ctx, tx, c, record); err != nil {
@@ -632,7 +652,7 @@ func (c *Collection) idOf(record map[string]any, generate bool) (string, error) 
 
 // scopeForInsert is the scope id a new record takes: the space or owner the
 // caller named, or the caller itself for a user.
-func (c *Collection) scopeForInsert(record map[string]any, principal Principal) (string, error) {
+func (c *Collection) scopeForInsert(ctx context.Context, record map[string]any, principal Principal) (string, error) {
 	column := c.ScopeColumn()
 	if column == "" {
 		return "", nil
@@ -650,6 +670,9 @@ func (c *Collection) scopeForInsert(record map[string]any, principal Principal) 
 			return "", fmt.Errorf("%w: a user collection needs %s when a %s writes it", ErrInvalid, column, principal.Kind)
 		}
 		return principal.ID, nil
+	}
+	if space := access.SpaceFrom(ctx); space != "" {
+		return space, nil
 	}
 	return "", fmt.Errorf("%w: the collection %s is scoped to a %s, so a record needs %s", ErrInvalid, c.Key(), c.Scope, column)
 }
@@ -722,7 +745,7 @@ func writeHistory(ctx context.Context, tx pgx.Tx, principal Principal, c *Collec
 
 // writeRefs replaces the reference rows of a record with the ones its fields
 // hold.
-func writeRefs(ctx context.Context, tx pgx.Tx, c *Collection, record map[string]any) error {
+func (d *Data) writeRefs(ctx context.Context, tx pgx.Tx, principal Principal, c *Collection, record map[string]any) error {
 	id, _ := record["id"].(string)
 	source := c.RecordURI(id)
 	if _, err := tx.Exec(ctx, "DELETE FROM rookery.refs WHERE source = $1", source); err != nil {
@@ -736,6 +759,11 @@ func writeRefs(ctx context.Context, tx pgx.Tx, c *Collection, record map[string]
 		target, ok := record[name].(string)
 		if !ok || target == "" {
 			continue
+		}
+		if strings.HasPrefix(target, "blob://") {
+			if err := d.require(ctx, principal, target, cReadLevel); err != nil {
+				return err
+			}
 		}
 		rule := field.OnDelete
 		if rule == "" {
@@ -763,16 +791,22 @@ func writeEntity(ctx context.Context, tx pgx.Tx, c *Collection, record map[strin
 		}
 	}
 
-	statement := `INSERT INTO rookery.entities (uri, kind, title, body, access, updated_at)
-		VALUES ($1, $2, $3, $4, $5, now())
+	var embedding *string
+	if vector, ok := record["embedding"].([]float32); ok {
+		literal := vectorLiteral(vector)
+		embedding = &literal
+	}
+	statement := `INSERT INTO rookery.entities (uri, kind, title, body, access, embedding, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6::text::vector, now())
 		ON CONFLICT (uri) DO UPDATE SET
 			kind = excluded.kind,
 			title = excluded.title,
 			body = excluded.body,
 			access = excluded.access,
+			embedding = excluded.embedding,
 			updated_at = now()`
 	access := c.resource(c.scopeOf(record))
-	if _, err := tx.Exec(ctx, statement, c.RecordURI(id), c.Entity.Kind, title, strings.Join(texts, " "), access); err != nil {
+	if _, err := tx.Exec(ctx, statement, c.RecordURI(id), c.Entity.Kind, title, strings.Join(texts, " "), access, embedding); err != nil {
 		return fmt.Errorf("data: writing the entity of %s: %w", c.RecordURI(id), err)
 	}
 	return nil

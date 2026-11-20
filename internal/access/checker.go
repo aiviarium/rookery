@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -36,10 +37,29 @@ func (c *Checker) Level(ctx context.Context, principal Principal, resource strin
 		return Manage, nil
 	case resource == "":
 		return rookeryv1.Level_LEVEL_UNSPECIFIED, nil
+	case principal.Kind == KindUser && resource == KindUser+"://"+principal.ID:
+		return Manage, nil
 	}
 
-	if _, err := ParseResource(resource); err != nil {
+	kind, err := ParseResource(resource)
+	if err != nil {
 		return rookeryv1.Level_LEVEL_UNSPECIFIED, err
+	}
+	if kind == "blob" {
+		blob, err := c.store.Queries().GetBlob(ctx, strings.TrimPrefix(resource, "blob://"))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return rookeryv1.Level_LEVEL_UNSPECIFIED, nil
+		}
+		if err != nil {
+			return rookeryv1.Level_LEVEL_UNSPECIFIED, fmt.Errorf("access: reading %s: %w", resource, err)
+		}
+		if blob.Owner == principal.String() {
+			return Manage, nil
+		}
+		if blob.Resource == "" {
+			return rookeryv1.Level_LEVEL_UNSPECIFIED, nil
+		}
+		resource = blob.Resource
 	}
 
 	groups, err := c.groupsOf(ctx, principal)

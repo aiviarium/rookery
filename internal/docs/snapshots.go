@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/aiviarium/rookery/internal/data"
+	"github.com/aiviarium/rookery/internal/store"
 )
 
 // Snapshot is a compacted state of a document.
@@ -45,34 +46,19 @@ func (d *Documents) Snapshot(ctx context.Context, principal data.Principal, id s
 		return Snapshot{}, err
 	}
 
-	var latest int64
-	if err := d.store.Pool().QueryRow(ctx,
-		"SELECT coalesce(max(seq), 0) FROM rookery.document_updates WHERE document_id = $1", id).
-		Scan(&latest); err != nil {
-		return Snapshot{}, fmt.Errorf("docs: reading the document's sequence: %w", err)
+	row, err := d.store.Queries().PutDocumentSnapshot(ctx, store.PutDocumentSnapshotParams{
+		DocumentID: id, Seq: sequence, Data: data, Version: version, Label: &label, CreatedBy: principal.String(),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Snapshot{}, fmt.Errorf("%w: snapshot sequence %d is beyond the document head or already a version", ErrInvalid, sequence)
 	}
-	if sequence > latest {
-		return Snapshot{}, fmt.Errorf("%w: the document is at update %d, not %d", ErrInvalid, latest, sequence)
-	}
-
-	snapshot := Snapshot{
-		DocumentID: id,
-		Sequence:   sequence,
-		Version:    version,
-		Label:      label,
-		CreatedBy:  principal.String(),
-	}
-	err := d.store.Pool().QueryRow(ctx, `
-		INSERT INTO rookery.document_snapshots (document_id, seq, data, version, label, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (document_id, seq) DO UPDATE
-		SET data = excluded.data, version = excluded.version, label = excluded.label, created_by = excluded.created_by
-		RETURNING created_at`, id, sequence, data, version, label, snapshot.CreatedBy).
-		Scan(&snapshot.At)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("docs: writing a snapshot: %w", err)
 	}
-	return snapshot, nil
+	return Snapshot{
+		DocumentID: row.DocumentID, Sequence: row.Seq, Version: row.Version,
+		Label: label, CreatedBy: row.CreatedBy, At: row.CreatedAt,
+	}, nil
 }
 
 // History lists a document's versions, oldest first. The caller needs `view`.
@@ -81,49 +67,22 @@ func (d *Documents) History(ctx context.Context, principal data.Principal, id st
 		return nil, err
 	}
 
-	rows, err := d.store.Pool().Query(ctx, `
-		SELECT document_id, seq, version, coalesce(label, ''), created_by, created_at
-		FROM rookery.document_snapshots
-		WHERE document_id = $1 AND version
-		ORDER BY seq`, id)
+	rows, err := d.store.Queries().ListDocumentVersions(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("docs: reading the document's history: %w", err)
 	}
-	defer rows.Close()
-
-	snapshots := make([]Snapshot, 0, 8)
-	for rows.Next() {
-		var snapshot Snapshot
-		if err := rows.Scan(&snapshot.DocumentID, &snapshot.Sequence, &snapshot.Version, &snapshot.Label,
-			&snapshot.CreatedBy, &snapshot.At); err != nil {
-			return nil, fmt.Errorf("docs: reading the document's history: %w", err)
+	snapshots := make([]Snapshot, 0, len(rows))
+	for _, row := range rows {
+		var label string
+		if row.Label != nil {
+			label = *row.Label
 		}
-		snapshot.At = snapshot.At.UTC()
-		snapshots = append(snapshots, snapshot)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("docs: reading the document's history: %w", err)
+		snapshots = append(snapshots, Snapshot{
+			DocumentID: row.DocumentID, Sequence: row.Seq, Version: row.Version,
+			Label: label, CreatedBy: row.CreatedBy, At: row.CreatedAt.UTC(),
+		})
 	}
 	return snapshots, nil
-}
-
-// latestSnapshot is the snapshot with the highest sequence, and its data. data is
-// nil when the document has none.
-func (d *Documents) latestSnapshot(ctx context.Context, id string) (int64, []byte, error) {
-	var (
-		sequence int64
-		data     []byte
-	)
-	err := d.store.Pool().QueryRow(ctx, `
-		SELECT seq, data FROM rookery.document_snapshots
-		WHERE document_id = $1 ORDER BY seq DESC LIMIT 1`, id).Scan(&sequence, &data)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, nil, nil
-		}
-		return 0, nil, fmt.Errorf("docs: reading the document's snapshot: %w", err)
-	}
-	return sequence, data, nil
 }
 
 // transaction runs a function in one transaction.

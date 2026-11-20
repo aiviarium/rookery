@@ -145,7 +145,7 @@ func ParseResource(uri string) (string, error) {
 		return "", fmt.Errorf("%w: %q is not a resource URI, such as space://01h…", ErrInvalid, uri)
 	}
 	switch kind {
-	case KindHost, KindSpace, KindDocument, KindPlugin, KindProvisioner, KindRollout, KindJob:
+	case KindHost, KindSpace, KindDocument, KindPlugin, KindProvisioner, KindRollout, KindJob, KindUser, "blob":
 		// A provisioner entry's name holds the type it names, so it holds a
 		// slash: "provisioner://lab-docker/container" is the entry an apply
 		// made for the docker/container type on lab.
@@ -271,7 +271,7 @@ func ResourceFrom(ctx context.Context) string {
 type spaceKey struct{}
 
 // WithSpace puts the caller's current space, the Rookery-Space header, in the
-// context. The datastore reads it; nothing in the core does yet.
+// context.
 func WithSpace(ctx context.Context, space string) context.Context {
 	return context.WithValue(ctx, spaceKey{}, space)
 }

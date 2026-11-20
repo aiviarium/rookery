@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
+	"github.com/aiviarium/rookery/internal/access"
 	"github.com/aiviarium/rookery/internal/filter"
 	"github.com/aiviarium/rookery/internal/store"
 )
@@ -47,10 +48,12 @@ type Data struct {
 
 	mu          sync.RWMutex
 	collections map[string]*Collection
+	writeSlot   chan struct{}
 
 	// The change feed, which Run follows and the live queries read.
 	feedMu          sync.Mutex
 	feedLast        int64
+	feedDiscarded   int64
 	feedRecent      []Change
 	feedSubscribers map[*subscription]struct{}
 
@@ -69,6 +72,7 @@ func New(config Config) *Data {
 		sealer:      config.Sealer,
 		collections: make(map[string]*Collection),
 		feedReady:   make(chan struct{}),
+		writeSlot:   make(chan struct{}, 1),
 	}
 }
 
@@ -160,27 +164,25 @@ func (d *Data) allowed(ctx context.Context, principal Principal, resource string
 // Allows reports whether a level satisfies a requirement, which is what the
 // datastore and the entity registry ask of an Authorizer's answer.
 func Allows(have, need rookeryv1.Level) bool {
-	switch have {
-	case rookeryv1.Level_LEVEL_ADMIN, rookeryv1.Level_LEVEL_LOCAL:
+	if have == access.Local {
 		return true
 	}
-	return levelRank(have) >= levelRank(need)
-}
-
-// levelRank orders the levels view ⊂ use ⊂ manage. Self counts as manage, since
-// an authorizer says self only where the caller owns the resource.
-func levelRank(level rookeryv1.Level) int {
-	switch level {
-	case rookeryv1.Level_LEVEL_VIEW:
-		return 1
-	case rookeryv1.Level_LEVEL_USE:
-		return 2
-	case rookeryv1.Level_LEVEL_MANAGE, rookeryv1.Level_LEVEL_SELF:
-		return 3
-	case rookeryv1.Level_LEVEL_ADMIN, rookeryv1.Level_LEVEL_LOCAL:
-		return 4
+	if need == access.Local {
+		return false
+	}
+	if have == access.Admin {
+		return true
+	}
+	switch need {
+	case access.Admin:
+		return false
+	case access.Self:
+		return have == access.Self
 	default:
-		return 0
+		if have == access.Self {
+			have = access.Manage
+		}
+		return access.Satisfies(have, need)
 	}
 }
 

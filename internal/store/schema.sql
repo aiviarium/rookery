@@ -157,6 +157,14 @@ CREATE TABLE rookery.tailnet_state (
 -- storetest template carries the extension with it.
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- The datastore catalog stores the declarations that created the tables.
+CREATE TABLE rookery.collections (
+	plugin      text  NOT NULL,
+	name        text  NOT NULL,
+	declaration bytea NOT NULL,
+	PRIMARY KEY (plugin, name)
+);
+
 -- changes is the datastore's change feed: one row per write, in one global
 -- order. The writer inserts its row in the transaction that writes the record,
 -- and notifies rookery_changes after it commits, so the feed reads a change only
@@ -188,6 +196,9 @@ CREATE TABLE rookery.refs (
 	field     text NOT NULL,
 	target    text NOT NULL,
 	on_delete text NOT NULL,
+	blob_id text GENERATED ALWAYS AS (
+		CASE WHEN starts_with(target, 'blob://') THEN substr(target, 8) END
+	) STORED,
 	PRIMARY KEY (source, field, target)
 );
 
@@ -504,6 +515,26 @@ CREATE TABLE rookery.blobs (
 );
 
 COMMENT ON TABLE rookery.blobs IS 'Blob metadata: size, type, owner and the resource the blob belongs to.';
+ALTER TABLE rookery.refs ADD FOREIGN KEY (blob_id) REFERENCES rookery.blobs (id);
+CREATE INDEX refs_blob_id ON rookery.refs (blob_id) WHERE blob_id IS NOT NULL;
+
+-- A reference protects its blob immediately and starts the grace period
+-- afresh when it is removed.
+CREATE FUNCTION rookery.touch_blob_reference() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+	IF TG_OP = 'DELETE' THEN
+		UPDATE rookery.blobs SET referenced_at = now() WHERE id = OLD.blob_id;
+	ELSE
+		UPDATE rookery.blobs SET referenced_at = now() WHERE id = NEW.blob_id;
+	END IF;
+	RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER touch_blob_reference
+AFTER INSERT OR DELETE ON rookery.refs
+FOR EACH ROW EXECUTE FUNCTION rookery.touch_blob_reference();
+
 -- Live documents. A document is a type of CRDT document and a parent resource
 -- its access comes from; its updates are an append-only log, and a snapshot is
 -- a compacted state with the sequence it covers. The core never reads an
@@ -514,6 +545,7 @@ CREATE TABLE rookery.documents (
 	type       text        NOT NULL,
 	parent     text        NOT NULL,
 	owner_id   text        NOT NULL,
+	head       bigint      NOT NULL DEFAULT 0,
 	created_at timestamptz NOT NULL DEFAULT now(),
 	updated_at timestamptz NOT NULL DEFAULT now(),
 	deleted_at timestamptz

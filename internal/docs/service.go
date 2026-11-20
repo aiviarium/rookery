@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 
 	"connectrpc.com/connect"
 	"golang.org/x/sync/errgroup"
@@ -100,6 +101,17 @@ func (s *Service) Delete(ctx context.Context, request *connect.Request[rookeryv1
 	return connect.NewResponse(&rookeryv1.DocumentServiceDeleteResponse{}), nil
 }
 
+type requestBodyKey struct{}
+
+// WithRequestBody lets Sync unblock a pending transport receive when its
+// outbound stream ends first.
+func WithRequestBody(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), requestBodyKey{}, r.Body)
+		handler.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 // Sync is one participant's stream: the server sends the document's state and
 // the others' messages, and appends what this participant sends.
 func (s *Service) Sync(ctx context.Context, stream *connect.BidiStream[rookeryv1.DocumentServiceSyncRequest, rookeryv1.DocumentServiceSyncResponse]) error {
@@ -131,6 +143,10 @@ func (s *Service) Sync(ctx context.Context, stream *connect.BidiStream[rookeryv1
 	streamCtx, stop := context.WithCancel(ctx)
 	defer stop()
 	group, groupCtx := errgroup.WithContext(streamCtx)
+	if body, ok := ctx.Value(requestBodyKey{}).(io.Closer); ok {
+		cancelRead := context.AfterFunc(groupCtx, func() { _ = body.Close() })
+		defer cancelRead()
+	}
 	group.Go(func() error {
 		for {
 			select {
@@ -138,7 +154,8 @@ func (s *Service) Sync(ctx context.Context, stream *connect.BidiStream[rookeryv1
 				return nil
 			case message, ok := <-sync.Messages():
 				if !ok {
-					return nil
+					stop()
+					return data.ConnectError(sync.Err())
 				}
 				response, err := syncResponse(message)
 				if err != nil {
@@ -158,6 +175,9 @@ func (s *Service) Sync(ctx context.Context, stream *connect.BidiStream[rookeryv1
 				return nil
 			}
 			if err != nil {
+				if groupCtx.Err() != nil {
+					return nil
+				}
 				return err
 			}
 			message, err := syncRequest(request)

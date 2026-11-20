@@ -111,6 +111,7 @@ type api struct {
 	Secrets       rookeryv1connect.SecretServiceClient
 	Connections   rookeryv1connect.ConnectionServiceClient
 	Blobs         rookeryv1connect.BlobServiceClient
+	Data          rookeryv1connect.DataServiceClient
 	Plugins       rookeryv1connect.PluginServiceClient
 	Hosts         rookeryv1connect.HostServiceClient
 	Keys          rookeryv1connect.KeyServiceClient
@@ -144,6 +145,7 @@ func dial(ctx context.Context, address, token string) (*api, error) {
 		Secrets:       rookeryv1connect.NewSecretServiceClient(httpClient, base, options...),
 		Connections:   rookeryv1connect.NewConnectionServiceClient(httpClient, base, options...),
 		Blobs:         rookeryv1connect.NewBlobServiceClient(httpClient, base, options...),
+		Data:          rookeryv1connect.NewDataServiceClient(httpClient, base, options...),
 		Plugins:       rookeryv1connect.NewPluginServiceClient(httpClient, base, options...),
 		Hosts:         rookeryv1connect.NewHostServiceClient(httpClient, base, options...),
 		Keys:          rookeryv1connect.NewKeyServiceClient(httpClient, base, options...),

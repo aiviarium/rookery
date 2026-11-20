@@ -45,6 +45,8 @@ type Deps struct {
 	Plugins Plugins
 	// Blobs serves /blobs/{id} when it is set.
 	Blobs http.Handler
+	// Documents serves /ws/documents/{id} when configured.
+	Documents http.Handler
 	// Services starts a plugin's service for a call. Without it the edge serves
 	// client halves only.
 	Services PluginServices
@@ -79,6 +81,9 @@ func (e *Edge) Handler() http.Handler {
 	if e.deps.Blobs != nil {
 		mux.Handle("/blobs/", e.deps.Blobs)
 	}
+	if e.deps.Documents != nil {
+		mux.Handle("/ws/documents/", e.deps.Documents)
+	}
 	e.registerAuth(mux)
 	e.registerPlugins(mux)
 	e.registerPluginRPC(mux)
@@ -97,6 +102,9 @@ func (e *Edge) SocketHandler() http.Handler {
 		// with the token the server started it with. A token that is not one of
 		// those is not a lesser admin: it is refused.
 		ctx := r.Context()
+		if space := r.Header.Get("Rookery-Space"); space != "" {
+			ctx = access.WithSpace(ctx, space)
+		}
 		if header := r.Header.Get("Authorization"); strings.HasPrefix(header, "Bearer ") {
 			secret := strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
 			if e.deps.PluginTokens == nil {

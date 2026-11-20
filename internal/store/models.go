@@ -49,6 +49,12 @@ type RookeryChanges struct {
 	At   time.Time
 }
 
+type RookeryCollections struct {
+	Plugin      string
+	Name        string
+	Declaration []byte
+}
+
 // External credentials of a declared type, sealed as one value.
 type RookeryConnections struct {
 	ID        string
@@ -89,6 +95,7 @@ type RookeryDocuments struct {
 	// The resource URI the document hangs under, as document://<id> is its own resource.
 	Parent    string
 	OwnerID   string
+	Head      int64
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	DeletedAt *time.Time
@@ -317,6 +324,7 @@ type RookeryRefs struct {
 	Target string
 	// restrict, nullify or cascade.
 	OnDelete string
+	BlobID   *string
 }
 
 // Every resource a grant can name, as a URI, with its parent.

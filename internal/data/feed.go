@@ -36,6 +36,7 @@ const (
 type subscription struct {
 	// changes is buffered; a subscriber that fills it is behind.
 	changes chan Change
+	after   int64
 
 	// behind is set when a change was dropped, so that the subscriber resyncs.
 	behind atomic.Bool
@@ -89,15 +90,17 @@ func (d *Data) Changes(ctx context.Context, from int64, collections []string, fn
 	for {
 		// Everything the database already holds, in order.
 		for {
-			batch, err := d.readChanges(ctx, next, collections)
+			batch, err := d.readChanges(ctx, next)
 			if err != nil {
 				return err
 			}
 			for _, change := range batch {
-				if err := fn(change); err != nil {
-					return err
+				next = change.Seq
+				if wanted(change, collections) {
+					if err := fn(change); err != nil {
+						return err
+					}
 				}
-				next = change.Seq + 1
 			}
 			if len(batch) < changeBatch {
 				break
@@ -106,15 +109,15 @@ func (d *Data) Changes(ctx context.Context, from int64, collections []string, fn
 
 		// Then the live feed, from where the database stopped. A subscription
 		// that cannot replay what it missed reads the database again.
-		subscription, replay, ok := d.subscribe(next - 1)
+		subscription, replay, ok := d.subscribe(next)
 		if !ok {
 			continue
 		}
-		followed, err := d.follow(ctx, subscription, replay, collections, func(change Change) error {
-			if err := fn(change); err != nil {
-				return err
+		followed, err := d.follow(ctx, subscription, replay, func(change Change) error {
+			next = change.Seq
+			if wanted(change, collections) {
+				return fn(change)
 			}
-			next = change.Seq + 1
 			return nil
 		})
 		if followed || err != nil {
@@ -126,13 +129,10 @@ func (d *Data) Changes(ctx context.Context, from int64, collections []string, fn
 // follow hands a subscription's changes over until the subscriber falls behind,
 // which reports false so that Changes reads the database again, or until the
 // context ends.
-func (d *Data) follow(ctx context.Context, subscription *subscription, replay []Change, collections []string, fn func(Change) error) (bool, error) {
+func (d *Data) follow(ctx context.Context, subscription *subscription, replay []Change, fn func(Change) error) (bool, error) {
 	defer d.unsubscribe(subscription)
 
 	for _, change := range replay {
-		if !wanted(change, collections) {
-			continue
-		}
 		if err := fn(change); err != nil {
 			return true, err
 		}
@@ -148,9 +148,6 @@ func (d *Data) follow(ctx context.Context, subscription *subscription, replay []
 			if subscription.behind.Load() {
 				return false, nil
 			}
-			if !wanted(change, collections) {
-				continue
-			}
 			if err := fn(change); err != nil {
 				return true, err
 			}
@@ -165,17 +162,9 @@ func wanted(change Change, collections []string) bool {
 }
 
 // readChanges reads a batch of the feed from a sequence.
-func (d *Data) readChanges(ctx context.Context, from int64, collections []string) ([]Change, error) {
-	statement := `SELECT seq, collection, resource, kind, rev, space_id, owner_id, principal, data, at
-		FROM rookery.changes WHERE seq > $1`
-	args := []any{from}
-	if len(collections) > 0 {
-		statement += " AND collection = ANY($2)"
-		args = append(args, collections)
-	}
-	statement += " ORDER BY seq LIMIT " + fmt.Sprint(changeBatch)
-
-	rows, err := d.pool().Query(ctx, statement, args...)
+func (d *Data) readChanges(ctx context.Context, from int64) ([]Change, error) {
+	rows, err := d.pool().Query(ctx, `SELECT seq, collection, resource, kind, rev, space_id, owner_id, principal, data, at
+		FROM rookery.changes WHERE seq > $1 ORDER BY seq LIMIT $2`, from, changeBatch)
 	if err != nil {
 		return nil, fmt.Errorf("data: reading the change feed: %w", err)
 	}
@@ -259,6 +248,9 @@ func (d *Data) feedStart(ctx context.Context) error {
 	d.feedMu.Lock()
 	d.feedLast = last
 	d.feedRecent = recent
+	if len(recent) == recentChanges {
+		d.feedDiscarded = recent[0].Seq - 1
+	}
 	d.feedMu.Unlock()
 	d.feedReadyOnce.Do(func() { close(d.feedReady) })
 	return nil
@@ -286,7 +278,7 @@ func (d *Data) feedHead() int64 {
 func (d *Data) feedLoad(ctx context.Context) error {
 	for {
 		from := d.feedHead()
-		changes, err := d.readChanges(ctx, from, nil)
+		changes, err := d.readChanges(ctx, from)
 		if err != nil {
 			return err
 		}
@@ -312,9 +304,14 @@ func (d *Data) feedPublish(changes []Change) {
 		d.feedLast = change.Seq
 		d.feedRecent = append(d.feedRecent, change)
 		if len(d.feedRecent) > recentChanges {
-			d.feedRecent = append(d.feedRecent[:0], d.feedRecent[len(d.feedRecent)-recentChanges:]...)
+			d.feedDiscarded = d.feedRecent[0].Seq
+			d.feedRecent[0] = Change{}
+			d.feedRecent = d.feedRecent[1:]
 		}
 		for subscription := range d.feedSubscribers {
+			if change.Seq <= subscription.after {
+				continue
+			}
 			select {
 			case subscription.changes <- change:
 			default:
@@ -333,17 +330,12 @@ func (d *Data) subscribe(from int64) (*subscription, []Change, bool) {
 	d.feedMu.Lock()
 	defer d.feedMu.Unlock()
 
-	sub := &subscription{changes: make(chan Change, subscriberBuffer)}
+	sub := &subscription{changes: make(chan Change, subscriberBuffer), after: from}
 
 	var replay []Change
 	if from < d.feedLast {
-		oldest := from + 1
-		if len(d.feedRecent) > 0 {
-			oldest = d.feedRecent[0].Seq
-		}
-		if from+1 < oldest {
-			// The feed no longer holds what this subscriber missed.
-			return sub, nil, false
+		if from < d.feedDiscarded {
+			return nil, nil, false
 		}
 		for _, change := range d.feedRecent {
 			if change.Seq > from {

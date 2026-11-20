@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
 	"github.com/aiviarium/rookery/internal/cborx"
 	"github.com/aiviarium/rookery/internal/filter"
+	"github.com/jackc/pgx/v5"
 )
 
 // Sort orders the records a query returns.
@@ -78,19 +78,21 @@ func (d *Data) Find(ctx context.Context, principal Principal, collection string,
 	if err != nil {
 		return Page{}, err
 	}
-	if err := query.Filter.Validate(c.FilterFields()); err != nil {
-		return Page{}, err
-	}
-	sorts := query.Sorts
-	if err := c.checkSorts(sorts); err != nil {
-		return Page{}, err
-	}
-	sorts = withID(sorts)
-
 	where, args, err := d.scopeClause(ctx, principal, c, query.Space)
 	if err != nil {
 		return Page{}, err
 	}
+	return d.find(ctx, d.pool(), c, query, where, args)
+}
+
+func (d *Data) find(ctx context.Context, q querier, c *Collection, query Query, where []string, args []any) (Page, error) {
+	if err := query.Filter.Validate(c.FilterFields()); err != nil {
+		return Page{}, err
+	}
+	if err := c.checkSorts(query.Sorts); err != nil {
+		return Page{}, err
+	}
+	sorts := withID(query.Sorts)
 	where = append(where, "deleted_at IS NULL")
 	if query.Filter != nil {
 		clause, filterArgs, err := query.Filter.SQL(len(args) + 1)
@@ -117,7 +119,7 @@ func (d *Data) Find(ctx context.Context, principal Principal, collection string,
 	}
 	statement += " ORDER BY " + order + " LIMIT " + strconv.Itoa(limit+1)
 
-	rows, err := d.pool().Query(ctx, statement, statementArgs...)
+	rows, err := q.Query(ctx, statement, statementArgs...)
 	if err != nil {
 		return Page{}, fmt.Errorf("data: finding in %s: %w", c.Key(), err)
 	}
@@ -409,86 +411,82 @@ type Ref struct {
 // RefsTo lists the references that point at a resource, skipping the records the
 // principal may not read.
 func (d *Data) RefsTo(ctx context.Context, principal Principal, target string) ([]Ref, error) {
-	statement := "SELECT source, field, target, on_delete FROM rookery.refs WHERE target = $1 ORDER BY source, field"
-	return d.refs(ctx, principal, statement, target, true)
+	return d.refs(ctx, principal, target, true)
 }
 
-// RefsFrom lists the references a record holds, skipping the targets the
-// principal may not read.
+// RefsFrom lists the references a record holds, skipping unreadable targets.
 func (d *Data) RefsFrom(ctx context.Context, principal Principal, source string) ([]Ref, error) {
-	key, id, err := ParseRecordURI(source)
-	if err != nil {
+	if _, _, err := ParseRecordURI(source); err != nil {
 		return nil, err
 	}
-	if _, err := d.Collection(key); err != nil {
-		return nil, err
-	}
-	if _, err := d.recordResource(ctx, key, id); err != nil {
-		return nil, err
-	}
-
-	statement := "SELECT source, field, target, on_delete FROM rookery.refs WHERE source = $1 ORDER BY field, target"
-	refs, err := d.refs(ctx, principal, statement, source, false)
-	if err != nil {
-		return nil, err
-	}
-	return refs, nil
+	return d.refs(ctx, principal, source, false)
 }
 
-// refs reads reference rows, checking each one's access. A row whose other end
-// is a record is kept only when the principal may read that record.
-func (d *Data) refs(ctx context.Context, principal Principal, statement, argument string, checkSource bool) ([]Ref, error) {
-	rows, err := d.pool().Query(ctx, statement, argument)
+func (d *Data) refs(ctx context.Context, principal Principal, uri string, inbound bool) ([]Ref, error) {
+	allowed, err := d.canRead(ctx, principal, uri)
+	if err != nil {
+		return nil, err
+	}
+	if !allowed {
+		return nil, fmt.Errorf("%w: may not read %s", ErrForbidden, uri)
+	}
+	statement := "SELECT source, field, target, on_delete FROM rookery.refs WHERE source = $1 ORDER BY field, target"
+	if inbound {
+		statement = "SELECT source, field, target, on_delete FROM rookery.refs WHERE target = $1 ORDER BY source, field"
+	}
+	rows, err := d.pool().Query(ctx, statement, uri)
 	if err != nil {
 		return nil, fmt.Errorf("data: reading references: %w", err)
 	}
-	defer rows.Close()
-
-	refs := make([]Ref, 0, 8)
-	for rows.Next() {
-		var (
-			source, field, target, rule string
-		)
-		if err := rows.Scan(&source, &field, &target, &rule); err != nil {
-			return nil, fmt.Errorf("data: reading references: %w", err)
+	refs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Ref, error) {
+		var ref Ref
+		err := row.Scan(&ref.Source, &ref.Field, &ref.Target, &ref.OnDelete)
+		return ref, err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("data: reading references: %w", err)
+	}
+	visible := refs[:0]
+	for _, ref := range refs {
+		other := ref.Target
+		if inbound {
+			other = ref.Source
 		}
-
-		uri := target
-		if checkSource {
-			uri = source
-		}
-		allowed, err := d.canRead(ctx, principal, uri)
+		allowed, err := d.canRead(ctx, principal, other)
 		if err != nil {
 			return nil, err
 		}
-		if !allowed {
-			continue
+		if allowed {
+			visible = append(visible, ref)
 		}
-		refs = append(refs, Ref{Source: source, Field: field, Target: target, OnDelete: OnDelete(rule)})
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("data: reading references: %w", err)
-	}
-	return refs, nil
+	return visible, nil
 }
 
-// canRead reports whether the principal may read a resource. A record URI is
-// checked on the record's scope; another resource's URI, which the datastore
-// does not resolve, is passed on.
+// canRead checks a record at its declared level and other resources at view.
 func (d *Data) canRead(ctx context.Context, principal Principal, uri string) (bool, error) {
 	key, id, err := ParseRecordURI(uri)
 	if err != nil {
-		return true, nil
+		return d.allowed(ctx, principal, uri, cReadLevel)
 	}
-	resource, err := d.recordResource(ctx, key, id)
+	c, err := d.Collection(key)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
 	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return false, nil
-		}
 		return false, err
 	}
-	allowed, err := d.allowed(ctx, principal, resource, rookeryv1.Level_LEVEL_VIEW)
-	return allowed, err
+	record, err := d.loadRecord(ctx, d.pool(), c, id)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if record["deleted_at"] != nil {
+		return false, nil
+	}
+	return d.allowed(ctx, principal, c.resource(c.scopeOf(record)), c.Access.Read)
 }
 
 // loadRecord reads a record without locking it, deleted or not.
@@ -662,18 +660,4 @@ func (c *Collection) decodeCursor(sorts []Sort, cursor string) ([]any, error) {
 		values[i] = value
 	}
 	return values, nil
-}
-
-// recordResource is the resource a record's access is checked on, and its scope
-// id. A record that is not there is ErrNotFound.
-func (d *Data) recordResource(ctx context.Context, key, id string) (string, error) {
-	c, err := d.Collection(key)
-	if err != nil {
-		return "", err
-	}
-	record, err := d.loadRecord(ctx, d.pool(), c, id)
-	if err != nil {
-		return "", err
-	}
-	return c.resource(c.scopeOf(record)), nil
 }

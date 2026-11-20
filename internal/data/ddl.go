@@ -1,34 +1,34 @@
 package data
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/aiviarium/rookery/internal/cborx"
 	"github.com/aiviarium/rookery/internal/filter"
 )
 
 // Create makes a plugin's schema and the tables its collections need. The
-// plugin system runs it at install, in one transaction with the rest of the
-// plugin's rows, so a failure leaves nothing behind.
-//
-// A collection's table is dropped and made again only by a reset: declarations
-// that differ from the installed ones are refused before this is called.
+// plugin system calls it at install. The declaration and its table are
+// committed together, and creating the same collection again is safe.
 func (d *Data) Create(ctx context.Context, plugin string) error {
 	collections := d.Collections(plugin)
 	if len(collections) == 0 {
 		return nil
 	}
 
-	return d.transaction(ctx, func(tx pgx.Tx) error {
+	return d.writeTransaction(ctx, func(tx pgx.Tx) error {
 		schema := pgIdentifier("p_" + plugin)
 		if _, err := tx.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+schema); err != nil {
 			return fmt.Errorf("data: creating the schema of %s: %w", plugin, err)
 		}
 		for _, collection := range collections {
-			if err := createCollection(ctx, tx, collection); err != nil {
+			if err := storeCollection(ctx, tx, collection); err != nil {
 				return err
 			}
 		}
@@ -36,12 +36,88 @@ func (d *Data) Create(ctx context.Context, plugin string) error {
 	})
 }
 
-// Drop removes a plugin's schema and every table in it. The plugin system runs
-// it on a reset, or when a plugin is removed with its data.
-func (d *Data) Drop(ctx context.Context, plugin string) error {
-	_, err := d.pool().Exec(ctx, "DROP SCHEMA IF EXISTS "+pgIdentifier("p_"+plugin)+" CASCADE")
+func storeCollection(ctx context.Context, tx pgx.Tx, collection *Collection) error {
+	declaration, err := cborx.Marshal(collection)
 	if err != nil {
-		return fmt.Errorf("data: dropping the schema of %s: %w", plugin, err)
+		return fmt.Errorf("data: encoding %s: %w", collection.Key(), err)
+	}
+	var current []byte
+	err = tx.QueryRow(ctx, "SELECT declaration FROM rookery.collections WHERE plugin = $1 AND name = $2",
+		collection.Plugin, collection.Name).Scan(&current)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		if _, err := tx.Exec(ctx, "INSERT INTO rookery.collections (plugin, name, declaration) VALUES ($1, $2, $3)",
+			collection.Plugin, collection.Name, declaration); err != nil {
+			return fmt.Errorf("data: recording %s: %w", collection.Key(), err)
+		}
+		return createCollection(ctx, tx, collection)
+	case err != nil:
+		return fmt.Errorf("data: reading the declaration of %s: %w", collection.Key(), err)
+	case !bytes.Equal(current, declaration):
+		return fmt.Errorf("%w: %s changed its stored declaration and needs a data reset", ErrRevision, collection.Key())
+	default:
+		return nil
+	}
+}
+
+// Load repopulates the in-memory registry from the persisted schema catalog.
+func (d *Data) Load(ctx context.Context) error {
+	rows, err := d.pool().Query(ctx, "SELECT declaration FROM rookery.collections")
+	if err != nil {
+		return fmt.Errorf("data: loading collection declarations: %w", err)
+	}
+	defer rows.Close()
+	var collections []*Collection
+	for rows.Next() {
+		var encoded []byte
+		if err := rows.Scan(&encoded); err != nil {
+			return fmt.Errorf("data: reading a collection declaration: %w", err)
+		}
+		var collection Collection
+		if err := cborx.Unmarshal(encoded, &collection); err != nil {
+			return fmt.Errorf("data: decoding a collection declaration: %w", err)
+		}
+		collections = append(collections, &collection)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("data: loading collection declarations: %w", err)
+	}
+	return d.Declare(collections...)
+}
+
+// Drop removes a plugin's schema, catalog entries and derived data.
+func (d *Data) Drop(ctx context.Context, plugin string) error {
+	if !namePattern.MatchString(plugin) {
+		return fmt.Errorf("%w: invalid plugin %q", ErrInvalid, plugin)
+	}
+	err := d.writeTransaction(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, "DROP SCHEMA IF EXISTS "+pgIdentifier("p_"+plugin)+" CASCADE"); err != nil {
+			return fmt.Errorf("data: dropping the schema of %s: %w", plugin, err)
+		}
+		resourcePrefix := "record://" + plugin + "/"
+		for _, statement := range []string{
+			"DELETE FROM rookery.refs WHERE starts_with(source, $1) OR starts_with(target, $1)",
+			"DELETE FROM rookery.entities WHERE starts_with(uri, $1)",
+			"DELETE FROM rookery.changes WHERE starts_with(resource, $1)",
+		} {
+			if _, err := tx.Exec(ctx, statement, resourcePrefix); err != nil {
+				return fmt.Errorf("data: cleaning up derived rows for %s: %w", plugin, err)
+			}
+		}
+		if _, err := tx.Exec(ctx, "DELETE FROM rookery.collections WHERE plugin = $1", plugin); err != nil {
+			return fmt.Errorf("data: dropping collection declarations for %s: %w", plugin, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for key, collection := range d.collections {
+		if collection.Plugin == plugin {
+			delete(d.collections, key)
+		}
 	}
 	return nil
 }

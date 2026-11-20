@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/aiviarium/rookery/internal/filter"
 )
 
@@ -62,8 +64,7 @@ const liveMaxTracked = 64 * 1024
 //
 // A subscriber that falls behind is told so with LiveResync, and the inserts
 // after it are the current state again. The level is checked for every change,
-// and cached per scope resource, so a grant taken away mid-stream is noticed
-// when the subscriber resyncs.
+// using the current grant on its scope.
 func (d *Data) Live(ctx context.Context, principal Principal, options LiveOptions, fn func(LiveEvent) error) error {
 	collection, err := d.Collection(options.Collection)
 	if err != nil {
@@ -80,33 +81,18 @@ func (d *Data) Live(ctx context.Context, principal Principal, options LiveOption
 		return nil
 	}
 
-	// The subscription is taken before the snapshot, from the point the feed is
-	// at: a write between the two is replayed, and a subscriber that falls
-	// behind while the snapshot is sent resyncs.
-	allowed := make(map[string]bool)
+	query := Query{Filter: options.Filter, Sorts: options.Sorts, Limit: options.Limit, Space: options.Space}
 	for {
-		from := d.feedHead()
-		subscription, replay, ok := d.subscribe(from)
-		if !ok {
-			d.unsubscribe(subscription)
-			if err := fn(LiveEvent{Kind: LiveResync}); err != nil {
-				return err
-			}
-			continue
-		}
-
-		state := make(map[string]int64)
-		if err := d.liveSnapshot(ctx, principal, collection, options, state, fn); err != nil {
-			d.unsubscribe(subscription)
-			return err
-		}
-
-		resync, err := d.followLive(ctx, principal, collection, options, subscription, replay, state, allowed, fn)
+		page, from, err := d.liveSnapshot(ctx, principal, collection, query)
 		if err != nil {
 			return err
 		}
-		if !resync {
-			return nil
+		subscription, replay, ok := d.subscribe(from)
+		if ok {
+			resync, err := d.followSnapshot(ctx, principal, collection, options, page, subscription, replay, fn)
+			if err != nil || !resync {
+				return err
+			}
 		}
 		if err := fn(LiveEvent{Kind: LiveResync}); err != nil {
 			return err
@@ -114,41 +100,49 @@ func (d *Data) Live(ctx context.Context, principal Principal, options LiveOption
 	}
 }
 
-// liveSnapshot sends the records that match now, remembering their revisions so
-// that a replayed change to one is no news.
-func (d *Data) liveSnapshot(ctx context.Context, principal Principal, collection *Collection, options LiveOptions,
-	state map[string]int64, fn func(LiveEvent) error) error {
-
-	page, err := d.Find(ctx, principal, collection.Key(), Query{
-		Filter: options.Filter,
-		Sorts:  options.Sorts,
-		Limit:  options.Limit,
-		Space:  options.Space,
-	})
+// Read the snapshot and its cursor from one consistent database view.
+func (d *Data) liveSnapshot(ctx context.Context, principal Principal, collection *Collection, query Query) (Page, int64, error) {
+	where, args, err := d.scopeClause(ctx, principal, collection, query.Space)
 	if err != nil {
-		return err
+		return Page{}, 0, err
 	}
+	feedHead := d.feedHead()
+	tx, err := d.pool().BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return Page{}, 0, fmt.Errorf("data: opening live snapshot: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var seq int64
+	if err := tx.QueryRow(ctx, "SELECT coalesce(max(seq), 0) FROM rookery.changes").Scan(&seq); err != nil {
+		return Page{}, 0, fmt.Errorf("data: reading live snapshot cursor: %w", err)
+	}
+	page, err := d.find(ctx, tx, collection, query, where, args)
+	return page, max(seq, feedHead), err
+}
+
+func (d *Data) followSnapshot(ctx context.Context, principal Principal, collection *Collection, options LiveOptions,
+	page Page, subscription *subscription, replay []Change, fn func(LiveEvent) error) (bool, error) {
+	defer d.unsubscribe(subscription)
+	state := make(map[string]int64, len(page.Records))
 	for _, record := range page.Records {
 		id, _ := record["id"].(string)
 		uri := collection.RecordURI(id)
 		rev, _ := record["rev"].(int64)
 		state[uri] = rev
 		if err := fn(LiveEvent{Kind: LiveInsert, Resource: uri, Record: record}); err != nil {
-			return err
+			return false, err
 		}
 	}
-	return nil
+	return d.followLive(ctx, principal, collection, options, subscription, replay, state, fn)
 }
 
 // followLive hands over the changes of one subscription. It reports true when
 // the subscriber fell behind and has to resync.
 func (d *Data) followLive(ctx context.Context, principal Principal, collection *Collection, options LiveOptions,
-	subscription *subscription, replay []Change, state map[string]int64, allowed map[string]bool, fn func(LiveEvent) error) (bool, error) {
-
-	defer d.unsubscribe(subscription)
+	subscription *subscription, replay []Change, state map[string]int64, fn func(LiveEvent) error) (bool, error) {
 
 	for _, change := range replay {
-		if err := d.liveChange(ctx, principal, collection, options, change, state, allowed, fn); err != nil {
+		if err := d.liveChange(ctx, principal, collection, options, change, state, fn); err != nil {
 			return false, err
 		}
 	}
@@ -163,7 +157,7 @@ func (d *Data) followLive(ctx context.Context, principal Principal, collection *
 			if subscription.behind.Load() {
 				return true, nil
 			}
-			if err := d.liveChange(ctx, principal, collection, options, change, state, allowed, fn); err != nil {
+			if err := d.liveChange(ctx, principal, collection, options, change, state, fn); err != nil {
 				return false, err
 			}
 		}
@@ -172,7 +166,7 @@ func (d *Data) followLive(ctx context.Context, principal Principal, collection *
 
 // liveChange turns one change into a live event, when it matters to the query.
 func (d *Data) liveChange(ctx context.Context, principal Principal, collection *Collection, options LiveOptions,
-	change Change, state map[string]int64, allowed map[string]bool, fn func(LiveEvent) error) error {
+	change Change, state map[string]int64, fn func(LiveEvent) error) error {
 
 	if change.Collection != collection.Key() {
 		return nil
@@ -180,7 +174,11 @@ func (d *Data) liveChange(ctx context.Context, principal Principal, collection *
 	uri := change.Resource
 	seen, present := state[uri]
 
-	readable, err := d.liveReadable(ctx, principal, collection, change, allowed)
+	if collection.Scope == ScopeSpace && change.SpaceID != options.Space ||
+		collection.Scope == ScopeUser && change.OwnerID != principal.ID {
+		return nil
+	}
+	readable, err := d.allowed(ctx, principal, collection.resource(change.scopeID()), collection.Access.Read)
 	if err != nil {
 		return err
 	}
@@ -233,26 +231,6 @@ func (d *Data) liveChange(ctx context.Context, principal Principal, collection *
 	default:
 		return fmt.Errorf("%w: %q is not a change kind", ErrInvalid, change.Kind)
 	}
-}
-
-// liveReadable reports whether the principal may read the record a change is
-// about, remembering the answer per scope resource.
-func (d *Data) liveReadable(ctx context.Context, principal Principal, collection *Collection, change Change, allowed map[string]bool) (bool, error) {
-	resource := collection.resource(change.scopeID())
-	if readable, known := allowed[resource]; known {
-		return readable, nil
-	}
-	readable, err := d.allowed(ctx, principal, resource, cReadLevel)
-	if err != nil {
-		return false, err
-	}
-	if len(allowed) >= 4096 {
-		// A stream that touches many scopes keeps the cache bounded; the
-		// grants it forgets are asked again.
-		clear(allowed)
-	}
-	allowed[resource] = readable
-	return readable, nil
 }
 
 // scopeID is the scope id a change carries.

@@ -14,11 +14,7 @@ import (
 const createBlob = `-- name: CreateBlob :one
 INSERT INTO rookery.blobs (id, size, content_type, owner, resource)
 VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (id) DO UPDATE
-SET content_type = excluded.content_type,
-    owner = CASE WHEN rookery.blobs.owner = '' THEN excluded.owner ELSE rookery.blobs.owner END,
-    resource = CASE WHEN rookery.blobs.resource = '' THEN excluded.resource ELSE rookery.blobs.resource END,
-    referenced_at = now()
+ON CONFLICT (id) DO NOTHING
 RETURNING id, size, content_type, owner, resource, pinned, created_at, referenced_at
 `
 
@@ -53,12 +49,34 @@ func (q *Queries) CreateBlob(ctx context.Context, arg CreateBlobParams) (Rookery
 }
 
 const deleteBlob = `-- name: DeleteBlob :execrows
-DELETE FROM rookery.blobs
-WHERE id = $1
+DELETE FROM rookery.blobs b
+WHERE b.id = $1
+  AND NOT EXISTS (SELECT 1 FROM rookery.refs r WHERE r.blob_id = b.id)
 `
 
 func (q *Queries) DeleteBlob(ctx context.Context, id string) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteBlob, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteUnreferencedBlob = `-- name: DeleteUnreferencedBlob :execrows
+DELETE FROM rookery.blobs b
+WHERE b.id = $1
+  AND NOT b.pinned
+  AND coalesce(b.referenced_at, b.created_at) < now() - $2::interval
+  AND NOT EXISTS (SELECT 1 FROM rookery.refs r WHERE r.blob_id = b.id)
+`
+
+type DeleteUnreferencedBlobParams struct {
+	ID    string
+	Older pgtype.Interval
+}
+
+func (q *Queries) DeleteUnreferencedBlob(ctx context.Context, arg DeleteUnreferencedBlobParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUnreferencedBlob, arg.ID, arg.Older)
 	if err != nil {
 		return 0, err
 	}
@@ -89,10 +107,11 @@ func (q *Queries) GetBlob(ctx context.Context, id string) (RookeryBlobs, error) 
 
 const listUnreferencedBlobs = `-- name: ListUnreferencedBlobs :many
 SELECT id, size, content_type, owner, resource, pinned, created_at, referenced_at
-FROM rookery.blobs
-WHERE NOT pinned
-  AND (referenced_at IS NULL OR referenced_at < now() - $2::interval)
-ORDER BY created_at
+FROM rookery.blobs b
+WHERE NOT b.pinned
+  AND coalesce(b.referenced_at, b.created_at) < now() - $2::interval
+  AND NOT EXISTS (SELECT 1 FROM rookery.refs r WHERE r.blob_id = b.id)
+ORDER BY b.created_at
 LIMIT $1
 `
 
@@ -128,6 +147,23 @@ func (q *Queries) ListUnreferencedBlobs(ctx context.Context, arg ListUnreference
 		return nil, err
 	}
 	return items, nil
+}
+
+const pinBlob = `-- name: PinBlob :execrows
+UPDATE rookery.blobs SET pinned = $2, referenced_at = now() WHERE id = $1
+`
+
+type PinBlobParams struct {
+	ID     string
+	Pinned bool
+}
+
+func (q *Queries) PinBlob(ctx context.Context, arg PinBlobParams) (int64, error) {
+	result, err := q.db.Exec(ctx, pinBlob, arg.ID, arg.Pinned)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const touchBlob = `-- name: TouchBlob :exec
