@@ -1,0 +1,196 @@
+---
+# The desktop role: XFCE on TigerVNC's virtual X server, as the desktop account's
+# systemd user units, with lingering on so that they run without a login.
+#
+# Rookery reaches the desktop three ways: the server relays screenshots, input and
+# the clipboard from `box desktop serve`; a browser or the CLI reads the RFB
+# stream through the VNC Unix socket; and `box exec` runs commands with this
+# desktop's environment. Nothing is exposed on a TCP port.
+
+- name: Look up the desktop's account
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ desktop_user }}"
+
+- name: Check that the desktop's account exists
+  ansible.builtin.assert:
+    that: desktop_user in ansible_facts.getent_passwd
+    fail_msg: "The desktop's account {{ desktop_user }} does not exist; the base role makes it."
+    quiet: true
+
+- name: Record the desktop's account
+  ansible.builtin.set_fact:
+    desktop_uid: "{{ ansible_facts.getent_passwd[desktop_user][1] }}"
+    desktop_gid: "{{ ansible_facts.getent_passwd[desktop_user][2] }}"
+    desktop_home: "{{ ansible_facts.getent_passwd[desktop_user][4] }}"
+
+- name: Record the account's runtime directory
+  ansible.builtin.set_fact:
+    desktop_runtime_dir: "/run/user/{{ desktop_uid }}"
+
+- name: Install the desktop's packages
+  ansible.builtin.apt:
+    name: "{{ desktop_packages }}"
+    state: present
+    install_recommends: false
+    update_cache: true
+  vars:
+    desktop_packages:
+      - xfce4
+      - xfce4-terminal
+      - xfce4-taskmanager
+      - dbus-x11
+      - tigervnc-standalone-server
+      - xauth
+      - x11-xserver-utils
+      - x11-utils
+      - gnome-keyring
+      - libsecret-tools
+      - libgl1-mesa-dri
+      - mesa-utils
+      - "{{ desktop_chromium_package }}"
+
+- name: Give the account the GPU's groups
+  ansible.builtin.user:
+    name: "{{ desktop_user }}"
+    groups: [render, video]
+    append: true
+  when: desktop_gpu | bool
+
+# Lingering is what makes the account's units run with nobody logged in, which is
+# the point of a desktop a server reaches over SSH.
+- name: Keep the account's units running without a login
+  ansible.builtin.command:
+    cmd: loginctl enable-linger {{ desktop_user }}
+  changed_when: false
+  check_mode: false
+
+- name: Create the directory of the host's configuration
+  ansible.builtin.file:
+    path: /etc/rookery
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Write the desktop's environment
+  ansible.builtin.template:
+    src: desktop.env.j2
+    dest: /etc/rookery/desktop.env
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install the desktop's session script
+  ansible.builtin.template:
+    src: rookery-desktop-session.j2
+    dest: "{{ desktop_session_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create the account's user units
+  ansible.builtin.file:
+    path: "{{ desktop_home }}/.config/systemd/user"
+    state: directory
+    owner: "{{ desktop_user }}"
+    group: "{{ desktop_gid }}"
+    mode: "0755"
+
+- name: Install the desktop's user units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ desktop_home }}/.config/systemd/user/{{ item }}"
+    owner: "{{ desktop_user }}"
+    group: "{{ desktop_gid }}"
+    mode: "0644"
+  loop:
+    - rookery-desktop.service
+    - rookery-box-desktop.service
+
+- name: Reload the account's units
+  ansible.builtin.systemd_service:
+    name: rookery-desktop.service
+    scope: user
+    daemon_reload: true
+    state: restarted
+    enabled: true
+  become: true
+  become_user: "{{ desktop_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "{{ desktop_runtime_dir }}"
+
+- name: Start the desktop's provider
+  ansible.builtin.systemd_service:
+    name: rookery-box-desktop.service
+    scope: user
+    state: restarted
+    enabled: true
+  become: true
+  become_user: "{{ desktop_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "{{ desktop_runtime_dir }}"
+
+# The session's settings are files rather than commands, so that they are in place
+# before the first session starts and there is no window between the two.
+- name: Turn off power management in every XFCE session
+  ansible.builtin.template:
+    src: "{{ item }}.xml.j2"
+    dest: "/etc/xdg/xfce4/xfconf/xfce-perchannel-xml/{{ item }}.xml"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - xfce4-power-manager
+    - xfce4-screensaver
+
+- name: Keep screen locking and blanking out of the session
+  ansible.builtin.template:
+    src: autostart-hidden.desktop.j2
+    dest: "/etc/xdg/autostart/{{ item }}.desktop"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - xfce4-screensaver
+    - light-locker
+    - xfce4-power-manager
+
+# A keyring with no password is unlocked from the start. Without one, the first
+# program that stores a secret opens a dialog nobody is there to answer, and waits.
+- name: Create the account's keyring directory
+  ansible.builtin.file:
+    path: "{{ desktop_home }}/.local/share/keyrings"
+    state: directory
+    owner: "{{ desktop_user }}"
+    group: "{{ desktop_gid }}"
+    mode: "0700"
+
+- name: Look for an existing default keyring
+  ansible.builtin.stat:
+    path: "{{ desktop_home }}/.local/share/keyrings/default"
+  register: desktop_keyring_default
+
+- name: Give the account an unlocked default keyring
+  ansible.builtin.copy:
+    dest: "{{ desktop_home }}/.local/share/keyrings/{{ item.name }}"
+    content: "{{ item.content }}"
+    owner: "{{ desktop_user }}"
+    group: "{{ desktop_gid }}"
+    mode: "0600"
+    force: false
+  loop:
+    - name: Default_Keyring.keyring
+      content: |
+        [keyring]
+        display-name=Default Keyring
+        ctime=0
+        mtime=0
+        lock-on-idle=false
+        lock-after=false
+    - name: default
+      content: |
+        Default_Keyring
+  loop_control:
+    label: "{{ item.name }}"
+  when: not desktop_keyring_default.stat.exists

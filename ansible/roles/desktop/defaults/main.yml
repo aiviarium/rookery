@@ -1,0 +1,29 @@
+---
+# The desktop role: one shared virtual desktop for a workstation's account.
+#
+# The apply runs it after the base role, with the profile's desktop settings as
+# variables: the account, the screen's size, and whether the account gets the
+# GPU's groups.
+
+# The account whose desktop this is. The base role makes it.
+desktop_user: dev
+
+# The screen's size and depth.
+desktop_geometry: 1920x1080
+desktop_depth: 24
+
+# Whether the account belongs to the GPU's render and video groups. A host with no
+# GPU, or a container, leaves this off.
+desktop_gpu: false
+
+# Chromium's package. Debian ships it as a package and Ubuntu as a snap; a host
+# that wants another (firefox, or a repository's chromium) says so in its vars.
+desktop_chromium_package: chromium
+
+# Where the base role puts box, and where this role puts its session script.
+desktop_box: /usr/local/bin/box
+desktop_session_script: /usr/local/bin/rookery-desktop-session
+
+# The X display the desktop runs on. Its VNC socket is in the account's runtime
+# directory, and nothing listens on a TCP port.
+desktop_display: ":1"

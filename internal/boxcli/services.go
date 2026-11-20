@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"connectrpc.com/connect"
@@ -110,8 +111,8 @@ func splitServe(args []string) (string, []string, error) {
 }
 
 // commandHandler runs a served command for a call.
-func commandHandler(ctx context.Context, options Options, command []string) func(method string, args []byte) ([]byte, error) {
-	return func(method string, args []byte) ([]byte, error) {
+func commandHandler(_ context.Context, options Options, command []string) handlerFunc {
+	return func(ctx context.Context, method string, args []byte) ([]byte, error) {
 		cmd := exec.CommandContext(ctx, command[0], append(command[1:], method)...) //nolint:gosec // the unit's command, on purpose.
 		cmd.Env = options.Environ
 		cmd.Stdin = bytes.NewReader(args)
@@ -131,7 +132,7 @@ func commandHandler(ctx context.Context, options Options, command []string) func
 
 // serveHostService registers a service and keeps it registered: when the
 // daemon goes away and comes back, box registers again.
-func serveHostService(ctx context.Context, options Options, service *hostv1.HostService, handler func(method string, args []byte) ([]byte, error)) error {
+func serveHostService(ctx context.Context, options Options, service *hostv1.HostService, handler handlerFunc) error {
 	backoff := time.Second
 	for {
 		err := registerOnce(ctx, options, service, handler)
@@ -152,7 +153,7 @@ func serveHostService(ctx context.Context, options Options, service *hostv1.Host
 }
 
 // registerOnce registers a service for the life of one stream.
-func registerOnce(ctx context.Context, options Options, service *hostv1.HostService, handler func(method string, args []byte) ([]byte, error)) error {
+func registerOnce(ctx context.Context, options Options, service *hostv1.HostService, handler handlerFunc) error {
 	client, err := agent.Dial(options.Socket)
 	if err != nil {
 		return err
@@ -171,6 +172,13 @@ func registerOnce(ctx context.Context, options Options, service *hostv1.HostServ
 	// this: connect's Receive can stay blocked after the call's context is
 	// canceled while the request's own body is still open, and closing it is what
 	// ends the read.
+	// A call's handler may take a while, and a stream has one sender, so the
+	// answers queue on a lock of their own.
+	var (
+		calls   sync.WaitGroup
+		sendMux sync.Mutex
+	)
+
 	received := make(chan *hostv1.HostCallServiceRegisterResponse, 16)
 	receiveErr := make(chan error, 1)
 	go func() {
@@ -193,6 +201,7 @@ func registerOnce(ctx context.Context, options Options, service *hostv1.HostServ
 		case <-ctx.Done():
 			_ = stream.CloseRequest()
 			_ = stream.CloseResponse()
+			calls.Wait()
 			return nil
 		case err := <-receiveErr:
 			if ctx.Err() != nil {
@@ -204,21 +213,31 @@ func registerOnce(ctx context.Context, options Options, service *hostv1.HostServ
 			if call == nil {
 				continue
 			}
-			answer := &hostv1.HostCallResult{Id: call.GetId()}
-			result, callErr := handler(call.GetMethod(), call.GetArgsCbor())
-			if callErr != nil {
-				answer.Error = callErr.Error()
-			} else {
-				answer.ResultCbor = result
-			}
-			if err := stream.Send(&hostv1.HostCallServiceRegisterRequest{
-				Message: &hostv1.HostCallServiceRegisterRequest_Result{Result: answer},
-			}); err != nil {
-				return err
-			}
+			// Calls run at once: a paused desktop holds its own screenshot while
+			// the resume that ends the pause arrives as another call. A stream
+			// has one sender, so the answers take a turn.
+			calls.Add(1)
+			go func(call *hostv1.HostCallRequest) {
+				defer calls.Done()
+				answer := &hostv1.HostCallResult{Id: call.GetId()}
+				result, callErr := handler(ctx, call.GetMethod(), call.GetArgsCbor())
+				if callErr != nil {
+					answer.Error = callErr.Error()
+				} else {
+					answer.ResultCbor = result
+				}
+				sendMux.Lock()
+				defer sendMux.Unlock()
+				_ = stream.Send(&hostv1.HostCallServiceRegisterRequest{
+					Message: &hostv1.HostCallServiceRegisterRequest_Result{Result: answer},
+				})
+			}(call)
 		}
 	}
 }
+
+// handlerFunc runs one call of a served host service.
+type handlerFunc func(ctx context.Context, method string, args []byte) ([]byte, error)
 
 // dial makes a client for the daemon's socket for local programs.
 func dial(options Options) (*agent.Client, error) {

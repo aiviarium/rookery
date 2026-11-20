@@ -1,0 +1,16 @@
+[Unit]
+Description=Rookery's desktop (Xvnc and XFCE)
+After=dbus.socket
+Wants=dbus.socket
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/rookery/desktop.env
+ExecStart={{ desktop_session_script }}
+Restart=always
+RestartSec=5
+TimeoutStartSec=60
+KillMode=control-group
+
+[Install]
+WantedBy=default.target

@@ -38,6 +38,14 @@ func newHostCallRegistry() *hostCallRegistry {
 	return &hostCallRegistry{services: make(map[string]*hostService)}
 }
 
+// has says whether a service is registered.
+func (r *hostCallRegistry) has(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, ok := r.services[name]
+	return ok
+}
+
 // list returns the registered services, sorted by name.
 func (r *hostCallRegistry) list() []*hostv1.HostService {
 	r.mu.Lock()

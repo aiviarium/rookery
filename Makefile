@@ -113,6 +113,7 @@ lint:
 ansible:
 	ansible-lint ansible
 	ansible-playbook --syntax-check -i localhost, ansible/base.yml
+	ansible-playbook --syntax-check -i localhost, ansible/desktop.yml
 
 # The TypeScript SDK: its dependencies as the lockfile has them, the workspace
 # type-checked under tsc's strict settings, and the unit tests.

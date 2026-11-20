@@ -31,6 +31,7 @@ type Client struct {
 	Channel   hostv1connect.ChannelServiceClient
 	HostCalls hostv1connect.HostCallServiceClient
 	Actions   hostv1connect.ActionServiceClient
+	Desktop   hostv1connect.DesktopServiceClient
 }
 
 // Dial makes a client for a socket. It checks that the socket is there, so a
@@ -70,6 +71,7 @@ func Dial(socket string) (*Client, error) {
 		Channel:   hostv1connect.NewChannelServiceClient(client, baseURL, options...),
 		HostCalls: hostv1connect.NewHostCallServiceClient(client, baseURL, options...),
 		Actions:   hostv1connect.NewActionServiceClient(client, baseURL, options...),
+		Desktop:   hostv1connect.NewDesktopServiceClient(client, baseURL, options...),
 	}, nil
 }
 

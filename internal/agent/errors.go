@@ -66,6 +66,8 @@ func toConnect(err error) error {
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	case errors.Is(err, ErrNotPermitted), errors.Is(err, os.ErrPermission):
 		return connect.NewError(connect.CodePermissionDenied, err)
+	case errors.Is(err, ErrNoDesktop):
+		return connect.NewError(connect.CodeUnavailable, err)
 	case errors.Is(err, ErrUnavailable):
 		return connect.NewError(connect.CodeUnavailable, err)
 	case errors.Is(err, ErrRevisionConflict):

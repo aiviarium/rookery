@@ -151,6 +151,8 @@ func Run(ctx context.Context, options Options, args []string) error {
 		return runServe(ctx, options, args[1:])
 	case "secret":
 		return runSecret(ctx, options, args[1:])
+	case "desktop":
+		return runDesktop(ctx, options, args[1:])
 	default:
 		return runExtension(ctx, options, args)
 	}
@@ -170,6 +172,8 @@ box is the tool for users and programs on a host. Its commands are:
   call SERVICE METHOD [VALUE]    call one
   serve SERVICE -- COMMAND…      offer one, running COMMAND per call
   secret NAME                    print a secret granted to you
+  desktop …                      screenshot, click, type, key, scroll, clipboard,
+                                 pause, resume, state, or serve the desktop
   version                        print box's version
   <name> …                       run box-<name> from /usr/lib/rookery/box
 

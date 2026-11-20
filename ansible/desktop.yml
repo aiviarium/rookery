@@ -1,0 +1,14 @@
+---
+# The desktop role on one host by hand. An apply renders site.yml.j2 instead, with
+# this role after the base for a workstation. Run it with:
+#
+#   ansible-playbook -i HOST, ansible/desktop.yml
+#
+# and give the role what it needs with -e: desktop_user, desktop_geometry and
+# desktop_gpu.
+- name: Set up a host's desktop
+  hosts: all
+  become: true
+  gather_facts: true
+  roles:
+    - desktop
