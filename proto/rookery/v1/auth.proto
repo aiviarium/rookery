@@ -1,0 +1,99 @@
+// Sign-in: who the caller is, their device sessions and their access tokens.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+import "rookery/v1/user.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// Session is a browser's device session.
+message Session {
+  // Id is opaque and names the session in RevokeSession.
+  string id = 1;
+  string user_id = 2;
+  string user_agent = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp seen_at = 5;
+  // Current marks the session the call came from.
+  bool current = 6;
+}
+
+// Token is an access token's metadata, never its secret.
+message Token {
+  string id = 1;
+  string name = 2;
+  google.protobuf.Timestamp created_at = 3;
+  google.protobuf.Timestamp last_used_at = 4;
+}
+
+message AuthServiceMeRequest {}
+
+message AuthServiceMeResponse {
+  User user = 1;
+}
+
+message AuthServiceListSessionsRequest {}
+
+message AuthServiceListSessionsResponse {
+  repeated Session sessions = 1;
+}
+
+message AuthServiceRevokeSessionRequest {
+  string id = 1;
+}
+
+message AuthServiceRevokeSessionResponse {}
+
+message AuthServiceCreateTokenRequest {
+  string name = 1;
+}
+
+message AuthServiceCreateTokenResponse {
+  // Token is the access token's secret. It is shown once.
+  string token = 1;
+  Token token_info = 2;
+}
+
+message AuthServiceListTokensRequest {}
+
+message AuthServiceListTokensResponse {
+  repeated Token tokens = 1;
+}
+
+message AuthServiceRevokeTokenRequest {
+  string id = 1;
+}
+
+message AuthServiceRevokeTokenResponse {}
+
+// AuthService is the caller's own account: who they are, their sessions and
+// their tokens. Every call here is about the caller alone.
+service AuthService {
+  rpc Me(AuthServiceMeRequest) returns (AuthServiceMeResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+
+  rpc ListSessions(AuthServiceListSessionsRequest) returns (AuthServiceListSessionsResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+
+  rpc RevokeSession(AuthServiceRevokeSessionRequest) returns (AuthServiceRevokeSessionResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+
+  rpc CreateToken(AuthServiceCreateTokenRequest) returns (AuthServiceCreateTokenResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+
+  rpc ListTokens(AuthServiceListTokensRequest) returns (AuthServiceListTokensResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+
+  rpc RevokeToken(AuthServiceRevokeTokenRequest) returns (AuthServiceRevokeTokenResponse) {
+    option (rookery.v1.access) = { level: LEVEL_SELF };
+  }
+}

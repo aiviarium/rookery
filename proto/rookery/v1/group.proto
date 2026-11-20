@@ -1,0 +1,128 @@
+// Groups gather users, by hand or from an OIDC claim, and grants name them.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+import "rookery/v1/user.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// GroupClaim binds a group to a value of an OIDC claim, refreshed at each
+// sign-in.
+message GroupClaim {
+  // Claim is the claim's name, such as "groups".
+  string claim = 1;
+  string value = 2;
+}
+
+// Group is a set of users, filled by hand or from claims.
+message Group {
+  string id = 1;
+  string name = 2;
+  repeated User members = 3;
+  repeated GroupClaim claims = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message GroupServiceListRequest {
+  int32 limit = 1;
+  string cursor = 2;
+}
+
+message GroupServiceListResponse {
+  repeated Group groups = 1;
+  string next_cursor = 2;
+}
+
+message GroupServiceCreateRequest {
+  string name = 1;
+}
+
+message GroupServiceCreateResponse {
+  Group group = 1;
+}
+
+message GroupServiceRenameRequest {
+  // Group is the group's id.
+  string group = 1;
+  string name = 2;
+}
+
+message GroupServiceRenameResponse {
+  Group group = 1;
+}
+
+message GroupServiceDeleteRequest {
+  // Group is the group's id.
+  string group = 1;
+}
+
+message GroupServiceDeleteResponse {}
+
+message GroupServiceAddMemberRequest {
+  // Group is the group's id.
+  string group = 1;
+  // Email is the person to add, by email.
+  string email = 2;
+}
+
+message GroupServiceAddMemberResponse {
+  Group group = 1;
+}
+
+message GroupServiceRemoveMemberRequest {
+  // Group is the group's id.
+  string group = 1;
+  string email = 2;
+}
+
+message GroupServiceRemoveMemberResponse {
+  Group group = 1;
+}
+
+message GroupServiceBindClaimRequest {
+  // Group is the group's id.
+  string group = 1;
+  // Claim is the claim that names the group's members, such as "groups".
+  string claim = 2;
+  // Value is the claim value whose holders join.
+  string value = 3;
+}
+
+message GroupServiceBindClaimResponse {
+  Group group = 1;
+}
+
+// GroupService manages groups. Groups are what grants name.
+service GroupService {
+  rpc List(GroupServiceListRequest) returns (GroupServiceListResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+
+  rpc Create(GroupServiceCreateRequest) returns (GroupServiceCreateResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc Rename(GroupServiceRenameRequest) returns (GroupServiceRenameResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc Delete(GroupServiceDeleteRequest) returns (GroupServiceDeleteResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc AddMember(GroupServiceAddMemberRequest) returns (GroupServiceAddMemberResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc RemoveMember(GroupServiceRemoveMemberRequest) returns (GroupServiceRemoveMemberResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  rpc BindClaim(GroupServiceBindClaimRequest) returns (GroupServiceBindClaimResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+}

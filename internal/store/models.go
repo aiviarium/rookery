@@ -5,12 +5,109 @@
 package store
 
 import (
-	"github.com/jackc/pgx/v5/pgtype"
+	"time"
 )
+
+// Every call that changes state, or tries to: who, what, on what, how it ended.
+type RookeryAudit struct {
+	ID        int64
+	At        time.Time
+	Principal string
+	Procedure string
+	Resource  string
+	Outcome   string
+	Detail    string
+}
+
+// Levels held on a resource by user:ID, group:ID or everyone.
+type RookeryGrants struct {
+	Resource  string
+	Principal string
+	Level     int16
+	CreatedAt time.Time
+}
+
+// OIDC claim values whose holders join the group, refreshed at each sign-in.
+type RookeryGroupClaims struct {
+	GroupID string
+	Claim   string
+	Value   string
+}
+
+type RookeryGroupMembers struct {
+	GroupID string
+	UserID  string
+	Source  string
+}
+
+type RookeryGroups struct {
+	ID        string
+	Name      string
+	CreatedAt time.Time
+}
+
+// One-time sign-in links, 24 hours, held by their token hash.
+type RookeryLinks struct {
+	TokenHash []byte
+	Email     string
+	UserID    *string
+	CreatedBy *string
+	ExpiresAt time.Time
+	UsedAt    *time.Time
+	CreatedAt time.Time
+}
 
 // Values per database: the schema digest today, more later.
 type RookeryMeta struct {
 	Key       string
 	Value     []byte
-	UpdatedAt pgtype.Timestamptz
+	UpdatedAt time.Time
+}
+
+// Every resource a grant can name, as a URI, with its parent.
+type RookeryResources struct {
+	Uri       string
+	Parent    *string
+	CreatedAt time.Time
+}
+
+// Device sessions: a browser cookie, held by its secret hash, with its CSRF token.
+type RookerySessions struct {
+	ID         string
+	SecretHash []byte
+	UserID     string
+	Csrf       string
+	UserAgent  string
+	CreatedAt  time.Time
+	SeenAt     time.Time
+}
+
+type RookerySpaces struct {
+	ID        string
+	Kind      string
+	Name      string
+	Archived  bool
+	CreatedBy *string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// Access tokens, rkpat_ ones, held by their SHA-256.
+type RookeryTokens struct {
+	ID         string
+	UserID     string
+	Name       string
+	TokenHash  []byte
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
+}
+
+// People who can sign in. The email is stored lower-cased.
+type RookeryUsers struct {
+	ID        string
+	Email     string
+	Name      string
+	Admin     bool
+	Disabled  bool
+	CreatedAt time.Time
 }

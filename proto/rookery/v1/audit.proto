@@ -1,0 +1,50 @@
+// The audit trail: every call that changes state, with who, what and how it
+// ended.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// AuditEntry is one call that changed state, or tried to.
+message AuditEntry {
+  int64 id = 1;
+  google.protobuf.Timestamp at = 2;
+  // Principal is who called, such as user:01h… or plugin:example.
+  string principal = 3;
+  // Procedure is the full name, such as rookery.v1.SpaceService/Create.
+  string procedure = 4;
+  // Resource is the resource URI the call was about, when it named one.
+  string resource = 5;
+  // Outcome is "ok", "denied" or "error".
+  string outcome = 6;
+  // Detail says more about a refusal or an error.
+  string detail = 7;
+}
+
+message AuditServiceListRequest {
+  // Principal, Procedure and Resource filter when they are set.
+  string principal = 1;
+  string procedure = 2;
+  string resource = 3;
+  google.protobuf.Timestamp after = 4;
+  google.protobuf.Timestamp before = 5;
+  int32 limit = 6;
+  string cursor = 7;
+}
+
+message AuditServiceListResponse {
+  repeated AuditEntry entries = 1;
+  string next_cursor = 2;
+}
+
+// AuditService reads the audit trail.
+service AuditService {
+  rpc List(AuditServiceListRequest) returns (AuditServiceListResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+}

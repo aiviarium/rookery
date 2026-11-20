@@ -1,0 +1,85 @@
+// The local admin: what the server's own machine may do without signing in.
+// LocalService is served on the Unix socket only, and every call needs the
+// Unix socket's local admin principal.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+message LocalServiceSetupLinkRequest {}
+
+message LocalServiceSetupLinkResponse {
+  // Url is the first admin's one-time sign-in link.
+  string url = 1;
+  // Created is false when the deployment already has an admin, and the URL was
+  // not made.
+  bool created = 2;
+}
+
+message LocalServiceCreateTokenRequest {
+  // Email is the user the token is for.
+  string email = 1;
+  string name = 2;
+}
+
+message LocalServiceCreateTokenResponse {
+  // Token is the access token's secret. It is shown once.
+  string token = 1;
+}
+
+message LocalServiceRekeyRequest {}
+
+message LocalServiceRekeyResponse {
+  // Rows is how many sealed values were resealed.
+  int64 rows = 1;
+}
+
+message LocalServiceResetRequest {}
+
+message LocalServiceResetResponse {}
+
+message LocalServiceDialRequest {
+  // Data is bytes to send to the far end.
+  bytes data = 1;
+}
+
+message LocalServiceDialResponse {
+  bytes data = 1;
+}
+
+// LocalService is the server's own machine's privilege: the first setup link,
+// a token for a user, a rekey of the sealed secrets, a reset of the database,
+// and a dial through the tailnet.
+service LocalService {
+  // SetupLink makes the first admin's one-time link, and only while the
+  // deployment has no admin.
+  rpc SetupLink(LocalServiceSetupLinkRequest) returns (LocalServiceSetupLinkResponse) {
+    option (rookery.v1.access) = { level: LEVEL_LOCAL };
+  }
+
+  // CreateToken makes an access token for a user, for a machine that has no
+  // sign-in.
+  rpc CreateToken(LocalServiceCreateTokenRequest) returns (LocalServiceCreateTokenResponse) {
+    option (rookery.v1.access) = { level: LEVEL_LOCAL };
+  }
+
+  // Rekey reseals every sealed secret under the current deployment key.
+  rpc Rekey(LocalServiceRekeyRequest) returns (LocalServiceRekeyResponse) {
+    option (rookery.v1.access) = { level: LEVEL_LOCAL };
+  }
+
+  // Reset drops and recreates the database's schemas.
+  rpc Reset(LocalServiceResetRequest) returns (LocalServiceResetResponse) {
+    option (rookery.v1.access) = { level: LEVEL_LOCAL };
+  }
+
+  // Dial opens a byte stream to a host's address through the tailnet, for
+  // Ansible's SSH ProxyCommand. It arrives with the tailnet item.
+  rpc Dial(stream LocalServiceDialRequest) returns (stream LocalServiceDialResponse) {
+    option (rookery.v1.access) = { level: LEVEL_LOCAL };
+  }
+}
