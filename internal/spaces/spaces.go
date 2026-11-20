@@ -10,7 +10,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
+	"sync"
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5"
@@ -41,6 +43,49 @@ func CoreKinds() []Kind {
 	out := make([]Kind, len(coreKinds))
 	copy(out, coreKinds)
 	return out
+}
+
+// Registry are the kinds of space a deployment has: the core's, and the ones the
+// installed plugins declare.
+type Registry struct {
+	mu       sync.RWMutex
+	declared []Kind
+}
+
+// NewRegistry returns the core's kinds, with none declared yet.
+func NewRegistry() *Registry { return &Registry{} }
+
+// Declare adds the kinds a plugin declares. It refuses a kind of the core's and
+// one that is declared already, so that a space's kind always has one owner.
+func (r *Registry) Declare(kinds ...Kind) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, kind := range kinds {
+		if kind.ID == "" || kind.Plugin == "" {
+			return fmt.Errorf("%w: a kind of space needs an id and its plugin", access.ErrInvalid)
+		}
+		if IsCoreKind(kind.ID) {
+			return fmt.Errorf("%w: %s is a kind of the core's", access.ErrInvalid, kind.ID)
+		}
+		for _, declared := range r.declared {
+			if declared.ID == kind.ID {
+				return fmt.Errorf("%w: the kind %s is declared by %s", access.ErrConflict, kind.ID, declared.Plugin)
+			}
+		}
+		r.declared = append(r.declared, kind)
+	}
+	return nil
+}
+
+// All returns the core's kinds and then the plugins', by id.
+func (r *Registry) All() []Kind {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := CoreKinds()
+	rest := make([]Kind, len(r.declared))
+	copy(rest, r.declared)
+	sort.Slice(rest, func(i, j int) bool { return rest[i].ID < rest[j].ID })
+	return append(out, rest...)
 }
 
 // IsCoreKind reports whether a kind is one of the core's.
@@ -255,15 +300,21 @@ func Message(space store.RookerySpaces) *rookeryv1.Space {
 
 // Service is SpaceService.
 type Service struct {
-	spaces *Spaces
+	spaces   *Spaces
+	registry *Registry
 }
 
-// NewService returns SpaceService for a database.
-func NewService(open *Spaces) *Service { return &Service{spaces: open} }
+// NewService returns SpaceService for a database and the deployment's kinds.
+func NewService(open *Spaces, registry *Registry) *Service {
+	if registry == nil {
+		registry = NewRegistry()
+	}
+	return &Service{spaces: open, registry: registry}
+}
 
 // ListKinds returns the kinds the core declares.
 func (s *Service) ListKinds(context.Context, *connect.Request[rookeryv1.SpaceServiceListKindsRequest]) (*connect.Response[rookeryv1.SpaceServiceListKindsResponse], error) {
-	kinds := CoreKinds()
+	kinds := s.registry.All()
 	out := make([]*rookeryv1.SpaceKind, 0, len(kinds))
 	for _, kind := range kinds {
 		out = append(out, &rookeryv1.SpaceKind{Id: kind.ID, Label: kind.Label, Plugin: kind.Plugin})

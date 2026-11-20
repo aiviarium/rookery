@@ -24,7 +24,7 @@ func start(t *testing.T, opened *store.Store, principal access.Principal) (rooke
 
 	checker := access.NewChecker(opened)
 	recorder := audit.NewRecorder(opened)
-	spaceService := spaces.NewService(spaces.New(opened, checker))
+	spaceService := spaces.NewService(spaces.New(opened, checker), nil)
 	auditService := audit.NewService(recorder)
 
 	server := accesstest.New(t, checker, principal, func(mux *http.ServeMux, options []connect.HandlerOption) {

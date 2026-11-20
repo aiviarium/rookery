@@ -412,14 +412,6 @@ COMMENT ON TABLE rookery.provisioned_resources IS 'Machines and other resources 
 -- A host has at most one machine.
 CREATE UNIQUE INDEX provisioned_resources_one_machine ON rookery.provisioned_resources (name) WHERE kind = 'machine';
 CREATE INDEX provisioned_resources_by_provisioner ON rookery.provisioned_resources (provisioner, id);
-=======
-CREATE INDEX rollout_hosts_state ON rookery.rollout_hosts (rollout_id, state, batch);
-
--- A schedule runs a job kind, or starts a roll-out when its rollout is set.
--- The column lives in this section to keep one item's changes in one place.
-ALTER TABLE rookery.schedules ADD COLUMN rollout bytea NOT NULL DEFAULT ''::bytea;
-
-COMMENT ON COLUMN rookery.schedules.rollout IS 'The roll-out to start as CBOR, instead of a job kind, when it is set.';
 -- ---------------------------------------------------------------------------
 -- Plugins. A row per installed package: its manifest, its hash, whether it is
 -- enabled, and where its files are (ROOKERY_STATE_DIR/plugins/<id>/<sha256>/).

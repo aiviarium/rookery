@@ -42,20 +42,13 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	checker := access.NewChecker(opened)
 	recorder := audit.NewRecorder(opened)
 
-	// Plugins: the packages installed in this deployment. Their services and
-	// their client halves arrive with the rest of the plugin item.
-	installer := plugins.NewInstaller(plugins.Options{
-		Store:    opened,
-		StateDir: s.config.StateDir,
-		Logger:   s.log,
-	})
-
 	users := authn.NewUsers(opened)
 	sessions := authn.NewSessions(opened)
 	tokens := authn.NewTokens(opened)
 	links := authn.NewLinks(opened, s.config.PublicURL)
 	groups := authn.NewGroups(opened)
 	spaceList := spaces.New(opened, checker)
+	spaceKinds := spaces.NewRegistry()
 
 	var provider *authn.OIDC
 	if s.config.OIDCEnabled() {
@@ -96,6 +89,19 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	schedules := jobs.NewSchedules(opened, registry, jobRunner, s.log)
 	scheduler := jobs.NewScheduler(schedules)
 
+
+	// Plugins: the packages installed in this deployment. Their services arrive
+	// with the rest of the plugin item, and their collections with the
+	// datastore's service, which fills in Data.
+	installer := plugins.NewInstaller(plugins.Options{
+		Store:     opened,
+		StateDir:  s.config.StateDir,
+		Jobs:      registry,
+		Schedules: schedules,
+		Spaces:    spaceKinds,
+		Logger:    s.log,
+	})
+
 	if interrupted, err := jobs.InterruptRunning(ctx, opened); err != nil {
 		return nil, err
 	} else if interrupted > 0 {
@@ -107,7 +113,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		users:         authn.NewUsersService(users, links),
 		groups:        authn.NewGroupsService(groups),
 		access:        access.NewService(checker, opened),
-		spaces:        spaces.NewService(spaceList),
+		spaces:        spaces.NewService(spaceList, spaceKinds),
 		audit:         audit.NewService(recorder),
 		local:         NewLocalService(opened, users, links, s.config.PublicURL),
 		jobs:          jobs.NewJobService(jobRunner),

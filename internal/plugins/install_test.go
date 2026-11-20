@@ -2,13 +2,19 @@ package plugins_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
 	"github.com/aiviarium/rookery/internal/access"
+	"github.com/aiviarium/rookery/internal/data"
+	"github.com/aiviarium/rookery/internal/jobs"
 	"github.com/aiviarium/rookery/internal/plugins"
+	"github.com/aiviarium/rookery/internal/spaces"
 	"github.com/aiviarium/rookery/internal/store/storetest"
 )
 
@@ -220,5 +226,94 @@ func TestInstallRefusesAPackageThatIsNotOne(t *testing.T) {
 	installer := plugins.NewInstaller(plugins.Options{Store: opened, StateDir: t.TempDir()})
 	if _, err := installer.Install(t.Context(), bytes.NewReader([]byte("not a package"))); !errors.Is(err, plugins.ErrPackage) {
 		t.Fatalf("installing rubbish gave %v", err)
+	}
+}
+
+// authorizer gives everyone manage, for a datastore a test builds.
+type authorizer struct{}
+
+// Level is manage on everything.
+func (authorizer) Level(context.Context, data.Principal, string) (rookeryv1.Level, error) {
+	return rookeryv1.Level_LEVEL_MANAGE, nil
+}
+
+// writeDeclaringFixture writes a plugin that declares everything an install
+// registers, and returns its folder.
+func writeDeclaringFixture(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	manifest := `id: notepad
+version: 0.1.0
+name: Notepad
+collections:
+  notes:
+    scope: space
+    access: { read: view, write: use }
+    history: true
+    fields:
+      title: { type: text, required: true }
+      done: { type: bool, default: false }
+    indexes: [[done]]
+    entity: { kind: Note, title: title, text: [title] }
+spaceKinds: [{ id: notebook, label: Notebook }]
+jobs: [{ kind: reindex, enqueue: { level: manage, resource: space }, timeout: 10m, retries: 3 }]
+schedules: [{ kind: reindex, cron: "0 3 * * *" }]
+`
+	if err := os.WriteFile(filepath.Join(dir, "plugin.yaml"), []byte(manifest), 0o600); err != nil {
+		t.Fatalf("writing the manifest: %v", err)
+	}
+	return dir
+}
+
+func TestInstallRegistersWhatThePluginDeclares(t *testing.T) {
+	t.Parallel()
+
+	opened := storetest.New(t)
+	registry := jobs.NewRegistry()
+	schedules := jobs.NewSchedules(opened, registry, jobs.NewService(opened, access.NewChecker(opened), registry, nil, nil), nil)
+	kinds := spaces.NewRegistry()
+	datastore := data.New(data.Config{Store: opened, Authorizer: authorizer{}})
+	installer := plugins.NewInstaller(plugins.Options{
+		Store:     opened,
+		StateDir:  t.TempDir(),
+		Data:      datastore,
+		Jobs:      registry,
+		Schedules: schedules,
+		Spaces:    kinds,
+	})
+
+	var packageBytes bytes.Buffer
+	if _, err := plugins.Pack(t.Context(), &packageBytes, writeDeclaringFixture(t)); err != nil {
+		t.Fatalf("packing the fixture: %v", err)
+	}
+	if _, err := installer.Install(t.Context(), bytes.NewReader(packageBytes.Bytes())); err != nil {
+		t.Fatalf("installing the fixture: %v", err)
+	}
+
+	// The collection is declared, and its table is there.
+	if !datastore.Declared("notepad/notes") {
+		t.Error("the collection is not declared")
+	}
+	var table *string
+	err := opened.Pool().QueryRow(t.Context(), `SELECT to_regclass('p_notepad.notes')::text`).Scan(&table)
+	if err != nil || table == nil || *table != "p_notepad.notes" {
+		t.Errorf("the collection's table is %v: %v", table, err)
+	}
+
+	// Its job kind is the runner's, and its schedule runs it.
+	kind, known := registry.Kind("notepad/reindex")
+	if !known || kind.Level != access.Manage || kind.Timeout != 10*time.Minute || kind.Retries != 3 {
+		t.Errorf("the job kind is %+v, known %v", kind, known)
+	}
+	found, err := schedules.List(t.Context(), "", 10)
+	if err != nil || len(found) != 1 || found[0].Name != "notepad/reindex" || found[0].Kind != "notepad/reindex" {
+		t.Fatalf("the schedules are %+v: %v", found, err)
+	}
+
+	// Its kind of space is listed after the core's.
+	listed := kinds.All()
+	if len(listed) != len(spaces.CoreKinds())+1 || listed[len(listed)-1].ID != "notebook" {
+		t.Errorf("the kinds of space are %+v", listed)
 	}
 }

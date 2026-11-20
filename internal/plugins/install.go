@@ -20,6 +20,8 @@ import (
 	rookeryv1 "github.com/aiviarium/rookery/gen/go/rookery/v1"
 	"github.com/aiviarium/rookery/internal/access"
 	"github.com/aiviarium/rookery/internal/data"
+	"github.com/aiviarium/rookery/internal/jobs"
+	"github.com/aiviarium/rookery/internal/spaces"
 	"github.com/aiviarium/rookery/internal/store"
 )
 
@@ -35,8 +37,15 @@ type Options struct {
 	// <StateDir>/plugins/<id>/<sha256>/.
 	StateDir string
 	// Data is the datastore, whose declaration a plugin's collections are, and
-	// whose schema a purge drops.
+	// whose schema a purge drops. Without it a plugin's collections are not
+	// declared, which is the case until the datastore's service is wired.
 	Data *data.Data
+	// Jobs is the job kinds, which a plugin adds to.
+	Jobs *jobs.Registry
+	// Schedules makes the schedules a plugin starts with.
+	Schedules *jobs.Schedules
+	// Spaces is the kinds of space a plugin adds.
+	Spaces *spaces.Registry
 	// Logger says what an install did.
 	Logger *slog.Logger
 }
@@ -44,10 +53,13 @@ type Options struct {
 // Installer installs, updates and removes plugin packages: it records the
 // package, unpacks its files, and registers what it declares.
 type Installer struct {
-	store    *store.Store
-	stateDir string
-	data     *data.Data
-	logger   *slog.Logger
+	store     *store.Store
+	stateDir  string
+	data      *data.Data
+	jobs      *jobs.Registry
+	schedules *jobs.Schedules
+	spaces    *spaces.Registry
+	logger    *slog.Logger
 }
 
 // NewInstaller returns an installer.
@@ -57,10 +69,13 @@ func NewInstaller(options Options) *Installer {
 		logger = slog.New(slog.DiscardHandler)
 	}
 	return &Installer{
-		store:    options.Store,
-		stateDir: options.StateDir,
-		data:     options.Data,
-		logger:   logger,
+		store:     options.Store,
+		stateDir:  options.StateDir,
+		data:      options.Data,
+		jobs:      options.Jobs,
+		schedules: options.Schedules,
+		spaces:    options.Spaces,
+		logger:    logger,
 	}
 }
 
@@ -126,6 +141,11 @@ func (i *Installer) Install(ctx context.Context, packageReader io.Reader) (Plugi
 	previous, err := i.Get(ctx, manifest.ID)
 	switch {
 	case errors.Is(err, access.ErrNotFound):
+		// A plugin that is not there yet declares its collections, job kinds
+		// and kinds of space before anything is made.
+		if err := i.declare(ctx, manifest); err != nil {
+			return Plugin{}, err
+		}
 	case err != nil:
 		return Plugin{}, err
 	default:
@@ -171,8 +191,82 @@ func (i *Installer) Install(ctx context.Context, packageReader io.Reader) (Plugi
 		return Plugin{}, fmt.Errorf("plugins: recording the plugin's resource: %w", err)
 	}
 
+	i.declareAtRuntime(ctx, manifest)
 	i.logger.Info("installed a plugin", slog.String("plugin", manifest.ID), slog.String("version", manifest.Version))
 	return pluginOf(record)
+}
+
+// declare adds a plugin's declarations to the packages that own them, and makes
+// its tables: a declaration that is refused leaves no table behind.
+func (i *Installer) declare(ctx context.Context, manifest *Manifest) error {
+	if i.data != nil {
+		collections := make([]*data.Collection, 0, len(manifest.Collections))
+		for name, declaration := range manifest.Collections {
+			collection, err := collectionOf(manifest.ID, name, declaration)
+			if err != nil {
+				return err
+			}
+			collections = append(collections, collection)
+		}
+		if err := i.data.Declare(collections...); err != nil {
+			return fmt.Errorf("plugins: declaring the collections of %s: %w", manifest.ID, err)
+		}
+		if err := i.data.Create(ctx, manifest.ID); err != nil {
+			return err
+		}
+	}
+
+	if i.jobs != nil {
+		kinds := make([]jobs.Kind, 0, len(manifest.Jobs))
+		for _, declared := range manifest.Jobs {
+			kind, err := kindOf(manifest.ID, declared)
+			if err != nil {
+				return err
+			}
+			kinds = append(kinds, kind)
+		}
+		if err := i.jobs.RegisterKinds(kinds...); err != nil {
+			return fmt.Errorf("plugins: registering the jobs of %s: %w", manifest.ID, err)
+		}
+	}
+
+	if i.spaces != nil && len(manifest.SpaceKinds) > 0 {
+		kinds := make([]spaces.Kind, 0, len(manifest.SpaceKinds))
+		for _, declared := range manifest.SpaceKinds {
+			kinds = append(kinds, spaceKindOf(manifest.ID, declared))
+		}
+		if err := i.spaces.Declare(kinds...); err != nil {
+			return fmt.Errorf("plugins: declaring the kinds of space of %s: %w", manifest.ID, err)
+		}
+	}
+	return nil
+}
+
+// declareAtRuntime adds what an install starts besides the declarations: the
+// schedules the plugin runs on.
+func (i *Installer) declareAtRuntime(ctx context.Context, manifest *Manifest) {
+	if i.schedules == nil {
+		return
+	}
+	for index, declared := range manifest.Schedules {
+		name := manifest.ID + "/" + declared.Kind
+		if index > 0 {
+			name = fmt.Sprintf("%s/%d", name, index)
+		}
+		kind, err := kindOf(manifest.ID, Job{Kind: declared.Kind})
+		if err != nil {
+			continue
+		}
+		if _, err := i.schedules.Create(context.WithoutCancel(ctx), jobs.ScheduleRequest{
+			Name: name,
+			Kind: kind.Name,
+			Cron: declared.Cron,
+		}); err != nil {
+			// An update keeps the schedule it made the first time.
+			i.logger.Warn("making a plugin's schedule",
+				slog.String("plugin", manifest.ID), slog.String("schedule", name), slog.String("error", err.Error()))
+		}
+	}
 }
 
 // Get returns an installed plugin.

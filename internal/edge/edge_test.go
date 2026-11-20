@@ -49,7 +49,7 @@ func start(t *testing.T) (*store.Store, *site) {
 	tokens := authn.NewTokens(opened)
 	links := authn.NewLinks(opened, "https://rookery.example.test")
 	groups := authn.NewGroups(opened)
-	spaceService := spaces.NewService(spaces.New(opened, checker))
+	spaceService := spaces.NewService(spaces.New(opened, checker), nil)
 	localService := server.NewLocalService(opened, users, links, "https://rookery.example.test")
 
 	built := edge.New(edge.Deps{

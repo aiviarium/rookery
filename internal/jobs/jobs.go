@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -99,8 +100,10 @@ func (f HandlerFunc) Run(ctx context.Context, job Job, log *Log) ([]byte, error)
 }
 
 // Registry is the kinds this server knows, and the handlers of the ones that run
-// here. It is filled at start-up, before the runner runs, and read-only after.
+// here. It is filled at start-up, and a plugin's kinds join it when the plugin is
+// installed, so it is safe for concurrent use.
 type Registry struct {
+	mu       sync.RWMutex
 	kinds    map[string]Kind
 	handlers map[string]Handler
 }
@@ -112,6 +115,8 @@ func NewRegistry() *Registry {
 
 // Register adds a kind and its in-process handler.
 func (r *Registry) Register(kind Kind, handler Handler) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if kind.Name == "" {
 		return errors.New("jobs: a kind needs a name")
 	}
@@ -132,6 +137,8 @@ func (r *Registry) Register(kind Kind, handler Handler) error {
 // RegisterKinds adds kinds without handlers, for the ones another item gives a
 // handler.
 func (r *Registry) RegisterKinds(kinds ...Kind) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for _, kind := range kinds {
 		if _, seen := r.kinds[kind.Name]; seen {
 			return fmt.Errorf("jobs: the kind %s is there already", kind.Name)
@@ -146,12 +153,16 @@ func (r *Registry) RegisterKinds(kinds ...Kind) error {
 
 // Kind returns a kind.
 func (r *Registry) Kind(name string) (Kind, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	kind, ok := r.kinds[name]
 	return kind, ok
 }
 
 // Kinds returns every kind, for a listing.
 func (r *Registry) Kinds() []Kind {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	out := make([]Kind, 0, len(r.kinds))
 	for _, kind := range r.kinds {
 		out = append(out, kind)
@@ -161,12 +172,16 @@ func (r *Registry) Kinds() []Kind {
 
 // handler is the handler of a kind, if it has one.
 func (r *Registry) handler(name string) (Handler, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	handler, ok := r.handlers[name]
 	return handler, ok && handler != nil
 }
 
 // runnable is the core kinds this server can run now.
 func (r *Registry) runnable() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	out := make([]string, 0, len(r.handlers))
 	for name, handler := range r.handlers {
 		if kind, ok := r.kinds[name]; ok && kind.Core && handler != nil {
