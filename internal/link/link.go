@@ -24,7 +24,6 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/aiviarium/rookery/internal/access"
-	"github.com/aiviarium/rookery/internal/agent"
 	"github.com/aiviarium/rookery/internal/pipeconn"
 	"github.com/aiviarium/rookery/internal/store"
 )
@@ -130,7 +129,7 @@ func (m *Manager) KnownHosts() *KnownHosts { return m.known }
 // Use returns the daemon client for a host, opening the link when there is
 // none, and the function that lets it go idle again. A call holds its link while
 // it runs, so the idle close never cuts one short.
-func (m *Manager) Use(ctx context.Context, name string) (*agent.Client, func(), error) {
+func (m *Manager) Use(ctx context.Context, name string) (*Client, func(), error) {
 	conn, err := m.connect(ctx, name)
 	if err != nil {
 		return nil, nil, err
@@ -146,7 +145,7 @@ type connection struct {
 	sess *ssh.Session
 	pipe net.Conn
 
-	client *agent.Client
+	client *Client
 
 	// users counts the calls holding the link; a link with users is not idle.
 	users   atomic.Int32
@@ -236,7 +235,7 @@ func (m *Manager) open(ctx context.Context, name string) (*connection, error) {
 		ssh:    client,
 		sess:   session,
 		pipe:   pipe,
-		client: agent.NewClient(pipeconn.Client(pipe), nil),
+		client: clients(pipeconn.Client(pipe)),
 	}
 	conn.touch()
 	m.options.Log.Info("opened a link", slog.String("host", name), slog.String("address", target.dialAddress()))
