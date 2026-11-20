@@ -201,7 +201,7 @@ A job runs for the server rather than a person. An env call in it names `job.ctx
 
 The job's `enqueue` sets who may start it. With `own`, the default, signed-in users and the declaring plugin may enqueue it. With `plugin`, only the declaring plugin and admins may enqueue it. With `admin`, only admins may enqueue it.
 
-Use `rookery.connections.list({ type })` and `rookery.connections.get(id)` to read metadata for connections of types your plugin declares. Omit `type` to list all of your plugin's types. `rookery.connections.resolve(id)` also opens the sealed credential and returns it to the declaring plugin's process. Host halves use global connections. The server identifies the plugin from its process, so the host half gives no plugin or user ID. Keep credentials out of logs, service responses and job results.
+Use `rookery.connections.list({ type })` and `rookery.connections.get(id)` to read metadata for connections of types your plugin declares. Omit `type` to list all of your plugin's types, and name a `space` for a connection of the space scope the plugin has view on. `rookery.connections.resolve(id)` also opens the sealed credential and returns it to the declaring plugin's process; a type with several secret fields returns the JSON object it was given. The server identifies the plugin from its process, so the host half gives no plugin or user ID. Keep credentials out of logs, service responses and job results.
 
 A host half hears events with `rookery.events.subscribe`. A name without a `/` is its plugin's own, and a full name is another's, such as the server's `rookery/hosts.changed`, `rookery/resources.changed` and `rookery/jobs.changed`.
 
@@ -274,14 +274,16 @@ The rest of the handle takes the context of the handler, and runs as its person:
 | `entities.register`, `remove`, `alias` | The plugin's own entities, in a scheme it declares |
 | `documents.list`, `create`, `edit`, `delete`, `read`, `convert` | Documents, read at `view` and edited at `use` |
 | `users.search(ctx, resource, text)` | People to share a resource with, for a person who holds manage on it |
-| `blobs.put(ctx, data, opts)`, `get`, `delete` | Files of up to 8 MiB, whoever the person is |
+| `blobs.put(ctx, data, opts)`, `get`, `read`, `url`, `delete` | Files of up to 8 MiB, whoever the person is; `url` is a short-lived address on the server's origin |
 | `audit.list(ctx, query)` | The audit log, for a person who is an admin |
 | `schedules.create(ctx, …)`, `list`, `setEnabled`, `fire`, `remove` | The person's own recurring jobs, never another's |
 | `terminals.list(ctx)`, `get`, `screen`, `write`, `close` | The person's terminals, at their level on the host |
 
-Two handles stay the plugin's own, whoever the handler serves: `sql.query`, `sql.execute` and `sql.begin` are the schema the plugin owns and needs `database.sql` in the manifest, and `audit.record` records an action under the plugin's id, its `resource` being free text a reader should not take as proof. `blobs.read` needs the server's stream channel to a host half, which this version does not serve.
+Two handles stay the plugin's own, whoever the handler serves: `sql.query`, `sql.execute` and `sql.begin` are the schema the plugin owns and needs `database.sql` in the manifest, and `audit.record` records an action under the plugin's id, its `resource` being free text a reader should not take as proof.
 
 A handler's call is checked as the person it serves, and a person's own schedules, blobs and terminals are theirs alone. A plugin cannot name a user: the server binds the call to the invocation, refuses a call whose invocation has ended, and ends the change feeds the handler started when the call does.
+
+`blobs.url` is the one handle that outlives its call: the address stays good for as long as it says, up to an hour, whoever held it. Mint one only for a reader you mean to have it. The server serves a blob as a download unless its type cannot run script, and every answer is sandboxed.
 
 #### Host services
 

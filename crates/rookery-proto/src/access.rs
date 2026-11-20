@@ -135,6 +135,8 @@ wire! {
 wire! {
     pub struct UserList {
         pub users: Vec<UserInfo>,
+        /// The groups, with how many members each has, for a shell that shares in one call.
+        pub groups: Vec<GroupInfo>,
     }
 }
 

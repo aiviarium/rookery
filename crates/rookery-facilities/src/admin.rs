@@ -48,9 +48,17 @@ pub fn register(methods: &mut Methods) {
                     .into_iter()
                     .map(user_info)
                     .collect(),
+                groups: call
+                    .store()
+                    .access()
+                    .groups()
+                    .await?
+                    .into_iter()
+                    .map(group_info)
+                    .collect(),
             })
         })
-        .summary("Everyone who has signed in.")
+        .summary("Everyone who has signed in, and the groups, for a share dialog.")
         .level(Level::Admin);
     methods
         .add("admin.setRole", |call: Call, p: SetRole| async move {

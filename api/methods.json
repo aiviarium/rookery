@@ -1037,7 +1037,7 @@
   },
   {
     "name": "admin.users",
-    "summary": "Everyone who has signed in.",
+    "summary": "Everyone who has signed in, and the groups, for a share dialog.",
     "level": {
       "kind": "admin"
     },
@@ -1050,6 +1050,34 @@
     },
     "result": {
       "$defs": {
+        "GroupInfo": {
+          "additionalProperties": false,
+          "properties": {
+            "claim": {
+              "description": "The identity provider's group whose members it has.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "members": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "members"
+          ],
+          "type": "object"
+        },
         "UserInfo": {
           "additionalProperties": false,
           "description": "A person, for admins.",
@@ -1100,6 +1128,13 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
+        "groups": {
+          "description": "The groups, with how many members each has, for a shell that shares in one call.",
+          "items": {
+            "$ref": "#/$defs/GroupInfo"
+          },
+          "type": "array"
+        },
         "users": {
           "items": {
             "$ref": "#/$defs/UserInfo"
@@ -1108,7 +1143,8 @@
         }
       },
       "required": [
-        "users"
+        "users",
+        "groups"
       ],
       "title": "UserList",
       "type": "object"
@@ -2221,6 +2257,55 @@
     }
   },
   {
+    "name": "blobs.url",
+    "summary": "A short-lived address of a blob on the server's origin, up to an hour.",
+    "level": {
+      "kind": "self"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`blobs.url`: the address of a blob on the server's origin, valid for a while.",
+      "properties": {
+        "expiresSecs": {
+          "description": "How long it is good for. Default 300 seconds, at most 3600.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "BlobUrl",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "expiresAt": {
+          "description": "When the address stops working, as RFC 3339 in UTC.",
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "expiresAt"
+      ],
+      "title": "BlobUrlInfo",
+      "type": "object"
+    }
+  },
+  {
     "name": "connections.create",
     "summary": "Makes a connection: a global one as admin, a space's as its manager, or one of the caller's own.",
     "level": {
@@ -2778,23 +2863,23 @@
       "$defs": {
         "ConnectionType": {
           "additionalProperties": false,
-          "description": "A type of connection: what its config holds, and whether it has a credential.",
+          "description": "A type of connection: what its config holds, and which of its fields are sealed.",
           "properties": {
             "config": {
-              "description": "The JSON Schema of its config."
-            },
-            "credential": {
-              "description": "What its credential is, such as \"password\"; none for a type without one.",
-              "type": [
-                "string",
-                "null"
-              ]
+              "description": "The JSON Schema of its config, without the fields that are secret."
             },
             "id": {
               "type": "string"
             },
             "label": {
               "type": "string"
+            },
+            "secrets": {
+              "description": "The fields of its config whose values are sealed as the connection's credential, such as\n`password`, or a GitHub App's private key and webhook secret. The caller sends them\ntogether as the credential, one value or a JSON object.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             },
             "testable": {
               "description": "Whether `connections.test` can try it.",
@@ -2805,6 +2890,7 @@
             "id",
             "label",
             "config",
+            "secrets",
             "testable"
           ],
           "type": "object"

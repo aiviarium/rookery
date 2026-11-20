@@ -1,5 +1,6 @@
 //! `connections.*`: credentials of outside services. A connection has a type, a plain config and a
-//! sealed credential. Rookery's own types are here; plugins will declare more.
+//! sealed credential. A type may name several secret fields; their values are sealed together as the
+//! credential, and never reach the config. Rookery's own types are here; plugins declare more.
 
 use std::collections::BTreeMap;
 
@@ -21,7 +22,7 @@ use crate::{own_user, parse_id, time};
 struct Kind {
     id: &'static str,
     label: &'static str,
-    credential: Option<&'static str>,
+    secrets: &'static [&'static str],
     /// What `connections.test` asks for, after the config's url.
     probe: &'static str,
 }
@@ -30,13 +31,13 @@ const KINDS: [Kind; 2] = [
     Kind {
         id: "registry",
         label: "Container registry",
-        credential: Some("password"),
+        secrets: &["password"],
         probe: "/v2/",
     },
     Kind {
         id: "http",
         label: "HTTP service",
-        credential: Some("token"),
+        secrets: &["token"],
         probe: "",
     },
 ];
@@ -49,11 +50,13 @@ struct PluginKind {
     plugin: String,
     wire: ConnectionType,
     validator: jsonschema::Validator,
-    credential_required: bool,
+    /// Each secret field the type requires; the credential must hold them.
+    required_secrets: Vec<String>,
     scopes: Vec<String>,
 }
 
-/// Connection types declared by the active plugin manifests. A type can hold one sealed credential.
+/// Connection types declared by the active plugin manifests. Whatever secrets a type names are
+/// sealed together as its credential.
 #[derive(Default)]
 pub struct PluginKinds(BTreeMap<String, PluginKind>);
 
@@ -92,14 +95,14 @@ impl PluginKind {
         if config["type"] != "object" {
             return None;
         }
-        let mut credential_required = false;
-        // One sealed credential at most: a list of one field's name, or none.
-        // Any other JSON type would leave the secret in the plain config.
-        let credential = match value.get("secret") {
-            None | Some(Value::Null) => None,
-            Some(Value::Array(fields)) => match fields.as_slice() {
-                [] => None,
-                [field] => {
+        let mut required_secrets = Vec::new();
+        // Every field the type names is sealed together as one credential, so none stays in the
+        // plain config, whatever their number.
+        let secrets: Vec<String> = match value.get("secret") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Array(fields)) => {
+                let mut names = Vec::with_capacity(fields.len());
+                for field in fields {
                     let name = field.as_str()?;
                     config
                         .get_mut("properties")?
@@ -107,14 +110,15 @@ impl PluginKind {
                         .remove(name)?;
                     if let Some(required) = config.get_mut("required").and_then(Value::as_array_mut)
                     {
-                        credential_required =
-                            required.iter().any(|field| field.as_str() == Some(name));
+                        if required.iter().any(|field| field.as_str() == Some(name)) {
+                            required_secrets.push(name.to_owned());
+                        }
                         required.retain(|field| field.as_str() != Some(name));
                     }
-                    Some(name.to_owned())
+                    names.push(name.to_owned());
                 }
-                _ => return None,
-            },
+                names
+            }
             Some(_) => return None,
         };
         config["additionalProperties"] = Value::Bool(false);
@@ -132,14 +136,78 @@ impl PluginKind {
                 id: id.to_owned(),
                 label: value["title"].as_str()?.to_owned(),
                 config,
-                credential,
+                secrets,
                 testable: false,
             },
             validator,
-            credential_required,
+            required_secrets,
             scopes,
         })
     }
+}
+
+/// Checks a config and the credential a type's fields are sealed in: a bare string for one secret,
+/// and a JSON object holding every required secret when a type names several.
+fn check_credential(kind: &PluginKind, credential: Option<&str>) -> Result<(), RpcError> {
+    let Some(credential) = credential.filter(|value| !value.is_empty()) else {
+        if kind.required_secrets.is_empty() {
+            return Ok(());
+        }
+        return Err(RpcError::invalid(
+            "this type of connection needs a credential",
+        ));
+    };
+    if kind.wire.secrets.is_empty() {
+        return Err(RpcError::invalid(
+            "this type of connection has no credential",
+        ));
+    }
+    if kind.wire.secrets.len() == 1 {
+        // One secret is its value, or an object of its one name.
+        if let Ok(Value::Object(values)) = serde_json::from_str::<Value>(credential) {
+            let name = &kind.wire.secrets[0];
+            if values.len() != 1 || !values.contains_key(name.as_str()) {
+                return Err(RpcError::invalid(format!(
+                    "the credential of {} holds {name}",
+                    kind.wire.id
+                )));
+            }
+        }
+        return Ok(());
+    }
+    let Value::Object(values) = serde_json::from_str::<Value>(credential).map_err(|_| {
+        RpcError::invalid(format!(
+            "the credential of {} is a JSON object",
+            kind.wire.id
+        ))
+    })?
+    else {
+        return Err(RpcError::invalid(format!(
+            "the credential of {} is a JSON object of its secrets",
+            kind.wire.id
+        )));
+    };
+    if let Some(unknown) = values
+        .keys()
+        .find(|name| !kind.wire.secrets.iter().any(|secret| secret == *name))
+    {
+        return Err(RpcError::invalid(format!(
+            "{} is not a secret of {}",
+            unknown, kind.wire.id
+        )));
+    }
+    if let Some(missing) = kind.required_secrets.iter().find(|name| {
+        values
+            .get(name.as_str())
+            .and_then(Value::as_str)
+            .is_none_or(str::is_empty)
+    }) {
+        return Err(RpcError::invalid(format!(
+            "the credential of {} needs {missing}",
+            kind.wire.id
+        )));
+    }
+    Ok(())
 }
 
 fn check_connection(
@@ -147,7 +215,8 @@ fn check_connection(
     id: &str,
     scope: WireScope,
     config: &Value,
-    has_credential: bool,
+    credential: Option<&str>,
+    keep_credential: bool,
 ) -> Result<(), RpcError> {
     if let Some(builtin) = kind(id) {
         return check_config(builtin, config);
@@ -167,27 +236,25 @@ fn check_connection(
             "{id} cannot be used with {scope} scope"
         )));
     }
-    if let Some(secret) = &kind.wire.credential
-        && config.get(secret).is_some()
+    if let Some(secret) = kind
+        .wire
+        .secrets
+        .iter()
+        .find(|secret| config.get(secret.as_str()).is_some())
     {
-        return Err(RpcError::invalid("send the secret field as the credential"));
+        return Err(RpcError::invalid(format!(
+            "send {secret} as the credential, not in the config"
+        )));
     }
     if !kind.validator.is_valid(config) {
         return Err(RpcError::invalid(format!(
             "the configuration does not match the schema of {id}"
         )));
     }
-    if kind.credential_required && !has_credential {
-        return Err(RpcError::invalid(
-            "this type of connection needs a credential",
-        ));
+    if keep_credential {
+        return Ok(());
     }
-    if kind.wire.credential.is_none() && has_credential {
-        return Err(RpcError::invalid(
-            "this type of connection has no credential",
-        ));
-    }
-    Ok(())
+    check_credential(kind, credential)
 }
 
 /// Host halves can see and resolve only the types declared by the plugin on the pipe.
@@ -389,7 +456,7 @@ pub fn register(methods: &mut Methods) {
                     id: k.id.into(),
                     label: k.label.into(),
                     config: config_schema(k),
-                    credential: k.credential.map(Into::into),
+                    secrets: k.secrets.iter().map(|s| (*s).to_owned()).collect(),
                     testable: true,
                 })
                 .collect();
@@ -463,7 +530,7 @@ pub fn register(methods: &mut Methods) {
                 if kind(&p.kind).is_none() {
                     credential = credential.filter(|s| !s.is_empty());
                 }
-                check_connection(&call, &p.kind, p.scope, &p.config, credential.is_some())?;
+                check_connection(&call, &p.kind, p.scope, &p.config, credential, false)?;
                 let scope = match p.scope {
                     WireScope::Global => {
                         call.require_admin()?;
@@ -509,17 +576,21 @@ pub fn register(methods: &mut Methods) {
                         Some(c.as_bytes())
                     }
                 });
-                if p.config.is_some() || (credential.is_some() && kind(&found.kind).is_none()) {
+                if p.config.is_some() || credential.is_some() {
+                    // The type's own scope, so a space connection keeps the scope it was made in.
+                    let scope = match (found.user_id.is_some(), found.space_id.is_some()) {
+                        (true, _) => WireScope::User,
+                        (_, true) => WireScope::Space,
+                        _ => WireScope::Global,
+                    };
+                    let held = p.credential.as_deref().filter(|c| !c.is_empty());
                     check_connection(
                         &call,
                         &found.kind,
-                        if found.user_id.is_some() {
-                            WireScope::User
-                        } else {
-                            WireScope::Global
-                        },
+                        scope,
                         p.config.as_ref().unwrap_or(&found.config),
-                        credential.map_or(found.sealed, |value| value.is_some()),
+                        held,
+                        found.sealed && held.is_none(),
                     )?;
                 }
                 let change = Change {

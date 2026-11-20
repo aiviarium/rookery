@@ -116,6 +116,8 @@ fn typescript_bindings() {
         facilities::ConnectionTested,
         facilities::BlobPut,
         facilities::BlobInfo,
+        facilities::BlobUrl,
+        facilities::BlobUrlInfo,
         facilities::LayoutRef,
         facilities::LayoutValue,
         facilities::LayoutPut,

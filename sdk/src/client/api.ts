@@ -429,11 +429,10 @@ export interface Contexts {
 
 export interface Blobs {
   get(id: string): Promise<BlobInfo>
-  /**
-   * The URL a shell serves a blob from. `rookery serve` has no such route: it reads a blob's bytes
-   * with the `blobs.read` stream, which this handle does not wrap yet.
-   */
+  /** An address of a blob on the server's origin; a signed-in page reads it there. */
   url(id: string): string
+  /** Keeps a file of up to 8 MiB. `name` and `contentType` default to the file's. */
+  upload(file: Blob, opts?: { name?: string; contentType?: string }): Promise<BlobInfo>
 }
 
 export interface Extensions {
@@ -563,6 +562,18 @@ function createData(s: ClientScope, space?: string): Data {
       return out
     },
   }) as unknown as Data
+}
+
+/** The most `blobs.upload` sends. */
+const MAX_BLOB = 8 * 1024 * 1024
+
+function base64(bytes: ArrayBuffer): string {
+  let binary = ""
+  const all = new Uint8Array(bytes)
+  for (let i = 0; i < all.length; i += 0x8000) {
+    binary += String.fromCharCode(...all.subarray(i, i + 0x8000))
+  }
+  return btoa(binary)
 }
 
 export function serviceUrl(plugin: string, service: string, path = "/"): string {
@@ -922,6 +933,16 @@ export function createClientRookery(s: ClientScope): ClientRookery {
     blobs: {
       get: (id) => call("blobs.get", { id }),
       url: (id) => `/blobs/${encodeURIComponent(id)}`,
+      upload: async (file, opts = {}) => {
+        if (file.size > MAX_BLOB) {
+          throw new RookeryError("INVALID", "a blob is at most 8 MiB")
+        }
+        return call("blobs.put", {
+          data: base64(await file.arrayBuffer()),
+          contentType: opts.contentType ?? (file.type || "application/octet-stream"),
+          ...(opts.name !== undefined ? { name: opts.name } : {}),
+        })
+      },
     },
     extensions: {
       list: async (point) => ((await s.rt.call("extensions.list", { point })) as ExtensionList).contributions,

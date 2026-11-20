@@ -7,8 +7,8 @@
 // topics.publish, notify, services (provide and call), extensions, app services, env (on the
 // invocation's behalf, see `envCall`), and data, spaces, entities, documents, users, sql, blobs,
 // audit, schedules and terminals. A handle that takes the context runs for the person the invocation
-// is for (see `invocationCall`), and the plugin itself when it serves none. `streams` and
-// `blobs.read` still answer UNAVAILABLE: both need the server's stream channel to a host half.
+// is for (see `invocationCall`), and the plugin itself when it serves none. `streams` still answers
+// UNAVAILABLE: a channel a client opens needs the server's binary frames to a host half.
 import { z } from "zod"
 import { type Call, collectionsProxy, createCollection, createRefs, type Row } from "../data"
 import { RookeryError } from "../errors"
@@ -828,12 +828,13 @@ function createApi(rt: HostRuntime): Rookery {
     },
     sql: sqlFor(rt),
     connections: {
-      list: async (opts = {}) => {
-        if (opts.space !== undefined) {
-          throw new RookeryError("UNAVAILABLE", "space-scoped connections are unavailable")
-        }
-        return (await rt.call<ConnectionList>("connections.list", { type: opts.type })).connections
-      },
+      list: async (opts = {}) =>
+        (
+          await rt.call<ConnectionList>("connections.list", {
+            type: opts.type,
+            ...(opts.space !== undefined ? { space: opts.space } : {}),
+          })
+        ).connections,
       get: (id) => rt.call<ConnectionInfo>("connections.get", { id }),
       resolve: (id) => rt.call<ConnectionResolved>("connections.resolve", { id }),
     },
@@ -845,11 +846,23 @@ function createApi(rt: HostRuntime): Rookery {
           ...(opts.filename !== undefined ? { name: opts.filename } : {}),
         }) as Promise<BlobInfo>,
       get: (ctx, id) => invocationCall(rt, asInvocation(ctx))("blobs.get", { id }) as Promise<BlobInfo>,
-      read: () => {
-        throw new RookeryError(
-          "UNAVAILABLE",
-          "rookery.blobs.read needs the server's stream channel to a host half, which this version does not serve",
-        )
+      // A host half has no session to send, so it reads a blob over a short-lived signed address.
+      url: async (ctx, id, opts = {}) =>
+        (
+          (await invocationCall(rt, asInvocation(ctx))("blobs.url", {
+            id,
+            ...(opts.expiresSecs !== undefined ? { expiresSecs: opts.expiresSecs } : {}),
+          })) as { url: string }
+        ).url,
+      read: async (ctx, id) => {
+        const address = (
+          (await invocationCall(rt, asInvocation(ctx))("blobs.url", { id })) as { url: string }
+        ).url
+        const answer = await fetch(address)
+        if (!answer.ok) {
+          throw new RookeryError("NOT_FOUND", `the blob ${id} could not be read (${answer.status})`)
+        }
+        return new Uint8Array(await answer.arrayBuffer())
       },
       delete: async (ctx, id) => {
         await invocationCall(rt, asInvocation(ctx))("blobs.delete", { id })

@@ -753,7 +753,7 @@ async fn connections_keep_credentials_sealed() {
 }
 
 #[tokio::test]
-async fn a_connection_type_takes_its_secret_only_as_a_list_of_one_field() {
+async fn a_connection_type_seals_every_field_it_names_as_secret() {
     use rookery_facilities::connections::PluginKinds;
 
     let k: TestKernel = test_kernel!(methods());
@@ -777,8 +777,8 @@ async fn a_connection_type_takes_its_secret_only_as_a_list_of_one_field() {
         .call(&admin, "connections.types", json!({}))
         .await
         .unwrap();
-    // A secret that is not a list of one field's name is no type at all: it would
-    // leave the secret in the plain config.
+    // A secret that is not a list of field names is no type at all: it would leave the
+    // secret in the plain config.
     let ids: Vec<&str> = types["types"]
         .as_array()
         .unwrap()
@@ -786,22 +786,35 @@ async fn a_connection_type_takes_its_secret_only_as_a_list_of_one_field() {
         .filter_map(|kind| kind["id"].as_str())
         .filter(|id| id.starts_with("models."))
         .collect();
-    assert_eq!(ids, ["models.absent", "models.null", "models.one"]);
+    assert_eq!(
+        ids,
+        ["models.absent", "models.null", "models.one", "models.pair"]
+    );
     let one = types["types"]
         .as_array()
         .unwrap()
         .iter()
         .find(|kind| kind["id"] == "models.one")
         .unwrap();
-    assert_eq!(one["credential"], "key");
+    assert_eq!(one["secrets"], json!(["key"]));
     assert!(one["config"]["properties"].get("key").is_none());
+    // Several secrets leave the config together, sealed as the one credential.
+    let pair = types["types"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|kind| kind["id"] == "models.pair")
+        .unwrap();
+    assert_eq!(pair["secrets"], json!(["key", "token"]));
+    assert!(pair["config"]["properties"].get("key").is_none());
+    assert!(pair["config"]["properties"].get("token").is_none());
     let absent = types["types"]
         .as_array()
         .unwrap()
         .iter()
         .find(|kind| kind["id"] == "models.absent")
         .unwrap();
-    assert_eq!(absent["credential"], json!(null));
+    assert_eq!(absent["secrets"], json!([]));
     k.close().await;
 }
 
@@ -834,7 +847,7 @@ async fn a_plugin_connection_seals_its_secret_for_the_declaring_plugin() {
         .iter()
         .find(|kind| kind["id"] == "models.example")
         .unwrap();
-    assert_eq!(listed["credential"], "key");
+    assert_eq!(listed["secrets"], json!(["key"]));
     assert!(listed["config"]["properties"].get("key").is_none());
 
     let mut params = json!({
@@ -874,6 +887,205 @@ async fn a_plugin_connection_seals_its_secret_for_the_declaring_plugin() {
         .unwrap();
     assert_eq!(resolved["credential"], "made-up-key");
     k.close().await;
+}
+
+#[tokio::test]
+async fn a_plugin_records_its_own_actions_and_admin_users_come_with_groups() {
+    let k: TestKernel = test_kernel!(methods());
+    let admin = k.person("Ada", true).await;
+    let ada = admin.user().unwrap().id.clone();
+    let group = k
+        .call(&admin, "admin.createGroup", json!({"name": "Ops"}))
+        .await
+        .unwrap();
+    k.call(
+        &admin,
+        "admin.addMember",
+        json!({"group": group["id"], "user": ada}),
+    )
+    .await
+    .unwrap();
+    // One call for a share dialog: the people and the groups.
+    let people = k.call(&admin, "admin.users", json!({})).await.unwrap();
+    assert_eq!(people["users"][0]["name"], "Ada");
+    assert_eq!(people["groups"][0]["name"], "Ops");
+    assert_eq!(people["groups"][0]["members"], 1);
+
+    // A plugin's own action is recorded under its id, whoever is signed in.
+    let fleet = Caller::Plugin("fleet".into());
+    k.call(
+        &fleet,
+        "audit.record",
+        json!({"action": "mapping.set", "resource": "connection://models", "details": {"task": "text"}}),
+    )
+    .await
+    .unwrap();
+    let log = k.call(&admin, "audit.list", json!({})).await.unwrap();
+    let entry = log["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["action"] == "fleet/mapping.set")
+        .expect("the plugin's action is in the log");
+    assert_eq!(entry["resource"], "connection://models");
+    // A person does not write the log.
+    let member = k.person("Bob", false).await;
+    assert_eq!(
+        code(
+            k.call(
+                &member,
+                "audit.record",
+                json!({"action": "pretend", "details": {}})
+            )
+            .await
+        ),
+        "FORBIDDEN"
+    );
+    k.close().await;
+}
+
+#[tokio::test]
+async fn a_connection_type_with_two_secret_fields_seals_both() {
+    use rookery_facilities::connections::PluginKinds;
+
+    let k: TestKernel = test_kernel!(methods());
+    let manifest = json!({"contributes": {"connectionTypes": [{
+        "id": "code.app",
+        "title": "GitHub App",
+        "fields": {
+            "type": "object",
+            "required": ["appId", "privateKey", "webhookSecret"],
+            "properties": {
+                "appId": {"type": "string"},
+                "privateKey": {"type": "string"},
+                "webhookSecret": {"type": "string"}
+            }
+        },
+        "secret": ["privateKey", "webhookSecret"],
+        "scopes": ["global"]
+    }]}});
+    k.kernel
+        .set_facility(PluginKinds::from_manifests([("code", &manifest)]));
+    let admin = k.person("Mira", true).await;
+    let listed = k
+        .call(&admin, "connections.types", json!({}))
+        .await
+        .unwrap();
+    let kind = listed["types"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|kind| kind["id"] == "code.app")
+        .unwrap();
+    assert_eq!(kind["secrets"], json!(["privateKey", "webhookSecret"]));
+    assert!(kind["config"]["properties"].get("privateKey").is_none());
+    // The config takes the plain fields alone.
+    let mut params = json!({
+        "type": "code.app",
+        "name": "App",
+        "scope": "global",
+        "config": {"appId": "1234", "privateKey": "pem", "webhookSecret": "hook"},
+        "credential": "{\"privateKey\":\"pem\",\"webhookSecret\":\"hook\"}"
+    });
+    assert_eq!(
+        code(k.call(&admin, "connections.create", params.clone()).await),
+        "INVALID"
+    );
+    params["config"] = json!({"appId": "1234"});
+    // One secret is one value; several are an object of their names, with every required one.
+    params["credential"] = json!("pem");
+    assert_eq!(
+        code(k.call(&admin, "connections.create", params.clone()).await),
+        "INVALID"
+    );
+    params["credential"] = json!("{\"privateKey\":\"pem\"}");
+    assert_eq!(
+        code(k.call(&admin, "connections.create", params.clone()).await),
+        "INVALID"
+    );
+    params["credential"] = json!("{\"privateKey\":\"pem\",\"other\":\"x\"}");
+    assert_eq!(
+        code(k.call(&admin, "connections.create", params.clone()).await),
+        "INVALID"
+    );
+    params["credential"] = json!("{\"privateKey\":\"pem\",\"webhookSecret\":\"hook\"}");
+    let made = k.call(&admin, "connections.create", params).await.unwrap();
+    assert_eq!(made["config"], json!({"appId": "1234"}));
+    assert_eq!(made["hasCredential"], true);
+    let resolved = k
+        .call(
+            &Caller::Plugin("code".into()),
+            "connections.resolve",
+            json!({"id": made["id"]}),
+        )
+        .await
+        .unwrap();
+    // Both stay sealed, and reach only the plugin that declared the type.
+    let credential: Value = serde_json::from_str(resolved["credential"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        credential,
+        json!({"privateKey": "pem", "webhookSecret": "hook"})
+    );
+    k.close().await;
+}
+
+#[tokio::test]
+async fn a_signed_blob_address_lasts_at_most_an_hour() {
+    let k: TestKernel = test_kernel!(methods());
+    let ops = k.person("Ops", false).await;
+    let put = k
+        .call(
+            &ops,
+            "blobs.put",
+            json!({"contentType": "text/plain", "data": "aGVsbG8="}),
+        )
+        .await
+        .unwrap();
+    let id = uuid::Uuid::parse_str(put["id"].as_str().unwrap()).unwrap();
+    let now = chrono::Utc::now().timestamp();
+    let good = rookery_facilities::blobs::url(&k.kernel, id, now + 60).unwrap();
+    let (expires, sig) = signature(&good);
+    assert!(rookery_facilities::blobs::verify(
+        &k.kernel,
+        &id.to_string(),
+        expires,
+        &sig,
+        now
+    ));
+    // A signature for longer than an address may last is refused, whoever minted it.
+    let far = rookery_facilities::blobs::url(&k.kernel, id, now + 7200).unwrap();
+    let (expires, sig) = signature(&far);
+    assert!(!rookery_facilities::blobs::verify(
+        &k.kernel,
+        &id.to_string(),
+        expires,
+        &sig,
+        now
+    ));
+    // And one that has passed is too.
+    assert!(!rookery_facilities::blobs::verify(
+        &k.kernel,
+        &id.to_string(),
+        now - 1,
+        "0".repeat(64).as_str(),
+        now
+    ));
+    k.close().await;
+}
+
+/// The expiry and signature of a signed blob address.
+fn signature(url: &str) -> (i64, String) {
+    let query = url.split_once('?').unwrap().1;
+    let mut expires = 0;
+    let mut sig = String::new();
+    for part in query.split('&') {
+        match part.split_once('=').unwrap() {
+            ("expires", value) => expires = value.parse().unwrap(),
+            ("sig", value) => sig = value.to_owned(),
+            _ => {}
+        }
+    }
+    (expires, sig)
 }
 
 #[tokio::test]
@@ -1141,6 +1353,17 @@ async fn settings_storage_and_connections_have_a_space_scope_for_its_members() {
         (made["scope"].clone(), made["spaceId"].clone()),
         (json!("space"), json!(space))
     );
+    // A space's connection keeps its scope when its config changes.
+    let changed = k
+        .call(
+            &ada,
+            "connections.update",
+            json!({"id": made["id"], "config": {"url": "https://wiki.example.test/v2"}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(changed["config"]["url"], "https://wiki.example.test/v2");
+    assert_eq!(changed["scope"], "space");
     let listed = k
         .call(&bob, "connections.list", json!({ "space": space }))
         .await
