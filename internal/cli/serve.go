@@ -29,6 +29,7 @@ another one leading is a standby: it answers /healthz with 503 and waits.`,
 			if err != nil {
 				return err
 			}
+			config.Version = cmd.Root().Version
 			if listen, _ := cmd.Flags().GetString("listen"); listen != "" {
 				config.Listen = listen
 				if config.PublicURL == "" {

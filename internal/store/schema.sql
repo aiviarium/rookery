@@ -553,3 +553,98 @@ COMMENT ON TABLE rookery.document_snapshots IS 'Compacted document states, each 
 COMMENT ON COLUMN rookery.document_snapshots.seq IS 'The last update the snapshot covers; the updates up to it go a day after it was written.';
 
 CREATE INDEX document_snapshots_versions ON rookery.document_snapshots (document_id, seq) WHERE version;
+-- --------------------------------------------------- hosts, links and keys
+-- ── internal/hosts, internal/link ────────────────────────────────────────────
+-- The machines Rookery runs: their profile, the type they have now and the
+-- digest of what an apply last put on them; their labels; the SSH keys the
+-- server logs in with; the host keys it trusts; and where each host's channel
+-- follower stands.
+--
+-- The keys and known hosts are `internal/link`'s: the ring's private keys are
+-- sealed with the deployment's key, and a host key is trusted on first use and
+-- refused when it changes until an admin trusts the new one.
+
+CREATE TABLE rookery.hosts (
+	name           text        PRIMARY KEY,
+	-- type is what the host can do now; the profile's type is what it should be.
+	type           text        NOT NULL CHECK (type IN ('ssh', 'managed', 'workstation')),
+	-- profile is the HostProfile as CBOR in Core Deterministic mode.
+	profile        bytea       NOT NULL,
+	-- address is the host's tailnet address once it has joined one, empty before.
+	address        text        NOT NULL DEFAULT '',
+	applied_digest text        NOT NULL DEFAULT '',
+	applied_at     timestamptz,
+	-- last_seen_at is when a link to the host last answered.
+	last_seen_at   timestamptz,
+	created_by     text        REFERENCES rookery.users (id) ON DELETE SET NULL,
+	created_at     timestamptz NOT NULL DEFAULT now(),
+	updated_at     timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE rookery.hosts IS 'The machines Rookery runs, by name, with the profile an apply makes them and what they are now.';
+COMMENT ON COLUMN rookery.hosts.address IS 'The tailnet address a host that joined one is reached at; empty for one reached at its profile address.';
+COMMENT ON COLUMN rookery.hosts.applied_digest IS 'The digest of the profile an apply last put on the host; a difference from the current digest means it is behind.';
+
+CREATE TABLE rookery.host_labels (
+	host  text NOT NULL REFERENCES rookery.hosts (name) ON UPDATE CASCADE ON DELETE CASCADE,
+	key   text NOT NULL,
+	value text NOT NULL,
+	PRIMARY KEY (host, key)
+);
+
+COMMENT ON TABLE rookery.host_labels IS 'Labels on a host, for roll-outs and filters: role=desk, site=lab.';
+
+CREATE INDEX host_labels_key ON rookery.host_labels (key, value);
+
+-- keys is the ring: the SSH keys the server logs in to its hosts with. One key
+-- is active; a rotation retires the old one, which is kept until no host's
+-- authorized_keys names it any more.
+CREATE TABLE rookery.keys (
+	id          text        PRIMARY KEY,
+	name        text        NOT NULL,
+	-- key_type is the SSH key algorithm, such as ssh-ed25519.
+	key_type    text        NOT NULL,
+	public_key  bytea       NOT NULL,
+	-- private_key is sealed with the deployment's key, the row's id as
+	-- associated data, and key_id names the sealing key.
+	private_key bytea       NOT NULL,
+	key_id      text        NOT NULL,
+	fingerprint text        NOT NULL,
+	created_at  timestamptz NOT NULL DEFAULT now(),
+	retired_at  timestamptz
+);
+
+COMMENT ON TABLE rookery.keys IS 'The SSH key ring: the keys the server logs in with, their private halves sealed.';
+COMMENT ON COLUMN rookery.keys.key_id IS 'The id of the sealing key the private half is sealed with, for a rekey.';
+
+CREATE UNIQUE INDEX keys_one_active ON rookery.keys ((true)) WHERE retired_at IS NULL;
+
+-- known_hosts is the host keys the server trusts, by the address it dials as
+-- knownhosts writes one: "192.0.2.4:22" or "[2001:db8::1]:22". First contact
+-- records the key it was given; a later connection that presents another one is
+-- refused, and the offered key waits in pending_* until an admin trusts it.
+CREATE TABLE rookery.known_hosts (
+	address             text        PRIMARY KEY,
+	host                text        NOT NULL DEFAULT '',
+	key_type            text        NOT NULL,
+	public_key          bytea       NOT NULL,
+	fingerprint         text        NOT NULL,
+	pending_key_type    text,
+	pending_public_key  bytea,
+	pending_fingerprint text,
+	pending_at          timestamptz,
+	first_seen_at       timestamptz NOT NULL DEFAULT now(),
+	trusted_at          timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE rookery.known_hosts IS 'The host keys the server trusts, by address, with the key a mismatch offered for an admin to trust.';
+
+-- host_cursors is where each managed host's channel follower stands: the
+-- sequence of the last message taken in, and published to the server's topics.
+CREATE TABLE rookery.host_cursors (
+	host       text        PRIMARY KEY REFERENCES rookery.hosts (name) ON UPDATE CASCADE ON DELETE CASCADE,
+	sequence   bigint      NOT NULL DEFAULT 0,
+	updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE rookery.host_cursors IS 'The last channel message taken in from each host, for the follower to continue from.';

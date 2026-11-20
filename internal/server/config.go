@@ -20,6 +20,9 @@ import (
 type Config struct {
 	// DatabaseURL is ROOKERY_DATABASE_URL: the Postgres every server uses.
 	DatabaseURL string
+	// Version is the build's version, which the applied digest is taken over.
+	Version string
+
 	// DatabaseLockURL is ROOKERY_DATABASE_LOCK_URL: where the leader lock is
 	// taken when DatabaseURL goes through a pooler that would defeat it. Empty
 	// takes the lock on DatabaseURL.

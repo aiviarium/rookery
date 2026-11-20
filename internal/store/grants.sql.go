@@ -28,6 +28,16 @@ func (q *Queries) DeleteGrant(ctx context.Context, arg DeleteGrantParams) (int64
 	return result.RowsAffected(), nil
 }
 
+const deleteGrantsForResource = `-- name: DeleteGrantsForResource :exec
+DELETE FROM rookery.grants
+WHERE resource = $1
+`
+
+func (q *Queries) DeleteGrantsForResource(ctx context.Context, resource string) error {
+	_, err := q.db.Exec(ctx, deleteGrantsForResource, resource)
+	return err
+}
+
 const deleteResource = `-- name: DeleteResource :execrows
 DELETE FROM rookery.resources
 WHERE uri = $1

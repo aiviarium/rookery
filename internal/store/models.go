@@ -134,6 +134,36 @@ type RookeryGroups struct {
 	CreatedAt time.Time
 }
 
+// The last channel message taken in from each host, for the follower to continue from.
+type RookeryHostCursors struct {
+	Host      string
+	Sequence  int64
+	UpdatedAt time.Time
+}
+
+// Labels on a host, for roll-outs and filters: role=desk, site=lab.
+type RookeryHostLabels struct {
+	Host  string
+	Key   string
+	Value string
+}
+
+// The machines Rookery runs, by name, with the profile an apply makes them and what they are now.
+type RookeryHosts struct {
+	Name    string
+	Type    string
+	Profile []byte
+	// The tailnet address a host that joined one is reached at; empty for one reached at its profile address.
+	Address string
+	// The digest of the profile an apply last put on the host; a difference from the current digest means it is behind.
+	AppliedDigest string
+	AppliedAt     *time.Time
+	LastSeenAt    *time.Time
+	CreatedBy     *string
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
 // A job's log, a line at a time, in the order it was written.
 type RookeryJobLines struct {
 	ID    int64
@@ -163,6 +193,35 @@ type RookeryJobs struct {
 	CreatedAt       time.Time
 	StartedAt       *time.Time
 	FinishedAt      *time.Time
+}
+
+// The SSH key ring: the keys the server logs in with, their private halves sealed.
+type RookeryKeys struct {
+	ID         string
+	Name       string
+	KeyType    string
+	PublicKey  []byte
+	PrivateKey []byte
+	// The id of the sealing key the private half is sealed with, for a rekey.
+	KeyID       string
+	Fingerprint string
+	CreatedAt   time.Time
+	RetiredAt   *time.Time
+}
+
+// The host keys the server trusts, by address, with the key a mismatch offered for an admin to trust.
+type RookeryKnownHosts struct {
+	Address            string
+	Host               string
+	KeyType            string
+	PublicKey          []byte
+	Fingerprint        string
+	PendingKeyType     *string
+	PendingPublicKey   []byte
+	PendingFingerprint *string
+	PendingAt          *time.Time
+	FirstSeenAt        time.Time
+	TrustedAt          time.Time
 }
 
 // Named locks whose fencing number rises on each acquire.

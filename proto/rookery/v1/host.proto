@@ -1,0 +1,240 @@
+// Hosts: the machines Rookery runs, their profile, labels and type.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// HostType is what a host can do, from the least to the most.
+enum HostType {
+  HOST_TYPE_UNSPECIFIED = 0;
+  // HOST_TYPE_SSH is a host Rookery only reaches over SSH.
+  HOST_TYPE_SSH = 1;
+  // HOST_TYPE_MANAGED has the base role: rookeryd, box and the tailnet.
+  HOST_TYPE_MANAGED = 2;
+  // HOST_TYPE_WORKSTATION is a managed host with a desktop.
+  HOST_TYPE_WORKSTATION = 3;
+}
+
+// Capability is what a call needs a host to be able to do. Check answers
+// whether a host can, and refuses with a reason when it cannot.
+enum Capability {
+  CAPABILITY_UNSPECIFIED = 0;
+  CAPABILITY_EXEC = 1;
+  CAPABILITY_TERMINAL = 2;
+  CAPABILITY_FILES = 3;
+  CAPABILITY_PORTS = 4;
+  CAPABILITY_DESKTOP = 5;
+  CAPABILITY_CHANNEL = 6;
+  CAPABILITY_HOST_SERVICES = 7;
+  CAPABILITY_ACTIONS = 8;
+  CAPABILITY_APPLY = 9;
+}
+
+// Desktop is a workstation's desktop: one shared virtual session for one user.
+message Desktop {
+  // User is the desktop's user, "dev" when empty.
+  string user = 1;
+  int32 width = 2;
+  int32 height = 3;
+  // GPU gives the desktop user the render and video groups.
+  bool gpu = 4;
+}
+
+// Feature is one feature of a plugin that a profile applies.
+message Feature {
+  string plugin = 1;
+  string feature = 2;
+  // VarsCbor is the feature's variables: a CBOR map, empty for none.
+  bytes vars_cbor = 3;
+}
+
+// HostProfile is what a host should be: what an apply makes of it.
+message HostProfile {
+  HostType type = 1;
+  // Address is the address Rookery reaches the host at before it has a tailnet
+  // address.
+  string address = 2;
+  // Port is the SSH port, 22 when zero.
+  int32 port = 3;
+  // SshUser is the account the server logs in as, "ops" when empty.
+  string ssh_user = 4;
+  // Operator is the account an apply sets up, "ops" when empty.
+  string operator = 5;
+  // Desktop is set on workstations and refused on other types.
+  Desktop desktop = 6;
+  // Tailnet says whether the host joins a tailnet.
+  bool tailnet = 7;
+  // Registries are the names of the connection entries whose logins the host
+  // gets.
+  repeated string registries = 8;
+  // Features are the plugin features to apply, in the order they run.
+  repeated Feature features = 9;
+  // VarsCbor is the base role's variables: a CBOR map, empty for none.
+  bytes vars_cbor = 10;
+}
+
+// Host is a machine Rookery runs.
+message Host {
+  string name = 1;
+  // Type is what the host can do now; the profile's type is what it should be.
+  HostType type = 2;
+  HostProfile profile = 3;
+  // Address is the tailnet address once the host has joined one, empty before.
+  string address = 4;
+  // AppliedDigest is the digest of the profile an apply last put on the host; a
+  // difference from Digest means the host is behind.
+  string applied_digest = 5;
+  // Digest is the digest the profile has now.
+  string digest = 6;
+  google.protobuf.Timestamp applied_at = 7;
+  google.protobuf.Timestamp last_seen_at = 8;
+  string created_by = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  // Labels are the host's key-value pairs, for roll-outs and filters.
+  map<string, string> labels = 12;
+}
+
+// Credential is how first contact logs in when the key ring's key is refused:
+// a password or a private key, given once and never stored.
+message Credential {
+  oneof kind {
+    string password = 1;
+    // PrivateKey is a PEM private key, PEM-encoded and unencrypted.
+    bytes private_key = 2;
+  }
+}
+
+message HostServiceListRequest {
+  // Label filters by labels, as key=value; a host must have every one.
+  map<string, string> label = 1;
+  int32 limit = 2;
+  string cursor = 3;
+}
+
+message HostServiceListResponse {
+  repeated Host hosts = 1;
+  string next_cursor = 2;
+}
+
+message HostServiceGetRequest {
+  string name = 1;
+}
+
+message HostServiceGetResponse {
+  Host host = 1;
+}
+
+message HostServiceWatchRequest {}
+
+message HostServiceWatchResponse {
+  // Hosts are the hosts as they are now, after the change.
+  repeated Host hosts = 1;
+  // Change is "added", "updated" or "removed".
+  string change = 2;
+}
+
+message HostServiceAddRequest {
+  string name = 1;
+  string address = 2;
+  // Type is what the host is now; "ssh" when unspecified.
+  HostType type = 3;
+  // User is the account the server logs in as, "ops" when empty.
+  string user = 4;
+  // Port is the SSH port, 22 when zero.
+  int32 port = 5;
+  // Credential logs in when the key ring's key is refused. Empty skips first
+  // contact, which an apply or a later check does.
+  Credential credential = 6;
+}
+
+message HostServiceAddResponse {
+  Host host = 1;
+  // FirstContact is what first contact found; empty when it was skipped.
+  string first_contact = 2;
+}
+
+message HostServiceRemoveRequest {
+  string name = 1;
+}
+
+message HostServiceRemoveResponse {}
+
+message HostServiceRenameRequest {
+  string name = 1;
+  string new_name = 2;
+}
+
+message HostServiceRenameResponse {
+  Host host = 1;
+}
+
+message HostServiceSetProfileRequest {
+  string name = 1;
+  HostProfile profile = 2;
+}
+
+message HostServiceSetProfileResponse {
+  Host host = 1;
+}
+
+message HostServiceSetLabelsRequest {
+  string name = 1;
+  // Set are the labels to put; remove names the keys to take away.
+  map<string, string> set = 2;
+  repeated string remove = 3;
+}
+
+message HostServiceSetLabelsResponse {
+  Host host = 1;
+}
+
+message HostServiceCheckRequest {
+  string name = 1;
+  Capability capability = 2;
+}
+
+message HostServiceCheckResponse {
+  // Allowed says whether the host can do it.
+  bool allowed = 1;
+  // Type is what the host can do now.
+  HostType type = 2;
+  // Reason says what would change the answer, when allowed is false.
+  string reason = 3;
+}
+
+// HostService is the machines Rookery runs.
+service HostService {
+  rpc List(HostServiceListRequest) returns (HostServiceListResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+  rpc Get(HostServiceGetRequest) returns (HostServiceGetResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW, resource: "name" };
+  }
+  rpc Watch(HostServiceWatchRequest) returns (stream HostServiceWatchResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+  rpc Add(HostServiceAddRequest) returns (HostServiceAddResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE };
+  }
+  rpc Remove(HostServiceRemoveRequest) returns (HostServiceRemoveResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "name" };
+  }
+  rpc Rename(HostServiceRenameRequest) returns (HostServiceRenameResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "name" };
+  }
+  rpc SetProfile(HostServiceSetProfileRequest) returns (HostServiceSetProfileResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "name" };
+  }
+  rpc SetLabels(HostServiceSetLabelsRequest) returns (HostServiceSetLabelsResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "name" };
+  }
+  rpc Check(HostServiceCheckRequest) returns (HostServiceCheckResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW, resource: "name" };
+  }
+}
