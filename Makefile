@@ -30,17 +30,20 @@ PLUGIN_MODULES := $(patsubst %/go.mod,%,$(wildcard plugins/*/go.mod))
 # The TypeScript SDK's workspace.
 TS_DIR ?= sdk/ts
 
-.PHONY: all tools tools-ts gen gen-proto gen-sql gen-schema db reset test test-plugins lint fmt ts e2e dev build cross clean ansible
+.PHONY: all tools tools-go lint-go test-shard tools-ts gen gen-proto gen-sql gen-schema db reset test test-plugins lint fmt ts e2e dev build cross clean ansible
 
 all: gen lint test
 
-tools:
+tools: tools-go
+	$(MAKE) tools-ts
+
+# The Go tools alone, for the CI jobs that need no TypeScript.
+tools-go:
 	$(GO) install github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
 	$(GO) install github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
 	$(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
 	$(GO) install connectrpc.com/connect/cmd/protoc-gen-connect-go@$(PROTOC_GEN_CONNECT_GO_VERSION)
 	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
-	$(MAKE) tools-ts
 
 # The TypeScript tools: protoc-gen-es, which buf generate runs, and the type
 # checker and test runner from the workspace's dependencies.
@@ -91,6 +94,14 @@ test:
 	@mkdir -p $(TMPDIR)
 	$(GO) test -race ./...
 
+# One of SHARDS slices of the core module's packages, for CI's parallel test
+# jobs: make test-shard SHARD=0 SHARDS=2.
+SHARD ?= 0
+SHARDS ?= 1
+test-shard:
+	@mkdir -p $(TMPDIR)
+	$(GO) test -race $$($(GO) list ./... | awk 'NR % $(SHARDS) == $(SHARD)')
+
 # Each plugin module: the Docker one drives the runner's engine, the Incus one a
 # fake of its API.
 test-plugins:
@@ -102,13 +113,16 @@ test-plugins:
 fmt:
 	gofmt -l -w .
 
-lint:
+lint: lint-go
+	@if [ -d ansible ]; then $(MAKE) ansible; fi
+
+# The Go and proto linters, without Ansible.
+lint-go:
 	@unformatted=$$(gofmt -l .); \
 		if [ -n "$$unformatted" ]; then echo "gofmt found unformatted files:"; echo "$$unformatted"; exit 1; fi
 	$(GO) vet ./...
 	golangci-lint run
 	buf lint
-	@if [ -d ansible ]; then $(MAKE) ansible; fi
 	@for m in $(PLUGIN_MODULES); do \
 		echo "==> $$m"; (cd $$m && $(GO) vet ./... && golangci-lint run) || exit 1; \
 	done

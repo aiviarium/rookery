@@ -34,8 +34,10 @@ jobs:
               - 'go.work.sum'
               - 'Makefile'
 
-  go:
-    name: go
+  # The Go checks run as parallel jobs: generated code, lint, Ansible, the
+  # tests in two shards and the cross-builds. None waits for another.
+  gen:
+    name: gen
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
@@ -59,17 +61,6 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # buf generate runs protoc-gen-es too, and `make tools` installs it from
-      # the TypeScript workspace's dependencies.
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - uses: actions/cache@v6
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('sdk/ts/bun.lock') }}
-
       - name: Prepare the environment
         run: |
           mkdir -p "$RUNNER_TEMP/tmp" "$RUNNER_TEMP/go/bin"
@@ -79,18 +70,23 @@ jobs:
             echo "GOBIN=$RUNNER_TEMP/go/bin"
           } >> "$GITHUB_ENV"
 
-      - name: Install the generation and lint tools
+      # buf generate runs protoc-gen-es from the TypeScript workspace.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('sdk/ts/bun.lock') }}
+
+      - name: Cache the generation and lint tools
         uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}/go/bin
           key: tools-${{ runner.os }}-${{ hashFiles('Makefile') }}
 
-      - run: make tools
-
-      - name: Install Ansible
-        run: |
-          pipx install --include-deps "ansible-lint==26.11.0"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: make tools-go
 
       - name: Generated code is current
         run: |
@@ -101,6 +97,95 @@ jobs:
       - name: Modules are tidy
         run: go mod tidy -diff
 
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Prepare the environment
+        run: |
+          mkdir -p "$RUNNER_TEMP/tmp" "$RUNNER_TEMP/go/bin"
+          {
+            echo "ROOKERY_TEST_POSTGRES=postgres://rookery:rookery-test@127.0.0.1:55432/postgres?sslmode=disable"
+            echo "TMPDIR=$RUNNER_TEMP/tmp"
+            echo "GOBIN=$RUNNER_TEMP/go/bin"
+          } >> "$GITHUB_ENV"
+
+      - name: Cache the generation and lint tools
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/go/bin
+          key: tools-${{ runner.os }}-${{ hashFiles('Makefile') }}
+
+      - run: make tools-go
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/golangci-lint
+          key: golangci-${{ runner.os }}-${{ hashFiles('go.sum', '.golangci.yml') }}-${{ github.sha }}
+          restore-keys: golangci-${{ runner.os }}-${{ hashFiles('go.sum', '.golangci.yml') }}-
+
+      - run: make lint-go
+
+  ansible:
+    name: ansible
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Ansible
+        run: |
+          pipx install --include-deps "ansible-lint==26.11.0"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - run: make ansible
+
+  test:
+    name: test (${{ matrix.shard }}/2)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: rookery
+          POSTGRES_PASSWORD: rookery-test
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U rookery"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Prepare the environment
+        run: |
+          mkdir -p "$RUNNER_TEMP/tmp" "$RUNNER_TEMP/go/bin"
+          {
+            echo "ROOKERY_TEST_POSTGRES=postgres://rookery:rookery-test@127.0.0.1:55432/postgres?sslmode=disable"
+            echo "TMPDIR=$RUNNER_TEMP/tmp"
+            echo "GOBIN=$RUNNER_TEMP/go/bin"
+          } >> "$GITHUB_ENV"
+
       - name: Install Xvfb for the desktop tests
         run: |
           if ! command -v Xvfb >/dev/null; then
@@ -108,12 +193,21 @@ jobs:
             sudo apt-get install -y --no-install-recommends xvfb
           fi
 
-      - run: make lint
+      - run: make test-shard SHARD=${{ matrix.shard }} SHARDS=2
 
-      - run: make test
+  cross:
+    name: cross
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
 
-      - name: Cross-builds
-        run: make cross
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: make cross
 
   ts:
     name: ts
