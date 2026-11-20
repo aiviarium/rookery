@@ -3,9 +3,12 @@
 //! credential, and never reach the config. Rookery's own types are here; plugins declare more.
 
 use std::collections::BTreeMap;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::{Arc, RwLock};
 
 use rookery_kernel::outbound::{self, AddrRange};
-use rookery_kernel::{Call, Caller, Empty, Level, Methods, RpcError};
+use rookery_kernel::{Call, Caller, Empty, Kernel, Level, Methods, RpcError};
 use rookery_proto::IdRef;
 use rookery_proto::facilities::{
     ConnectionCreate, ConnectionInfo, ConnectionList, ConnectionResolve, ConnectionResolved,
@@ -17,6 +20,27 @@ use serde_json::{Value, json};
 use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver};
 
 use crate::{own_user, parse_id, time};
+
+/// Tests a connection of a plugin-declared type by asking the declaring plugin: its app service
+/// `testHandler`, or its host half's `rookery.connections.test` handler.
+pub trait ConnectionTester: Send + Sync {
+    fn test<'a>(
+        &'a self,
+        call: &'a Call,
+        plugin: &'a str,
+        kind: &'a str,
+        resolved: ConnectionResolved,
+        values: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<ConnectionTested, RpcError>> + Send + 'a>>;
+}
+
+#[derive(Default)]
+struct Testers(RwLock<Option<Arc<dyn ConnectionTester>>>);
+
+/// Sets what runs `connections.test` for plugin-declared connection types.
+pub fn set_connection_tester(kernel: &Kernel, tester: Arc<dyn ConnectionTester>) {
+    *kernel.facility::<Testers>().0.write().unwrap() = Some(tester);
+}
 
 /// A type of connection Rookery knows.
 struct Kind {
@@ -130,6 +154,12 @@ impl PluginKind {
             .filter_map(Value::as_str)
             .map(str::to_owned)
             .collect();
+        let has_test_handler = value.get("testHandler").is_some_and(|h| {
+            h.get("service").and_then(Value::as_str).is_some()
+                && h.get("method").and_then(Value::as_str).is_some()
+        });
+        let testable =
+            has_test_handler || value.get("test").and_then(Value::as_bool).unwrap_or(false);
         Some(Self {
             plugin: plugin.to_owned(),
             wire: ConnectionType {
@@ -137,12 +167,38 @@ impl PluginKind {
                 label: value["title"].as_str()?.to_owned(),
                 config,
                 secrets,
-                testable: false,
+                testable,
             },
             validator,
             required_secrets,
             scopes,
         })
+    }
+
+    /// Merges the plain config and the sealed credential's secret fields into one values map, for
+    /// the declaring plugin's own test handler.
+    fn merged_values(&self, config: &Value, credential: Option<&str>) -> Value {
+        let mut map = config.as_object().cloned().unwrap_or_default();
+        if let Some(cred) = credential.filter(|c| !c.is_empty()) {
+            if self.wire.secrets.len() == 1 {
+                let key = &self.wire.secrets[0];
+                if let Ok(Value::Object(obj)) = serde_json::from_str::<Value>(cred)
+                    && obj.len() == 1
+                    && let Some(v) = obj.get(key)
+                {
+                    map.insert(key.clone(), v.clone());
+                } else {
+                    map.insert(key.clone(), Value::String(cred.to_owned()));
+                }
+            } else if let Ok(Value::Object(obj)) = serde_json::from_str::<Value>(cred) {
+                for (k, v) in obj {
+                    if self.wire.secrets.iter().any(|s| s == &k) {
+                        map.insert(k, v);
+                    }
+                }
+            }
+        }
+        Value::Object(map)
     }
 }
 
@@ -432,11 +488,13 @@ async fn probe(
                 ConnectionTested {
                     ok,
                     message: format!("{url} answered {status}"),
+                    details: None,
                 }
             }
             Err(e) => ConnectionTested {
                 ok: false,
                 message: format!("{url}: {e}"),
+                details: None,
             },
         }
     })
@@ -444,6 +502,7 @@ async fn probe(
     .unwrap_or_else(|e| ConnectionTested {
         ok: false,
         message: e.to_string(),
+        details: None,
     })
 }
 
@@ -627,39 +686,85 @@ pub fn register(methods: &mut Methods) {
     methods
         .add("connections.test", |call: Call, p: IdRef| async move {
             let found = changeable(&call, &p.id).await?;
-            let kind = kind(&found.kind).ok_or_else(|| RpcError::unavailable("this connection type has no test"))?;
             let credential = call.store().connections().credential(found.id).await?;
-            let credential = credential.map(|c| String::from_utf8_lossy(&c).into_owned());
-            let url = format!(
-                "{}{}",
-                found.config["url"]
-                    .as_str()
-                    .unwrap_or("")
-                    .trim_end_matches('/'),
-                kind.probe
-            );
-            let user = found
-                .config
-                .get("username")
-                .and_then(Value::as_str)
-                .map(str::to_owned);
-            Ok(probe(
-                url,
+            let credential = credential
+                .map(|c| {
+                    String::from_utf8(c)
+                        .map_err(|_| RpcError::internal("a credential is not text"))
+                })
+                .transpose()?;
+            if let Some(kind) = kind(&found.kind) {
+                let url = format!(
+                    "{}{}",
+                    found.config["url"]
+                        .as_str()
+                        .unwrap_or("")
+                        .trim_end_matches('/'),
+                    kind.probe
+                );
+                let user = found
+                    .config
+                    .get("username")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                return Ok(probe(
+                    url,
+                    credential,
+                    user,
+                    call.kernel.config.outbound_allow.clone(),
+                )
+                .await);
+            }
+            let plugin_kind = call
+                .kernel
+                .get_facility::<PluginKinds>()
+                .and_then(|kinds| {
+                    kinds
+                        .0
+                        .get(&found.kind)
+                        .filter(|k| k.wire.testable)
+                        .map(|k| (k.plugin.clone(), k.merged_values(&found.config, credential.as_deref())))
+                })
+                .ok_or_else(|| RpcError::unavailable("this connection type has no test"))?;
+            let tester = call
+                .kernel
+                .facility::<Testers>()
+                .0
+                .read()
+                .unwrap()
+                .clone()
+                .ok_or_else(|| RpcError::unavailable("this server cannot test plugin connections"))?;
+            let kind_id = found.kind.clone();
+            let resolved = ConnectionResolved {
+                connection: info(found),
                 credential,
-                user,
-                call.kernel.config.outbound_allow.clone(),
-            )
-            .await)
+            };
+            tester
+                .test(&call, &plugin_kind.0, &kind_id, resolved, plugin_kind.1)
+                .await
         })
-        .summary("Asks the service whether it answers with the connection's credential. Internal addresses are refused unless ROOKERY_OUTBOUND_ALLOW allows them.")
+        .summary("Asks the service (or the declaring plugin for plugin-owned types) whether it answers with the connection's credential. Internal addresses are refused for built-in probes unless ROOKERY_OUTBOUND_ALLOW allows them.")
         .level(Level::Own);
     methods
         .add(
             "connections.resolve",
             |call: Call, p: ConnectionResolve| async move {
                 let plugin = call.plugin(p.plugin.as_deref())?;
-                // A plugin's connection authenticates the plugin alone, even inside an RPC handler.
-                let user = call.user().and_then(|u| uuid::Uuid::parse_str(&u.id).ok());
+                // A plugin serving a person can resolve that person's own or visible space
+                // connections of its own declared type, while remaining Caller::Plugin for global
+                // credentials and type ownership checks.
+                let acting = call.user().or(call.acting_user.as_ref());
+                let user = acting.and_then(|u| uuid::Uuid::parse_str(&u.id).ok());
+                let as_person = call.acting_user.clone().map(|u| {
+                    let mut c = call.clone();
+                    c.caller = Caller::User {
+                        user: u,
+                        session: None,
+                        token: None,
+                    };
+                    c
+                });
+                let space_call = as_person.as_ref().unwrap_or(&call);
                 if let (Caller::Plugin(_), None, Some(id)) = (&call.caller, &p.id, &p.kind) {
                     require_kind(&call, &plugin, id)?;
                 }
@@ -669,28 +774,54 @@ pub fn register(methods: &mut Methods) {
                     .map(|s| parse_id("space", s))
                     .transpose()?;
                 let connections = call.store().connections();
-                let found =
-                    match (&p.id, &p.kind, &p.name) {
-                        (Some(id), _, _) => connections
-                            .get(parse_id("connection", id)?)
-                            .await?
-                            .filter(|c| match (c.user_id, c.space_id) {
-                                (Some(owner), _) => user == Some(owner),
-                                (None, Some(_)) => call.is_admin(),
-                                (None, None) => true,
-                            }),
-                        (None, Some(kind), Some(name)) => {
-                            // Only filter by scopes this caller can use, so a hidden override falls
-                            // through to the global connection.
-                            let space = space.filter(|_| call.is_admin());
-                            connections.find_in(kind, name, user, space).await?
+                let found = match (&p.id, &p.kind, &p.name) {
+                    (Some(id), _, _) => {
+                        let candidate = connections.get(parse_id("connection", id)?).await?;
+                        match candidate {
+                            Some(c) => {
+                                let ok = match (c.user_id, c.space_id) {
+                                    (Some(owner), _) => user == Some(owner),
+                                    (None, Some(space_id)) => {
+                                        call.is_admin()
+                                            || crate::access::holds(
+                                                space_call,
+                                                &format!("space://{space_id}"),
+                                                rookery_kernel::Grant::View,
+                                            )
+                                            .await?
+                                    }
+                                    (None, None) => true,
+                                };
+                                ok.then_some(c)
+                            }
+                            None => None,
                         }
-                        _ => {
-                            return Err(RpcError::invalid(
-                                "name the connection by id, or by type and name",
-                            ));
-                        }
-                    };
+                    }
+                    (None, Some(kind), Some(name)) => {
+                        // Only filter by scopes this caller can use, so a hidden override falls
+                        // through to the global connection.
+                        let space = match space {
+                            Some(space_id)
+                                if call.is_admin()
+                                    || crate::access::holds(
+                                        space_call,
+                                        &format!("space://{space_id}"),
+                                        rookery_kernel::Grant::View,
+                                    )
+                                    .await? =>
+                            {
+                                Some(space_id)
+                            }
+                            _ => None,
+                        };
+                        connections.find_in(kind, name, user, space).await?
+                    }
+                    _ => {
+                        return Err(RpcError::invalid(
+                            "name the connection by id, or by type and name",
+                        ));
+                    }
+                };
                 let found = found.ok_or_else(|| RpcError::not_found("no such connection"))?;
                 // Rookery's own types are for people, the shell and the server, never a plugin: a
                 // plugin declares its own type and reads only that one.

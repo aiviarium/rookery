@@ -2807,7 +2807,7 @@
   },
   {
     "name": "connections.test",
-    "summary": "Asks the service whether it answers with the connection's credential. Internal addresses are refused unless ROOKERY_OUTBOUND_ALLOW allows them.",
+    "summary": "Asks the service (or the declaring plugin for plugin-owned types) whether it answers with the connection's credential. Internal addresses are refused for built-in probes unless ROOKERY_OUTBOUND_ALLOW allows them.",
     "level": {
       "kind": "self"
     },
@@ -2831,6 +2831,7 @@
       "additionalProperties": false,
       "description": "The result of `connections.test`.",
       "properties": {
+        "details": true,
         "message": {
           "type": "string"
         },
@@ -8247,6 +8248,101 @@
     }
   },
   {
+    "name": "env.process",
+    "summary": "Starts a streamed, cancellable process on a host with piped stdio, as the agent account or, with manage, as operator or root. Output frames carry tag 1 (stdout), 2 (stderr), or 3 (JSON ProcessExit); client bytes go to stdin and EOF closes stdin; closing the stream ends the process.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "stream": true,
+    "params": {
+      "$defs": {
+        "EnvUser": {
+          "description": "The account a terminal runs as. Anything but `agent` needs manage on the host.",
+          "enum": [
+            "agent",
+            "operator",
+            "root"
+          ],
+          "type": "string"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`env.process`: a process with piped stdio on a host. The stream it opens carries, from the\nserver, frames whose first byte is the tag: `1` stdout, `2` stderr, `3` exit (JSON\n`ProcessExit`). Bytes written to the stream go to stdin; `streams.eof` closes stdin; closing\nthe stream ends the process.",
+      "properties": {
+        "command": {
+          "description": "The words of the command: a program and its arguments, not a shell line.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "cwd": {
+          "description": "An absolute folder inside the host's roots.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "env": {
+          "type": "string"
+        },
+        "timeoutMs": {
+          "description": "Ends the process after this long. Default 1 hour, at most 1 hour.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "user": {
+          "$ref": "#/$defs/EnvUser",
+          "default": "agent",
+          "description": "`agent` unless the caller has manage on the host."
+        },
+        "vars": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Variables for the command, which the host adds to the agent's own environment.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "env",
+        "command"
+      ],
+      "title": "ProcessStart",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "The result of `env.process`.",
+      "properties": {
+        "process": {
+          "description": "For `env.signal`.",
+          "type": "string"
+        },
+        "stream": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "stream",
+        "process"
+      ],
+      "title": "ProcessStarted",
+      "type": "object"
+    }
+  },
+  {
     "name": "env.readFile",
     "summary": "A file on a host inside its roots, as the agent account, in base64 with its SHA-256. Up to 8 MiB.",
     "level": {
@@ -8333,6 +8429,46 @@
         "path"
       ],
       "title": "CheckoutRemove",
+      "type": "object"
+    },
+    "result": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Params or a result with nothing in it: `{}`.",
+      "title": "Empty",
+      "type": "object"
+    }
+  },
+  {
+    "name": "env.signal",
+    "summary": "Sends a signal (INT, TERM, HUP or KILL) to a running env.process.",
+    "level": {
+      "kind": "resource",
+      "param": "env",
+      "grant": "use",
+      "scheme": "env"
+    },
+    "params": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "`env.signal`: sends a POSIX signal (such as `INT`, `TERM`, `KILL`) to a running `env.process`.",
+      "properties": {
+        "env": {
+          "type": "string"
+        },
+        "process": {
+          "type": "string"
+        },
+        "signal": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "env",
+        "process",
+        "signal"
+      ],
+      "title": "ProcessSignal",
       "type": "object"
     },
     "result": {
@@ -32618,6 +32754,13 @@
         "AppServiceStatus": {
           "description": "Where an app service is, and whether it can be called.",
           "properties": {
+            "callbackToken": {
+              "description": "Returned once when `services.setExternal` mints a callback credential for the app service.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "detail": {
               "type": [
                 "string",
@@ -32659,14 +32802,22 @@
   },
   {
     "name": "services.setExternal",
-    "summary": "Places an app service of a plugin at a URL, with the secret the server calls it with.",
+    "summary": "Places an app service of a plugin at a URL, with its inbound secret and distinct callback secret.",
     "level": {
       "kind": "admin"
     },
     "params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "`services.setExternal`: an admin places an app service at a URL, with the secret it is called with.\nWithout `secret` the one kept stays; an empty `url` takes the placement away.",
+      "description": "`services.setExternal`: an admin places an app service at a URL, with the secret it is called with\nand (optionally) a distinct callback secret the service uses to call Rookery back.\nWithout `secret` the one kept stays; an empty `url` takes the placement away.",
       "properties": {
+        "callbackSecret": {
+          "default": null,
+          "description": "Distinct secret the app service presents on `POST /services/rpc`. Must differ from `secret`.\nWhen omitted on initial placement, Rookery mints one and returns it once in `callbackToken`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "plugin": {
           "type": "string"
         },
@@ -32696,6 +32847,13 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "description": "Where an app service is, and whether it can be called.",
       "properties": {
+        "callbackToken": {
+          "description": "Returned once when `services.setExternal` mints a callback credential for the app service.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "detail": {
           "type": [
             "string",
@@ -32748,6 +32906,13 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "description": "Where an app service is, and whether it can be called.",
       "properties": {
+        "callbackToken": {
+          "description": "Returned once when `services.setExternal` mints a callback credential for the app service.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "detail": {
           "type": [
             "string",
@@ -32774,7 +32939,7 @@
   },
   {
     "name": "services.stream",
-    "summary": "Streams a host service method as one JSON value per line.",
+    "summary": "Streams a service method (host half or app service) as one JSON value per line.",
     "level": {
       "kind": "self"
     },

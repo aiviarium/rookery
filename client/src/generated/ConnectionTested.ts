@@ -3,4 +3,4 @@
 /**
  * The result of `connections.test`.
  */
-export type ConnectionTested = { ok: boolean, message: string, };
+export type ConnectionTested = { ok: boolean, message: string, details?: unknown, };

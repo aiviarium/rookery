@@ -1,9 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["crates/rookery-api", "crates/rookery-pty", "crates/rookery-core", "crates/rookery-setup", "crates/rookery", "crates/rookeryd", "crates/box", "crates/rookery-proto", "crates/rookery-store", "crates/rookery-kernel", "crates/rookery-auth", "crates/rookery-server", "crates/rookery-facilities", "crates/rookery-jobs", "crates/rookery-hosts", "crates/rookery-client", "crates/rookery-plugins", "crates/rookery-filter", "crates/rookery-data", "crates/rookery-documents"]
+members = ["crates/rookery-api", "crates/rookery-pty", "crates/rookery-core", "crates/rookery-setup", "crates/rookery", "crates/rookeryd", "crates/box", "crates/rookery-proto", "crates/rookery-sdk", "crates/rookery-store", "crates/rookery-kernel", "crates/rookery-auth", "crates/rookery-server", "crates/rookery-facilities", "crates/rookery-jobs", "crates/rookery-hosts", "crates/rookery-client", "crates/rookery-plugins", "crates/rookery-filter", "crates/rookery-data", "crates/rookery-documents"]
 # The vendored crate is a member because it lives inside; it is left out of what
 # is built, tested and linted by default.
-default-members = ["crates/rookery-api", "crates/rookery-pty", "crates/rookery-core", "crates/rookery-setup", "crates/rookery", "crates/rookeryd", "crates/box", "crates/rookery-proto", "crates/rookery-store", "crates/rookery-kernel", "crates/rookery-auth", "crates/rookery-server", "crates/rookery-facilities", "crates/rookery-jobs", "crates/rookery-hosts", "crates/rookery-client", "crates/rookery-plugins", "crates/rookery-filter", "crates/rookery-data", "crates/rookery-documents"]
+default-members = ["crates/rookery-api", "crates/rookery-pty", "crates/rookery-core", "crates/rookery-setup", "crates/rookery", "crates/rookeryd", "crates/box", "crates/rookery-proto", "crates/rookery-sdk", "crates/rookery-store", "crates/rookery-kernel", "crates/rookery-auth", "crates/rookery-server", "crates/rookery-facilities", "crates/rookery-jobs", "crates/rookery-hosts", "crates/rookery-client", "crates/rookery-plugins", "crates/rookery-filter", "crates/rookery-data", "crates/rookery-documents"]
 
 [workspace.package]
 version = "0.6.0"
@@ -20,6 +20,7 @@ rookery-setup = { path = "crates/rookery-setup" }
 tui-input = { path = "crates/vendor/tui-input", default-features = false }
 # rookery serve. Linux only: none of it reaches the client on macOS and Windows, rookeryd or box.
 rookery-proto = { path = "crates/rookery-proto" }
+rookery-sdk = { path = "crates/rookery-sdk" }
 rookery-store = { path = "crates/rookery-store" }
 rookery-kernel = { path = "crates/rookery-kernel" }
 rookery-auth = { path = "crates/rookery-auth" }

@@ -10,6 +10,7 @@ import type {
   CheckoutRemove,
   ConnectionInfo,
   ConnectionResolved,
+  ConnectionTested,
   DirListing,
   DocumentContent,
   DocumentConvert,
@@ -21,7 +22,9 @@ import type {
   DocumentInfo,
   EntityInfo,
   EntityRegister,
+  EntityTextCall,
   EntityTextList,
+  EntityTextResult,
   EnvInfo,
   EnvPresence,
   ExecResult,
@@ -91,6 +94,11 @@ export interface Access {
   grants(resource: string): Promise<GrantList>
 }
 
+export type EntityTextHandler = (
+  ctx: Ctx,
+  entity: EntityTextCall,
+) => EntityTextResult | null | undefined | Promise<EntityTextResult | null | undefined>
+
 /** The index of everything with a URI. A plugin registers entities of the schemes it declares. */
 export interface Entities {
   lookup(ctx: Ctx, uri: string): Promise<EntityInfo | null>
@@ -102,6 +110,8 @@ export interface Entities {
   ): Promise<EntityInfo[]>
   /** The text of entities the caller may read. */
   text(ctx: Ctx, uris: string[], opts?: { maxChars?: number }): Promise<EntityTextList>
+  /** Registers a per-scheme entity text provider for a scheme declared in `contributes.entityTypes`. */
+  text(scheme: string, fn: EntityTextHandler): Disposable
   register(entity: EntityRegister): Promise<EntityInfo>
   remove(uri: string): Promise<void>
   alias(uri: string, target: string): Promise<void>
@@ -265,11 +275,22 @@ export interface Secrets {
   rename(from: string, to: string, opts?: SecretOptions): Promise<void>
 }
 
+export type ConnectionTestInfo = ConnectionInfo & {
+  credential?: string
+  values: Record<string, unknown>
+}
+
 export interface Connections {
   list(opts?: { type?: string; space?: string }): Promise<ConnectionInfo[]>
   get(id: string): Promise<ConnectionInfo>
-  /** A global connection with its credential. */
+  /** Resolves a connection of this plugin's own declared type, with its credential. Pass `ctx` when serving a person to access their own or space connections. */
   resolve(id: string): Promise<ConnectionResolved>
+  resolve(ctx: Ctx, id: string): Promise<ConnectionResolved>
+  /** Registers the `connections.test` handler for a connection type this plugin declares. */
+  test(
+    type: string,
+    fn: (ctx: Ctx, connection: ConnectionTestInfo) => ConnectionTested | Promise<ConnectionTested>,
+  ): Disposable
 }
 
 export interface BlobOptions {

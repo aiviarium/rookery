@@ -7,13 +7,13 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use rookery_core::host_type::Capability;
-use rookery_kernel::streams::Initiator;
+use rookery_kernel::streams::{Inbound, Initiator};
 use rookery_kernel::{Call, Empty, Grant, Level, Methods, RpcError};
 use rookery_proto::env::*;
 use rookery_proto::hosts::HostInfo;
-use rookery_proto::stream::StreamOpened;
+use rookery_proto::stream::{MAX_FRAME_PAYLOAD, StreamOpened};
 use rookery_proto::terminals::EnvUser;
 use serde_json::json;
 use sha2::Digest;
@@ -853,6 +853,275 @@ async fn ready_folder(
     resolved(remote, folder).await
 }
 
+struct RunningProcess {
+    remote: Arc<crate::serve::Remote>,
+    session: String,
+    host: String,
+    owner: Option<String>,
+    run_as: EnvUser,
+}
+
+#[derive(Default)]
+struct RunningProcesses(Mutex<HashMap<String, RunningProcess>>);
+
+struct ProcessGuard {
+    processes: Arc<RunningProcesses>,
+    id: String,
+}
+
+impl Drop for ProcessGuard {
+    fn drop(&mut self) {
+        self.processes.0.lock().unwrap().remove(&self.id);
+    }
+}
+
+fn tagged_frame(tag: u8, payload: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(payload.len() + 1);
+    out.push(tag);
+    out.extend_from_slice(payload);
+    out
+}
+
+async fn start_process(call: Call, p: ProcessStart) -> Result<ProcessStarted, RpcError> {
+    if p.command.is_empty() {
+        return Err(RpcError::invalid("command: at least a program"));
+    }
+    let conn = call.conn()?;
+    let name = crate::name_of(&p.env).to_owned();
+    let remote = linked(&call, &name).await?;
+    if p.user != EnvUser::Agent
+        && !rookery_facilities::access::holds(&call, &crate::uri(&name), Grant::Manage).await?
+    {
+        return Err(RpcError::forbidden(format!(
+            "a command as {} needs manage on {}",
+            p.user.as_str(),
+            crate::uri(&name)
+        )));
+    }
+    let cwd = match &p.cwd {
+        Some(cwd) => {
+            let canonical = resolved(&remote, cwd).await?;
+            let roots = host_paths(&remote).await?.roots;
+            if !roots.iter().any(|root| within(&canonical, root)) {
+                return Err(RpcError::forbidden(format!(
+                    "{cwd} is not under a folder this host's calls may touch"
+                )));
+            }
+            Some(canonical)
+        }
+        None => None,
+    };
+    let asked = p.timeout_ms.map_or(EXEC_LONGEST, Duration::from_millis);
+    let limit = asked.clamp(Duration::from_millis(100), EXEC_LONGEST);
+    let start = rookery_api::StartSession {
+        kind: rookery_api::SessionKind::Process,
+        command: rookery_api::CommandLine::Args(p.command.clone()),
+        user: p.user.as_str().into(),
+        cwd,
+        env: p.vars.clone(),
+        input: None,
+        input_b64: None,
+        title: Some(format!("{}: {}", remote.name, p.command[0])),
+        timeout: Some(limit.as_secs().max(1)),
+        rows: None,
+        cols: None,
+    };
+    let body = serde_json::to_value(&start).map_err(|e| RpcError::internal(e.to_string()))?;
+    let started = api::pass(&remote, "POST", "/v1/sessions", Some(&body)).await?;
+    let session = started["id"]
+        .as_str()
+        .ok_or_else(|| RpcError::internal("the host named no session"))?
+        .to_owned();
+    let ended = SessionEnd {
+        remote: remote.clone(),
+        id: session.clone(),
+    };
+    let frames = link_of(&remote)?
+        .stream(&format!(
+            "/v1/sessions/{}?since=0&attached=1",
+            rookery_api::client::encode(&session)
+        ))
+        .await
+        .map_err(api::Fail::from)?;
+    let stream = conn.streams().open(Initiator::Peer)?;
+    let stream_id = stream.id();
+    let process_id = format!("proc_{}", uuid::Uuid::now_v7().simple());
+    let processes = call.kernel.facility::<RunningProcesses>();
+    processes.0.lock().unwrap().insert(
+        process_id.clone(),
+        RunningProcess {
+            remote: remote.clone(),
+            session: session.clone(),
+            host: name.clone(),
+            owner: call.user().map(|u| u.id.clone()),
+            run_as: p.user,
+        },
+    );
+    let guard = ProcessGuard {
+        processes,
+        id: process_id.clone(),
+    };
+    let need = if p.user == EnvUser::Agent {
+        Grant::Use
+    } else {
+        Grant::Manage
+    };
+    let mut access = crate::access_watch(&call, crate::uri(&remote.name), need).subscribe();
+    call.audit(
+        "env.process",
+        Some(&crate::uri(&name)),
+        json!({"program": p.command[0], "user": p.user.as_str()}),
+    )
+    .await;
+    tokio::spawn(async move {
+        let _ended = ended;
+        let _guard = guard;
+        let (mut to_host, mut from_host) = frames.split();
+        let (mut reader, writer) = stream.split();
+        let max_chunk = MAX_FRAME_PAYLOAD - 1;
+        let sleep = tokio::time::sleep(limit);
+        tokio::pin!(sleep);
+        let mut close_error: Option<rookery_proto::ErrorBody> = None;
+        let mut exited = false;
+        loop {
+            tokio::select! {
+                () = access.wait_revoked() => {
+                    close_error = Some(RpcError::forbidden("access revoked").body());
+                    break;
+                }
+                () = &mut sleep => {
+                    close_error = Some(RpcError::timeout(format!(
+                        "the process did not finish within {}",
+                        seconds(limit)
+                    )).body());
+                    break;
+                }
+                frame = from_host.next() => match frame {
+                    Some(Ok(rookery_api::client::Frame::Binary(data))) => {
+                        let Some((&tag, bytes)) = data.split_first() else { continue };
+                        if tag != 1 && tag != 2 {
+                            continue;
+                        }
+                        let mut failed = false;
+                        for chunk in bytes.chunks(max_chunk) {
+                            if writer.write(&tagged_frame(tag, chunk)).await.is_err() {
+                                failed = true;
+                                break;
+                            }
+                        }
+                        if failed {
+                            break;
+                        }
+                    }
+                    Some(Ok(rookery_api::client::Frame::Text(text))) => {
+                        let Ok(said) = serde_json::from_str::<serde_json::Value>(text.as_str()) else {
+                            continue;
+                        };
+                        if let Some(done) = said.get("exited") {
+                            let exit = ProcessExit {
+                                exit_code: done["exit_code"].as_i64().map(|c| c as i32),
+                                lost: false,
+                            };
+                            let payload = serde_json::to_vec(&exit).unwrap_or_default();
+                            let _ = writer.write(&tagged_frame(3, &payload)).await;
+                            exited = true;
+                            break;
+                        }
+                    }
+                    Some(Ok(rookery_api::client::Frame::Close(_))) | None => {
+                        break;
+                    }
+                    Some(Ok(_)) => {}
+                    Some(Err(e)) => {
+                        close_error = Some(
+                            RpcError::unavailable(format!("the host's output ended: {e}")).body(),
+                        );
+                        break;
+                    }
+                },
+                inbound = reader.read() => match inbound {
+                    Some(Inbound::Data(data)) => {
+                        let prefixed = tagged_frame(0, &data);
+                        if to_host
+                            .send(rookery_api::client::Frame::Binary(prefixed.into()))
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Some(Inbound::Eof) => {
+                        let _ = to_host
+                            .send(rookery_api::client::Frame::Text(r#"{"eof":true}"#.into()))
+                            .await;
+                    }
+                    Some(Inbound::Closed(_)) | None => {
+                        break;
+                    }
+                },
+            }
+        }
+        if !exited && close_error.is_none() {
+            let exit = ProcessExit {
+                exit_code: None,
+                lost: true,
+            };
+            let payload = serde_json::to_vec(&exit).unwrap_or_default();
+            let _ = writer.write(&tagged_frame(3, &payload)).await;
+        }
+        if close_error.is_none() {
+            writer.eof();
+        }
+        writer.close(close_error);
+    });
+    Ok(ProcessStarted {
+        stream: stream_id,
+        process: process_id,
+    })
+}
+
+async fn signal_process(call: Call, p: ProcessSignal) -> Result<Empty, RpcError> {
+    let signal = p.signal.trim_start_matches("SIG").to_ascii_uppercase();
+    if !["INT", "TERM", "HUP", "KILL"].contains(&signal.as_str()) {
+        return Err(RpcError::invalid("signal: INT, TERM, HUP or KILL"));
+    }
+    let name = crate::name_of(&p.env);
+    let processes = call.kernel.facility::<RunningProcesses>();
+    let found = {
+        let map = processes.0.lock().unwrap();
+        map.get(&p.process).map(|proc| {
+            (
+                proc.remote.clone(),
+                proc.session.clone(),
+                proc.host.clone(),
+                proc.owner.clone(),
+                proc.run_as,
+            )
+        })
+    };
+    let Some((remote, session, host, owner, run_as)) = found.filter(|(_, _, h, _, _)| h == name)
+    else {
+        return Err(RpcError::not_found("no such running process"));
+    };
+    let manages = call.is_admin()
+        || rookery_facilities::access::holds(&call, &crate::uri(&host), Grant::Manage).await?;
+    let own = call.user().map(|u| u.id.as_str()) == owner.as_deref();
+    if !manages && !(own && run_as == EnvUser::Agent) {
+        return Err(RpcError::forbidden("not allowed to signal this process"));
+    }
+    api::pass(
+        &remote,
+        "POST",
+        &format!(
+            "/v1/sessions/{}/signal",
+            rookery_api::client::encode(&session)
+        ),
+        Some(&json!({"signal": signal})),
+    )
+    .await?;
+    Ok(Empty {})
+}
+
 fn register_workspaces(methods: &mut Methods) {
     methods
         .add("env.exec", |call: Call, p: ExecParams| async move {
@@ -924,6 +1193,19 @@ fn register_workspaces(methods: &mut Methods) {
             })
         })
         .summary("Runs a command on a host to its end and answers its output, as the agent account or, with manage, as the operator or root, up to an hour. A result is at most what one message holds, and truncated says when it is not all.")
+        .level(level(Grant::Use));
+    methods
+        .add("env.process", |call: Call, p: ProcessStart| async move {
+            start_process(call, p).await
+        })
+        .summary("Starts a streamed, cancellable process on a host with piped stdio, as the agent account or, with manage, as operator or root. Output frames carry tag 1 (stdout), 2 (stderr), or 3 (JSON ProcessExit); client bytes go to stdin and EOF closes stdin; closing the stream ends the process.")
+        .stream()
+        .level(level(Grant::Use));
+    methods
+        .add("env.signal", |call: Call, p: ProcessSignal| async move {
+            signal_process(call, p).await
+        })
+        .summary("Sends a signal (INT, TERM, HUP or KILL) to a running env.process.")
         .level(level(Grant::Use));
     methods
         .add("env.checkouts", |call: Call, p: EnvRef| async move {

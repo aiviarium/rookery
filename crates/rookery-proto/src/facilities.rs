@@ -449,6 +449,9 @@ wire! {
     pub struct ConnectionTested {
         pub ok: bool,
         pub message: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional, type = "unknown"))]
+        pub details: Option<Value>,
     }
 }
 

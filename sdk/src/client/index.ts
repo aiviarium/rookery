@@ -39,6 +39,7 @@ export { WIRE, wireCall } from "../wire"
 export type {
   AppServices,
   Blobs,
+  Blocks,
   Chrome,
   ClientEnv,
   ClientRookery,
@@ -48,6 +49,7 @@ export type {
   Connections,
   Contexts,
   Data,
+  Entities,
   Events,
   Extensions,
   Host,
@@ -58,6 +60,7 @@ export type {
   Notifications,
   Notify,
   Plugins,
+  ProcessHandle,
   Rpc,
   Settings,
   Showable,
@@ -65,6 +68,7 @@ export type {
   Storage,
   Streams,
   Views,
+  Widgets,
   Workbench,
 } from "./api"
 export { serviceUrl } from "./api"
@@ -72,6 +76,9 @@ export type { Live, LiveOptions, LiveQuery } from "./live"
 export { clearLiveCache, createLive } from "./live"
 export type {
   AdminPageEntry,
+  BlockComponent,
+  BlockOptions,
+  BlockProps,
   ChromeComponentProps,
   ClientCommandDef,
   ClientPlugin,
@@ -81,11 +88,17 @@ export type {
   ContextValueInfo,
   DesktopViewProps,
   EmbeddedViewProps,
+  EntityChipProps,
+  EntityDensity,
+  EntityRenderer,
+  EntityRendererProps,
+  EntityViewProps,
   EventHandler,
   EventSubscriptionOptions,
   FieldEditorProps,
   FieldPartProps,
   FieldParts,
+  MentionPickerProps,
   NavItem,
   NavSection,
   NavSectionProps,
@@ -98,6 +111,12 @@ export type {
   ViewHandle,
   ViewOptions,
   ViewProps,
+  WidgetAreaProps,
+  WidgetComponent,
+  WidgetHandle,
+  WidgetInstance,
+  WidgetProps,
+  WidgetType,
 } from "./runtime"
 
 /** Declares a plugin's client half. The function runs in the shell when the plugin loads. */

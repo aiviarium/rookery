@@ -45,6 +45,7 @@ import type {
   EnvInfo,
   EnvPresence,
   EnvSession,
+  EnvUser,
   ExecResult,
   ExtensionContribution,
   ExtensionList,
@@ -65,6 +66,8 @@ import type {
   PinInfo,
   PinsChanged,
   PortUrl,
+  ProcessExit,
+  ProcessStarted,
   RecentKind,
   RecentsList,
   Revision,
@@ -103,15 +106,21 @@ import {
 } from "../wire"
 import { createLive, type Live } from "./live"
 import type {
+  BlockComponent,
+  BlockOptions,
   ChromeComponentProps,
   ClientCommandDef,
   ClientScope,
   ClientStream,
   ContextProvider,
   EmbeddedViewProps,
+  EntityChipProps,
+  EntityRenderer,
+  EntityViewProps,
   EventHandler,
   EventSubscriptionOptions,
   FieldParts,
+  MentionPickerProps,
   NavSection,
   OpenViewOptions,
   RecordSectionProps,
@@ -119,6 +128,9 @@ import type {
   Toast,
   ViewComponent,
   ViewOptions,
+  WidgetAreaProps,
+  WidgetComponent,
+  WidgetType,
 } from "./runtime"
 
 export interface Views {
@@ -127,6 +139,16 @@ export interface Views {
   section(view: ViewId, id: string, component: (props: RecordSectionProps) => JSX.Element): Disposable
   readonly View: Component<EmbeddedViewProps> | undefined
   href(id: ViewId, opts?: OpenViewOptions): string | null
+}
+
+export interface Blocks {
+  register(id: string, component: BlockComponent, options?: BlockOptions): Disposable
+}
+
+export interface Widgets {
+  register(id: string, component: WidgetComponent): Disposable
+  types(): WidgetType[]
+  readonly Area: Component<WidgetAreaProps>
 }
 
 export interface Commands {
@@ -146,8 +168,10 @@ export interface Chrome {
 
 export interface Workbench {
   openView(id: ViewId, opts?: OpenViewOptions): void
+  openEntity(uri: string): void
+  share(uri: string): void
   href(id: ViewId, opts?: OpenViewOptions): string | null
-  toast(t: Toast): void
+  toast(t: Toast | string): void
   statusItem(id: string, component: Component): Disposable
 }
 
@@ -294,6 +318,19 @@ function toBase64(content: string | Uint8Array): string {
   return btoa(binary)
 }
 
+export interface ProcessHandle {
+  readonly id: string
+  readonly stream: ClientStream
+  write(data: string | Uint8Array): Promise<void>
+  eof(): void
+  signal(signal: string): Promise<void>
+  close(): void
+  onStdout: (chunk: Uint8Array) => void
+  onStderr: (chunk: Uint8Array) => void
+  onExit: (exit: ProcessExit) => void
+  onEnd: (error?: { code: string; message: string; details?: unknown }) => void
+}
+
 export interface ClientEnv {
   list(): Promise<EnvInfo[]>
   get(env: string): Promise<EnvInfo>
@@ -310,6 +347,20 @@ export interface ClientEnv {
       timeoutMs?: number
     },
   ): Promise<ExecResult>
+  /** Runs a streamed, cancellable process on a host. */
+  process(
+    env: string,
+    command: string[],
+    opts?: {
+      cwd?: string
+      env?: Record<string, string>
+      user?: EnvUser
+      timeoutMs?: number
+      stream?: StreamOptions
+    },
+  ): Promise<ProcessHandle>
+  /** Sends a signal (`TERM`, `INT`, `KILL`, `HUP`) to a running process opened with `env.process`. */
+  signal(env: string, id: string, signal: string): Promise<void>
   /** The git checkouts and worktrees under the host's checkouts folder. */
   checkouts(env: string): Promise<Checkout[]>
   /** Clones a repository into the host's checkouts folder, and answers the checkout it made. */
@@ -387,6 +438,22 @@ export interface Entities {
   search(text: string, opts?: { schemes?: string[]; space?: string; limit?: number }): Promise<EntityInfo[]>
   /** Their text, to read or hand to a model: Markdown for rows of entity collections. */
   text(uris: string[], opts?: { maxChars?: number }): Promise<EntityTextList>
+  /** Opens the entity in its plugin's view (`/e/<scheme>/<id>`). */
+  open(uri: string): void
+  /** `<rookery.entities.Chip uri="doc://..." />` */
+  readonly Chip: Component<EntityChipProps>
+  /** `<rookery.entities.MentionPicker query={q()} anchor={el} open onPick={...} onClose={...} />` */
+  readonly MentionPicker: Component<MentionPickerProps>
+  /** Draws the plugin's entities of `scheme` (one of its `entityTypes`) as a card body. */
+  card(scheme: string, component: EntityRenderer): Disposable
+  /** Draws the plugin's entities of `scheme` as a list row. */
+  row(scheme: string, component: EntityRenderer): Disposable
+  /** `<rookery.entities.Card uri={...} record={...} fallback={...} />` */
+  readonly Card: Component<EntityViewProps>
+  /** `<rookery.entities.Row uri={...} record={...} fallback={...} />` */
+  readonly Row: Component<EntityViewProps>
+  /** Whether a plugin draws cards or rows of `scheme`. Reactive. */
+  renders(kind: "card" | "row", scheme: string): boolean
 }
 
 /** Documents people edit together, attached to an entity whose access they inherit. */
@@ -476,6 +543,8 @@ export interface ClientRookery {
   readonly id: string
   readonly manifest: Manifest
   readonly views: Views
+  readonly blocks: Blocks
+  readonly widgets: Widgets
   readonly commands: Commands
   readonly nav: Nav
   readonly chrome: Chrome
@@ -636,6 +705,32 @@ export function createClientRookery(s: ClientScope): ClientRookery {
       },
       href: (id, opts) => s.rt.href?.(id, opts) ?? null,
     },
+    blocks: {
+      register(id, component, options) {
+        if (!s.manifest.contributes?.blocks?.some((b) => b.id === id)) {
+          throw new RookeryError("INVALID", `${id} is not declared in contributes.blocks`)
+        }
+        if (!s.rt.registerBlock) {
+          throw new RookeryError("UNAVAILABLE", "this shell has no document editor")
+        }
+        return s.track(s.rt.registerBlock(s.plugin, id, component, options))
+      },
+    },
+    widgets: {
+      register(id, component) {
+        if (!s.manifest.contributes?.widgets?.some((w) => w.id === id)) {
+          console.warn(
+            `[${s.plugin}] widget ${id} is not declared in plugin.json; the shell will not offer it`,
+          )
+        }
+        if (!s.rt.registerWidget) {
+          throw new RookeryError("UNAVAILABLE", "this shell has no widgets")
+        }
+        return s.track(s.rt.registerWidget(s.plugin, id, component))
+      },
+      types: () => s.rt.widgetTypes?.() ?? [],
+      Area: (props) => s.rt.components?.WidgetArea?.(props) ?? null,
+    },
     commands: {
       register: (id, def) => s.track(s.rt.registerCommand(s.plugin, id, def)),
       run: <T = unknown>(id: CommandId, params: Record<string, unknown> = {}) =>
@@ -656,8 +751,10 @@ export function createClientRookery(s: ClientScope): ClientRookery {
     },
     workbench: {
       openView: (id, opts) => s.rt.openView?.(id, opts),
+      openEntity: (uri) => s.rt.openEntity?.(uri),
+      share: (uri) => s.rt.share?.(uri),
       href: (id, opts) => s.rt.href?.(id, opts) ?? null,
-      toast: (t) => s.rt.toast?.(t),
+      toast: (t) => s.rt.toast?.(typeof t === "string" ? { title: t } : t),
       statusItem: (id, component) =>
         s.rt.registerStatusItem ? s.track(s.rt.registerStatusItem(s.plugin, id, component)) : noop(),
     },
@@ -819,6 +916,56 @@ export function createClientRookery(s: ClientScope): ClientRookery {
           ...(opts.stdin !== undefined ? { stdin: opts.stdin } : {}),
           ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
         }),
+      process: async (env, command, opts = {}) => {
+        const stream = await s.rt.stream(
+          "env.process",
+          {
+            env,
+            command,
+            ...(opts.cwd ? { cwd: opts.cwd } : {}),
+            ...(opts.env ? { vars: opts.env } : {}),
+            ...(opts.user ? { user: opts.user } : {}),
+            ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
+          },
+          opts.stream,
+        )
+        const started = stream.result as ProcessStarted
+        const dec = new TextDecoder()
+        const enc = new TextEncoder()
+        const handle: ProcessHandle = {
+          id: started.process,
+          stream,
+          write: (data) => stream.write(typeof data === "string" ? enc.encode(data) : data),
+          eof: () => stream.eof(),
+          signal: async (signal) => {
+            await call("env.signal", { env, process: started.process, signal })
+          },
+          close: () => stream.close(),
+          onStdout: () => {},
+          onStderr: () => {},
+          onExit: () => {},
+          onEnd: () => {},
+        }
+        stream.onData = (frame) => {
+          if (frame.byteLength === 0) return
+          const tag = frame[0]
+          const payload = frame.subarray(1)
+          if (tag === 1) {
+            handle.onStdout(payload)
+          } else if (tag === 2) {
+            handle.onStderr(payload)
+          } else if (tag === 3) {
+            try {
+              handle.onExit(JSON.parse(dec.decode(payload)) as ProcessExit)
+            } catch {}
+          }
+        }
+        stream.onEnd = (err) => handle.onEnd(err)
+        return handle
+      },
+      signal: async (env, process, signal) => {
+        await call("env.signal", { env, process, signal })
+      },
       checkouts: async (env) => (await call("env.checkouts", { env })).checkouts,
       clone: (env, repository, opts = {}) => call("env.clone", { env, repository, ...opts }),
       worktree: (env, checkout, branch, opts = {}) =>
@@ -888,6 +1035,44 @@ export function createClientRookery(s: ClientScope): ClientRookery {
       resolveMany: async (uris) => (await call("entities.resolveMany", { uris })).entities,
       search: async (text, opts = {}) => (await call("entities.search", { text, ...opts })).entities,
       text: (uris, opts = {}) => call("entities.text", { uris, ...opts }),
+      open: (uri) => s.rt.openEntity?.(uri),
+      Chip: (props) => s.rt.components?.EntityChip?.(props) ?? null,
+      MentionPicker: (props) => s.rt.components?.MentionPicker?.(props) ?? null,
+      card: (scheme, component) => registerEntityRenderer(s, "card", scheme, component),
+      row: (scheme, component) => registerEntityRenderer(s, "row", scheme, component),
+      Card: (props) => {
+        if (s.rt.components?.EntityCard) return s.rt.components.EntityCard(props)
+        const parsed = parseEntityUri(props.uri)
+        const renderer = parsed ? s.rt.entityRenderer?.("card", parsed.scheme) : undefined
+        if (!renderer || !parsed) return props.fallback ?? null
+        return renderer({
+          uri: props.uri,
+          scheme: parsed.scheme,
+          id: parsed.id,
+          record: props.record,
+          density: props.density ?? "compact",
+          groupedBy: props.groupedBy,
+          selected: props.selected,
+          onOpen: props.onOpen ?? (() => s.rt.openEntity?.(props.uri)),
+        })
+      },
+      Row: (props) => {
+        if (s.rt.components?.EntityRow) return s.rt.components.EntityRow(props)
+        const parsed = parseEntityUri(props.uri)
+        const renderer = parsed ? s.rt.entityRenderer?.("row", parsed.scheme) : undefined
+        if (!renderer || !parsed) return props.fallback ?? null
+        return renderer({
+          uri: props.uri,
+          scheme: parsed.scheme,
+          id: parsed.id,
+          record: props.record,
+          density: props.density ?? "compact",
+          groupedBy: props.groupedBy,
+          selected: props.selected,
+          onOpen: props.onOpen ?? (() => s.rt.openEntity?.(props.uri)),
+        })
+      },
+      renders: (kind, scheme) => !!s.rt.entityRenderer?.(kind, scheme),
     },
     documents: {
       create: (params) => call("documents.create", params),
@@ -966,4 +1151,29 @@ export function createClientRookery(s: ClientScope): ClientRookery {
         s.rt.call("services.status", { plugin: s.plugin, service }) as Promise<AppServiceStatus>,
     },
   })
+}
+
+function parseEntityUri(uri: string): { scheme: string; id: string } | null {
+  const i = uri.indexOf(":")
+  if (i <= 0 || i === uri.length - 1) return null
+  const scheme = uri.slice(0, i)
+  const rest = uri.slice(i + 1)
+  const id = rest.startsWith("//") ? rest.slice(2) : rest
+  if (!id) return null
+  return { scheme, id }
+}
+
+function registerEntityRenderer(
+  s: ClientScope,
+  kind: "card" | "row",
+  scheme: string,
+  component: EntityRenderer,
+): Disposable {
+  if (!s.manifest.contributes.entityTypes.some((t) => t.scheme === scheme)) {
+    throw new RookeryError("INVALID", `${s.plugin}: entity scheme ${scheme} is not declared in plugin.json`)
+  }
+  if (!s.rt.registerEntityRenderer) {
+    throw new RookeryError("UNAVAILABLE", "this shell does not render entity cards or rows")
+  }
+  return s.track(s.rt.registerEntityRenderer(s.plugin, kind, scheme, component))
 }

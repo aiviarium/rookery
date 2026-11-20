@@ -1,7 +1,17 @@
 // The client half's runtime contract. A shell implements ClientRuntime and creates one `rookery` handle per
 // plugin with createClientApi; everything the plugin registers is disposed when the plugin reloads or unloads.
 import type { Component, JSX } from "solid-js"
-import type { AdminPageContribution, FieldContribution, Manifest, PluginInfo, SpaceInfo } from "../generated"
+import type {
+  AdminPageContribution,
+  BlockWidth,
+  EntityInfo,
+  FieldContribution,
+  Manifest,
+  PluginInfo,
+  SpaceInfo,
+  WidgetArea,
+  WidgetContribution,
+} from "../generated"
 import type { Disposable } from "../types"
 import { createClientRookery } from "./api"
 
@@ -142,9 +152,123 @@ export interface DesktopViewProps {
   onStateChange?: (state: "connecting" | "connected" | "disconnected" | "error", detail?: string) => void
 }
 
+/** What a plugin's block component receives in the document editor (`rookery.blocks.register`). */
+export interface BlockProps<A extends Record<string, unknown> = Record<string, unknown>> {
+  /** The block's attributes (reactive: remote edits update them). */
+  readonly attrs: A
+  /** Merges a change into the attributes; it syncs like any edit. Ignored when read-only. */
+  setAttrs(patch: Partial<A>): void
+  /** The document is read-only, or the block is shown in a preview. */
+  readonly readOnly: boolean
+  /** The block is selected in the editor. */
+  readonly selected: boolean
+  /** The headings of the document the block is in (reactive), for a table of contents. */
+  outline(): Array<{ level: number; text: string; pos: number }>
+  /** Scrolls the editor to a position (a heading's `pos`) and puts the cursor there. */
+  scrollTo(pos: number): void
+}
+
+export type BlockComponent = (props: BlockProps<any>) => JSX.Element
+
+/** How a block's component is registered (`rookery.blocks.register(id, component, options)`). */
+export interface BlockOptions {
+  /** Forces a width from the block's attributes over the manifest's `width` policy. */
+  forceWidth?: (attrs: Record<string, unknown>) => BlockWidth | null | undefined
+}
+
+/** A widget placed on a grid: which widget, where, how big, and its settings. */
+export interface WidgetInstance {
+  id: string
+  type: string
+  x: number
+  y: number
+  w: number
+  h: number
+  settings?: Record<string, unknown>
+}
+
+/** A widget a plugin (or the shell) declares. */
+export type WidgetType = WidgetContribution & { plugin: string }
+
+/** What a widget's component receives. */
+export interface WidgetHandle {
+  readonly type: string
+  readonly plugin: string
+  readonly instance: string
+  readonly area: WidgetArea
+  readonly settings: Readonly<Record<string, unknown>>
+  readonly size: Readonly<{ w: number; h: number }>
+  readonly editing: boolean
+  refreshed(): number
+  update(patch: Record<string, unknown>): void
+}
+
+export interface WidgetProps {
+  widget: WidgetHandle
+}
+
+export type WidgetComponent = (props: WidgetProps) => JSX.Element
+
+export interface WidgetAreaProps {
+  instances: WidgetInstance[]
+  onChange(next: WidgetInstance[]): void
+  editing: boolean
+  area: WidgetArea
+  label?: string
+}
+
+/** A chip for any entity, rendered from the entity index: title and icon, a link that opens it. */
+export interface EntityChipProps {
+  uri: string
+  label?: string
+  plain?: boolean
+}
+
+export type EntityDensity = "compact" | "comfortable"
+
+/** What `<rookery.entities.Card>` and `<rookery.entities.Row>` take. */
+export interface EntityViewProps {
+  uri: string
+  record?: Record<string, unknown>
+  density?: EntityDensity
+  groupedBy?: string
+  selected?: boolean
+  onOpen?: () => void
+  fallback?: JSX.Element
+}
+
+/** What a card or row renderer of the plugin that owns a scheme receives. */
+export interface EntityRendererProps {
+  uri: string
+  scheme: string
+  id: string
+  record?: Record<string, unknown>
+  density: EntityDensity
+  groupedBy?: string
+  selected?: boolean
+  onOpen: () => void
+}
+
+export type EntityRenderer = (props: EntityRendererProps) => JSX.Element
+
+/** A popup listing entities that match `query`, for `@` mentions. */
+export interface MentionPickerProps {
+  query: string
+  anchor: HTMLElement | undefined
+  open: boolean
+  onPick: (entity: EntityInfo) => void
+  onClose: () => void
+  schemes?: string[]
+}
+
 export interface ShellComponents {
   View?: Component<EmbeddedViewProps>
   DesktopView?: Component<DesktopViewProps>
+  EntityChip?: Component<EntityChipProps>
+  EntityCard?: Component<EntityViewProps>
+  EntityRow?: Component<EntityViewProps>
+  MentionPicker?: Component<MentionPickerProps>
+  WidgetArea?: Component<WidgetAreaProps>
 }
 
 /** A stream as the client framework gives it to a client half. */
@@ -215,8 +339,20 @@ export interface ClientRuntime {
     id: string,
     component: (props: RecordSectionProps) => JSX.Element,
   ): Disposable
+  registerBlock?(plugin: string, id: string, component: BlockComponent, options?: BlockOptions): Disposable
+  registerWidget?(plugin: string, id: string, component: WidgetComponent): Disposable
+  widgetTypes?(): WidgetType[]
+  registerEntityRenderer?(
+    plugin: string,
+    kind: "card" | "row",
+    scheme: string,
+    component: EntityRenderer,
+  ): Disposable
+  entityRenderer?(kind: "card" | "row", scheme: string): EntityRenderer | undefined
   runCommand(id: string, params?: Record<string, unknown>): Promise<unknown>
   openView?(id: string, opts?: OpenViewOptions): void
+  openEntity?(uri: string): void
+  share?(uri: string): void
   href?(id: string, opts?: OpenViewOptions): string | null
   toast?(t: Toast): void
   space?(): SpaceInfo | null

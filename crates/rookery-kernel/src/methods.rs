@@ -90,6 +90,9 @@ pub struct Call {
     /// The plugin that makes this call for its caller: a host half's env call runs as a person, and
     /// the audit log names both.
     pub on_behalf: Option<String>,
+    /// The person an invocation serves when the call itself stays at `Caller::Plugin` (for a
+    /// `Level::Plugin` method such as `connections.resolve`).
+    pub acting_user: Option<User>,
     /// The call is one a host half made through its `host.env` for an invocation. A plugin's `env.*`
     /// calls are refused unless it is set, so env reaches a host only that way.
     pub host_env: bool,
@@ -104,6 +107,7 @@ impl Call {
             conn,
             deadline,
             on_behalf: None,
+            acting_user: None,
             host_env: false,
         }
     }
