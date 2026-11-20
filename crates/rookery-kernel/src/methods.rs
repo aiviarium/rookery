@@ -380,6 +380,11 @@ impl Methods {
         self.map.contains_key(name)
     }
 
+    /// The level a method needs, for a caller that decides how it runs a method for someone else.
+    pub fn level(&self, name: &str) -> Option<Level> {
+        self.map.get(name).and_then(|def| def.level.clone())
+    }
+
     pub fn names(&self) -> impl Iterator<Item = &'static str> + '_ {
         self.map.keys().copied()
     }

@@ -74,10 +74,7 @@ export interface Ctx {
   readonly principal: Principal
   readonly space: string | null
   readonly signal: AbortSignal
-  readonly data: CollectionsOf<Collections> & {
-    readonly refs: Refs
-    space(id: string): CollectionsOf<Collections>
-  }
+  readonly data: ServiceData
   readonly access: Access
 }
 

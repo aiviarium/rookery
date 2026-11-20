@@ -62,6 +62,16 @@ pub fn register(methods: &mut Methods) {
         .summary("What a blob is: its size, type and hash.")
         .level(Level::Own);
     methods
+        .add("blobs.delete", |call: Call, p: IdRef| async move {
+            let blob = readable(&call, &p.id).await?;
+            call.store().blobs().delete(blob.id).await?;
+            call.audit("blob.delete", None, serde_json::json!({ "blob": blob.id }))
+                .await;
+            Ok(rookery_proto::Empty {})
+        })
+        .summary("Deletes a blob the caller put.")
+        .level(Level::Own);
+    methods
         .add("blobs.read", |call: Call, p: IdRef| async move {
             let blob = readable(&call, &p.id).await?;
             let bytes = call.store().blobs().read(&blob).await?;

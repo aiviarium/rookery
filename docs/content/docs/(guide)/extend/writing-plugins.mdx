@@ -239,6 +239,50 @@ On the host, commands and files are the agent account's. A host half cannot choo
 
 A host half has no `connect` or `portUrl`: a byte stream or a browser address belongs to a client half's own connection.
 
+#### Data, spaces and access
+
+A handler reads and writes the plugin's collections through the context of the call it serves. The server runs those calls as the person the invocation is for, so the person's own access decides what a handler sees and changes. A job, and a call another plugin made, has no person and runs at the plugin's own level.
+
+```ts title="host.ts"
+rookery.services.provide("notes", {
+  list: (ctx, { space }) => ctx.data.space(space).notes.find({}),
+  share: (ctx, { uri, person }) => ctx.access.grant(uri, `user:${person}`, "view"),
+})
+```
+
+`ctx.data` is the plugin's collections for the person, and `ctx.data.space(id)` is the same in a space. `rookery.data` is the plugin itself: its own collections as their admin, whatever the handler serves. Its rows of another plugin's collection are only those a grant of its own reaches.
+
+`ctx.space` is the space the caller's connection entered, or `null`. A collection of a space is named by `ctx.data.space(id)` when the handler means one that is not the caller's current.
+
+| On the context | What it does |
+| --- | --- |
+| `data.<collection>.find`, `get`, `count`, `search`, `aggregate`, `scan`, `insert`, `update`, `upsert`, `delete`, `restore`, `purge`, `batch`, `import`, `history`, `tail` | The collections, as for a client half |
+| `data.refs` | `to(uri)` and `from(uri)`: what refers to an entity and what it refers to |
+| `data.changes.subscribe(collection, fn)` | Every change of one collection, as `{collection, op, id, row, seq}` |
+| `data.space(id)` | The collections in a space |
+| `access.level(resource)`, `access.check(resource, level)`, `access.require(resource, level)` | What the person holds on a resource |
+| `access.filter(resources, level)` | Those of some resources the person holds a level on |
+| `access.grant(resource, principal, level)`, `access.revoke(resource, principal)`, `access.grants(resource)` | Sharing, for a person who holds manage |
+| `access.levelOf(resource, user)` | What another person holds, which is the plugin's own question |
+
+The rest of the handle takes the context of the handler, and runs as its person:
+
+| Handle | What it does |
+| --- | --- |
+| `spaces.list(ctx)`, `get`, `create`, `rename` | The spaces the person may see, and making one of a kind a plugin contributes |
+| `entities.lookup(ctx, uri)`, `lookupMany`, `search`, `text` | The entity index, as far as the person may see it |
+| `entities.register`, `remove`, `alias` | The plugin's own entities, in a scheme it declares |
+| `documents.list`, `create`, `edit`, `delete`, `read`, `convert` | Documents, read at `view` and edited at `use` |
+| `users.search(ctx, resource, text)` | People to share a resource with, for a person who holds manage on it |
+| `blobs.put`, `get`, `delete` | Files of up to 8 MiB |
+| `audit.list(query)` | The audit log, for an admin |
+| `schedules.create`, `list`, `setEnabled`, `fire`, `remove` | Recurring jobs |
+| `terminals.list`, `get`, `screen`, `write`, `close` | The person's terminals, at their level on the host |
+
+`sql.query`, `sql.execute` and `sql.begin` are the plugin's own schema, as in a service, and need `database.sql` in the manifest. `blobs.read` needs the server's stream channel to a host half, which this version does not serve.
+
+A handler's data call is checked as the person it serves. A plugin cannot name a user: the server binds the call to the invocation, and refuses a call whose invocation has ended.
+
 #### Host services
 
 List each service name in `provides.services` and point the manifest's `interface` field at the module that declares its methods. Use the same declaration when registering the service:

@@ -4,17 +4,33 @@
 //
 // What this version of Rookery serves to host halves: rpc, commands, events, settings, storage,
 // secrets, connections, jobs (handle, enqueue, get, list, cancel, progress and log), leases,
-// topics.publish, notify, services (provide and call), extensions, app services and env (on the
-// invocation's behalf, see `envCall`). The rest of the `Rookery` handle answers UNAVAILABLE.
+// topics.publish, notify, services (provide and call), extensions, app services, env (on the
+// invocation's behalf, see `envCall`), and data, spaces, entities, documents, users, sql, blobs,
+// audit, schedules and terminals. A handle that takes the context runs for the person the invocation
+// is for (see `invocationCall`), and the plugin itself when it serves none. `streams` and
+// `blobs.read` still answer UNAVAILABLE: both need the server's stream channel to a host half.
 import { z } from "zod"
+import { type Call, collectionsProxy, createCollection, createRefs, type Row } from "../data"
 import { RookeryError } from "../errors"
 import type {
   AppServiceInfo,
+  AuditEntry,
+  BlobInfo,
+  Change,
   Checkout,
   ConnectionInfo,
   ConnectionList,
   ConnectionResolved,
   DirListing,
+  DocumentContent,
+  DocumentConvert,
+  DocumentConverted,
+  DocumentCreate,
+  DocumentEdit,
+  DocumentEdited,
+  DocumentInfo,
+  EntityInfo,
+  EntityTextList,
   EnvInfo,
   EnvPresence,
   ExecResult,
@@ -22,13 +38,27 @@ import type {
   FileData,
   FileStat,
   FileWritten,
+  Grant,
+  GrantList,
+  LevelHeld,
   Manifest,
+  Person,
   Principal,
+  Resources,
+  ScheduleInfo,
+  ScreenInfo,
+  SpaceInfo,
+  SqlExecuted,
+  SqlRows,
+  SqlTx,
+  TerminalInfo,
   User,
 } from "../generated"
 import type { Interface, MethodDecls, ServiceDecl } from "../interface"
 import { type Disposable, disposable } from "../types"
 import type {
+  Access,
+  Changes,
   Ctx,
   HostCommandDef,
   HostPlugin,
@@ -39,6 +69,8 @@ import type {
   NoticeKind,
   Rookery,
   RpcHandlerDef,
+  ServiceData,
+  Sql,
 } from "./types"
 import { isHostPlugin } from "./types"
 
@@ -65,6 +97,8 @@ export interface CallContext {
   callId: string
   user?: User | null
   principal: Principal
+  /** The space the caller's connection entered, if it entered one. */
+  space?: string | null
   /** Milliseconds since the epoch. */
   deadline: number
 }
@@ -173,9 +207,140 @@ function envCall<T>(rt: HostRuntime, ctx: Ctx, method: string, params: Record<st
   return rt.call<T>("host.env", { callId: ctx.callId, method, params })
 }
 
+/** The invocation a data call is for. `null` is the plugin itself, as in its own activate. */
+interface Invocation {
+  callId: string
+  space: string | null
+}
+
+/** A call of a server method for one invocation, or as the plugin when there is none. */
+function invocationCall(rt: HostRuntime, inv: Invocation | null): Call {
+  return (method, params) =>
+    inv === null
+      ? rt.call(method, params)
+      : rt.call<unknown>("host.data", { callId: inv.callId, method, params })
+}
+
+/**
+ * The collections of this plugin, either as the plugin itself or for one invocation. An invocation's
+ * calls run as the person it is for, which is how a host half reads and writes what that person may;
+ * a job, or a call another plugin made, has no person and runs at the plugin's own level.
+ */
+function dataFor(rt: HostRuntime, inv: Invocation | null, space?: string | null): ServiceData {
+  const current = space ?? inv?.space ?? null
+  const bare = invocationCall(rt, inv)
+  const call: Call = (method, params) => {
+    const wire: Record<string, unknown> = { plugin: rt.plugin, ...params }
+    if (current) wire.space = current
+    return bare(method, wire)
+  }
+  const definition = (name: string) => rt.manifest.contributes?.collections?.find((c) => c.name === name)
+  return collectionsProxy((name) => createCollection(call, name, definition), {
+    refs: createRefs(call),
+    changes: changesFor(rt, call),
+    space: (id: string) => dataFor(rt, inv, id),
+  }) as ServiceData
+}
+
+/** `data.subscribe`, one collection at a time, as `data.changed` notifications arrive. */
+function changesFor(rt: HostRuntime, call: Call): Changes {
+  return {
+    subscribe: async (collection, handler) => {
+      const started = (await call("data.subscribe", { collections: [collection] })) as {
+        subscription: string
+      }
+      const at = started.subscription
+      rt.changes.set(at, (change: Change) => {
+        if (change.collection !== collection) return
+        handler({
+          collection: change.collection,
+          op: change.op,
+          id: change.id,
+          row: (change.row ?? null) as Row | null,
+          seq: change.seq,
+        })
+      })
+      return disposable(() => {
+        rt.changes.delete(at)
+        call("data.unsubscribe", { subscription: at }).catch(() => {})
+      })
+    },
+  }
+}
+
+const GRANTS: Record<Grant, number> = { view: 1, use: 2, manage: 3 }
+
+/** `access.*` for one invocation: what the person it serves may do, or the plugin's own level. */
+function accessFor(rt: HostRuntime, inv: Invocation): Access {
+  const call = invocationCall(rt, inv)
+  return {
+    check: async (resource, level) => {
+      const held = (await call("access.level", { resource })) as LevelHeld
+      return held.level !== null && GRANTS[held.level] >= GRANTS[level]
+    },
+    require: async (resource, level) => {
+      await call("access.require", { resource, level })
+    },
+    level: async (resource) => ((await call("access.level", { resource })) as LevelHeld).level,
+    // Which level someone else holds is a plugin's own question, and never a person's.
+    levelOf: async (resource, user) => {
+      const principal = user.includes(":") ? user : `user:${user}`
+      const held = (await rt.call("access.levelOf", { resource, principal })) as LevelHeld
+      return held.level
+    },
+    filter: async (resources, level) =>
+      ((await call("access.filter", { resources, level })) as Resources).resources,
+    grant: async (resource, subject, level) => {
+      await call("access.grant", { resource, principal: subject, level })
+    },
+    revoke: async (resource, subject) => {
+      await call("access.revoke", { resource, principal: subject })
+    },
+    grants: (resource) => call("access.grants", { resource }) as Promise<GrantList>,
+  }
+}
+
+/** The invocation a handler's `ctx` names. */
+function asInvocation(ctx: Ctx): Invocation {
+  return { callId: ctx.callId, space: ctx.space ?? null }
+}
+
+/** `sql.*`: the plugin's own schema, which no person's level changes. */
+function sqlFor(rt: HostRuntime): Sql {
+  const rows = async <T>(method: string, params: Record<string, unknown>) =>
+    ((await rt.call(method, params)) as SqlRows).rows as T[]
+  const affected = async (method: string, params: Record<string, unknown>) =>
+    ((await rt.call(method, params)) as SqlExecuted).rows
+  const query = <T = Record<string, unknown>>(sql: string, params: unknown[] = []) =>
+    rows<T>("sql.query", { sql, params })
+  return {
+    query,
+    execute: (sql, params = []) => affected("sql.execute", { sql, params }),
+    begin: async (opts = {}) => {
+      const { tx } = (await rt.call("sql.begin", opts.lease ? { lease: opts.lease } : {})) as SqlTx
+      return {
+        query: <T = Record<string, unknown>>(sql: string, params: unknown[] = []) =>
+          rows<T>("sql.txQuery", { tx, sql, params }),
+        execute: (sql, params = []) => affected("sql.txExecute", { tx, sql, params }),
+        publish: async (topic, payload) => {
+          await rt.call("sql.txPublish", { tx, topic, payload })
+        },
+        commit: async () => {
+          await rt.call("sql.commit", { tx })
+        },
+        rollback: async () => {
+          await rt.call("sql.rollback", { tx })
+        },
+      }
+    },
+  }
+}
+
 export class HostRuntime {
   readonly handlers = new Map<string, Handler>()
   readonly events = new Map<string, (payload: unknown, name: string) => unknown>()
+  /** The handlers of `data.subscribe`, by subscription. */
+  readonly changes = new Map<string, (change: Change) => unknown>()
   readonly disposers: Array<() => unknown> = []
   readonly running = new Map<string, AbortController>()
   active = false
@@ -226,14 +391,16 @@ export class HostRuntime {
   }
 
   context(ctx: CallContext, signal: AbortSignal): Ctx {
+    const space = ctx.space ?? null
+    const inv: Invocation = { callId: ctx.callId, space }
     return {
       callId: ctx.callId,
       user: ctx.user ?? null,
       principal: ctx.principal,
-      space: null,
+      space,
       signal,
-      data: unavailable("data"),
-      access: unavailable("access"),
+      data: dataFor(this, inv, space),
+      access: accessFor(this, inv),
     } as Ctx
   }
 
@@ -281,6 +448,25 @@ export class HostRuntime {
         .catch((e) =>
           this.transport.log("error", `the handler of the event ${params.name} failed: ${format([e])}`),
         )
+    }
+    if (method === "data.changed") {
+      const h = this.changes.get(params?.subscription)
+      if (!h) return
+      if (params.ended) {
+        this.changes.delete(params.subscription)
+        if (params.error) {
+          this.transport.log(
+            "warn",
+            `the change feed of ${this.plugin} ended: ${params.error.message ?? params.error}`,
+          )
+        }
+        return
+      }
+      for (const change of params.changes ?? []) {
+        Promise.resolve()
+          .then(() => h(change))
+          .catch((e) => this.transport.log("error", `a handler of the change feed failed: ${format([e])}`))
+      }
     }
   }
 
@@ -536,12 +722,87 @@ function createApi(rt: HostRuntime): Rookery {
         (await rt.call<{ contributions: ExtensionContribution[] }>("extensions.list", { point }))
           .contributions,
     },
-    data: unavailable("data"),
-    spaces: unavailable("spaces"),
-    entities: unavailable("entities"),
-    documents: unavailable("documents"),
-    users: unavailable("users"),
-    sql: unavailable("sql"),
+    data: dataFor(rt, null),
+    spaces: {
+      list: async (ctx) =>
+        (
+          (await invocationCall(rt, asInvocation(ctx))("spaces.list", {})) as {
+            spaces: SpaceInfo[]
+          }
+        ).spaces,
+      get: (ctx, space) =>
+        invocationCall(rt, asInvocation(ctx))("spaces.get", { space }) as Promise<SpaceInfo>,
+      create: (ctx, params) =>
+        invocationCall(rt, asInvocation(ctx))("spaces.create", params) as Promise<SpaceInfo>,
+      rename: (ctx, space, name) =>
+        invocationCall(rt, asInvocation(ctx))("spaces.rename", { space, name }) as Promise<SpaceInfo>,
+    },
+    entities: {
+      lookup: (ctx, uri) =>
+        invocationCall(rt, asInvocation(ctx))("entities.resolve", { uri }) as Promise<EntityInfo | null>,
+      lookupMany: async (ctx, uris) =>
+        (
+          (await invocationCall(rt, asInvocation(ctx))("entities.resolveMany", { uris })) as {
+            entities: EntityInfo[]
+          }
+        ).entities,
+      search: async (ctx, text, opts = {}) =>
+        (
+          (await invocationCall(rt, asInvocation(ctx))("entities.search", {
+            text,
+            ...(opts.schemes !== undefined ? { schemes: opts.schemes } : {}),
+            ...(opts.space !== undefined ? { space: opts.space } : {}),
+            ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+          })) as { entities: EntityInfo[] }
+        ).entities,
+      text: (ctx, uris, opts = {}) =>
+        invocationCall(rt, asInvocation(ctx))("entities.text", {
+          uris,
+          ...(opts.maxChars !== undefined ? { maxChars: opts.maxChars } : {}),
+        }) as Promise<EntityTextList>,
+      // The index of what a plugin contributed is its own to change, whoever its handler serves.
+      register: (entity) => rt.call("entities.register", { ...entity }) as Promise<EntityInfo>,
+      remove: async (uri) => {
+        await rt.call("entities.remove", { uri })
+      },
+      alias: async (uri, target) => {
+        await rt.call("entities.alias", { uri, target })
+      },
+    },
+    documents: {
+      list: async (ctx, parent) =>
+        (
+          (await invocationCall(rt, asInvocation(ctx))("documents.list", { parent })) as {
+            documents: DocumentInfo[]
+          }
+        ).documents,
+      create: (ctx, params: DocumentCreate) =>
+        invocationCall(rt, asInvocation(ctx))("documents.create", params) as Promise<DocumentInfo>,
+      edit: (ctx, params: DocumentEdit) =>
+        invocationCall(rt, asInvocation(ctx))("documents.edit", params) as Promise<DocumentEdited>,
+      delete: async (ctx, id) => {
+        await invocationCall(rt, asInvocation(ctx))("documents.delete", { id })
+      },
+      read: (ctx, id, format) =>
+        invocationCall(rt, asInvocation(ctx))("documents.read", {
+          id,
+          ...(format ? { format } : {}),
+        }) as Promise<DocumentContent>,
+      convert: (params: DocumentConvert) =>
+        rt.call("documents.convert", params) as Promise<DocumentConverted>,
+    },
+    // A person by name, for the resource they share with whoever the handler serves.
+    users: {
+      search: async (ctx, resource, text, limit) =>
+        (
+          (await invocationCall(rt, asInvocation(ctx))("users.search", {
+            resource,
+            text,
+            ...(limit !== undefined ? { limit } : {}),
+          })) as { people: Person[] }
+        ).people,
+    },
+    sql: sqlFor(rt),
     connections: {
       list: async (opts = {}) => {
         if (opts.space !== undefined) {
@@ -552,9 +813,45 @@ function createApi(rt: HostRuntime): Rookery {
       get: (id) => rt.call<ConnectionInfo>("connections.get", { id }),
       resolve: (id) => rt.call<ConnectionResolved>("connections.resolve", { id }),
     },
-    blobs: unavailable("blobs"),
-    audit: unavailable("audit"),
-    schedules: unavailable("schedules"),
+    blobs: {
+      put: (data, opts = {}) =>
+        rt.call("blobs.put", {
+          data: toBase64(data),
+          contentType: opts.contentType ?? "application/octet-stream",
+          ...(opts.filename !== undefined ? { name: opts.filename } : {}),
+        }) as Promise<BlobInfo>,
+      get: (id) => rt.call("blobs.get", { id }) as Promise<BlobInfo>,
+      read: () => {
+        throw new RookeryError(
+          "UNAVAILABLE",
+          "rookery.blobs.read needs the server's stream channel to a host half, which this version does not serve",
+        )
+      },
+      delete: async (id) => {
+        await rt.call("blobs.delete", { id })
+      },
+    },
+    audit: {
+      record: () => {
+        throw new RookeryError(
+          "UNAVAILABLE",
+          "rookery.audit.record is not available to host halves in this version of Rookery",
+        )
+      },
+      list: async (query = {}) => (await rt.call<{ entries: AuditEntry[] }>("audit.list", query)).entries,
+    },
+    schedules: {
+      create: (params) => rt.call("schedules.create", params) as Promise<ScheduleInfo>,
+      list: async () => (await rt.call<{ schedules: ScheduleInfo[] }>("schedules.list", {})).schedules,
+      setEnabled: (id, enabled) => rt.call("schedules.setEnabled", { id, enabled }) as Promise<ScheduleInfo>,
+      fire: (id, params) =>
+        rt.call("schedules.fire", { id, ...(params !== undefined ? { params } : {}) }) as Promise<{
+          job: string
+        }>,
+      remove: async (id) => {
+        await rt.call("schedules.remove", { id })
+      },
+    },
     streams: unavailable("streams"),
     // Every env method goes through the invocation the handler serves: the server runs it for that
     // person, or as the plugin when the invocation has no person, as in a job.
@@ -594,7 +891,24 @@ function createApi(rt: HostRuntime): Rookery {
       listDir: (ctx, env, path) => envCall<DirListing>(rt, ctx, "env.listDir", { env, path }),
       stat: (ctx, env, path) => envCall<FileStat>(rt, ctx, "env.stat", { env, path }),
     },
-    terminals: unavailable("terminals"),
+    terminals: {
+      list: async (ctx, env) =>
+        (
+          (await invocationCall(rt, asInvocation(ctx))("terminals.list", {
+            ...(env ? { env } : {}),
+          })) as { terminals: TerminalInfo[] }
+        ).terminals,
+      get: (ctx, terminal) =>
+        invocationCall(rt, asInvocation(ctx))("terminals.get", { id: terminal }) as Promise<TerminalInfo>,
+      screen: (ctx, terminal) =>
+        invocationCall(rt, asInvocation(ctx))("terminals.screen", { id: terminal }) as Promise<ScreenInfo>,
+      write: async (ctx, terminal, data) => {
+        await invocationCall(rt, asInvocation(ctx))("terminals.write", { id: terminal, text: data })
+      },
+      close: async (ctx, terminal) => {
+        await invocationCall(rt, asInvocation(ctx))("terminals.close", { id: terminal })
+      },
+    },
     appServices: {
       list: async () => (await rt.call<{ services: AppServiceInfo[] }>("services.list", { plugin })).services,
       // A service of `provides.services` one of this plugin's app services implements.

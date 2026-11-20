@@ -38,7 +38,7 @@ use std::time::{Duration, Instant};
 
 use rookery_jobs::JobRun;
 use rookery_kernel::conn::{ConnHandle, Outbound};
-use rookery_kernel::{Call, Caller, Kernel};
+use rookery_kernel::{Call, Caller, Kernel, Level};
 use rookery_proto::{ErrorBody, ErrorCode, RpcError, User};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -94,6 +94,7 @@ const HOST_ENV: &[&str] = &[
 /// through `host.env`, which knows the invocation it serves.
 const HOST_REQUESTS: &[&str] = &[
     "host.env",
+    "host.data",
     "host.stream.item",
     "host.job.log",
     "host.job.progress",
@@ -131,7 +132,8 @@ const HOST_REQUESTS: &[&str] = &[
     "connections.resolve",
     // The data layer as the plugin itself: its own collections as their admin, and other plugins'
     // rows only where a grant of its own reaches them. A host half serves a person but has no
-    // authenticated person of its own, so none of these runs as someone it names.
+    // authenticated person of its own, so none of these runs as someone it names. `host.data` is
+    // the same methods for the person an invocation is for.
     "data.find",
     "data.scan",
     "data.count",
@@ -158,7 +160,6 @@ const HOST_REQUESTS: &[&str] = &[
     "documents.get",
     "documents.list",
     "documents.delete",
-    "documents.open",
     "documents.read",
     "documents.convert",
     "documents.edit",
@@ -178,13 +179,132 @@ const HOST_REQUESTS: &[&str] = &[
     "spaces.kinds",
     "spaces.create",
     "spaces.rename",
-    "spaces.enter",
+    "users.search",
+    "sql.query",
+    "sql.execute",
+    "sql.begin",
+    "sql.txQuery",
+    "sql.txExecute",
+    "sql.txPublish",
+    "sql.commit",
+    "sql.rollback",
+    "blobs.get",
+    "blobs.put",
+    "blobs.delete",
+    "audit.list",
+    "schedules.create",
+    "schedules.list",
+    "schedules.setEnabled",
+    "schedules.fire",
+    "schedules.remove",
+    "access.filter",
+    "access.grant",
+    "access.grants",
+    "access.level",
+    "access.levelOf",
+    "access.require",
+    "access.revoke",
+    "terminals.list",
+    "terminals.get",
+    "terminals.screen",
+    "terminals.write",
+    "terminals.close",
+    "terminals.open",
+    "terminals.rename",
+    "terminals.resize",
+    "terminals.signal",
+    "terminals.sessions",
+    "terminals.adopt",
     // A migration's transform step, which runs in this process and reads and writes its transaction.
     "data.txRows",
     "data.txLegacy",
     "data.txInsert",
     "data.txUpdate",
     "data.txDelete",
+];
+
+/// The methods a host half may call through `host.data` for one invocation: what a handler does for
+/// the person it serves. A method that is not here stays the plugin's own, such as `entities.register`
+/// or the raw SQL of its schema.
+const HOST_DATA: &[&str] = &[
+    "data.find",
+    "data.scan",
+    "data.count",
+    "data.aggregate",
+    "data.search",
+    "data.get",
+    "data.tail",
+    "data.insert",
+    "data.upsert",
+    "data.update",
+    "data.delete",
+    "data.restore",
+    "data.purge",
+    "data.batch",
+    "data.import",
+    "data.history",
+    "data.refsTo",
+    "data.refsFrom",
+    "data.live",
+    "data.unlive",
+    "data.subscribe",
+    "data.unsubscribe",
+    "documents.create",
+    "documents.get",
+    "documents.list",
+    "documents.delete",
+    "documents.read",
+    "documents.convert",
+    "documents.edit",
+    "documents.history",
+    "documents.saveVersion",
+    "documents.restore",
+    "documents.flush",
+    "entities.resolve",
+    "entities.resolveMany",
+    "entities.search",
+    "entities.text",
+    "spaces.list",
+    "spaces.get",
+    "spaces.kinds",
+    "spaces.create",
+    "spaces.rename",
+    "users.search",
+    "sql.query",
+    "sql.execute",
+    "sql.begin",
+    "sql.txQuery",
+    "sql.txExecute",
+    "sql.txPublish",
+    "sql.commit",
+    "sql.rollback",
+    "blobs.get",
+    "blobs.put",
+    "blobs.delete",
+    "audit.list",
+    "schedules.create",
+    "schedules.list",
+    "schedules.setEnabled",
+    "schedules.fire",
+    "schedules.remove",
+    "access.filter",
+    "access.grant",
+    "access.grants",
+    "access.level",
+    "access.levelOf",
+    "access.require",
+    "access.revoke",
+    "terminals.list",
+    "terminals.get",
+    "terminals.screen",
+    "terminals.write",
+    "terminals.close",
+    "terminals.open",
+    "terminals.rename",
+    "terminals.resize",
+    "terminals.signal",
+    "terminals.sessions",
+    "terminals.adopt",
 ];
 
 /// How the server starts the extension host.
@@ -786,6 +906,7 @@ impl ExtHost {
             "user": call.user(),
             "principal": call.principal(),
             "deadline": deadline,
+            "space": rookery_data::spaces::current(call),
         });
         let stream = matches!(invocation, Some(Invocation::Stream { .. }));
         let invoke = json!({"plugin": plugin, "kind": kind, "key": key, "params": params, "ctx": ctx, "stream": stream});
@@ -1626,6 +1747,42 @@ async fn host_request(
             }
             let methods = call.kernel.methods.clone();
             methods.dispatch(call, &env_method, params).await
+        }
+        // The data layer and its neighbours on behalf of the invocation a call belongs to. A person
+        // decides their own reads and writes as they would from a client; a job or a call another
+        // plugin made has no person, so the plugin's own level runs it. A method that is a plugin's
+        // alone, such as the raw SQL of its schema, stays the plugin's either way.
+        "host.data" => {
+            let call_id = text("callId")?.to_owned();
+            let method = text("method")?.to_owned();
+            if !HOST_DATA.contains(&method.as_str()) {
+                return Err(RpcError::forbidden(format!(
+                    "{method} is not one a host half calls for an invocation"
+                )));
+            }
+            let params = params.get("params").cloned().unwrap_or_else(|| json!({}));
+            let acting = link.0.acting.lock().unwrap().get(&call_id).cloned();
+            let Some(acting) = acting else {
+                return Err(RpcError::not_found("the call this method is for has ended"));
+            };
+            let mut call = call.clone();
+            call.deadline = acting.deadline;
+            if let Some(user) = acting.user
+                && call.kernel.methods.level(&method) != Some(Level::Plugin)
+            {
+                // The audit log names the person whose level ran the call, and the plugin that did it.
+                // A plugin never names a user: the person is the one the invocation is for.
+                if let Caller::Plugin(plugin) = &call.caller {
+                    call.on_behalf = Some(plugin.clone());
+                }
+                call.caller = Caller::User {
+                    user,
+                    session: None,
+                    token: None,
+                };
+            }
+            let methods = call.kernel.methods.clone();
+            methods.dispatch(call, &method, params).await
         }
         "host.services.open" => {
             let capacity = Arc::new(reserve(&link.0.capacity.streams)?);
