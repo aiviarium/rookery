@@ -1271,14 +1271,14 @@
   },
   {
     "name": "audit.record",
-    "summary": "Records an action of the plugin that made the call, under its id.",
+    "summary": "Records an action of the plugin that made the call, under its id. The resource is free text; the actor is what a reader can trust.",
     "level": {
       "kind": "plugin"
     },
     "params": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
-      "description": "`audit.record`: a plugin's own action in the log, under its id.",
+      "description": "`audit.record`: a plugin's own action in the log, under its id. `resource` is free text: the\nactor and the plugin are the fields a reader can trust, not a claim about a resource.",
       "properties": {
         "action": {
           "type": "string"
