@@ -14,11 +14,14 @@ import (
 
 // PluginService is PluginService: List, Get, Install, Remove and SetEnabled.
 type PluginService struct {
-	installer *Installer
+	installer  *Installer
+	registries *Registries
 }
 
 // NewService returns PluginService for an installer.
-func NewService(installer *Installer) *PluginService { return &PluginService{installer: installer} }
+func NewService(installer *Installer) *PluginService {
+	return &PluginService{installer: installer, registries: NewRegistries(installer.store)}
+}
 
 // List returns the installed plugins.
 func (s *PluginService) List(ctx context.Context, _ *connect.Request[rookeryv1.PluginServiceListRequest]) (*connect.Response[rookeryv1.PluginServiceListResponse], error) {
@@ -96,4 +99,13 @@ func (s *PluginService) SetEnabled(ctx context.Context, request *connect.Request
 		return nil, access.ToConnect(err)
 	}
 	return connect.NewResponse(&rookeryv1.PluginServiceSetEnabledResponse{Plugin: plugin.Message()}), nil
+}
+
+// InstallFromRegistry verifies an indexed package before installing it.
+func (s *PluginService) InstallFromRegistry(ctx context.Context, request *connect.Request[rookeryv1.PluginServiceInstallFromRegistryRequest]) (*connect.Response[rookeryv1.PluginServiceInstallFromRegistryResponse], error) {
+	plugin, err := s.registries.install(ctx, s.installer, request.Msg.GetReference())
+	if err != nil {
+		return nil, access.ToConnect(err)
+	}
+	return connect.NewResponse(&rookeryv1.PluginServiceInstallFromRegistryResponse{Plugin: plugin.Message()}), nil
 }

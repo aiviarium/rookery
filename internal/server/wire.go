@@ -135,6 +135,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 	// with the rest of the plugin item, and their collections with the
 	// datastore's service, which fills in Data.
 	installer := plugins.NewInstaller(plugins.Options{
+		Version:   s.config.Version,
 		Store:     opened,
 		StateDir:  s.config.StateDir,
 		Jobs:      registry,
@@ -200,6 +201,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		topics:        topics,
 		notifications: notifications,
 		plugins:       plugins.NewService(installer),
+		registries:    plugins.NewRegistries(opened),
 		settings:      config.NewSettingsService(settings, checker),
 		secrets:       config.NewSecretsService(secrets),
 		connections:   config.NewConnectionsService(connections),
@@ -298,6 +300,7 @@ type services struct {
 	topics        *messaging.TopicsService
 	notifications *messaging.NotificationsService
 	plugins       *plugins.PluginService
+	registries    *plugins.Registries
 	settings      *config.SettingsService
 	secrets       *config.SecretsService
 	connections   *config.ConnectionsService
@@ -334,6 +337,8 @@ func (s services) register(mux *http.ServeMux, options []connect.HandlerOption) 
 	path, handler = rookeryv1connect.NewNotificationServiceHandler(s.notifications, options...)
 	handle(path, handler)
 	path, handler = rookeryv1connect.NewPluginServiceHandler(s.plugins, options...)
+	handle(path, handler)
+	path, handler = rookeryv1connect.NewRegistryServiceHandler(s.registries, options...)
 	handle(path, handler)
 	path, handler = rookeryv1connect.NewRolloutServiceHandler(s.rollouts, options...)
 	handle(path, handler)

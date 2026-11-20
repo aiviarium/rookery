@@ -121,19 +121,18 @@ service:
 	for {
 		runs := readRuns(t, socket)
 		if len(runs) >= 2 && runs[len(runs)-1]["pid"] != firstPID {
-			break
+			// A new process records its start before its listener is ready.
+			health, err = client.Health(ctx, connect.NewRequest(&pluginv1.PluginServiceHealthRequest{}))
+			if err == nil {
+				break
+			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("the supervisor did not restart the service")
+			t.Fatalf("the restarted service did not become healthy: %v", err)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	// It serves again, under a new token.
-	health, err = client.Health(ctx, connect.NewRequest(&pluginv1.PluginServiceHealthRequest{}))
-	if err != nil {
-		t.Fatalf("calling Health after the restart: %v", err)
-	}
 	if !health.Msg.GetHealthy() {
 		t.Fatal("the restarted service is not healthy")
 	}

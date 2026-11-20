@@ -701,3 +701,10 @@ CREATE INDEX rollout_hosts_state ON rookery.rollout_hosts (rollout_id, state, ba
 ALTER TABLE rookery.schedules ADD COLUMN rollout bytea NOT NULL DEFAULT ''::bytea;
 
 COMMENT ON COLUMN rookery.schedules.rollout IS 'The roll-out to start as CBOR, instead of a job kind, when it is set.';
+
+-- The trusted, signed package indexes configured by deployment admins.
+CREATE TABLE rookery.registries (
+    name       text PRIMARY KEY,
+    url        text NOT NULL,
+    public_key bytea NOT NULL CHECK (octet_length(public_key) = 32)
+);

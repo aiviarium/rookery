@@ -319,6 +319,12 @@ type RookeryRefs struct {
 	OnDelete string
 }
 
+type RookeryRegistries struct {
+	Name      string
+	Url       string
+	PublicKey []byte
+}
+
 // Every resource a grant can name, as a URI, with its parent.
 type RookeryResources struct {
 	Uri       string

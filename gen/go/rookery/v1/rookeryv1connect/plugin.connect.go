@@ -25,6 +25,8 @@ const _ = connect.IsAtLeastVersion1_13_0
 const (
 	// PluginServiceName is the fully-qualified name of the PluginService service.
 	PluginServiceName = "rookery.v1.PluginService"
+	// RegistryServiceName is the fully-qualified name of the RegistryService service.
+	RegistryServiceName = "rookery.v1.RegistryService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -41,11 +43,20 @@ const (
 	PluginServiceGetProcedure = "/rookery.v1.PluginService/Get"
 	// PluginServiceInstallProcedure is the fully-qualified name of the PluginService's Install RPC.
 	PluginServiceInstallProcedure = "/rookery.v1.PluginService/Install"
+	// PluginServiceInstallFromRegistryProcedure is the fully-qualified name of the PluginService's
+	// InstallFromRegistry RPC.
+	PluginServiceInstallFromRegistryProcedure = "/rookery.v1.PluginService/InstallFromRegistry"
 	// PluginServiceRemoveProcedure is the fully-qualified name of the PluginService's Remove RPC.
 	PluginServiceRemoveProcedure = "/rookery.v1.PluginService/Remove"
 	// PluginServiceSetEnabledProcedure is the fully-qualified name of the PluginService's SetEnabled
 	// RPC.
 	PluginServiceSetEnabledProcedure = "/rookery.v1.PluginService/SetEnabled"
+	// RegistryServiceAddProcedure is the fully-qualified name of the RegistryService's Add RPC.
+	RegistryServiceAddProcedure = "/rookery.v1.RegistryService/Add"
+	// RegistryServiceListProcedure is the fully-qualified name of the RegistryService's List RPC.
+	RegistryServiceListProcedure = "/rookery.v1.RegistryService/List"
+	// RegistryServiceRemoveProcedure is the fully-qualified name of the RegistryService's Remove RPC.
+	RegistryServiceRemoveProcedure = "/rookery.v1.RegistryService/Remove"
 )
 
 // PluginServiceClient is a client for the rookery.v1.PluginService service.
@@ -53,6 +64,7 @@ type PluginServiceClient interface {
 	List(context.Context, *connect.Request[v1.PluginServiceListRequest]) (*connect.Response[v1.PluginServiceListResponse], error)
 	Get(context.Context, *connect.Request[v1.PluginServiceGetRequest]) (*connect.Response[v1.PluginServiceGetResponse], error)
 	Install(context.Context) *connect.ClientStreamForClient[v1.PluginServiceInstallRequest, v1.PluginServiceInstallResponse]
+	InstallFromRegistry(context.Context, *connect.Request[v1.PluginServiceInstallFromRegistryRequest]) (*connect.Response[v1.PluginServiceInstallFromRegistryResponse], error)
 	Remove(context.Context, *connect.Request[v1.PluginServiceRemoveRequest]) (*connect.Response[v1.PluginServiceRemoveResponse], error)
 	SetEnabled(context.Context, *connect.Request[v1.PluginServiceSetEnabledRequest]) (*connect.Response[v1.PluginServiceSetEnabledResponse], error)
 }
@@ -86,6 +98,12 @@ func NewPluginServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(pluginServiceMethods.ByName("Install")),
 			connect.WithClientOptions(opts...),
 		),
+		installFromRegistry: connect.NewClient[v1.PluginServiceInstallFromRegistryRequest, v1.PluginServiceInstallFromRegistryResponse](
+			httpClient,
+			baseURL+PluginServiceInstallFromRegistryProcedure,
+			connect.WithSchema(pluginServiceMethods.ByName("InstallFromRegistry")),
+			connect.WithClientOptions(opts...),
+		),
 		remove: connect.NewClient[v1.PluginServiceRemoveRequest, v1.PluginServiceRemoveResponse](
 			httpClient,
 			baseURL+PluginServiceRemoveProcedure,
@@ -103,11 +121,12 @@ func NewPluginServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 
 // pluginServiceClient implements PluginServiceClient.
 type pluginServiceClient struct {
-	list       *connect.Client[v1.PluginServiceListRequest, v1.PluginServiceListResponse]
-	get        *connect.Client[v1.PluginServiceGetRequest, v1.PluginServiceGetResponse]
-	install    *connect.Client[v1.PluginServiceInstallRequest, v1.PluginServiceInstallResponse]
-	remove     *connect.Client[v1.PluginServiceRemoveRequest, v1.PluginServiceRemoveResponse]
-	setEnabled *connect.Client[v1.PluginServiceSetEnabledRequest, v1.PluginServiceSetEnabledResponse]
+	list                *connect.Client[v1.PluginServiceListRequest, v1.PluginServiceListResponse]
+	get                 *connect.Client[v1.PluginServiceGetRequest, v1.PluginServiceGetResponse]
+	install             *connect.Client[v1.PluginServiceInstallRequest, v1.PluginServiceInstallResponse]
+	installFromRegistry *connect.Client[v1.PluginServiceInstallFromRegistryRequest, v1.PluginServiceInstallFromRegistryResponse]
+	remove              *connect.Client[v1.PluginServiceRemoveRequest, v1.PluginServiceRemoveResponse]
+	setEnabled          *connect.Client[v1.PluginServiceSetEnabledRequest, v1.PluginServiceSetEnabledResponse]
 }
 
 // List calls rookery.v1.PluginService.List.
@@ -125,6 +144,11 @@ func (c *pluginServiceClient) Install(ctx context.Context) *connect.ClientStream
 	return c.install.CallClientStream(ctx)
 }
 
+// InstallFromRegistry calls rookery.v1.PluginService.InstallFromRegistry.
+func (c *pluginServiceClient) InstallFromRegistry(ctx context.Context, req *connect.Request[v1.PluginServiceInstallFromRegistryRequest]) (*connect.Response[v1.PluginServiceInstallFromRegistryResponse], error) {
+	return c.installFromRegistry.CallUnary(ctx, req)
+}
+
 // Remove calls rookery.v1.PluginService.Remove.
 func (c *pluginServiceClient) Remove(ctx context.Context, req *connect.Request[v1.PluginServiceRemoveRequest]) (*connect.Response[v1.PluginServiceRemoveResponse], error) {
 	return c.remove.CallUnary(ctx, req)
@@ -140,6 +164,7 @@ type PluginServiceHandler interface {
 	List(context.Context, *connect.Request[v1.PluginServiceListRequest]) (*connect.Response[v1.PluginServiceListResponse], error)
 	Get(context.Context, *connect.Request[v1.PluginServiceGetRequest]) (*connect.Response[v1.PluginServiceGetResponse], error)
 	Install(context.Context, *connect.ClientStream[v1.PluginServiceInstallRequest]) (*connect.Response[v1.PluginServiceInstallResponse], error)
+	InstallFromRegistry(context.Context, *connect.Request[v1.PluginServiceInstallFromRegistryRequest]) (*connect.Response[v1.PluginServiceInstallFromRegistryResponse], error)
 	Remove(context.Context, *connect.Request[v1.PluginServiceRemoveRequest]) (*connect.Response[v1.PluginServiceRemoveResponse], error)
 	SetEnabled(context.Context, *connect.Request[v1.PluginServiceSetEnabledRequest]) (*connect.Response[v1.PluginServiceSetEnabledResponse], error)
 }
@@ -169,6 +194,12 @@ func NewPluginServiceHandler(svc PluginServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(pluginServiceMethods.ByName("Install")),
 		connect.WithHandlerOptions(opts...),
 	)
+	pluginServiceInstallFromRegistryHandler := connect.NewUnaryHandler(
+		PluginServiceInstallFromRegistryProcedure,
+		svc.InstallFromRegistry,
+		connect.WithSchema(pluginServiceMethods.ByName("InstallFromRegistry")),
+		connect.WithHandlerOptions(opts...),
+	)
 	pluginServiceRemoveHandler := connect.NewUnaryHandler(
 		PluginServiceRemoveProcedure,
 		svc.Remove,
@@ -189,6 +220,8 @@ func NewPluginServiceHandler(svc PluginServiceHandler, opts ...connect.HandlerOp
 			pluginServiceGetHandler.ServeHTTP(w, r)
 		case PluginServiceInstallProcedure:
 			pluginServiceInstallHandler.ServeHTTP(w, r)
+		case PluginServiceInstallFromRegistryProcedure:
+			pluginServiceInstallFromRegistryHandler.ServeHTTP(w, r)
 		case PluginServiceRemoveProcedure:
 			pluginServiceRemoveHandler.ServeHTTP(w, r)
 		case PluginServiceSetEnabledProcedure:
@@ -214,10 +247,136 @@ func (UnimplementedPluginServiceHandler) Install(context.Context, *connect.Clien
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.PluginService.Install is not implemented"))
 }
 
+func (UnimplementedPluginServiceHandler) InstallFromRegistry(context.Context, *connect.Request[v1.PluginServiceInstallFromRegistryRequest]) (*connect.Response[v1.PluginServiceInstallFromRegistryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.PluginService.InstallFromRegistry is not implemented"))
+}
+
 func (UnimplementedPluginServiceHandler) Remove(context.Context, *connect.Request[v1.PluginServiceRemoveRequest]) (*connect.Response[v1.PluginServiceRemoveResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.PluginService.Remove is not implemented"))
 }
 
 func (UnimplementedPluginServiceHandler) SetEnabled(context.Context, *connect.Request[v1.PluginServiceSetEnabledRequest]) (*connect.Response[v1.PluginServiceSetEnabledResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.PluginService.SetEnabled is not implemented"))
+}
+
+// RegistryServiceClient is a client for the rookery.v1.RegistryService service.
+type RegistryServiceClient interface {
+	Add(context.Context, *connect.Request[v1.RegistryServiceAddRequest]) (*connect.Response[v1.RegistryServiceAddResponse], error)
+	List(context.Context, *connect.Request[v1.RegistryServiceListRequest]) (*connect.Response[v1.RegistryServiceListResponse], error)
+	Remove(context.Context, *connect.Request[v1.RegistryServiceRemoveRequest]) (*connect.Response[v1.RegistryServiceRemoveResponse], error)
+}
+
+// NewRegistryServiceClient constructs a client for the rookery.v1.RegistryService service. By
+// default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses,
+// and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
+// connect.WithGRPC() or connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewRegistryServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) RegistryServiceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	registryServiceMethods := v1.File_rookery_v1_plugin_proto.Services().ByName("RegistryService").Methods()
+	return &registryServiceClient{
+		add: connect.NewClient[v1.RegistryServiceAddRequest, v1.RegistryServiceAddResponse](
+			httpClient,
+			baseURL+RegistryServiceAddProcedure,
+			connect.WithSchema(registryServiceMethods.ByName("Add")),
+			connect.WithClientOptions(opts...),
+		),
+		list: connect.NewClient[v1.RegistryServiceListRequest, v1.RegistryServiceListResponse](
+			httpClient,
+			baseURL+RegistryServiceListProcedure,
+			connect.WithSchema(registryServiceMethods.ByName("List")),
+			connect.WithClientOptions(opts...),
+		),
+		remove: connect.NewClient[v1.RegistryServiceRemoveRequest, v1.RegistryServiceRemoveResponse](
+			httpClient,
+			baseURL+RegistryServiceRemoveProcedure,
+			connect.WithSchema(registryServiceMethods.ByName("Remove")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// registryServiceClient implements RegistryServiceClient.
+type registryServiceClient struct {
+	add    *connect.Client[v1.RegistryServiceAddRequest, v1.RegistryServiceAddResponse]
+	list   *connect.Client[v1.RegistryServiceListRequest, v1.RegistryServiceListResponse]
+	remove *connect.Client[v1.RegistryServiceRemoveRequest, v1.RegistryServiceRemoveResponse]
+}
+
+// Add calls rookery.v1.RegistryService.Add.
+func (c *registryServiceClient) Add(ctx context.Context, req *connect.Request[v1.RegistryServiceAddRequest]) (*connect.Response[v1.RegistryServiceAddResponse], error) {
+	return c.add.CallUnary(ctx, req)
+}
+
+// List calls rookery.v1.RegistryService.List.
+func (c *registryServiceClient) List(ctx context.Context, req *connect.Request[v1.RegistryServiceListRequest]) (*connect.Response[v1.RegistryServiceListResponse], error) {
+	return c.list.CallUnary(ctx, req)
+}
+
+// Remove calls rookery.v1.RegistryService.Remove.
+func (c *registryServiceClient) Remove(ctx context.Context, req *connect.Request[v1.RegistryServiceRemoveRequest]) (*connect.Response[v1.RegistryServiceRemoveResponse], error) {
+	return c.remove.CallUnary(ctx, req)
+}
+
+// RegistryServiceHandler is an implementation of the rookery.v1.RegistryService service.
+type RegistryServiceHandler interface {
+	Add(context.Context, *connect.Request[v1.RegistryServiceAddRequest]) (*connect.Response[v1.RegistryServiceAddResponse], error)
+	List(context.Context, *connect.Request[v1.RegistryServiceListRequest]) (*connect.Response[v1.RegistryServiceListResponse], error)
+	Remove(context.Context, *connect.Request[v1.RegistryServiceRemoveRequest]) (*connect.Response[v1.RegistryServiceRemoveResponse], error)
+}
+
+// NewRegistryServiceHandler builds an HTTP handler from the service implementation. It returns the
+// path on which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewRegistryServiceHandler(svc RegistryServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	registryServiceMethods := v1.File_rookery_v1_plugin_proto.Services().ByName("RegistryService").Methods()
+	registryServiceAddHandler := connect.NewUnaryHandler(
+		RegistryServiceAddProcedure,
+		svc.Add,
+		connect.WithSchema(registryServiceMethods.ByName("Add")),
+		connect.WithHandlerOptions(opts...),
+	)
+	registryServiceListHandler := connect.NewUnaryHandler(
+		RegistryServiceListProcedure,
+		svc.List,
+		connect.WithSchema(registryServiceMethods.ByName("List")),
+		connect.WithHandlerOptions(opts...),
+	)
+	registryServiceRemoveHandler := connect.NewUnaryHandler(
+		RegistryServiceRemoveProcedure,
+		svc.Remove,
+		connect.WithSchema(registryServiceMethods.ByName("Remove")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/rookery.v1.RegistryService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case RegistryServiceAddProcedure:
+			registryServiceAddHandler.ServeHTTP(w, r)
+		case RegistryServiceListProcedure:
+			registryServiceListHandler.ServeHTTP(w, r)
+		case RegistryServiceRemoveProcedure:
+			registryServiceRemoveHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedRegistryServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedRegistryServiceHandler struct{}
+
+func (UnimplementedRegistryServiceHandler) Add(context.Context, *connect.Request[v1.RegistryServiceAddRequest]) (*connect.Response[v1.RegistryServiceAddResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.RegistryService.Add is not implemented"))
+}
+
+func (UnimplementedRegistryServiceHandler) List(context.Context, *connect.Request[v1.RegistryServiceListRequest]) (*connect.Response[v1.RegistryServiceListResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.RegistryService.List is not implemented"))
+}
+
+func (UnimplementedRegistryServiceHandler) Remove(context.Context, *connect.Request[v1.RegistryServiceRemoveRequest]) (*connect.Response[v1.RegistryServiceRemoveResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rookery.v1.RegistryService.Remove is not implemented"))
 }
