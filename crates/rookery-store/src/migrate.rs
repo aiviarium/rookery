@@ -66,6 +66,11 @@ pub(crate) static MIGRATIONS: &[Migration] = &[
         name: "space scope",
         sql: include_str!("../migrations/0010_space_scope.sql"),
     },
+    Migration {
+        version: 11,
+        name: "notify_native",
+        sql: include_str!("../migrations/0011_notify_native.sql"),
+    },
 ];
 
 /// Any number taken by no other advisory lock of the server.

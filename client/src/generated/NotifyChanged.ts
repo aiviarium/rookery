@@ -2,7 +2,7 @@
 import type { NotificationInfo } from "./NotificationInfo";
 
 /**
- * Notification `notify.changed`: notifications changed on another device. `allRead` means every
- * notification is read now.
+ * Notification `notify.changed`: notifications changed on every connection of the person,
+ * including the one that made the change. `allRead` means every notification is read now.
  */
 export type NotifyChanged = { notifications: Array<NotificationInfo>, allRead?: boolean, unread: number, };

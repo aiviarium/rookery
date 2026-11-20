@@ -6,6 +6,6 @@ import type { NotificationInfo } from "./NotificationInfo";
  */
 export type NotifyNew = { notification: NotificationInfo, unread: number, 
 /**
- * Whether the user wants this kind as a native notification.
+ * Whether the person asked for this kind natively, from `notify.setPref`.
  */
 native: boolean, };

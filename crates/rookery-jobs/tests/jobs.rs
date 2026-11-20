@@ -624,6 +624,14 @@ async fn notifications_reach_a_persons_inbox_and_answers_the_plugin() {
     let ops = k.person("Ops", false).await;
     let ops_id = ops.user().unwrap().id.clone();
     let mut live = k.connect(&ops);
+    // The person asked for this kind natively.
+    k.call(
+        &ops,
+        "notify.setPref",
+        json!({"kind": "fleet/apply", "muted": false, "native": true}),
+    )
+    .await
+    .unwrap();
     let send = json!({"user": ops_id.replace('-', ""), "kind": "apply", "title": "Apply studio?", "actions": ["approve", "deny"], "data": {"host": "studio"}});
     let sent = k.call(&fleet, "notify.send", send.clone()).await.unwrap();
     let id = sent["notification"]["id"].clone();
@@ -632,7 +640,7 @@ async fn notifications_reach_a_persons_inbox_and_answers_the_plugin() {
         .expect("the person's connection hears of it, whatever the spelling of their id");
     assert_eq!(new["notification"]["id"], id);
     assert_eq!(new["unread"], 1);
-    assert_eq!(new["native"], false);
+    assert_eq!(new["native"], true);
     let listed = k
         .call(&ops, "notify.list", json!({"unread": true}))
         .await
