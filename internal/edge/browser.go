@@ -73,6 +73,11 @@ func (e *Edge) registerAuth(mux *http.ServeMux) {
 // fallback answers what no service and no sign-in route took: the shell plugin's
 // page once there is one.
 func (e *Edge) fallback(w http.ResponseWriter, r *http.Request) {
+	// The shell, when a plugin is one, answers every path no other route does,
+	// so that its router decides what a path is.
+	if e.shellIndex(w, r) {
+		return
+	}
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return

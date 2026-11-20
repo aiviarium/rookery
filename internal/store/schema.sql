@@ -412,3 +412,32 @@ COMMENT ON TABLE rookery.provisioned_resources IS 'Machines and other resources 
 -- A host has at most one machine.
 CREATE UNIQUE INDEX provisioned_resources_one_machine ON rookery.provisioned_resources (name) WHERE kind = 'machine';
 CREATE INDEX provisioned_resources_by_provisioner ON rookery.provisioned_resources (provisioner, id);
+=======
+CREATE INDEX rollout_hosts_state ON rookery.rollout_hosts (rollout_id, state, batch);
+
+-- A schedule runs a job kind, or starts a roll-out when its rollout is set.
+-- The column lives in this section to keep one item's changes in one place.
+ALTER TABLE rookery.schedules ADD COLUMN rollout bytea NOT NULL DEFAULT ''::bytea;
+
+COMMENT ON COLUMN rookery.schedules.rollout IS 'The roll-out to start as CBOR, instead of a job kind, when it is set.';
+-- ---------------------------------------------------------------------------
+-- Plugins. A row per installed package: its manifest, its hash, whether it is
+-- enabled, and where its files are (ROOKERY_STATE_DIR/plugins/<id>/<sha256>/).
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE rookery.plugins (
+	id           text        PRIMARY KEY,
+	name         text        NOT NULL DEFAULT '',
+	version      text        NOT NULL,
+	sha256       text        NOT NULL,
+	manifest     bytea       NOT NULL,
+	enabled      boolean     NOT NULL DEFAULT true,
+	installed_at timestamptz NOT NULL DEFAULT now(),
+	updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE rookery.plugins IS 'The packages installed in this deployment, their manifests and their hashes.';
+COMMENT ON COLUMN rookery.plugins.manifest IS 'The plugin.yaml the package was installed with.';
+COMMENT ON COLUMN rookery.plugins.sha256 IS 'The package hash, which is also the folder its files are in.';
+
+CREATE INDEX plugins_enabled ON rookery.plugins (enabled, id);

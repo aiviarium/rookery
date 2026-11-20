@@ -179,6 +179,20 @@ type RookeryProvisioners struct {
 	UpdatedAt time.Time
 }
 
+// The packages installed in this deployment, their manifests and their hashes.
+type RookeryPlugins struct {
+	ID      string
+	Name    string
+	Version string
+	// The package hash, which is also the folder its files are in.
+	Sha256 string
+	// The plugin.yaml the package was installed with.
+	Manifest    []byte
+	Enabled     bool
+	InstalledAt time.Time
+	UpdatedAt   time.Time
+}
+
 // The references records hold, for RefsTo, RefsFrom and what a delete does to a holder.
 type RookeryRefs struct {
 	// The holding record, as a record:// URI.

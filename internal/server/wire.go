@@ -20,6 +20,7 @@ import (
 	"github.com/aiviarium/rookery/internal/edge"
 	"github.com/aiviarium/rookery/internal/jobs"
 	"github.com/aiviarium/rookery/internal/messaging"
+	"github.com/aiviarium/rookery/internal/plugins"
 	"github.com/aiviarium/rookery/internal/seal"
 	"github.com/aiviarium/rookery/internal/spaces"
 	"github.com/aiviarium/rookery/internal/store"
@@ -40,6 +41,14 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 
 	checker := access.NewChecker(opened)
 	recorder := audit.NewRecorder(opened)
+
+	// Plugins: the packages installed in this deployment. Their services and
+	// their client halves arrive with the rest of the plugin item.
+	installer := plugins.NewInstaller(plugins.Options{
+		Store:    opened,
+		StateDir: s.config.StateDir,
+		Logger:   s.log,
+	})
 
 	users := authn.NewUsers(opened)
 	sessions := authn.NewSessions(opened)
@@ -106,6 +115,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		events:        events,
 		topics:        topics,
 		notifications: notifications,
+		plugins:       plugins.NewService(installer),
 	}
 
 	build := edge.New(edge.Deps{
@@ -121,6 +131,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		OIDC:         provider,
 		OIDCAdmins:   s.config.Admins,
 		Interceptors: interceptors,
+		Plugins:      installer,
 		RegisterServices: func(mux *http.ServeMux, options []connect.HandlerOption) {
 			service.register(mux, options)
 		},
@@ -182,6 +193,7 @@ type services struct {
 	events        *messaging.EventsService
 	topics        *messaging.TopicsService
 	notifications *messaging.NotificationsService
+	plugins       *plugins.PluginService
 }
 
 // register adds the core services to a mux.
@@ -209,6 +221,8 @@ func (s services) register(mux *http.ServeMux, options []connect.HandlerOption) 
 	path, handler = rookeryv1connect.NewTopicServiceHandler(s.topics, options...)
 	handle(path, handler)
 	path, handler = rookeryv1connect.NewNotificationServiceHandler(s.notifications, options...)
+	handle(path, handler)
+	path, handler = rookeryv1connect.NewPluginServiceHandler(s.plugins, options...)
 	handle(path, handler)
 }
 
