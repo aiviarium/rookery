@@ -482,6 +482,31 @@ impl Plugins {
         .await
     }
 
+    /// Opens the stream of a method the plugin's `contributes.rpc` declares as one, served by a
+    /// service its host half provides or by an app service it places.
+    pub async fn rpc_stream(
+        self: &Arc<Self>,
+        call: &rookery_kernel::Call,
+        plugin: &str,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<services::ServiceStream, RpcError> {
+        let loaded = self
+            .get(plugin)
+            .ok_or_else(|| RpcError::not_found(format!("no plugin {plugin} is installed")))?;
+        let Some((service, bound, stream)) = services::rpc_handler(&loaded, method) else {
+            return Err(RpcError::invalid(format!(
+                "{plugin} declares no method {method} in contributes.rpc"
+            )));
+        };
+        if !stream {
+            return Err(RpcError::invalid(format!(
+                "{method} of {plugin} answers in one message: use plugins.rpc"
+            )));
+        }
+        services::open_bound_stream(call, self, plugin, &service, &bound, params).await
+    }
+
     /// Stops every host half when the server stops, running their cleanups within `limit` in all. The
     /// server awaits it before it closes the store.
     pub async fn stop(&self, kernel: &Kernel, limit: std::time::Duration) {

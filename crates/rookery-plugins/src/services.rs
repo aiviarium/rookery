@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use rookery_kernel::streams::{Initiator, OwnedWriter};
 use rookery_proto::stream::StreamOpened;
-use tokio::sync::{OwnedSemaphorePermit, mpsc};
+use tokio::sync::{OwnedSemaphorePermit, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use rookery_kernel::{Call, Caller, Kernel, Level, Methods, RpcError};
@@ -31,6 +31,11 @@ use crate::loaded::Loaded;
 /// How long one call of an app service may take.
 const APP_SERVICE_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_METHOD_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// The longest a method that applies its own deadline may run.
+pub(crate) fn max_timeout() -> Duration {
+    MAX_METHOD_TIMEOUT
+}
 
 /// `extensions.list`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -523,7 +528,7 @@ fn invoke_host(
 }
 
 /// A stream has room for one unread chunk. The provider waits for room before yielding another.
-pub(crate) struct ServiceStream {
+pub struct ServiceStream {
     items: mpsc::Receiver<Value>,
     result: InvocationResult,
     deadline: Instant,
@@ -588,7 +593,7 @@ pub(crate) async fn open_stream(
     })
 }
 
-async fn forward_stream(mut source: ServiceStream, writer: OwnedWriter) {
+pub(crate) async fn forward_stream(mut source: ServiceStream, writer: OwnedWriter) {
     let deadline = source.deadline;
     let send = async {
         while let Some(item) = source.next().await? {
@@ -640,11 +645,127 @@ pub async fn call_bound(
     params: Value,
 ) -> Result<Value, RpcError> {
     if stream {
-        return Err(RpcError::unavailable(format!(
-            "{method} of {plugin} answers with a stream, which this server does not serve yet"
+        return Err(RpcError::invalid(format!(
+            "{method} of {plugin} answers with a stream: use plugins.rpc.stream"
         )));
     }
     call_app_service(&call.kernel, call, plugin, service, method, params).await
+}
+
+/// Opens the stream a `contributes.rpc` method binds to a service: a host half's, with the credit and
+/// cancellation of `services.stream`, or an app service's, read from one JSON-RPC answer per line.
+pub(crate) async fn open_bound_stream(
+    call: &Call,
+    plugins: &Arc<Plugins>,
+    plugin: &str,
+    service: &str,
+    method: &str,
+    params: Value,
+) -> Result<ServiceStream, RpcError> {
+    let provider = provider(call, plugins, plugin, service)?;
+    if let Some((app, ..)) = app_services(&provider)
+        .into_iter()
+        .find(|(_, _, _, names)| names.iter().any(|name| name == service))
+    {
+        return stream_app_service(&call.kernel, call, plugin, &app, method, params).await;
+    }
+    let asked = ServiceCall {
+        plugin: plugin.into(),
+        service: service.into(),
+        method: method.into(),
+        params,
+    };
+    open_stream(call, plugins, asked, None).await
+}
+
+/// A streamed answer of an app service: the response's lines are its items, and one with an error
+/// ends it. A body that ends is a stream that ended well.
+async fn stream_app_service(
+    kernel: &Kernel,
+    call: &Call,
+    plugin: &str,
+    service: &str,
+    method: &str,
+    params: Value,
+) -> Result<ServiceStream, RpcError> {
+    let Some(url) = placement(kernel, plugin, service).await else {
+        return Err(RpcError::unavailable(format!(
+            "the app service {service} of {plugin} is placed nowhere: an admin places it with services.setExternal"
+        )));
+    };
+    let secret = secret(kernel, plugin, service).await;
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": method,
+        "params": params,
+        "stream": true,
+        "ctx": {"user": call.user(), "principal": call.principal()},
+    });
+    let endpoint = format!("{}/rpc", url.trim_end_matches('/'));
+    let (sender, items) = mpsc::channel(1);
+    let (settle, result) = InvocationResult::pair();
+    tokio::task::spawn_blocking(move || {
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .build()
+            .into();
+        let mut request = agent
+            .post(&endpoint)
+            .header("content-type", "application/json")
+            .header("accept", "application/x-ndjson");
+        if let Some(secret) = &secret {
+            request = request.header("authorization", &format!("Bearer {secret}"));
+        }
+        let fail = |settle: oneshot::Sender<Result<Value, RpcError>>, error: RpcError| {
+            let _ = settle.send(Err(error));
+        };
+        let mut response = match request.send(body.to_string().as_bytes()) {
+            Ok(response) => response,
+            Err(e) => return fail(settle, RpcError::unavailable(format!("{endpoint}: {e}"))),
+        };
+        let status = response.status();
+        if !status.is_success() {
+            return fail(
+                settle,
+                RpcError::unavailable(format!("{endpoint} answered {status}")),
+            );
+        }
+        let mut reader = std::io::BufReader::new(response.body_mut().as_reader());
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match std::io::BufRead::read_line(&mut reader, &mut line) {
+                Ok(0) => break,
+                Ok(_) => {
+                    let Ok(message) = serde_json::from_str::<Value>(line.trim()) else {
+                        continue;
+                    };
+                    if let Some(error) = message.get("error") {
+                        let error = serde_json::from_value::<RpcError>(error.clone())
+                            .unwrap_or_else(|_| RpcError::internal(error.to_string()));
+                        let _ = settle.send(Err(error));
+                        return;
+                    }
+                    let item = message.get("result").cloned().unwrap_or(Value::Null);
+                    // A closed stream means the caller went away: stop reading.
+                    if sender.blocking_send(item).is_err() {
+                        return;
+                    }
+                }
+                Err(e) => {
+                    return fail(settle, RpcError::unavailable(format!("{endpoint}: {e}")));
+                }
+            }
+        }
+        let _ = settle.send(Ok(Value::Null));
+    });
+    Ok(ServiceStream {
+        items,
+        result,
+        deadline: call.deadline,
+        _capacity: None,
+    })
 }
 
 async fn infos(call: &Call, plugins: &Plugins, only: Option<&str>) -> Vec<AppServiceInfo> {

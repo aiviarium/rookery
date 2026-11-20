@@ -684,7 +684,7 @@ export function createClientRookery(s: ClientScope): ClientRookery {
       call: <T = unknown>(method: string, params: Record<string, unknown> = {}) =>
         s.rt.call("plugins.rpc", { plugin: s.plugin, method, params }) as Promise<T>,
       stream: (method, params = {}, opts) =>
-        s.rt.stream("plugins.rpc", { plugin: s.plugin, method, params }, opts),
+        s.rt.stream("plugins.rpc.stream", { plugin: s.plugin, method, params }, opts),
     },
     rpc: {
       call: <T = unknown>(method: string, params: Record<string, unknown> = {}) =>
@@ -930,7 +930,7 @@ export function createClientRookery(s: ClientScope): ClientRookery {
       call: <T = unknown>(plugin: string, method: string, params: Record<string, unknown> = {}) =>
         s.rt.call("plugins.rpc", { plugin, method, params }) as Promise<T>,
       stream: (plugin, method, params = {}, opts) =>
-        s.rt.stream("plugins.rpc", { plugin, method, params }, opts),
+        s.rt.stream("plugins.rpc.stream", { plugin, method, params }, opts),
     },
     services: {
       call: (plugin, service, method, params = {}) =>

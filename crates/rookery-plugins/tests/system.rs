@@ -1437,6 +1437,148 @@ async fn extension_points_and_services_of_host_halves_and_app_services() {
     k.close().await;
 }
 
+const STREAMED: &str = r#"{
+  "apiVersion": "1", "name": "Sample", "host": "host.ts", "interface": "interface.ts",
+  "provides": {"services": ["sample"]},
+  "contributes": {
+    "jobs": [{"id": "sample.run", "title": "Run", "enqueue": "plugin", "idempotent": true}],
+    "rpc": [
+      {"method": "count", "stream": true, "handler": {"service": "sample", "method": "count"}},
+      {"method": "describe", "handler": {"service": "sample", "method": "describe"}}
+    ]
+  }
+}"#;
+
+/// A `contributes.rpc` method declared as a stream is opened on the caller's connection and closes
+/// with the host service's answer; the unary call of it is refused, and so is a stream of one that
+/// answers in one message.
+#[tokio::test]
+async fn a_streamed_rpc_method_of_a_host_service_answers_on_the_caller_s_connection() {
+    if !bun_ready() {
+        eprintln!("skipped: the extension host needs bun and `bun install`");
+        return;
+    }
+    let k = test_kernel!(host_api_methods());
+    let scratch = tempfile::tempdir().unwrap();
+    let plugins = plugins(&k, scratch.path()).await;
+    let member = k.person("Bob", false).await;
+    install_host_api(&k, &plugins, scratch.path(), "sample", STREAMED).await;
+    let mut inbox = k.connect(&member);
+    let opened = k
+        .call_on(
+            &inbox,
+            "plugins.rpc.stream",
+            json!({"plugin": "sample", "method": "count", "params": {"to": 3}}),
+        )
+        .await
+        .unwrap();
+    let stream = u32::try_from(opened["stream"].as_u64().unwrap()).unwrap();
+    assert_eq!(inbox.lines(stream).await, [json!(1), json!(2), json!(3)]);
+    use rookery_proto::ErrorCode;
+    let unary = k
+        .call(
+            &member,
+            "plugins.rpc",
+            json!({"plugin": "sample", "method": "count", "params": {"to": 2}}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(unary.error_code(), ErrorCode::Invalid);
+    let one_message = k
+        .call_on(
+            &inbox,
+            "plugins.rpc.stream",
+            json!({"plugin": "sample", "method": "describe", "params": {"id": "x"}}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(one_message.error_code(), ErrorCode::Invalid);
+    let undeclared = k
+        .call_on(
+            &inbox,
+            "plugins.rpc.stream",
+            json!({"plugin": "sample", "method": "nothing", "params": {}}),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(undeclared.error_code(), ErrorCode::Invalid);
+    k.close().await;
+}
+
+const STREAMED_APP: &str = r#"{
+  "apiVersion": "1", "name": "Stream", "provides": {"services": ["streamed"]},
+  "services": [{"id": "backend", "title": "Backend", "provides": "streamed"}],
+  "contributes": {"rpc": [{"method": "count", "stream": true, "handler": {"service": "streamed", "method": "count"}}]}
+}"#;
+
+/// A streamed method of a placed app service is read from the response's lines, one item each.
+#[tokio::test]
+async fn a_streamed_rpc_method_of_an_app_service_answers_one_item_per_line() {
+    let k = test_kernel!(methods());
+    let scratch = tempfile::tempdir().unwrap();
+    let plugins = plugins(&k, scratch.path()).await;
+    let admin = k.person("Ada", true).await;
+    let member = k.person("Bob", false).await;
+    install(
+        &k,
+        &plugins,
+        &package(
+            scratch.path(),
+            "stream",
+            "1.0.0",
+            &[("plugin.json", STREAMED_APP)],
+        ),
+    )
+    .await;
+    let url = backend_stream().await;
+    k.call(
+        &admin,
+        "services.setExternal",
+        json!({"plugin": "stream", "service": "backend", "url": url}),
+    )
+    .await
+    .unwrap();
+    let mut inbox = k.connect(&member);
+    let opened = k
+        .call_on(
+            &inbox,
+            "plugins.rpc.stream",
+            json!({"plugin": "stream", "method": "count", "params": {"to": 3}}),
+        )
+        .await
+        .unwrap();
+    let stream = u32::try_from(opened["stream"].as_u64().unwrap()).unwrap();
+    assert_eq!(inbox.lines(stream).await, [json!(1), json!(2), json!(3)]);
+    k.close().await;
+}
+
+/// An app service whose answer is one JSON-RPC message per line.
+async fn backend_stream() -> String {
+    use axum::routing::post;
+    let app = axum::Router::new().route(
+        "/rpc",
+        post(|body: String| async move {
+            let request: Value = serde_json::from_str(&body).unwrap();
+            let to = request["params"]["to"].as_u64().unwrap_or(0);
+            let mut lines = String::new();
+            for i in 1..=to {
+                lines.push_str(
+                    &json!({"jsonrpc": "2.0", "id": request["id"], "result": i}).to_string(),
+                );
+                lines.push('\n');
+            }
+            (
+                [(axum::http::header::CONTENT_TYPE, "application/x-ndjson")],
+                lines,
+            )
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    url
+}
+
 const HOST_APIS: &str = r#"{
   "apiVersion": "1", "name": "Sample", "host": "host.ts", "interface": "interface.ts",
   "provides": {"services": ["sample"], "serviceLevels": {"sample": "plugin"}},

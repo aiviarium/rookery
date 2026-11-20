@@ -990,6 +990,13 @@ impl InvocationResult {
             .await
             .unwrap_or_else(|_| Err(RpcError::unavailable("the call went away")))
     }
+
+    /// A result the caller settles itself, for a stream that is not a host half's, such as an app
+    /// service's answer read over HTTP.
+    pub(crate) fn pair() -> (oneshot::Sender<Result<Value, RpcError>>, InvocationResult) {
+        let (tx, rx) = oneshot::channel();
+        (tx, InvocationResult(rx))
+    }
 }
 
 struct HostStream {
