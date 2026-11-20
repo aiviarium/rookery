@@ -59,6 +59,30 @@ The document and terminal frames are this client's proposal for item 12's and it
 6's routes; when those land, the server follows these bytes or this client is
 changed with them.
 
+## Solid
+
+`@rookery/client/solid` is Solid 2 and nothing older:
+
+```tsx
+const signIn = useSignIn(rookery);              // who is signed in, as a signal
+const notes = useLiveQuery(rookery.data, { collection: "example/notes", space: rookery.space() });
+const query = createQuery(() => rookery.data.find({ collection: "example/notes" }));
+
+<Show when={signIn.user()} fallback={<p>Sign in</p>}>{user => <p>{user().name}</p>}</Show>
+<For each={notes.records()}>{row => <p>{row.record.title}</p>}</For>
+<p>{query.status() === "loading" ? "Loading" : query()?.records.length}</p>
+```
+
+`useDocument`, `useTerminal` and `useDesktop` open their route with their owner and
+close it when it is disposed; each reads its status, and the terminal its output
+and exit code, as signals. `createQuery` keeps the last answer visible while a
+refresh is in flight (`pending()`), and drops an answer that lands after its
+component is gone.
+
+The client's sources push, so their bindings are signals rather than async memos:
+a socket's status and a live query's snapshot are known the moment they arrive,
+and a shell draws its own waiting state from `status()` or `query.pending()`.
+
 ### Client halves
 
 ```ts
