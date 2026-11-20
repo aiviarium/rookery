@@ -24,6 +24,7 @@ import (
 	"github.com/aiviarium/rookery/internal/hosts"
 	"github.com/aiviarium/rookery/internal/jobs"
 	"github.com/aiviarium/rookery/internal/link"
+	"github.com/aiviarium/rookery/internal/link/linktest"
 	"github.com/aiviarium/rookery/internal/plugins"
 	"github.com/aiviarium/rookery/internal/profile"
 	"github.com/aiviarium/rookery/internal/seal"
@@ -36,12 +37,11 @@ func TestApplyAndActionJobsReachTheHost(t *testing.T) {
 	ctx, cancel := context.WithTimeout(access.WithPrincipal(t.Context(), access.LocalAdmin()), 12*time.Second)
 	defer cancel()
 	opened := storetest.New(t)
-	daemon := startDaemon(t)
-	targetSSH := startSSH(t, daemon, true)
-	address, port := targetSSH.address(t)
+	targetSSH := linktest.Start(t, startDaemon(t))
+	address, port := targetSSH.Address()
 	target := link.Target{Name: "forge", Address: address, Port: port, SSHUser: "ops"}
 	links := manager(t, opened, target)
-	if _, err := links.Contact(ctx, target, link.Credential{Password: "hunter2"}, testLogger(t)); err != nil {
+	if _, err := links.Contact(ctx, target, link.Credential{Password: linktest.Password}, testLogger(t)); err != nil {
 		t.Fatal(err)
 	}
 

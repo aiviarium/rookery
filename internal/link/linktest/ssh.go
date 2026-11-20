@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -156,6 +157,8 @@ func (s *SSH) session(ctx context.Context, channel ssh.Channel, requests <-chan 
 			command.Env = append(os.Environ(), "HOME="+s.home)
 			command.Stdin, command.Stderr = channel, channel.Stderr()
 			err = command.Run()
+		case "exec env -- 'uname' '-s' '-m'":
+			_, err = io.WriteString(channel, "Linux x86_64\n")
 		case "true":
 		default:
 			err = errors.New("unsupported SSH fixture command")
