@@ -160,6 +160,7 @@ build:
 # The binaries the release ships: rookery for every OS, rookeryd and box for the
 # Linux hosts Rookery manages.
 cross:
+	@mkdir -p $(TMPDIR)
 	GOOS=darwin GOARCH=arm64 $(GO) build -o /dev/null ./cmd/rookery
 	GOOS=windows GOARCH=amd64 $(GO) build -o /dev/null ./cmd/rookery
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build -o /dev/null ./cmd/rookeryd ./cmd/box
