@@ -1,0 +1,70 @@
+id: example
+version: 0.1.0
+name: Example
+requires: ">=0.1.0"
+dependencies: { other: "^1.0" }
+
+# The manifest alone, for now: the fixture's service, its feature's tasks and its
+# provisioner arrive with the code that runs them.
+
+service:
+  runtime: bun
+  entry: service/main.ts
+  start: lazy
+  rpc:
+    - procedure: example.v1.NoteService/Summarize
+      access: { level: view, resource: space }
+
+collections:
+  notes:
+    scope: space
+    access: { read: view, write: use }
+    history: true
+    fields:
+      title: { type: text, required: true }
+      body: { type: text }
+      done: { type: bool, default: false }
+      about: { type: ref, onDelete: nullify }
+    indexes: [[done]]
+    entity: { kind: Note, title: title, text: [title, body] }
+database: sql
+
+spaceKinds: [{ id: notebook, label: Notebook }]
+settings: { greeting: { type: string, default: hello, scopes: [global, user] } }
+secrets: [example_token]
+connectionTypes: [{ id: notes-api, fields: { url: {}, token: { secret: true } }, test: true }]
+jobs: [{ kind: reindex, enqueue: { level: manage, resource: space }, timeout: 10m, retries: 3 }]
+schedules: [{ kind: reindex, cron: "0 3 * * *" }]
+webhooks:
+  - name: push
+    verify: { hmac-sha256: { header: X-Signature, secret: example_token } }
+    job: reindex
+events: [example/note.changed]
+
+hostFeatures:
+  - id: hello
+    label: Hello
+    types: [managed, workstation]
+    tasks: features/hello/tasks/main.yml
+    vars: { greeting: { type: string, default: hello } }
+    secrets: [example_token]
+    offers: []
+    hostServices: [example/hello]
+    channelTopics: [example/progress]
+    actions:
+      - { name: say, label: Say hello, user: operator, run: cat /etc/example-hello }
+      - { name: wave, label: Wave, user: desktop, onHost: true, run: example-wave }
+provisioners:
+  - id: fake
+    label: Fake machine
+    kinds: [machine]
+    command: { linux/amd64: bin/provisioner-amd64, linux/arm64: bin/provisioner-arm64 }
+
+client: web/
+shell: false
+contributes:
+  views: [{ id: notes, label: Notes, route: /notes, space: notebook }]
+  nav: [{ view: notes, group: Workspace }]
+  hostTabs: [{ id: hello, label: Hello, types: [workstation] }]
+  widgets: []
+  adminPages: []

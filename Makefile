@@ -38,13 +38,17 @@ tools:
 	$(GO) install connectrpc.com/connect/cmd/protoc-gen-connect-go@$(PROTOC_GEN_CONNECT_GO_VERSION)
 	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
-gen: gen-proto gen-sql
+gen: gen-proto gen-sql gen-schema
 
 gen-proto:
 	buf generate
 
 gen-sql:
 	@if [ -f internal/store/schema.sql ]; then sqlc generate; else echo "sqlc: no schema yet, skipped"; fi
+
+# The manifest's JSON Schema, from the Go types in internal/plugins.
+gen-schema:
+	$(GO) run ./cmd/pluginschema -o schemas/plugin.schema.json
 
 db:
 	@if bash -c 'exec 3<>/dev/tcp/127.0.0.1/$(PG_PORT)' 2>/dev/null; then \
