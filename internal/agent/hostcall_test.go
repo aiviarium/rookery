@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -117,13 +118,23 @@ func TestHostServices(t *testing.T) {
 	if err := provider.stream.CloseRequest(); err != nil {
 		t.Fatalf("unregistering: %v", err)
 	}
+	// The end of the stream and the registry's noticing it are two moments: a
+	// call in flight while the provider goes away fails with the registry's own
+	// error, and the next one finds nothing registered.
 	deadline := time.Now().Add(20 * time.Second)
 	for {
 		_, err = client.HostCalls.Call(context.Background(), connect.NewRequest(&hostv1.HostCallServiceCallRequest{
 			Service: "example/hello", Method: "greet",
 		}))
 		if err != nil {
-			wantCode(t, err, connect.CodeUnavailable)
+			var connectErr *connect.Error
+			if !errors.As(err, &connectErr) || connectErr.Code() != connect.CodeUnavailable {
+				if time.Now().After(deadline) {
+					t.Fatalf("a closed registration answers with %v", err)
+				}
+				time.Sleep(5 * time.Millisecond)
+				continue
+			}
 			break
 		}
 		if time.Now().After(deadline) {
