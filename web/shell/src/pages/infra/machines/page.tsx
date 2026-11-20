@@ -27,19 +27,19 @@ export function MachinesPage(): JSX.Element {
 
   const made = createQuery(async () => {
     const listed = entries()?.provisioners ?? [];
-    const machines: ProvisionerResource[] = [];
-    const health: Record<string, { up: boolean; message: string }> = {};
-    await Promise.all(
-      listed.map(async entry => {
-        const [resources, status] = await Promise.all([
-          shell.rookery.provisioners.listResources({ provisioner: entry.name, kind: "machine" }).catch(() => undefined),
-          shell.rookery.provisioners.status({ provisioner: entry.name }).catch(() => undefined),
-        ]);
-        machines.push(...(resources?.resources ?? []));
-        health[entry.name] = { up: status?.up ?? false, message: status?.message ?? "" };
-      }),
-    );
-    return { machines: machines.sort((a, b) => a.name.localeCompare(b.name)), health };
+    const [resources, health] = await Promise.all([
+      shell.rookery.provisioners.listMachines({ limit: 200 }).catch(() => undefined),
+      Promise.all(
+        listed.map(async entry => {
+          const status = await shell.rookery.provisioners.status({ provisioner: entry.name }).catch(() => undefined);
+          return [entry.name, { up: status?.up ?? false, message: status?.message ?? "" }] as const;
+        }),
+      ),
+    ]);
+    return {
+      machines: [...(resources?.machines ?? [])].sort((a, b) => a.name.localeCompare(b.name)),
+      health: Object.fromEntries(health) as Record<string, { up: boolean; message: string }>,
+    };
   });
 
   const machines = (): ProvisionerResource[] => made()?.machines ?? [];
@@ -66,6 +66,19 @@ export function MachinesPage(): JSX.Element {
       void made.refresh().catch(() => undefined);
     } catch {
       // The list below says the entry is still there; the next read is the truth.
+    }
+  };
+
+  const removeMachine = async (machine: ProvisionerResource): Promise<void> => {
+    try {
+      const removed = await shell.rookery.provisioners.removeMachine({ host: machine.name });
+      if (removed.job !== "") {
+        shell.navigate(`/jobs/${encodeURIComponent(removed.job)}`);
+        return;
+      }
+      void made.refresh().catch(() => undefined);
+    } catch {
+      // The list below says the machine is still there; the next read is the truth.
     }
   };
 
@@ -162,6 +175,18 @@ export function MachinesPage(): JSX.Element {
             columns={machineColumns}
             rowKey={machine => machine.id}
             onRowClick={machine => shell.navigate(`/hosts/${encodeURIComponent(machine.name)}`)}
+            rowActions={machine => (
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={event => {
+                  event.stopPropagation();
+                  void removeMachine(machine);
+                }}
+              >
+                Remove
+              </Button>
+            )}
             empty="No machine yet. A machine a provisioner made is a host, and an entry here."
           />
         </Show>

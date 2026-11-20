@@ -23,11 +23,19 @@ var emptyArguments = []byte{0xa0}
 type Service struct {
 	provisioners *Provisioners
 	jobs         *jobs.Service
+	checker      *access.Checker
+	seeds        Seeds
+}
+
+// Seeds renders what a created machine's cloud-init starts with. The deployment
+// implements it from the key ring and the tailnet; a test gives a fixed one.
+type Seeds interface {
+	MachineSeed(ctx context.Context, host string) (Seed, error)
 }
 
 // NewService returns ProvisionerService.
-func NewService(provisioners *Provisioners) *Service {
-	return &Service{provisioners: provisioners}
+func NewService(provisioners *Provisioners, checker *access.Checker, seeds Seeds) *Service {
+	return &Service{provisioners: provisioners, checker: checker, seeds: seeds}
 }
 
 // RunActionsAsJobs uses the job runner for the production edge.
@@ -49,9 +57,54 @@ func (s *Service) RunActionsAsJobs(registry *jobs.Registry, service *jobs.Servic
 	}))
 }
 
+// RunMachinesAsJobs uses the job runner for the machines a provisioner makes:
+// creating one and removing one are the host.create and host.remove jobs.
+func (s *Service) RunMachinesAsJobs(registry *jobs.Registry, service *jobs.Service) error {
+	s.jobs = service
+	if err := registry.Handle("host.create", jobs.HandlerFunc(func(ctx context.Context, job jobs.Job, log *jobs.Log) ([]byte, error) {
+		var machine machineArguments
+		if err := cborx.Unmarshal(job.Args, &machine); err != nil {
+			return nil, fmt.Errorf("%w: invalid machine arguments: %w", access.ErrInvalid, err)
+		}
+		if machine.Host == "" || machine.Provisioner == "" {
+			return nil, fmt.Errorf("%w: a machine needs a host and a provisioner", access.ErrInvalid)
+		}
+		created, err := s.createMachine(ctx, machine, func(line string) { //nolint:contextcheck // the log owns its job context
+			_ = log.WriteLine(line) //nolint:contextcheck // the log owns its job context
+		})
+		if err != nil {
+			return nil, err
+		}
+		return cborx.Marshal(created)
+	})); err != nil {
+		return err
+	}
+	return registry.Handle("host.remove", jobs.HandlerFunc(func(ctx context.Context, job jobs.Job, log *jobs.Log) ([]byte, error) {
+		var machine machineArguments
+		if err := cborx.Unmarshal(job.Args, &machine); err != nil {
+			return nil, fmt.Errorf("%w: invalid machine arguments: %w", access.ErrInvalid, err)
+		}
+		if machine.Host == "" {
+			return nil, fmt.Errorf("%w: a removal needs a host", access.ErrInvalid)
+		}
+		return nil, s.provisioners.RemoveMachine(ctx, machine.Host, func(line string) { //nolint:contextcheck // the log owns its job context
+			_ = log.WriteLine(line) //nolint:contextcheck // the log owns its job context
+		})
+	}))
+}
+
 type actionArguments struct {
 	Action string `cbor:"action"`
 	Args   []byte `cbor:"args"`
+}
+
+// machineArguments is what a host.create or host.remove job works from.
+type machineArguments struct {
+	Host        string `cbor:"host"`
+	Provisioner string `cbor:"provisioner"`
+	Args        []byte `cbor:"args"`
+	Type        string `cbor:"type"`
+	CreatedBy   string `cbor:"created_by"`
 }
 
 // ListTypes returns every provisioner type the installed plugins declare, with
@@ -282,6 +335,138 @@ func (s *Service) RunAction(ctx context.Context, request *connect.Request[rooker
 		return access.ToConnect(err)
 	}
 	return nil
+}
+
+// CreateMachine makes a host's machine through an entry. With a job runner it
+// queues the host.create job and returns its id; without one, as in a test, it
+// runs the call and returns the resource.
+func (s *Service) CreateMachine(ctx context.Context, request *connect.Request[rookeryv1.ProvisionerServiceCreateMachineRequest]) (*connect.Response[rookeryv1.ProvisionerServiceCreateMachineResponse], error) {
+	principal, ok := access.PrincipalFrom(ctx)
+	if !ok {
+		return nil, access.ToConnect(access.ErrUnauthenticated)
+	}
+	machine := machineArguments{
+		Host:        strings.TrimSpace(request.Msg.GetHost()),
+		Provisioner: request.Msg.GetProvisioner(),
+		Args:        request.Msg.GetArgsCbor(),
+		Type:        machineType(request.Msg.GetType()),
+	}
+	if principal.Kind == access.KindUser {
+		machine.CreatedBy = principal.ID
+	}
+	if machine.Host == "" || machine.Provisioner == "" {
+		return nil, access.ToConnect(fmt.Errorf("%w: a machine needs a host and a provisioner", access.ErrInvalid))
+	}
+	if s.jobs != nil {
+		// The job is the host's, so the caller needs manage on it to follow and
+		// cancel it. Creating a host is what grants that, before the job runs.
+		if principal.Kind == access.KindUser {
+			if err := s.checker.GrantUser(ctx, principal.ID, access.HostURI(machine.Host), access.Manage); err != nil {
+				return nil, access.ToConnect(err)
+			}
+		}
+		encoded, err := cborx.Marshal(machine)
+		if err != nil {
+			return nil, access.ToConnect(err)
+		}
+		job, err := s.jobs.Enqueue(ctx, jobs.EnqueueRequest{
+			Kind: "host.create", Args: encoded, Resource: access.HostURI(machine.Host),
+		})
+		if err != nil {
+			return nil, access.ToConnect(err)
+		}
+		return connect.NewResponse(&rookeryv1.ProvisionerServiceCreateMachineResponse{Job: job.ID}), nil
+	}
+	created, err := s.createMachine(ctx, machine, nil)
+	if err != nil {
+		return nil, access.ToConnect(err)
+	}
+	return connect.NewResponse(&rookeryv1.ProvisionerServiceCreateMachineResponse{Machine: resourceMessage(created)}), nil
+}
+
+// ListMachines is a page of the machines the caller may view, as the hosts they
+// are.
+func (s *Service) ListMachines(ctx context.Context, request *connect.Request[rookeryv1.ProvisionerServiceListMachinesRequest]) (*connect.Response[rookeryv1.ProvisionerServiceListMachinesResponse], error) {
+	principal := access.MustPrincipal(ctx)
+	limit := int(request.Msg.GetLimit())
+	resources, err := s.provisioners.Resources().List(ctx, request.Msg.GetProvisioner(), KindMachine, request.Msg.GetCursor(), limit)
+	if err != nil {
+		return nil, access.ToConnect(err)
+	}
+	out := make([]*rookeryv1.ProvisionerResource, 0, len(resources))
+	for _, resource := range resources {
+		level, err := s.checker.Level(ctx, principal, access.HostURI(resource.Name))
+		if err != nil {
+			return nil, access.ToConnect(err)
+		}
+		if !access.Satisfies(level, access.View) {
+			continue
+		}
+		out = append(out, resourceMessage(resource))
+	}
+	next := ""
+	if len(resources) == int(clampLimit(limit)) {
+		next = resources[len(resources)-1].ID
+	}
+	return connect.NewResponse(&rookeryv1.ProvisionerServiceListMachinesResponse{Machines: out, NextCursor: next}), nil
+}
+
+// RemoveMachine removes a host's machine and its host. With a job runner it
+// queues the host.remove job and returns its id.
+func (s *Service) RemoveMachine(ctx context.Context, request *connect.Request[rookeryv1.ProvisionerServiceRemoveMachineRequest]) (*connect.Response[rookeryv1.ProvisionerServiceRemoveMachineResponse], error) {
+	host := strings.TrimSpace(request.Msg.GetHost())
+	if host == "" {
+		return nil, access.ToConnect(fmt.Errorf("%w: a removal needs a host", access.ErrInvalid))
+	}
+	if s.jobs != nil {
+		encoded, err := cborx.Marshal(machineArguments{Host: host})
+		if err != nil {
+			return nil, access.ToConnect(err)
+		}
+		job, err := s.jobs.Enqueue(ctx, jobs.EnqueueRequest{
+			Kind: "host.remove", Args: encoded, Resource: access.HostURI(host),
+		})
+		if err != nil {
+			return nil, access.ToConnect(err)
+		}
+		return connect.NewResponse(&rookeryv1.ProvisionerServiceRemoveMachineResponse{Job: job.ID}), nil
+	}
+	if err := s.provisioners.RemoveMachine(ctx, host, nil); err != nil {
+		return nil, access.ToConnect(err)
+	}
+	return connect.NewResponse(&rookeryv1.ProvisionerServiceRemoveMachineResponse{}), nil
+}
+
+// createMachine renders the machine's seed and makes it through its entry.
+func (s *Service) createMachine(ctx context.Context, machine machineArguments, line func(string)) (Resource, error) {
+	if s.seeds == nil {
+		return Resource{}, fmt.Errorf("%w: a machine needs the key ring and the tailnet", access.ErrUnavailable)
+	}
+	seed, err := s.seeds.MachineSeed(ctx, machine.Host)
+	if err != nil {
+		return Resource{}, err
+	}
+	return s.provisioners.CreateMachine(ctx, MachineRequest{
+		Host:      machine.Host,
+		Entry:     machine.Provisioner,
+		Args:      machine.Args,
+		Seed:      seed,
+		Type:      machine.Type,
+		CreatedBy: machine.CreatedBy,
+		Line:      line,
+	})
+}
+
+// machineType is a host type as the profile names it, empty for the default.
+func machineType(t rookeryv1.HostType) string {
+	switch t {
+	case rookeryv1.HostType_HOST_TYPE_MANAGED:
+		return "managed"
+	case rookeryv1.HostType_HOST_TYPE_WORKSTATION:
+		return "workstation"
+	default:
+		return ""
+	}
 }
 
 // checkArguments refuses arguments the type does not take, and ones a required

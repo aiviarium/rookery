@@ -6,7 +6,7 @@
 // kind: a host's machine, made from the seed the server renders.
 import { For, Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import type { ProvisionerAction, ProvisionerEntry, ProvisionerType } from "@rookery/proto";
+import { HostType, type ProvisionerAction, type ProvisionerEntry, type ProvisionerType } from "@rookery/proto";
 
 import { cbor } from "@rookery/client";
 
@@ -246,6 +246,7 @@ export function NewMachine(props: {
   const shell = useShell();
   const [entry, setEntry] = createSignal(props.entry ?? props.entries[0]?.name ?? "");
   const [name, setName] = createSignal("");
+  const [hostType, setHostType] = createSignal<HostType>(HostType.SSH);
   const [size, setSize] = createSignal("");
   const [image, setImage] = createSignal("");
   const [values, setValues] = createSignal<ArgumentValues>({});
@@ -262,33 +263,23 @@ export function NewMachine(props: {
     setBusy(true);
     setFailure(undefined);
     try {
-      // A provisioner that declares a create action makes the machine through it;
-      // the edge's own call is where a provisioner without one will land.
-      const action = found.actions.find(one => one.name === "create");
-      if (action === undefined) {
-        throw new Error(
-          "This server has no machine creation call on its edge yet (ProvisionerService.Create). Use rookery host create until it lands.",
-        );
-      }
       const map: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(values())) {
         if (value !== "" && value !== false) map[key] = value;
       }
-      if (name().trim() !== "") map["name"] = name().trim();
       if (size() !== "") map["size"] = size();
       if (image() !== "") map["image"] = image();
-      const stream = shell.rookery.provisioners.runAction({
+      const created = await shell.rookery.provisioners.createMachine({
+        host: name().trim(),
         provisioner: entry(),
-        action: "create",
+        type: hostType(),
         argsCbor: cbor.encode(map),
       });
-      for await (const message of stream) {
-        if (message.job !== "") {
-          props.onStarted(message.job);
-          return;
-        }
+      if (created.job !== "") {
+        props.onStarted(created.job);
+        return;
       }
-      throw new Error("The provisioner ran without starting a job.");
+      throw new Error("The machine was made without a job to follow.");
     } catch (error) {
       setFailure(errorMessage(error));
     } finally {
@@ -330,6 +321,17 @@ export function NewMachine(props: {
         </Field>
         <Field label="Host name" hint="The machine takes this name, and the host whose profile it is.">
           <Input value={name()} placeholder="desk-3" onInput={setName} />
+        </Field>
+        <Field label="Type" hint="What the host becomes: the apply sets up the rest.">
+          <Select
+            value={String(hostType())}
+            options={[
+              { value: String(HostType.SSH), label: "SSH — reachable over SSH only" },
+              { value: String(HostType.MANAGED), label: "Managed — rookeryd, box and the tailnet" },
+              { value: String(HostType.WORKSTATION), label: "Workstation — managed, with a desktop" },
+            ]}
+            onChange={value => setHostType(Number(value) as HostType)}
+          />
         </Field>
         <Show when={type()}>
           {found => (

@@ -37,6 +37,10 @@ type Hosts interface {
 	// AddMachine records a host a provisioner made. It returns the profile the
 	// host starts with, which the caller applies.
 	AddMachine(ctx context.Context, machine MachineHost) error
+
+	// RemoveHost forgets a host whose machine is gone. A host that is already
+	// gone is not an error.
+	RemoveHost(ctx context.Context, host string) error
 }
 
 // MachineHost is a machine a provisioner made, as its host record starts.
@@ -53,6 +57,12 @@ type MachineHost struct {
 
 	// Kind is the resource kind it is, always machine.
 	Kind string
+
+	// Type is what the host starts as: ssh, managed or workstation.
+	Type string
+
+	// CreatedBy is the user who asked for it, empty for the server itself.
+	CreatedBy string
 }
 
 // Deps is what Provisioners needs. Only Store and Catalog are required; a
@@ -315,14 +325,30 @@ func (p *Provisioners) CreateMachine(ctx context.Context, request MachineRequest
 			Address:     resource.Address,
 			Provisioner: entry.Name,
 			Kind:        resource.Kind,
+			Type:        request.Type,
+			CreatedBy:   request.CreatedBy,
 		}); err != nil {
+			// The machine and its record would outlive a host that never
+			// existed, so both go rather than leave what the core cannot reach.
+			if removeErr := p.removeInstance(ctx, entry, typ, instance, request.Line); removeErr != nil {
+				p.logger.Error("a machine whose host could not be recorded was left behind",
+					slog.String("host", request.Host),
+					slog.String("error", removeErr.Error()),
+				)
+			}
+			if deleteErr := p.resources.Delete(ctx, resource.ID); deleteErr != nil {
+				p.logger.Error("a machine's resource whose host could not be recorded was left behind",
+					slog.String("host", request.Host),
+					slog.String("error", deleteErr.Error()),
+				)
+			}
 			return Resource{}, fmt.Errorf("provision: recording the host %s: %w", request.Host, err)
 		}
 	}
 	return resource, nil
 }
 
-// RemoveMachine removes a host's machine and forgets it.
+// RemoveMachine removes a host's machine and forgets it, then forgets the host.
 func (p *Provisioners) RemoveMachine(ctx context.Context, host string, line func(string)) error {
 	machine, found, err := p.resources.MachineOf(ctx, host)
 	if err != nil {
@@ -343,7 +369,15 @@ func (p *Provisioners) RemoveMachine(ctx context.Context, host string, line func
 	}, line); err != nil {
 		return err
 	}
-	return p.resources.Delete(ctx, machine.ID)
+	if err := p.resources.Delete(ctx, machine.ID); err != nil {
+		return err
+	}
+	if p.hosts != nil {
+		if err := p.hosts.RemoveHost(ctx, host); err != nil {
+			return fmt.Errorf("provision: forgetting the host %s: %w", host, err)
+		}
+	}
+	return nil
 }
 
 // Offer adds the entries a host feature offers when it is applied to a node: one
@@ -497,6 +531,13 @@ type MachineRequest struct {
 
 	// Seed is what the machine's cloud-init needs, less the host's name.
 	Seed Seed
+
+	// Type is what the host starts as: ssh, managed or workstation. Empty is
+	// ssh.
+	Type string
+
+	// CreatedBy is the user who asked for it, empty for the server itself.
+	CreatedBy string
 
 	// Line is where the provisioner's output goes.
 	Line func(string)

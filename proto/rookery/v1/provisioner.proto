@@ -13,6 +13,7 @@ package rookery.v1;
 
 import "google/protobuf/timestamp.proto";
 import "rookery/v1/access.proto";
+import "rookery/v1/host.proto";
 
 option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
 
@@ -253,6 +254,52 @@ message ProvisionerServiceRunActionResponse {
   string line = 1;
 }
 
+message ProvisionerServiceCreateMachineRequest {
+  // Host is the machine's and the host's name.
+  string host = 1;
+
+  // Provisioner is the entry that makes it.
+  string provisioner = 2;
+
+  // ArgsCbor are the machine's arguments, overriding the entry's defaults.
+  bytes args_cbor = 3;
+
+  // Type is what the host starts as. SSH when unspecified.
+  HostType type = 4;
+}
+
+message ProvisionerServiceCreateMachineResponse {
+  // Job is the queued job when the server runs the creation in its job runner.
+  string job = 1;
+
+  // Machine is the resource, when the creation ran inside the call.
+  ProvisionerResource machine = 2;
+}
+
+message ProvisionerServiceListMachinesRequest {
+  // Provisioner narrows the list to one entry; empty lists every entry.
+  string provisioner = 1;
+
+  // Cursor is the last resource of the page before, by id.
+  string cursor = 2;
+  uint32 limit = 3;
+}
+
+message ProvisionerServiceListMachinesResponse {
+  repeated ProvisionerResource machines = 1;
+  string next_cursor = 2;
+}
+
+message ProvisionerServiceRemoveMachineRequest {
+  // Host is the host whose machine goes.
+  string host = 1;
+}
+
+message ProvisionerServiceRemoveMachineResponse {
+  // Job is the queued job when the server runs the removal in its job runner.
+  string job = 1;
+}
+
 // ProvisionerService is the edge's view of provisioners: the types plugins
 // declare, the entries admins added, the resources they made, and the actions
 // their engines take.
@@ -303,5 +350,22 @@ service ProvisionerService {
   // its output.
   rpc RunAction(ProvisionerServiceRunActionRequest) returns (stream ProvisionerServiceRunActionResponse) {
     option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "provisioner" };
+  }
+
+  // CreateMachine makes a host's machine through an entry: the seed the server
+  // renders, the resource the core records, and the host they become.
+  rpc CreateMachine(ProvisionerServiceCreateMachineRequest) returns (ProvisionerServiceCreateMachineResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "provisioner" };
+  }
+
+  // ListMachines is a page of the machines the caller may view.
+  rpc ListMachines(ProvisionerServiceListMachinesRequest) returns (ProvisionerServiceListMachinesResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+
+  // RemoveMachine removes a host's machine through its entry, and forgets the
+  // host.
+  rpc RemoveMachine(ProvisionerServiceRemoveMachineRequest) returns (ProvisionerServiceRemoveMachineResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "host" };
   }
 }

@@ -57,16 +57,24 @@ func (t *tokensOf) PluginToken(_ context.Context, plugin string) (string, error)
 	return "rkplug_test", nil
 }
 
-// hostsOf records the machines a provisioner made.
+// hostsOf records the machines a provisioner made, and the hosts it removed.
 type hostsOf struct {
 	mu       sync.Mutex
 	machines []provision.MachineHost
+	removed  []string
 }
 
 func (h *hostsOf) AddMachine(_ context.Context, machine provision.MachineHost) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.machines = append(h.machines, machine)
+	return nil
+}
+
+func (h *hostsOf) RemoveHost(_ context.Context, host string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.removed = append(h.removed, host)
 	return nil
 }
 
@@ -244,6 +252,9 @@ func TestRemoveMachine(t *testing.T) {
 	}
 	if _, err := d.provisioners.Resources().ByID(t.Context(), resource.ID); !errors.Is(err, access.ErrNotFound) {
 		t.Fatalf("the resource is still recorded: %v", err)
+	}
+	if len(d.hosts.removed) != 1 || d.hosts.removed[0] != "desk-2" {
+		t.Fatalf("the hosts removed are %+v", d.hosts.removed)
 	}
 }
 

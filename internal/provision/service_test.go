@@ -1,7 +1,9 @@
 package provision_test
 
 import (
+	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -12,6 +14,7 @@ import (
 	"github.com/aiviarium/rookery/gen/go/rookery/v1/rookeryv1connect"
 	"github.com/aiviarium/rookery/internal/access"
 	"github.com/aiviarium/rookery/internal/access/accesstest"
+	"github.com/aiviarium/rookery/internal/jobs"
 	"github.com/aiviarium/rookery/internal/provision"
 	"github.com/aiviarium/rookery/internal/store"
 )
@@ -20,13 +23,24 @@ import (
 func newService(t *testing.T, opened *store.Store, principal access.Principal, d *deployment) (*accesstest.Server, rookeryv1connect.ProvisionerServiceClient) {
 	t.Helper()
 
-	service := provision.NewService(d.provisioners)
+	service := provision.NewService(d.provisioners, access.NewChecker(opened), seedsOf{})
 	server := accesstest.New(t, access.NewChecker(opened), principal,
 		func(mux *http.ServeMux, options []connect.HandlerOption) {
 			path, handler := rookeryv1connect.NewProvisionerServiceHandler(service, options...)
 			mux.Handle(path, handler)
 		})
 	return server, rookeryv1connect.NewProvisionerServiceClient(server.Client(), server.URL, connect.WithGRPC())
+}
+
+// seedsOf is what a machine's cloud-init gets in a test.
+type seedsOf struct{}
+
+func (seedsOf) MachineSeed(_ context.Context, host string) (provision.Seed, error) {
+	return provision.Seed{
+		Host:       host,
+		PublicKey:  "ssh-ed25519 AAAAtest rookery",
+		TailnetKey: "tskey-test-1",
+	}, nil
 }
 
 // admin is a user with the admin flag.
@@ -292,8 +306,114 @@ func TestEntryListsForTheGrantees(t *testing.T) {
 	}
 }
 
-// TestAddWithoutASeedFails checks that a machine's creation fails when the seed
-// cannot be rendered.
+// TestMachinesThroughTheEdge makes a machine, lists it and removes it through
+// the edge, on the fixture's fake provisioner.
+func TestMachinesThroughTheEdge(t *testing.T) {
+	t.Parallel()
+
+	opened := testStore(t)
+	d := newDeployment(t, opened)
+	d.addLab(t)
+	_, client := newService(t, opened, admin("admin-1"), d)
+	ctx := t.Context()
+
+	created, err := client.CreateMachine(ctx, connect.NewRequest(&rookeryv1.ProvisionerServiceCreateMachineRequest{
+		Host:        "desk-9",
+		Provisioner: "lab",
+		Type:        rookeryv1.HostType_HOST_TYPE_MANAGED,
+	}))
+	if err != nil {
+		t.Fatalf("creating the machine: %v", err)
+	}
+	if created.Msg.GetJob() != "" {
+		t.Fatalf("a service without a job runner queued %q", created.Msg.GetJob())
+	}
+	machine := created.Msg.GetMachine()
+	if machine.GetName() != "desk-9" || machine.GetKind() != provision.KindMachine || machine.GetAddress() != "192.0.2.10" {
+		t.Fatalf("the machine is %+v", machine)
+	}
+	if len(d.hosts.machines) != 1 || d.hosts.machines[0].Type != "managed" || d.hosts.machines[0].CreatedBy != "admin-1" {
+		t.Fatalf("the hosts were given %+v", d.hosts.machines)
+	}
+	seed := d.seedOf(t, "desk-9")
+	if !strings.Contains(seed, "tskey-test-1") || !strings.Contains(seed, "ssh-ed25519 AAAAtest rookery") {
+		t.Fatalf("the seed is:\n%s", seed)
+	}
+
+	listed, err := client.ListMachines(ctx, connect.NewRequest(&rookeryv1.ProvisionerServiceListMachinesRequest{}))
+	if err != nil {
+		t.Fatalf("listing the machines: %v", err)
+	}
+	if len(listed.Msg.GetMachines()) != 1 || listed.Msg.GetMachines()[0].GetName() != "desk-9" {
+		t.Fatalf("the machines are %+v", listed.Msg.GetMachines())
+	}
+
+	removed, err := client.RemoveMachine(ctx, connect.NewRequest(&rookeryv1.ProvisionerServiceRemoveMachineRequest{Host: "desk-9"}))
+	if err != nil {
+		t.Fatalf("removing the machine: %v", err)
+	}
+	if removed.Msg.GetJob() != "" {
+		t.Fatalf("a service without a job runner queued %q", removed.Msg.GetJob())
+	}
+	if len(d.hosts.removed) != 1 || d.hosts.removed[0] != "desk-9" {
+		t.Fatalf("the hosts removed are %+v", d.hosts.removed)
+	}
+	listed, err = client.ListMachines(ctx, connect.NewRequest(&rookeryv1.ProvisionerServiceListMachinesRequest{}))
+	if err != nil {
+		t.Fatalf("listing the machines again: %v", err)
+	}
+	if len(listed.Msg.GetMachines()) != 0 {
+		t.Fatalf("the machines are %+v", listed.Msg.GetMachines())
+	}
+}
+
+// TestCreateMachineQueuesAJob checks that the production edge runs a machine's
+// creation as the host.create job.
+func TestCreateMachineQueuesAJob(t *testing.T) {
+	t.Parallel()
+
+	opened := testStore(t)
+	d := newDeployment(t, opened)
+	d.addLab(t)
+	checker := access.NewChecker(opened)
+	registry := jobs.NewRegistry()
+	if err := registry.RegisterKinds(jobs.CoreKinds()...); err != nil {
+		t.Fatalf("registering the core kinds: %v", err)
+	}
+	logger := slog.New(slog.DiscardHandler)
+	runner := jobs.NewRunner(opened, registry, nil, logger)
+	service := provision.NewService(d.provisioners, checker, seedsOf{})
+	if err := service.RunMachinesAsJobs(registry, jobs.NewService(opened, checker, registry, runner, logger)); err != nil {
+		t.Fatalf("registering the machine jobs: %v", err)
+	}
+	server := accesstest.New(t, checker, admin("admin-1"),
+		func(mux *http.ServeMux, options []connect.HandlerOption) {
+			path, handler := rookeryv1connect.NewProvisionerServiceHandler(service, options...)
+			mux.Handle(path, handler)
+		})
+	client := rookeryv1connect.NewProvisionerServiceClient(server.Client(), server.URL, connect.WithGRPC())
+
+	created, err := client.CreateMachine(t.Context(), connect.NewRequest(&rookeryv1.ProvisionerServiceCreateMachineRequest{
+		Host:        "desk-8",
+		Provisioner: "lab",
+	}))
+	if err != nil {
+		t.Fatalf("creating the machine: %v", err)
+	}
+	if created.Msg.GetJob() == "" {
+		t.Fatal("the creation ran in the call, not as a job")
+	}
+	job, err := jobs.NewService(opened, checker, registry, runner, logger).Get(t.Context(), created.Msg.GetJob())
+	if err != nil {
+		t.Fatalf("reading the job: %v", err)
+	}
+	if job.Kind != "host.create" || job.Resource != "host://desk-8" {
+		t.Fatalf("the job is %+v", job)
+	}
+}
+
+// TestCreateMachineRefusesABadRequest checks that a machine's creation fails
+// when the seed cannot be rendered.
 func TestCreateMachineRefusesABadRequest(t *testing.T) {
 	t.Parallel()
 

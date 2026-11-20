@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -17,12 +18,14 @@ import (
 	"github.com/aiviarium/rookery/internal/config"
 	"github.com/aiviarium/rookery/internal/hosts"
 	"github.com/aiviarium/rookery/internal/jobs"
+	"github.com/aiviarium/rookery/internal/link"
 	"github.com/aiviarium/rookery/internal/messaging"
 	"github.com/aiviarium/rookery/internal/plugins"
 	"github.com/aiviarium/rookery/internal/profile"
 	"github.com/aiviarium/rookery/internal/provision"
 	"github.com/aiviarium/rookery/internal/rollouts"
 	"github.com/aiviarium/rookery/internal/store"
+	"github.com/aiviarium/rookery/internal/tailnet"
 )
 
 type rolloutTargets struct {
@@ -136,7 +139,8 @@ func (c *provisionCredentials) PluginByToken(token string) (string, bool) {
 }
 
 func wireProvisioners(opened *store.Store, checker *access.Checker, secrets *config.Secrets, installer *plugins.Installer,
-	supervisor *plugins.Supervisor, cfg Config, log *slog.Logger) (*provision.Service, *provisionCredentials, error) {
+	supervisor *plugins.Supervisor, hostService *hosts.Service, keyRing *link.Ring, tail *tailnet.Manager,
+	cfg Config, log *slog.Logger) (*provision.Service, *provisionCredentials, error) {
 	directory := filepath.Join(cfg.StateDir, "calls")
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return nil, nil, fmt.Errorf("creating provisioner call directory: %w", err)
@@ -145,6 +149,68 @@ func wireProvisioners(opened *store.Store, checker *access.Checker, secrets *con
 	provisioners := provision.New(provision.Deps{
 		Store: opened, Checker: checker, Catalog: provisionCatalogue{installer}, Secrets: secrets, Tokens: credentials,
 		Runner: provision.NewRunner(cfg.Socket, directory, log), Logger: log,
+		Hosts: machineHosts{service: hostService},
 	})
-	return provision.NewService(provisioners), credentials, nil
+	seeds := machineSeeds{ring: keyRing, tail: tail}
+	return provision.NewService(provisioners, checker, seeds), credentials, nil
+}
+
+// machineHosts makes a provisioned machine a host: what the plan's life of a
+// host records before the first contact and the apply.
+type machineHosts struct {
+	service *hosts.Service
+}
+
+func (m machineHosts) AddMachine(ctx context.Context, machine provision.MachineHost) error {
+	hostType := profile.Type(machine.Type)
+	if !hostType.Valid() {
+		hostType = profile.TypeSSH
+	}
+	p := profile.Profile{Type: hostType, Address: machine.Address, Tailnet: true}
+	if hostType == profile.TypeWorkstation {
+		p.Desktop = &profile.Desktop{}
+	}
+	_, err := m.service.AddHost(ctx, hosts.AddInput{
+		Name:      machine.Name,
+		Type:      hostType,
+		Profile:   p,
+		CreatedBy: machine.CreatedBy,
+	})
+	return err
+}
+
+func (m machineHosts) RemoveHost(ctx context.Context, host string) error {
+	err := m.service.RemoveHost(ctx, host)
+	if errors.Is(err, access.ErrNotFound) {
+		return nil
+	}
+	return err
+}
+
+// machineSeeds is what a created machine's cloud-init gets: the key ring's
+// public key, and a one-use tailnet key when a tailnet is configured.
+type machineSeeds struct {
+	ring *link.Ring
+	tail *tailnet.Manager
+}
+
+func (m machineSeeds) MachineSeed(ctx context.Context, host string) (provision.Seed, error) {
+	key, err := m.ring.Active(ctx)
+	if err != nil {
+		return provision.Seed{}, fmt.Errorf("provision: reading the key ring: %w", err)
+	}
+	seed := provision.Seed{Host: host, PublicKey: key.Public}
+	if m.tail != nil {
+		tailKey, err := m.tail.MintHostKey(ctx, host)
+		switch {
+		case err == nil:
+			seed.TailnetKey = tailKey.Secret
+		case errors.Is(err, access.ErrUnavailable):
+			// A deployment without a tailnet still makes a machine reachable
+			// through the provisioner's own address.
+		default:
+			return provision.Seed{}, fmt.Errorf("provision: minting the tailnet key: %w", err)
+		}
+	}
+	return seed, nil
 }
