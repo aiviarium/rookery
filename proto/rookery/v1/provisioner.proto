@@ -1,0 +1,305 @@
+// Provisioners: entries that create machines and other resources through an
+// engine a plugin knows how to drive.
+//
+// A plugin declares provisioner types; an admin adds an entry naming one, with
+// arguments, either on a node (a managed host running the engine) or remote
+// (an address and credentials in the arguments). What an entry makes is a
+// resource: the core records and lists it, and knows one kind itself, machine,
+// of which a host has at most one.
+
+syntax = "proto3";
+
+package rookery.v1;
+
+import "google/protobuf/timestamp.proto";
+import "rookery/v1/access.proto";
+
+option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
+
+// ProvisionerKind is a resource kind a provisioner type makes.
+message ProvisionerKind {
+  // Id is the kind's name: machine, deployment, or the provisioner's own.
+  string id = 1;
+  string label = 2;
+
+  // Machine says the core knows this kind: it is a host's machine.
+  bool machine = 3;
+}
+
+// ProvisionerArgument is one argument a type's entries take.
+message ProvisionerArgument {
+  string name = 1;
+  string label = 2;
+
+  // Type is string, int, bool, duration, size, select or cbor.
+  string type = 3;
+
+  bool required = 4;
+
+  // DefaultCbor is the value when an entry leaves it out.
+  bytes default_cbor = 5;
+
+  // Choices are the values a select takes.
+  repeated string choices = 6;
+
+  string help = 7;
+
+  // Secret says the value is one of the provisioner's secrets, not an argument.
+  bool secret = 8;
+}
+
+// ProvisionerSize is a machine size a type offers.
+message ProvisionerSize {
+  string id = 1;
+  string label = 2;
+  uint32 cpus = 3;
+  uint64 memory_mb = 4;
+  uint64 disk_gb = 5;
+}
+
+// ProvisionerImage is a machine image a type offers.
+message ProvisionerImage {
+  string id = 1;
+  string label = 2;
+  string os = 3;
+  string release = 4;
+  string architecture = 5;
+}
+
+// ProvisionerAction is something an entry can be told to do with its engine.
+message ProvisionerAction {
+  string name = 1;
+  string label = 2;
+  string group = 3;
+  repeated ProvisionerArgument arguments = 4;
+
+  // Destructive says it changes or removes what the engine holds.
+  bool destructive = 5;
+}
+
+// ProvisionerType is one provisioner type an installed plugin declares, with the
+// description the provisioner gives of itself.
+message ProvisionerType {
+  // Id is the type's name, such as "docker/container": the plugin's id and the
+  // manifest's provisioner id.
+  string id = 1;
+
+  // Plugin is the plugin that carries it.
+  string plugin = 2;
+
+  string label = 3;
+
+  repeated ProvisionerKind kinds = 4;
+  repeated ProvisionerArgument arguments = 5;
+  repeated string secrets = 6;
+  repeated ProvisionerSize sizes = 7;
+  repeated ProvisionerImage images = 8;
+  repeated ProvisionerAction actions = 9;
+
+  // Node says an entry of this type runs against the engine on a managed host.
+  // Local says the server's own engine is a node too.
+  bool node = 10;
+  bool local = 11;
+
+  // Error is why the description is missing, when the provisioner could not be
+  // asked. The type still lists, with the kinds its manifest declares.
+  string error = 12;
+}
+
+// ProvisionerEntry is one entry: a name, a type, its arguments, and where its
+// engine is.
+message ProvisionerEntry {
+  string name = 1;
+  string type = 2;
+  string plugin = 3;
+
+  // ArgsCbor are the entry's arguments, CBOR in Core Deterministic mode.
+  bytes args_cbor = 4;
+
+  // Node is the managed host whose engine this entry drives. Empty when the
+  // entry is remote or local.
+  string node = 5;
+
+  // Remote is the address of an engine this entry reaches itself, with the
+  // credentials in its arguments.
+  string remote = 6;
+
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+// ProvisionerResource is something an entry made, as the core records it.
+message ProvisionerResource {
+  string id = 1;
+
+  // Kind is machine, deployment, or one of the provisioner's own.
+  string kind = 2;
+
+  // Name is what the entry called it, and for a machine the host's name.
+  string name = 3;
+
+  // Provisioner is the entry's name.
+  string provisioner = 4;
+
+  // StateCbor is what the provisioner stored to reach it again.
+  bytes state_cbor = 5;
+
+  // Address is where it answers, when it has one.
+  string address = 6;
+
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+message ProvisionerServiceListTypesRequest {}
+
+message ProvisionerServiceListTypesResponse {
+  repeated ProvisionerType types = 1;
+}
+
+message ProvisionerServiceListRequest {
+  // Cursor is the last entry of the page before, by name.
+  string cursor = 1;
+  uint32 limit = 2;
+}
+
+message ProvisionerServiceListResponse {
+  repeated ProvisionerEntry provisioners = 1;
+  string next_cursor = 2;
+}
+
+message ProvisionerServiceGetRequest {
+  string provisioner = 1;
+}
+
+message ProvisionerServiceGetResponse {
+  ProvisionerEntry provisioner = 1;
+}
+
+message ProvisionerServiceAddRequest {
+  // Name is the entry's name, and the resource provisioners may be granted.
+  string name = 1;
+
+  // Type is one an installed plugin declares, such as "docker/container".
+  string type = 2;
+
+  bytes args_cbor = 3;
+
+  // Node is the managed host whose engine it drives. Empty for a remote or local
+  // entry.
+  string node = 4;
+
+  // Remote is the address of the engine this entry reaches itself.
+  string remote = 5;
+}
+
+message ProvisionerServiceAddResponse {
+  ProvisionerEntry provisioner = 1;
+}
+
+message ProvisionerServiceUpdateRequest {
+  string provisioner = 1;
+  bytes args_cbor = 2;
+
+  // Node and Remote move the entry's engine. Both empty leaves it where it is.
+  string node = 3;
+  string remote = 4;
+}
+
+message ProvisionerServiceUpdateResponse {
+  ProvisionerEntry provisioner = 1;
+}
+
+message ProvisionerServiceRemoveRequest {
+  string provisioner = 1;
+}
+
+message ProvisionerServiceRemoveResponse {}
+
+message ProvisionerServiceStatusRequest {
+  string provisioner = 1;
+}
+
+message ProvisionerServiceStatusResponse {
+  bool up = 1;
+  string message = 2;
+}
+
+message ProvisionerServiceListResourcesRequest {
+  string provisioner = 1;
+
+  // Kind narrows the list; empty lists every kind.
+  string kind = 2;
+
+  // Cursor is the last resource of the page before, by id.
+  string cursor = 3;
+  uint32 limit = 4;
+}
+
+message ProvisionerServiceListResourcesResponse {
+  repeated ProvisionerResource resources = 1;
+  string next_cursor = 2;
+}
+
+message ProvisionerServiceRunActionRequest {
+  string provisioner = 1;
+  string action = 2;
+  bytes args_cbor = 3;
+}
+
+message ProvisionerServiceRunActionResponse {
+  string line = 1;
+}
+
+// ProvisionerService is the edge's view of provisioners: the types plugins
+// declare, the entries admins added, the resources they made, and the actions
+// their engines take.
+service ProvisionerService {
+  // ListTypes is every provisioner type an installed plugin declares, with what
+  // each says it takes.
+  rpc ListTypes(ProvisionerServiceListTypesRequest) returns (ProvisionerServiceListTypesResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  // List is a page of entries the caller may view.
+  rpc List(ProvisionerServiceListRequest) returns (ProvisionerServiceListResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
+  }
+
+  // Get returns one entry.
+  rpc Get(ProvisionerServiceGetRequest) returns (ProvisionerServiceGetResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW, resource: "provisioner" };
+  }
+
+  // Add makes an entry.
+  rpc Add(ProvisionerServiceAddRequest) returns (ProvisionerServiceAddResponse) {
+    option (rookery.v1.access) = { level: LEVEL_ADMIN };
+  }
+
+  // Update changes an entry's arguments or where its engine is.
+  rpc Update(ProvisionerServiceUpdateRequest) returns (ProvisionerServiceUpdateResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "provisioner" };
+  }
+
+  // Remove removes an entry and its grants, refusing while resources it made are
+  // still recorded.
+  rpc Remove(ProvisionerServiceRemoveRequest) returns (ProvisionerServiceRemoveResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "provisioner" };
+  }
+
+  // Status says whether an entry's engine answers.
+  rpc Status(ProvisionerServiceStatusRequest) returns (ProvisionerServiceStatusResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW, resource: "provisioner" };
+  }
+
+  // ListResources is a page of what an entry made.
+  rpc ListResources(ProvisionerServiceListResourcesRequest) returns (ProvisionerServiceListResourcesResponse) {
+    option (rookery.v1.access) = { level: LEVEL_VIEW, resource: "provisioner" };
+  }
+
+  // RunAction runs one of the type's actions against the entry's engine, streaming
+  // its output.
+  rpc RunAction(ProvisionerServiceRunActionRequest) returns (stream ProvisionerServiceRunActionResponse) {
+    option (rookery.v1.access) = { level: LEVEL_MANAGE, resource: "provisioner" };
+  }
+}

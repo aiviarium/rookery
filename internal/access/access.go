@@ -146,7 +146,10 @@ func ParseResource(uri string) (string, error) {
 	}
 	switch kind {
 	case KindHost, KindSpace, KindDocument, KindPlugin, KindProvisioner, KindRollout, KindJob:
-		if strings.ContainsAny(rest, "/?#") && kind != KindRecord {
+		// A provisioner entry's name holds the type it names, so it holds a
+		// slash: "provisioner://lab-docker/container" is the entry an apply
+		// made for the docker/container type on lab.
+		if strings.ContainsAny(rest, "/?#") && kind != KindRecord && kind != KindProvisioner {
 			return "", fmt.Errorf("%w: %q has more than an id after %s://", ErrInvalid, uri, kind)
 		}
 	case KindRecord:

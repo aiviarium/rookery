@@ -362,3 +362,53 @@ CREATE TABLE rookery.notification_prefs (
 	updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+
+
+-- ---------------------------------------------------------------------------
+-- Provisioners
+-- ---------------------------------------------------------------------------
+--
+-- An entry is a provisioner type an installed plugin declares, with arguments,
+-- and either the managed host whose engine it drives (a node) or the address of
+-- an engine it reaches itself. A resource is something an entry made: the core
+-- records it, lists it and removes it, and knows one kind itself, machine, of
+-- which a host has at most one.
+
+CREATE TABLE rookery.provisioners (
+	name       text        PRIMARY KEY,
+	-- type is the provisioner type's name, "plugin/id", such as
+	-- "docker/container".
+	type       text        NOT NULL CHECK (type LIKE '%/%'),
+	plugin     text        NOT NULL,
+	args       bytea       NOT NULL,
+	-- node is the managed host whose engine the entry drives. It and remote are
+	-- both empty for the server's own engine.
+	node       text        NOT NULL DEFAULT '',
+	remote     text        NOT NULL DEFAULT '',
+	created_at timestamptz NOT NULL DEFAULT now(),
+	updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+COMMENT ON TABLE rookery.provisioners IS 'Provisioner entries: a type, its CBOR arguments, and where its engine is.';
+
+-- provisioned_resources is what provisioner entries made. It is not
+-- rookery.resources, which holds the URIs grants name, although each resource
+-- row here also has a URI in that table's terms once the datastore needs it.
+CREATE TABLE rookery.provisioned_resources (
+	id           text        PRIMARY KEY,
+	kind         text        NOT NULL,
+	-- name is what the entry called it, and for a machine the host's name.
+	name         text        NOT NULL,
+	provisioner  text        NOT NULL REFERENCES rookery.provisioners (name) ON DELETE RESTRICT,
+	state        bytea       NOT NULL,
+	address      text        NOT NULL DEFAULT '',
+	created_at   timestamptz NOT NULL DEFAULT now(),
+	updated_at   timestamptz NOT NULL DEFAULT now(),
+	UNIQUE (provisioner, kind, name)
+);
+
+COMMENT ON TABLE rookery.provisioned_resources IS 'Machines and other resources provisioner entries made, with the CBOR state that reaches them.';
+
+-- A host has at most one machine.
+CREATE UNIQUE INDEX provisioned_resources_one_machine ON rookery.provisioned_resources (name) WHERE kind = 'machine';
+CREATE INDEX provisioned_resources_by_provisioner ON rookery.provisioned_resources (provisioner, id);
