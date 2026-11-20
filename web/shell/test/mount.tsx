@@ -38,7 +38,10 @@ export async function settle(times = 6): Promise<void> {
 export async function mount(
   client: Rookery,
   config: AuthConfig = { identityProvider: false },
+  path?: string,
 ): Promise<Mounted> {
+  // A test that names a path gets it; one that does not keeps the URL it set.
+  if (path !== undefined) history.pushState({}, "", path);
   const container = document.createElement("div");
   document.body.append(container);
   const dispose = render(() => <App client={client} config={config} />, container);

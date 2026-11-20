@@ -17,15 +17,21 @@ import {
   JobService,
   NotificationService,
   PluginService,
+  ProvisionerService,
   SpaceService,
 } from "@rookery/proto";
 import type {
+  Action,
   Event,
   Host,
   Job,
+  JobLine,
   Notification,
   Plugin,
   PluginContribution,
+  ProvisionerEntry,
+  ProvisionerResource,
+  ProvisionerType,
   Space,
   User,
 } from "@rookery/proto";
@@ -37,6 +43,15 @@ export interface FakeSite {
   spaces?: Space[];
   plugins?: Plugin[];
   hosts?: Host[];
+  /** actions are one host's actions, as ListActions gives them. */
+  actions?: Action[];
+  /** types, provisioners and machines are what the machines page reads. */
+  types?: ProvisionerType[];
+  provisioners?: ProvisionerEntry[];
+  machines?: ProvisionerResource[];
+  /** logs are a job's lines as Follow streams them; jobEnd ends the stream. */
+  logs?: JobLine[];
+  jobEnd?: Job;
   jobs?: Job[];
   notifications?: Notification[];
   contributions?: PluginContribution[];
@@ -109,11 +124,34 @@ export function fakeTransport(site: FakeSite): Transport {
     router.service(HostService, {
       list: () => ({ hosts: site.hosts ?? [], nextCursor: "" }),
       get: (request) => ({ host: (site.hosts ?? []).find((host) => host.name === request.name) }),
+      listActions: () => ({ actions: site.actions ?? [] }),
+      apply: () => ({ job: "01hjob" }),
+      rename: () => ({ host: site.hosts?.[0] }),
+      setLabels: (request) => {
+        const host = (site.hosts ?? []).find((one) => one.name === request.name);
+        if (host === undefined) return { host: undefined };
+        const labels = { ...host.labels, ...request.set };
+        for (const name of request.remove) delete labels[name];
+        return { host: { ...host, labels } };
+      },
+      remove: () => ({}),
     });
 
     router.service(JobService, {
       list: () => ({ jobs: site.jobs ?? [], nextCursor: "" }),
-      get: () => ({ job: site.jobs?.[0] }),
+      get: (request) => ({ job: (site.jobs ?? []).find((job) => job.id === request.job) }),
+      follow: async function* () {
+        for (const line of site.logs ?? []) yield { event: { case: "line" as const, value: line } };
+        if (site.jobEnd !== undefined) yield { event: { case: "job" as const, value: site.jobEnd } };
+        await forever();
+      },
+    });
+
+    router.service(ProvisionerService, {
+      listTypes: () => ({ types: site.types ?? [] }),
+      list: () => ({ provisioners: site.provisioners ?? [], nextCursor: "" }),
+      listResources: () => ({ resources: site.machines ?? [], nextCursor: "" }),
+      status: () => ({ up: true, message: "up" }),
     });
 
     router.service(NotificationService, {

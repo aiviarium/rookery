@@ -8,12 +8,13 @@
 import { defineRoutes, type RouteDefinition } from "@solidjs/router";
 
 import * as home from "./home/index.ts";
+import * as infra from "./infra/index.ts";
 import type { Area, NavEntry } from "./types.ts";
 
 export type { Area, NavEntry } from "./types.ts";
 
 /** AREAS is every area the shell has. Add one folder, then one entry here. */
-const AREAS: readonly Area[] = [home];
+const AREAS: readonly Area[] = [home, infra];
 
 /** routes is every path the shell's own pages answer. */
 export const routes: readonly RouteDefinition[] = defineRoutes(AREAS.flatMap((area) => area.routes));
