@@ -2,10 +2,10 @@
 //! `notify.new` notification. An answer to one a plugin sent is published on the plugin's durable topic
 //! `notify.answers`, where the plugin reads it.
 
-use rookery_kernel::{Call, Empty, Level, Methods, RpcError};
+use rookery_kernel::{Call, Empty, Kernel, Level, Methods, RpcError};
 use rookery_proto::jobs::{
-    Count, NotificationInfo, NotificationList, NotifyAnswer, NotifyPref, NotifyQuery, NotifyRead,
-    NotifySend, NotifySent,
+    Count, NotificationInfo, NotificationList, NotifyAnswer, NotifyChanged, NotifyNew, NotifyPref,
+    NotifyQuery, NotifyRead, NotifySend, NotifySent,
 };
 use rookery_store::notify::{New, Notification};
 use uuid::Uuid;
@@ -41,6 +41,40 @@ fn uuid(what: &str, id: &str) -> Result<Uuid, RpcError> {
     Uuid::parse_str(id).map_err(|_| RpcError::invalid(format!("{id:?} is not the id of a {what}")))
 }
 
+/// Tells each of a person's connections of a new notification, with their unread count.
+pub async fn announce(kernel: &Kernel, user: Uuid, notification: NotificationInfo) {
+    let unread = kernel.store.notify().unread(user).await.unwrap_or_default();
+    kernel.conns.notify_user(
+        &user.to_string(),
+        "notify.new",
+        NotifyNew {
+            notification,
+            unread,
+            native: false,
+        },
+    );
+}
+
+/// Tells each of a person's connections which notifications changed on this one, or that `all_read`
+/// of them are read now.
+async fn changed(
+    kernel: &Kernel,
+    user: Uuid,
+    notifications: Vec<NotificationInfo>,
+    all_read: bool,
+) {
+    let unread = kernel.store.notify().unread(user).await.unwrap_or_default();
+    kernel.conns.notify_user(
+        &user.to_string(),
+        "notify.changed",
+        NotifyChanged {
+            notifications,
+            all_read,
+            unread,
+        },
+    );
+}
+
 pub fn register(methods: &mut Methods) {
     methods
         .add("notify.send", |call: Call, p: NotifySend| async move {
@@ -67,9 +101,7 @@ pub fn register(methods: &mut Methods) {
                 .await?
                 .map(info);
             if let Some(sent) = &sent {
-                call.kernel
-                    .conns
-                    .notify_user(&user.to_string(), "notify.new", sent);
+                announce(&call.kernel, user, sent.clone()).await;
             }
             Ok(NotifySent { notification: sent })
         })
@@ -106,8 +138,12 @@ pub fn register(methods: &mut Methods) {
                         .collect::<Result<Vec<_>, _>>()
                 })
                 .transpose()?;
-            let count = call.store().notify().read(user, ids.as_deref()).await?;
-            Ok(Count { count })
+            let marked = call.store().notify().read(user, ids.as_deref()).await?;
+            let notifications = marked.iter().cloned().map(info).collect();
+            changed(&call.kernel, user, notifications, ids.is_none()).await;
+            Ok(Count {
+                count: marked.len() as u64,
+            })
         })
         .summary("Marks some of the caller's notifications read, or all of them.")
         .level(Level::Own);
@@ -122,7 +158,9 @@ pub fn register(methods: &mut Methods) {
             if let Some(topic) = answered.answer_topic() {
                 crate::topics::wake_topic(&call.kernel, &topic);
             }
-            Ok(info(answered))
+            let info = info(answered);
+            changed(&call.kernel, user, vec![info.clone()], false).await;
+            Ok(info)
         })
         .summary("Gives one of a notification's answers, once.")
         .level(Level::Own);

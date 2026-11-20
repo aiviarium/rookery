@@ -177,6 +177,8 @@ fn typescript_bindings() {
         jobs::NotifySend,
         jobs::NotificationInfo,
         jobs::NotifySent,
+        jobs::NotifyNew,
+        jobs::NotifyChanged,
         jobs::NotifyQuery,
         jobs::NotificationList,
         jobs::NotifyRead,
