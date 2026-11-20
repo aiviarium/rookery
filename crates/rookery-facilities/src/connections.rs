@@ -1,5 +1,6 @@
 //! `connections.*`: credentials of outside services. A connection has a type, a plain config and a
-//! sealed credential. Rookery's own types are here; plugins will declare more.
+//! sealed credential. A type may name several secret fields; their values are sealed together as the
+//! credential, and never reach the config. Rookery's own types are here; plugins declare more.
 
 use std::collections::BTreeMap;
 
@@ -21,7 +22,7 @@ use crate::{own_user, parse_id, time};
 struct Kind {
     id: &'static str,
     label: &'static str,
-    credential: Option<&'static str>,
+    secrets: &'static [&'static str],
     /// What `connections.test` asks for, after the config's url.
     probe: &'static str,
 }
@@ -30,13 +31,13 @@ const KINDS: [Kind; 2] = [
     Kind {
         id: "registry",
         label: "Container registry",
-        credential: Some("password"),
+        secrets: &["password"],
         probe: "/v2/",
     },
     Kind {
         id: "http",
         label: "HTTP service",
-        credential: Some("token"),
+        secrets: &["token"],
         probe: "",
     },
 ];
@@ -49,11 +50,13 @@ struct PluginKind {
     plugin: String,
     wire: ConnectionType,
     validator: jsonschema::Validator,
-    credential_required: bool,
+    /// Each secret field the type requires; the credential must hold them.
+    required_secrets: Vec<String>,
     scopes: Vec<String>,
 }
 
-/// Connection types declared by the active plugin manifests. A type can hold one sealed credential.
+/// Connection types declared by the active plugin manifests. Whatever secrets a type names are
+/// sealed together as its credential.
 #[derive(Default)]
 pub struct PluginKinds(BTreeMap<String, PluginKind>);
 
@@ -92,14 +95,14 @@ impl PluginKind {
         if config["type"] != "object" {
             return None;
         }
-        let mut credential_required = false;
-        // One sealed credential at most: a list of one field's name, or none.
-        // Any other JSON type would leave the secret in the plain config.
-        let credential = match value.get("secret") {
-            None | Some(Value::Null) => None,
-            Some(Value::Array(fields)) => match fields.as_slice() {
-                [] => None,
-                [field] => {
+        let mut required_secrets = Vec::new();
+        // Every field the type names is sealed together as one credential, so none stays in the
+        // plain config, whatever their number.
+        let secrets: Vec<String> = match value.get("secret") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Array(fields)) => {
+                let mut names = Vec::with_capacity(fields.len());
+                for field in fields {
                     let name = field.as_str()?;
                     config
                         .get_mut("properties")?
@@ -107,14 +110,15 @@ impl PluginKind {
                         .remove(name)?;
                     if let Some(required) = config.get_mut("required").and_then(Value::as_array_mut)
                     {
-                        credential_required =
-                            required.iter().any(|field| field.as_str() == Some(name));
+                        if required.iter().any(|field| field.as_str() == Some(name)) {
+                            required_secrets.push(name.to_owned());
+                        }
                         required.retain(|field| field.as_str() != Some(name));
                     }
-                    Some(name.to_owned())
+                    names.push(name.to_owned());
                 }
-                _ => return None,
-            },
+                names
+            }
             Some(_) => return None,
         };
         config["additionalProperties"] = Value::Bool(false);
@@ -132,11 +136,11 @@ impl PluginKind {
                 id: id.to_owned(),
                 label: value["title"].as_str()?.to_owned(),
                 config,
-                credential,
+                secrets,
                 testable: false,
             },
             validator,
-            credential_required,
+            required_secrets,
             scopes,
         })
     }
@@ -167,22 +171,27 @@ fn check_connection(
             "{id} cannot be used with {scope} scope"
         )));
     }
-    if let Some(secret) = &kind.wire.credential
-        && config.get(secret).is_some()
+    if let Some(secret) = kind
+        .wire
+        .secrets
+        .iter()
+        .find(|secret| config.get(secret.as_str()).is_some())
     {
-        return Err(RpcError::invalid("send the secret field as the credential"));
+        return Err(RpcError::invalid(format!(
+            "send {secret} as the credential, not in the config"
+        )));
     }
     if !kind.validator.is_valid(config) {
         return Err(RpcError::invalid(format!(
             "the configuration does not match the schema of {id}"
         )));
     }
-    if kind.credential_required && !has_credential {
+    if !kind.required_secrets.is_empty() && !has_credential {
         return Err(RpcError::invalid(
             "this type of connection needs a credential",
         ));
     }
-    if kind.wire.credential.is_none() && has_credential {
+    if kind.wire.secrets.is_empty() && has_credential {
         return Err(RpcError::invalid(
             "this type of connection has no credential",
         ));
@@ -389,7 +398,7 @@ pub fn register(methods: &mut Methods) {
                     id: k.id.into(),
                     label: k.label.into(),
                     config: config_schema(k),
-                    credential: k.credential.map(Into::into),
+                    secrets: k.secrets.iter().map(|s| (*s).to_owned()).collect(),
                     testable: true,
                 })
                 .collect();

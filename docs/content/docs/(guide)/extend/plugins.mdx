@@ -182,7 +182,7 @@ A shell is a plugin whose `plugin.json` has `contributes.shell.entry`, the built
 
 A plugin that talks to an outside service declares its `contributes.connectionTypes`. `fields` is a JSON Schema of the object a connection keeps, `title` and `description` label the form a shell builds, and `scopes` says which of `global`, `space` and `user` the type takes. `test` asks the host half to answer whether a connection works.
 
-`secret` names the one field whose value is a secret, or is absent. The server seals it apart from the connection's config as its credential, and answers the config without it. Only the plugin that declares the type reads the credential, through `connections.resolve`. No other plugin does, and Rookery's own `registry` and `http` types are for people and the shell alone. A type whose `secret` is anything but a list of no names or one name is refused. A secret never stays in the plain config.
+`secret` names the fields whose values are secrets, or is absent. The server seals them apart from the connection's config as one credential, and answers the config without them. A type may name several, such as a GitHub App's private key and webhook secret; the caller sends them together as the credential, one value or a JSON object of the names. Only the plugin that declares the type reads the credential, through `connections.resolve`. No other plugin does, and Rookery's own `registry` and `http` types are for people and the shell alone. A type whose `secret` is anything but a list of field names is refused. A secret never stays in the plain config.
 
 ## Server events
 

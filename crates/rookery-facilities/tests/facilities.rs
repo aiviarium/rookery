@@ -753,7 +753,7 @@ async fn connections_keep_credentials_sealed() {
 }
 
 #[tokio::test]
-async fn a_connection_type_takes_its_secret_only_as_a_list_of_one_field() {
+async fn a_connection_type_seals_every_field_it_names_as_secret() {
     use rookery_facilities::connections::PluginKinds;
 
     let k: TestKernel = test_kernel!(methods());
@@ -777,8 +777,8 @@ async fn a_connection_type_takes_its_secret_only_as_a_list_of_one_field() {
         .call(&admin, "connections.types", json!({}))
         .await
         .unwrap();
-    // A secret that is not a list of one field's name is no type at all: it would
-    // leave the secret in the plain config.
+    // A secret that is not a list of field names is no type at all: it would leave the
+    // secret in the plain config.
     let ids: Vec<&str> = types["types"]
         .as_array()
         .unwrap()
@@ -786,22 +786,35 @@ async fn a_connection_type_takes_its_secret_only_as_a_list_of_one_field() {
         .filter_map(|kind| kind["id"].as_str())
         .filter(|id| id.starts_with("models."))
         .collect();
-    assert_eq!(ids, ["models.absent", "models.null", "models.one"]);
+    assert_eq!(
+        ids,
+        ["models.absent", "models.null", "models.one", "models.pair"]
+    );
     let one = types["types"]
         .as_array()
         .unwrap()
         .iter()
         .find(|kind| kind["id"] == "models.one")
         .unwrap();
-    assert_eq!(one["credential"], "key");
+    assert_eq!(one["secrets"], json!(["key"]));
     assert!(one["config"]["properties"].get("key").is_none());
+    // Several secrets leave the config together, sealed as the one credential.
+    let pair = types["types"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|kind| kind["id"] == "models.pair")
+        .unwrap();
+    assert_eq!(pair["secrets"], json!(["key", "token"]));
+    assert!(pair["config"]["properties"].get("key").is_none());
+    assert!(pair["config"]["properties"].get("token").is_none());
     let absent = types["types"]
         .as_array()
         .unwrap()
         .iter()
         .find(|kind| kind["id"] == "models.absent")
         .unwrap();
-    assert_eq!(absent["credential"], json!(null));
+    assert_eq!(absent["secrets"], json!([]));
     k.close().await;
 }
 
@@ -834,7 +847,7 @@ async fn a_plugin_connection_seals_its_secret_for_the_declaring_plugin() {
         .iter()
         .find(|kind| kind["id"] == "models.example")
         .unwrap();
-    assert_eq!(listed["credential"], "key");
+    assert_eq!(listed["secrets"], json!(["key"]));
     assert!(listed["config"]["properties"].get("key").is_none());
 
     let mut params = json!({
@@ -873,6 +886,129 @@ async fn a_plugin_connection_seals_its_secret_for_the_declaring_plugin() {
         .await
         .unwrap();
     assert_eq!(resolved["credential"], "made-up-key");
+    k.close().await;
+}
+
+#[tokio::test]
+async fn a_plugin_records_its_own_actions_and_admin_users_come_with_groups() {
+    let k: TestKernel = test_kernel!(methods());
+    let admin = k.person("Ada", true).await;
+    let ada = admin.user().unwrap().id.clone();
+    let group = k
+        .call(&admin, "admin.createGroup", json!({"name": "Ops"}))
+        .await
+        .unwrap();
+    k.call(
+        &admin,
+        "admin.addMember",
+        json!({"group": group["id"], "user": ada}),
+    )
+    .await
+    .unwrap();
+    // One call for a share dialog: the people and the groups.
+    let people = k.call(&admin, "admin.users", json!({})).await.unwrap();
+    assert_eq!(people["users"][0]["name"], "Ada");
+    assert_eq!(people["groups"][0]["name"], "Ops");
+    assert_eq!(people["groups"][0]["members"], 1);
+
+    // A plugin's own action is recorded under its id, whoever is signed in.
+    let fleet = Caller::Plugin("fleet".into());
+    k.call(
+        &fleet,
+        "audit.record",
+        json!({"action": "mapping.set", "resource": "connection://models", "details": {"task": "text"}}),
+    )
+    .await
+    .unwrap();
+    let log = k.call(&admin, "audit.list", json!({})).await.unwrap();
+    let entry = log["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["action"] == "fleet/mapping.set")
+        .expect("the plugin's action is in the log");
+    assert_eq!(entry["resource"], "connection://models");
+    // A person does not write the log.
+    let member = k.person("Bob", false).await;
+    assert_eq!(
+        code(
+            k.call(
+                &member,
+                "audit.record",
+                json!({"action": "pretend", "details": {}})
+            )
+            .await
+        ),
+        "FORBIDDEN"
+    );
+    k.close().await;
+}
+
+#[tokio::test]
+async fn a_connection_type_with_two_secret_fields_seals_both() {
+    use rookery_facilities::connections::PluginKinds;
+
+    let k: TestKernel = test_kernel!(methods());
+    let manifest = json!({"contributes": {"connectionTypes": [{
+        "id": "code.app",
+        "title": "GitHub App",
+        "fields": {
+            "type": "object",
+            "required": ["appId", "privateKey", "webhookSecret"],
+            "properties": {
+                "appId": {"type": "string"},
+                "privateKey": {"type": "string"},
+                "webhookSecret": {"type": "string"}
+            }
+        },
+        "secret": ["privateKey", "webhookSecret"],
+        "scopes": ["global"]
+    }]}});
+    k.kernel
+        .set_facility(PluginKinds::from_manifests([("code", &manifest)]));
+    let admin = k.person("Mira", true).await;
+    let listed = k
+        .call(&admin, "connections.types", json!({}))
+        .await
+        .unwrap();
+    let kind = listed["types"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|kind| kind["id"] == "code.app")
+        .unwrap();
+    assert_eq!(kind["secrets"], json!(["privateKey", "webhookSecret"]));
+    assert!(kind["config"]["properties"].get("privateKey").is_none());
+    // The config takes the plain fields alone.
+    let mut params = json!({
+        "type": "code.app",
+        "name": "App",
+        "scope": "global",
+        "config": {"appId": "1234", "privateKey": "pem", "webhookSecret": "hook"},
+        "credential": "{\"privateKey\":\"pem\",\"webhookSecret\":\"hook\"}"
+    });
+    assert_eq!(
+        code(k.call(&admin, "connections.create", params.clone()).await),
+        "INVALID"
+    );
+    params["config"] = json!({"appId": "1234"});
+    let made = k.call(&admin, "connections.create", params).await.unwrap();
+    assert_eq!(made["config"], json!({"appId": "1234"}));
+    assert_eq!(made["hasCredential"], true);
+    let resolved = k
+        .call(
+            &Caller::Plugin("code".into()),
+            "connections.resolve",
+            json!({"id": made["id"]}),
+        )
+        .await
+        .unwrap();
+    // Both stay sealed, and reach only the plugin that declared the type.
+    let credential: Value = serde_json::from_str(resolved["credential"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        credential,
+        json!({"privateKey": "pem", "webhookSecret": "hook"})
+    );
     k.close().await;
 }
 

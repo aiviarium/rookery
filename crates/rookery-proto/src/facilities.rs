@@ -297,17 +297,38 @@ wire! {
 }
 
 wire! {
-    /// A type of connection: what its config holds, and whether it has a credential.
+    /// A type of connection: what its config holds, and which of its fields are sealed.
     pub struct ConnectionType {
         pub id: String,
         pub label: String,
-        /// The JSON Schema of its config.
+        /// The JSON Schema of its config, without the fields that are secret.
         #[cfg_attr(feature = "ts", ts(type = "unknown"))]
         pub config: Value,
-        /// What its credential is, such as "password"; none for a type without one.
-        pub credential: Option<String>,
+        /// The fields of its config whose values are sealed as the connection's credential, such as
+        /// `password`, or a GitHub App's private key and webhook secret. The caller sends them
+        /// together as the credential, one value or a JSON object.
+        pub secrets: Vec<String>,
         /// Whether `connections.test` can try it.
         pub testable: bool,
+    }
+}
+
+wire! {
+    /// `blobs.url`: the address of a blob on the server's origin, valid for a while.
+    pub struct BlobUrl {
+        pub id: String,
+        /// How long it is good for. Default 300 seconds, at most 3600.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[cfg_attr(feature = "ts", ts(optional, type = "number"))]
+        pub expires_secs: Option<i64>,
+    }
+}
+
+wire! {
+    pub struct BlobUrlInfo {
+        pub url: String,
+        /// When the address stops working, as RFC 3339 in UTC.
+        pub expires_at: String,
     }
 }
 

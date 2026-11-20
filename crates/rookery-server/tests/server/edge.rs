@@ -690,3 +690,75 @@ async fn a_leader_whose_lock_connection_ends_is_fenced_and_stands_by() {
     assert_eq!(health(first.url.clone()).await, 200);
     first.stop().await;
 }
+
+/// A blob reads from the short-lived signed address the server hands out, and only while it lasts;
+/// a signed-in person reads their own at `/blobs/<id>`, and nobody reads another's.
+#[tokio::test]
+async fn a_blob_reads_from_a_short_lived_signed_address() {
+    let dir = tempfile::tempdir().unwrap();
+    let served = served!(|config| config.blobs = Some(dir.path().join("blobs")));
+    let admin = served.first_admin("Ada").await;
+    let put = served
+        .rpc(
+            &admin,
+            "blobs.put",
+            json!({"contentType": "text/plain", "name": "notes.txt", "data": "aGVsbG8="}),
+        )
+        .await
+        .unwrap();
+    let id = put["id"].as_str().unwrap().to_owned();
+    let signed = served
+        .rpc(&admin, "blobs.url", json!({"id": id}))
+        .await
+        .unwrap();
+    let address = signed["url"].as_str().unwrap();
+    assert!(
+        address.starts_with(&format!("{}/blobs/{id}?expires=", served.url))
+            && address.contains("&sig="),
+        "{address}"
+    );
+    let (status, body, headers) = http("GET", address, &[], None).await;
+    assert_eq!((status, body.as_str()), (200, "hello"));
+    assert_eq!(
+        headers
+            .iter()
+            .find(|(name, _)| name == "content-type")
+            .map(|(_, value)| value.as_str()),
+        Some("text/plain")
+    );
+
+    // Without a signature and without a session, it is nobody's.
+    let (status, _, _) = http("GET", &format!("{}/blobs/{id}", served.url), &[], None).await;
+    assert_eq!(status, 401);
+    // A signed-in person who put it reads it there.
+    let auth = format!("Bearer {admin}");
+    let (status, body, _) = http(
+        "GET",
+        &format!("{}/blobs/{id}", served.url),
+        &[("authorization", &auth)],
+        None,
+    )
+    .await;
+    assert_eq!((status, body.as_str()), (200, "hello"));
+    // Someone else at the same address does not.
+    let member = served.member(&admin, "Bob").await;
+    let auth = format!("Bearer {member}");
+    let (status, _, _) = http(
+        "GET",
+        &format!("{}/blobs/{id}", served.url),
+        &[("authorization", &auth)],
+        None,
+    )
+    .await;
+    assert_eq!(status, 404);
+    // A forged address is no grant, and no session either.
+    let (status, _, _) = http(
+        "GET",
+        &format!("{}/blobs/{id}?expires=1&sig={}", served.url, "0".repeat(64)),
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(status, 401);
+    served.stop().await;
+}

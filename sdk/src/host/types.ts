@@ -282,6 +282,8 @@ export interface Blobs {
   put(ctx: Ctx, data: Uint8Array, opts?: BlobOptions): Promise<BlobInfo>
   get(ctx: Ctx, id: string): Promise<BlobInfo>
   read(ctx: Ctx, id: string): Promise<Uint8Array>
+  /** A short-lived address of a blob on the server's origin: 300 seconds unless one is asked for, at most an hour. */
+  url(ctx: Ctx, id: string, opts?: { expiresSecs?: number }): Promise<string>
   delete(ctx: Ctx, id: string): Promise<void>
 }
 

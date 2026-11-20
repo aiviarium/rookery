@@ -91,6 +91,15 @@ impl Key {
         &self.id
     }
 
+    /// A signature over `data` under this key, for a short-lived address the server hands out.
+    pub fn sign(&self, data: &[u8]) -> String {
+        use hmac::{Hmac, KeyInit, Mac};
+        let mut mac =
+            <Hmac<Sha256> as KeyInit>::new_from_slice(&self.bytes).expect("any key length");
+        mac.update(data);
+        hex::encode(mac.finalize().into_bytes())
+    }
+
     pub fn seal(&self, aad: &[u8], plain: &[u8]) -> Result<Sealed> {
         let cipher = XChaCha20Poly1305::new((&self.bytes).into());
         let mut nonce = [0u8; 24];
