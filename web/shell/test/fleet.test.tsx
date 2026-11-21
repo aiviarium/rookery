@@ -1,5 +1,5 @@
-// The infrastructure pages: the hosts and their page, a job's log, the machines a
-// provisioner made, and the terminals a host opens.
+// The fleet: the hosts and their page, the machines provisioners make as hosts,
+// a job's log, and the terminals a host opens.
 import { describe, expect, test } from "bun:test";
 import type {
   Action,
@@ -114,8 +114,8 @@ describe("a job's page", () => {
   });
 });
 
-describe("the machines page", () => {
-  test("lists a provisioner, its health and the machine it made", async () => {
+describe("machines and provisioners on the hosts page", () => {
+  test("lists a machine as a host, and its provisioner in the next tab", async () => {
     const type = {
       id: "incus/container",
       label: "Incus container",
@@ -134,15 +134,17 @@ describe("the machines page", () => {
         machines: [machine],
       }),
       undefined,
-      "/machines",
+      "/hosts",
     );
     try {
-      expect(view.text()).toContain("desk-3");
-      expect(view.text()).toContain("192.0.2.31");
-      expect(view.text()).toContain("lab-incus");
+      // The machine is a row of the hosts, being created until its host is there.
+      const row = view.find("tr[data-row-id='desk-3']");
+      expect(row?.textContent).toContain("192.0.2.31");
+      expect(row?.textContent).toContain("lab-incus");
+      expect(row?.textContent).toContain("Creating");
       await view.click("[role='tab'][id$='-tab-provisioners']");
       const provisioner = view.find("[data-provisioner='lab-incus']");
-      expect(provisioner?.textContent).toContain("incus/container");
+      expect(provisioner?.textContent).toContain("Incus container");
       // A healthy provisioner shows no state.
       expect(provisioner?.textContent).not.toContain("Up");
     } finally {
@@ -150,7 +152,7 @@ describe("the machines page", () => {
     }
   });
 
-  test("makes a machine through the edge's own call", async () => {
+  test("makes a machine from Add host, asking only what a machine needs", async () => {
     const type = {
       id: "example/fake",
       label: "Fake machine",
@@ -163,19 +165,22 @@ describe("the machines page", () => {
     const view = await mount(
       fakeClient({ user: STATIC_USER, types: [type], provisioners: [entry], jobs: [job], calls }),
       undefined,
-      "/machines",
+      "/hosts",
     );
     try {
-      await view.action("machine");
-      await view.fill("Host name", "desk-4");
-      await view.click("[data-part='create-machine']");
+      await view.action("add");
+      await view.select("Machine", "New on lab");
+      // The provisioner knows its engine: no address, user or port.
+      expect(view.find("[data-part='dialog']")?.textContent).not.toContain("Address");
+      await view.fill("Name", "desk-4");
+      await view.submit();
       expect(calls).toContain("create desk-4");
     } finally {
       view.unmount();
     }
   });
 
-  test("removes a machine through the edge's own call", async () => {
+  test("removes a machine from its row's menu", async () => {
     const type = {
       id: "example/fake",
       label: "Fake machine",
@@ -189,7 +194,7 @@ describe("the machines page", () => {
     const view = await mount(
       fakeClient({ user: STATIC_USER, types: [type], provisioners: [entry], machines: [machine], jobs: [job], calls }),
       undefined,
-      "/machines",
+      "/hosts",
     );
     try {
       await view.rowMenu("desk-3", "Remove machine");

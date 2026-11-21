@@ -8,7 +8,7 @@ installed plugin declares `shell: true`. It is a Bun workspace member beside
 | --- | --- |
 | `web/shell/` | `@rookery/shell`, the app: Vite, `@solidjs/vite-plugin`, SolidJS 2, happy-dom tests |
 | `web/shell/src/shell.tsx` | The shell's state: the client, sign-in, the spaces, the connection, notifications and the plugins' halves |
-| `web/shell/src/chrome/` | The chrome: the sidebar and its levels, the account menu, the status bar |
+| `web/shell/src/chrome/` | The chrome: the sidebar and its levels, the account menu, and the status bar, which shows only while the link to the server is down or plugins failed to load |
 | `web/shell/src/pages/` | The shell's own pages, one folder per area, joined by `index.ts` |
 | `web/shell/src/parts/` | What pages share: the view frame, live queries, actions, dialogs, row menus |
 | `web/shell/src/plugin/` | The client-half host: a plugin's page and its tabs on a host's page |
@@ -39,7 +39,7 @@ of levels: the top, then the containers a person drills into.
 
 * The top holds Home and the Inbox, the Fleet, one row per space, and the
   plugins' own views.
-* The Fleet holds hosts, terminals, machines, jobs, schedules and roll-outs, then
+* The Fleet holds hosts, terminals, jobs, schedules and roll-outs, then
   one row per host. A host holds its own places.
 * A space holds its overview, the views its kind's plugins add, its documents and
   records, and its settings. Every call from a page under `/spaces/{id}` is scoped
@@ -56,6 +56,9 @@ The pages keep to the same rules:
 * No prose. A field's explanation is its `info` tip.
 * Nothing for the normal state, and no zero counts.
 * One empty state per view: a title and its action.
+* A thing is where the person thinks of it, not where the server keeps it: a
+  machine a provisioner makes is a host, so it is listed with the hosts and
+  made from "Add host", and the provisioners are a tab of the hosts page.
 * Adding is a header action with a plus. Deleting is in a row's menu, never a
   button on the row.
 * Refresh is in the overflow menu.

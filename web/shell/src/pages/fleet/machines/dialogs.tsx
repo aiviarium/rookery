@@ -1,15 +1,14 @@
-// The dialogs a provisioner needs: adding an entry, running one of its actions,
-// and making a machine with it.
+// The dialogs a provisioner needs: adding one and running one of its actions.
+// Making a machine is adding a host, in hosts/add.tsx.
 //
 // An entry names a type an installed plugin declares and the engine it drives: a
-// node's, the server's own, or one it reaches itself. A machine is the core's
-// kind: a host's machine, made from the seed the server renders.
-import { For, Show, createSignal } from "solid-js";
+// managed host's, the server's own, or one it reaches itself with the address
+// and credentials in its arguments.
+import { Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import { HostType, type ProvisionerAction, type ProvisionerEntry, type ProvisionerType } from "@rookery/proto";
+import type { ProvisionerAction, ProvisionerEntry, ProvisionerType } from "@rookery/proto";
 
-import { cbor } from "@rookery/client";
-import { Badge, Button, Callout, Dialog, Select, TextField } from "@aiviarium/nocturne";
+import { Button, Callout, Dialog, Select, TextField } from "@aiviarium/nocturne";
 
 import { useShell } from "../../../shell.tsx";
 import { errorMessage } from "../format.ts";
@@ -37,10 +36,22 @@ export function NewProvisioner(props: {
 
   const chosen = (): ProvisionerType | undefined => props.types.find(one => one.id === type());
 
+  // Where the engine may be, as the type says: the server's own, a managed host's, or one it reaches itself.
+  const engines = (): Array<{ value: string; label: string; description?: string }> => {
+    const found = chosen();
+    if (found === undefined) return [];
+    return [
+      ...(found.local ? [{ value: "local", label: "This server" }] : []),
+      ...(found.node ? props.hosts.map(host => ({ value: host, label: host, description: "Managed host" })) : []),
+      { value: "remote", label: "Elsewhere", description: "Reached with the arguments below" },
+    ];
+  };
+
   const choose = (id: string): void => {
     setType(id);
     const found = props.types.find(one => one.id === id);
     setValues(found === undefined ? {} : argumentDefaults(found.arguments));
+    setEngine(found?.local ? "local" : found?.node && props.hosts[0] !== undefined ? props.hosts[0] : "remote");
   };
 
   const submit = async (): Promise<void> => {
@@ -92,48 +103,32 @@ export function NewProvisioner(props: {
       }
     >
       <div class="nc-stack">
+        <Select
+          label="Type"
+          placeholder="Choose a type"
+          value={type()}
+          options={props.types.map(one => ({
+            value: one.id,
+            label: one.label === "" ? one.id : one.label,
+            description: one.label === "" ? undefined : one.id,
+          }))}
+          onChange={choose}
+        />
         <TextField
           label="Name"
-          info="The resource provisioners are granted, and the name a machine names."
+          info="Grants and machines name the provisioner by it"
           value={name()}
           placeholder="lab-incus"
           onInput={event => setName(event.currentTarget.value)}
         />
-        <Select
-          label="Type"
-          value={type()}
-          options={props.types.map(one => ({
-            value: one.id,
-            label: one.label === "" ? one.id : `${one.id} · ${one.label}`,
-          }))}
-          onChange={choose}
-        />
-        <Select
-          label="Engine"
-          value={engine()}
-          options={[
-            { value: "local", label: "This server — its own engine" },
-            { value: "remote", label: "Another engine — an address and credentials in the arguments" },
-            ...props.hosts.map(host => ({ value: host, label: `${host} — the engine on this managed host` })),
-          ]}
-          onChange={setEngine}
-        />
+        <Show when={engines().length > 1}>
+          <Select label="Engine" value={engine()} options={engines()} onChange={setEngine} />
+        </Show>
         <Show when={chosen()}>
           {found => (
             <>
               <Show when={found().error !== ""}>
                 <Callout tone="warning">{found().error}</Callout>
-              </Show>
-              <div class="nc-row">
-                <For each={found().kinds}>
-                  {kind => <Badge tone="outline">{kind.label === "" ? kind.id : kind.label}</Badge>}
-                </For>
-              </div>
-              <Show when={found().secrets.length > 0}>
-                <Callout tone="info">
-                  It reads the secrets <span class="nc-code">{found().secrets.join(", ")}</span>, which an admin sets
-                  for this entry.
-                </Callout>
               </Show>
               <ArgumentFields
                 arguments={found().arguments}
@@ -201,7 +196,7 @@ export function RunProvisionerAction(props: {
     <Dialog
       open
       onClose={props.onClose}
-      title={`An action on ${props.entry.name}`}
+      title={`Run an action on ${props.entry.name}`}
       footer={
         <>
           <Button onClick={props.onClose} disabled={busy()}>
@@ -232,7 +227,7 @@ export function RunProvisionerAction(props: {
           {chosen => (
             <>
               <Show when={chosen().destructive}>
-                <Callout tone="warning">It changes or removes what the engine holds.</Callout>
+                <Callout tone="warning">Changes or removes what the engine holds</Callout>
               </Show>
               <ArgumentFields
                 arguments={chosen().arguments}
@@ -244,162 +239,6 @@ export function RunProvisionerAction(props: {
           )}
         </Show>
         <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
-      </div>
-    </Dialog>
-  );
-}
-
-export function NewMachine(props: {
-  entries: readonly ProvisionerEntry[];
-  types: readonly ProvisionerType[];
-  entry?: string;
-  onClose: () => void;
-  onStarted: (job: string) => void;
-}): JSX.Element {
-  const shell = useShell();
-  const [entry, setEntry] = createSignal(props.entry ?? props.entries[0]?.name ?? "");
-  const [name, setName] = createSignal("");
-  const [hostType, setHostType] = createSignal<HostType>(HostType.SSH);
-  const [size, setSize] = createSignal("");
-  const [image, setImage] = createSignal("");
-  const [values, setValues] = createSignal<ArgumentValues>({});
-  const [busy, setBusy] = createSignal(false);
-  const [failure, setFailure] = createSignal<string>();
-
-  const chosen = (): ProvisionerEntry | undefined => props.entries.find(one => one.name === entry());
-  const type = (): ProvisionerType | undefined => props.types.find(one => one.id === chosen()?.type);
-  const makesMachine = (): boolean => type()?.kinds.some(kind => kind.machine) ?? false;
-
-  const submit = async (): Promise<void> => {
-    const found = type();
-    if (found === undefined || busy()) return;
-    setBusy(true);
-    setFailure(undefined);
-    try {
-      const map: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(values())) {
-        if (value !== "" && value !== false) map[key] = value;
-      }
-      if (size() !== "") map["size"] = size();
-      if (image() !== "") map["image"] = image();
-      const created = await shell.rookery.provisioners.createMachine({
-        host: name().trim(),
-        provisioner: entry(),
-        type: hostType(),
-        argsCbor: cbor.encode(map),
-      });
-      if (created.job !== "") {
-        props.onStarted(created.job);
-        return;
-      }
-      throw new Error("The machine was made without a job to follow.");
-    } catch (error) {
-      setFailure(errorMessage(error));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Dialog
-      open
-      onClose={props.onClose}
-      title="New machine"
-      size="lg"
-      footer={
-        <>
-          <Button onClick={props.onClose} disabled={busy()}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            loading={busy()}
-            disabled={name().trim() === "" || !makesMachine()}
-            onClick={() => void submit()}
-            data-part="create-machine"
-          >
-            Create machine
-          </Button>
-        </>
-      }
-    >
-      <div class="nc-stack">
-        <Show when={props.entries.length > 0} fallback={<Callout tone="info">Add a provisioner first.</Callout>}>
-          <Select
-            label="Provisioner"
-            value={entry()}
-            options={props.entries.map(one => ({ value: one.name, label: `${one.name} · ${one.type}` }))}
-            onChange={chosenEntry => {
-              setEntry(chosenEntry);
-              const found = props.types.find(one => one.id === props.entries.find(each => each.name === chosenEntry)?.type);
-              setValues(found === undefined ? {} : argumentDefaults(found.arguments));
-              setSize("");
-              setImage("");
-            }}
-          />
-          <TextField
-            label="Host name"
-            info="The machine takes this name, and the host whose profile it is."
-            value={name()}
-            placeholder="desk-3"
-            onInput={event => setName(event.currentTarget.value)}
-          />
-          <Select
-            label="Type"
-            info="What the host becomes: the apply sets up the rest."
-            value={String(hostType())}
-            options={[
-              { value: String(HostType.SSH), label: "SSH — reachable over SSH only" },
-              { value: String(HostType.MANAGED), label: "Managed — rookeryd, box and the tailnet" },
-              { value: String(HostType.WORKSTATION), label: "Workstation — managed, with a desktop" },
-            ]}
-            onChange={value => setHostType(Number(value) as HostType)}
-          />
-          <Show when={type()}>
-            {found => (
-              <>
-                <Show when={!makesMachine()}>
-                  <Callout tone="warning">
-                    {found().id} makes no machine. Its kinds are {found().kinds.map(kind => kind.id).join(", ")}.
-                  </Callout>
-                </Show>
-                <Show when={found().sizes.length > 0}>
-                  <Select
-                    label="Size"
-                    value={size()}
-                    options={found().sizes.map(choice => ({
-                      value: choice.id,
-                      label: `${choice.label === "" ? choice.id : choice.label} — ${choice.cpus} CPUs · ${choice.memoryMb} MB · ${choice.diskGb} GB`,
-                    }))}
-                    onChange={setSize}
-                  />
-                </Show>
-                <Show when={found().images.length > 0}>
-                  <Select
-                    label="Image"
-                    value={image()}
-                    options={found().images.map(choice => ({
-                      value: choice.id,
-                      label: `${choice.label === "" ? choice.id : choice.label} — ${choice.os} ${choice.release} · ${choice.architecture}`,
-                    }))}
-                    onChange={setImage}
-                  />
-                </Show>
-                <ArgumentFields
-                  arguments={found().arguments}
-                  values={values()}
-                  errors={{}}
-                  onChange={(key, value) => setValues(previous => ({ ...previous, [key]: value }))}
-                />
-              </>
-            )}
-          </Show>
-        </Show>
-        <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
-        <Callout tone="info">
-          The machine's seed has the operator account and the tailnet key; the apply that follows sets everything else
-          up.
-        </Callout>
       </div>
     </Dialog>
   );

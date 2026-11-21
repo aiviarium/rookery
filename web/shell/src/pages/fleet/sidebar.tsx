@@ -12,7 +12,7 @@ import { hostIssue } from "./format.ts";
 import { HOST_EVENTS } from "./hosts/paths.ts";
 
 /** FLEET_PLACES are the addresses inside the fleet. */
-export const FLEET_PLACES = ["/hosts", "/terminals", "/machines", "/jobs", "/schedules", "/rollouts"];
+export const FLEET_PLACES = ["/hosts", "/terminals", "/jobs", "/schedules", "/rollouts"];
 
 /** useHosts is every host the person may see, kept up to date. */
 function useHosts() {
@@ -60,7 +60,6 @@ export function FleetSidebar(_props: LevelProps): JSX.Element {
       items: [
         place("Hosts", "/hosts", "server"),
         place("Terminals", "/terminals", "terminal"),
-        place("Machines", "/machines", "cpu"),
         place("Jobs", "/jobs", "list-checks"),
         place("Schedules", "/schedules", "calendar-clock"),
         place("Roll-outs", "/rollouts", "git-pull-request"),

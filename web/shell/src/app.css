@@ -235,5 +235,10 @@
   .shell-group__head {
     padding: var(--space-2) var(--nc-pad, 12px) 0;
   }
+
+  /* A row's "more" button keeps its own box. */
+  .shell-row-actions {
+    display: inline-flex;
+  }
 }
 

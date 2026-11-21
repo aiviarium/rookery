@@ -18,7 +18,7 @@ import { useShell } from "../shell.tsx";
 import { ChromeContext, type Chrome } from "./context.ts";
 import type { LevelRef } from "./levels.ts";
 import { Sidebar } from "./sidebar.tsx";
-import { StatusBar } from "./status-bar.tsx";
+import { useStatusBar } from "./status-bar.tsx";
 
 /** WIDTH_KEY and HIDDEN_KEY are where the browser keeps the sidebar's width and whether it is hidden. */
 const WIDTH_KEY = "rookery-sidebar-width";
@@ -67,6 +67,8 @@ export function ShellLayout(props: { children?: JSX.Element }): JSX.Element {
     },
   );
 
+  const statusbar = useStatusBar();
+
   return (
     // Nocturne's links in the sidebar, the crumbs and the rows move through the router, not the browser.
     <LinkProvider navigate={(path) => navigate(path)}>
@@ -89,7 +91,7 @@ export function ShellLayout(props: { children?: JSX.Element }): JSX.Element {
               <span class="label">{shell.spaces.currentSpace()?.name ?? "Rookery"}</span>
             </>
           }
-          statusbar={<StatusBar />}
+          statusbar={statusbar()}
         >
           <Frame flush class="shell-frame">
             <Loading fallback={<Skeleton width="40%" height="14px" />}>
