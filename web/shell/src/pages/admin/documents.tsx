@@ -1,162 +1,194 @@
 // Documents: the live documents this account may read, their metadata and their
 // versions. Editing one is a CRDT client's job; the shell shows what a document
-// is and where it hangs.
-import { Show, createEffect, createSignal } from "solid-js";
+// is and where it hangs. The open document is in the address.
+import { For, Show, createSignal, untrack } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import { createQuery } from "@rookery/client/solid";
-import { timestampDate } from "@bufbuild/protobuf/wkt";
-import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import type { Document, DocumentSnapshot } from "@rookery/proto";
-import { Badge, Button, Callout, Card, DataTable, type DataColumn, Select, TextField } from "@aiviarium/nocturne";
+import { useSearchParams } from "@solidjs/router";
+import type { Document } from "@rookery/proto";
+import { Badge, Button, Card, CodeBlock, EmptyState, ListRow, PropertyList, RowList, Select, Skeleton, TextField } from "@aiviarium/nocturne";
 
+import { createAction } from "../../parts/action.ts";
+import { createLive } from "../../parts/data.ts";
+import { ConfirmDialog, FormDialog } from "../../parts/dialogs.tsx";
+import { errorMessage } from "../../parts/errors.ts";
+import { RowActions } from "../../parts/row-actions.tsx";
+import { View } from "../../parts/view.tsx";
 import { useShell } from "../../shell.tsx";
-import { Page } from "../../parts/page.tsx";
+import { dateOf, relativeTime } from "../infra/format.ts";
 
-/** DocumentTypes are the CRDTs a document can be. */
+/** DOCUMENT_TYPES are the CRDTs a document can be. */
 const DOCUMENT_TYPES = [
-  { value: "yjs", label: "Yjs" },
-  { value: "markdown", label: "Markdown" },
+  { value: "yjs", label: "Yjs", description: "Structured data and rich text." },
+  { value: "markdown", label: "Markdown", description: "Plain text." },
 ];
 
 /** DocumentsPage lists, makes and opens documents. */
 export function DocumentsPage(): JSX.Element {
   const shell = useShell();
-  const documents = createQuery(() => shell.rookery.documents.list({ limit: 200 }));
+  const [search, setSearch] = useSearchParams<{ document?: string }>();
+  const documents = createLive(() => shell.rookery.documents.list({ limit: 200 }));
+  const [creating, setCreating] = createSignal(false);
+  const [deleting, setDeleting] = createSignal<Document>();
+  const rows = () => documents()?.documents ?? [];
+  const open = () => rows().find((one) => one.id === search.document);
+  const refresh = () => void documents.refresh().catch(() => undefined);
+  const remove = createAction(async () => {
+    const document = deleting();
+    if (document === undefined) return;
+    await shell.rookery.documents.delete({ id: document.id });
+    if (search.document === document.id) setSearch({ document: undefined });
+    refresh();
+  }, { done: "Document deleted" });
 
-  const [type, setType] = createSignal("yjs");
-  const [parent, setParent] = createSignal(shell.spaces.current() === "" ? "" : `space://${shell.spaces.current()}`);
-  const [error, setError] = createSignal("");
-  const [open, setOpen] = createSignal("");
-
-  const history = createQuery(() =>
-    open() === "" ? Promise.resolve(undefined) : shell.rookery.documents.history({ id: open() }),
-  );
-
-  // The versions are the open document's.
-  createEffect(
-    () => open(),
-    (id) => {
-      if (id !== "") void history.refresh().catch(() => undefined);
-    },
-  );
-
-  const create = async () => {
-    setError("");
-    try {
-      const answer = await shell.rookery.documents.create({ type: type(), parent: parent().trim() });
-      if (answer.document !== undefined) setOpen(answer.document.id);
-      void documents.refresh();
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    }
-  };
-
-  const columns = (): DataColumn<Document>[] => [
-    { id: "id", header: "Id", type: "mono", accessor: document => document.id },
-    {
-      id: "type",
-      header: "Type",
-      accessor: document => document.type,
-      cell: document => <Badge tone="outline">{document.type}</Badge>,
-    },
-    { id: "parent", header: "Parent", type: "mono", accessor: document => document.parent },
-    { id: "updated", header: "Updated", type: "time", accessor: document => when(document.updatedAt) },
-    {
-      id: "actions",
-      header: "",
-      cell: document => (
-        <div class="nc-row nc-row--tight">
-          <Button size="sm" variant="ghost" onClick={() => setOpen(document.id)}>
-            Open
-          </Button>
-          <Button
-            size="sm"
-            variant="danger"
-            onClick={() => {
-              void shell.rookery.documents.delete({ id: document.id }).then(() => documents.refresh());
-            }}
-          >
-            Delete
-          </Button>
-        </div>
-      ),
-    },
-  ];
-
-  const snapshotColumns = (): DataColumn<DocumentSnapshot>[] => [
-    { id: "sequence", header: "Sequence", type: "num", accessor: snapshot => String(snapshot.sequence) },
-    { id: "label", header: "Label", accessor: snapshot => snapshot.label },
-    { id: "by", header: "By", type: "mono", accessor: snapshot => snapshot.createdBy },
-    { id: "at", header: "At", type: "time", accessor: snapshot => when(snapshot.at) },
-  ];
+  const menu = [{ id: "delete", label: "Delete", icon: "trash" as const, danger: true }];
 
   return (
-    <Page title="Documents" description="Live documents, kept per parent resource and every participant's edits.">
-      <Card title="New document">
-        <div class="nc-stack">
-          <div class="nc-row">
-            <Select label="Type" value={type()} options={DOCUMENT_TYPES} onChange={setType} />
-            <TextField
-              label="Parent"
-              help="The resource whose grants reach the document, such as space://…"
-              id="document-parent"
-              value={parent()}
-              placeholder="space://…"
-              onInput={event => setParent(event.currentTarget.value)}
-            />
-            <Button variant="primary" size="sm" onClick={() => void create()}>
-              Create
-            </Button>
-          </div>
-          <Show when={error() !== ""}>
-            <Callout tone="danger">{error()}</Callout>
-          </Show>
-        </div>
-      </Card>
-
-      <Card title="Documents" count={documents()?.documents.length} padding="none">
-        <DataTable
-          bare
-          label="Documents"
-          rows={documents()?.documents ?? []}
-          columns={columns()}
-          getRowId={document => document.id}
-          loading={documents.pending() && documents() === undefined}
-          empty={{ title: "No documents", description: "Make one above; the editor is the client that syncs it." }}
-        />
-      </Card>
-
-      <Show when={open() !== ""}>
-        <Card title="Versions" padding="none">
-          <div class="shell-pad nc-stack">
-            <p class="nc-meta">
-              A client syncs a document at <code class="nc-code">/ws/documents/{open()}</code>.
-            </p>
-          </div>
-          <Show
-            when={(history()?.snapshots.length ?? 0) > 0}
-            fallback={
-              <div class="shell-pad">
-                <Callout tone="info">No versions yet. A participant marks one when it compacts the document.</Callout>
-              </div>
-            }
-          >
-            <DataTable
-              bare
-              label="Versions"
-              rows={history()?.snapshots ?? []}
-              columns={snapshotColumns()}
-              getRowId={snapshot => String(snapshot.sequence)}
-              empty={{ title: "No versions" }}
-            />
-          </Show>
-        </Card>
+    <View
+      id="documents"
+      crumbs={[{ label: "Documents" }]}
+      error={documents.error() === undefined ? undefined : `The documents could not be read. ${errorMessage(documents.error())}`}
+      actions={[
+        { id: "refresh", label: "Refresh", icon: "refresh-cw", onClick: refresh },
+        { id: "new", label: "New document", icon: "plus", primary: true, onClick: () => setCreating(true) },
+      ]}
+      aside={
+        <Show when={open()} keyed>
+          {(document) => <DocumentDetail document={document} />}
+        </Show>
+      }
+      asideLabel="Document"
+    >
+      <Show when={documents()} fallback={<Skeleton width="50%" />}>
+        <Show
+          when={rows().length > 0}
+          fallback={
+            <Card>
+              <EmptyState icon="file" title="No documents" description="A document is edited live by everyone who opens it, and its grants come from its parent.">
+                <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
+                  New document
+                </Button>
+              </EmptyState>
+            </Card>
+          }
+        >
+          <Card padding="none">
+            <RowList label="Documents">
+              <For each={rows()} keyed={(document) => document.id}>
+                {(document) => (
+                  <ListRow
+                    icon="file"
+                    title={<span class="nc-mono">{document().id}</span>}
+                    label={document().id}
+                    secondary={<span class="nc-mono">{document().parent}</span>}
+                    meta={
+                      <span class="nc-row nc-row--tight">
+                        <Badge tone="outline">{document().type}</Badge>
+                        <span>{relativeTime(dateOf(document().updatedAt))}</span>
+                      </span>
+                    }
+                    selected={search.document === document().id}
+                    onClick={() => setSearch({ document: document().id })}
+                    menu={menu}
+                    onMenuSelect={() => setDeleting(document())}
+                    persistentActions={<RowActions label={`Actions for ${document().id}`} items={menu} onSelect={() => setDeleting(document())} />}
+                  />
+                )}
+              </For>
+            </RowList>
+          </Card>
+        </Show>
       </Show>
-    </Page>
+      <Show when={creating()}>
+        <NewDocument
+          onClose={() => setCreating(false)}
+          onCreated={(id) => {
+            refresh();
+            setSearch({ document: id });
+          }}
+        />
+      </Show>
+      <ConfirmDialog
+        open={deleting() !== undefined}
+        title="Delete the document?"
+        description="Its content and versions are deleted. Anyone editing it is disconnected."
+        confirm="Delete document"
+        danger
+        action={remove}
+        onClose={() => setDeleting(undefined)}
+      />
+    </View>
   );
 }
 
-/** when is a timestamp as the reader's clock shows it. */
-function when(at: Timestamp | undefined): string {
-  return at === undefined ? "" : timestampDate(at).toLocaleString();
+function DocumentDetail(props: { document: Document }): JSX.Element {
+  const shell = useShell();
+  const id = untrack(() => props.document.id);
+  const history = createLive(() => shell.rookery.documents.history({ id }));
+  return (
+    <div class="shell-view">
+      <PropertyList
+        items={[
+          { label: "Type", value: <Badge tone="outline">{props.document.type}</Badge> },
+          { label: "Parent", value: <span class="nc-mono">{props.document.parent}</span> },
+          { label: "Created", value: relativeTime(dateOf(props.document.createdAt)) },
+          { label: "Updated", value: relativeTime(dateOf(props.document.updatedAt)) },
+        ]}
+      />
+      <CodeBlock title="Sync address" lineNumbers={false} code={`/ws/documents/${id}`} />
+      <Card title="Versions" count={history()?.snapshots.length}>
+        <Show when={history()} fallback={<Skeleton width="60%" />}>
+          {(answer) => (
+            <Show when={answer().snapshots.length > 0} fallback={<p class="nc-muted">No versions yet. An editor marks one when it compacts the document.</p>}>
+              <RowList label="Versions" variant="inline">
+                <For each={answer().snapshots}>
+                  {(snapshot) => (
+                    <ListRow
+                      title={snapshot.label || `Version ${snapshot.sequence}`}
+                      secondary={<span class="nc-mono">{snapshot.createdBy}</span>}
+                      meta={relativeTime(dateOf(snapshot.at))}
+                    />
+                  )}
+                </For>
+              </RowList>
+            </Show>
+          )}
+        </Show>
+      </Card>
+    </div>
+  );
+}
+
+function NewDocument(props: { onClose: () => void; onCreated: (id: string) => void }): JSX.Element {
+  const shell = useShell();
+  const space = shell.spaces.current();
+  const [type, setType] = createSignal("yjs");
+  const [parent, setParent] = createSignal(space === "" ? "" : `space://${space}`);
+  let created = "";
+  const create = createAction(async () => {
+    const answer = await shell.rookery.documents.create({ type: type(), parent: parent().trim() });
+    created = answer.document?.id ?? "";
+  }, { done: "Document created" });
+  return (
+    <FormDialog
+      open
+      title="New document"
+      submit="Create document"
+      action={create}
+      disabled={parent().trim() === ""}
+      onClose={props.onClose}
+      onDone={() => props.onCreated(created)}
+    >
+      <div class="nc-stack">
+        <Select label="Type" value={type()} options={DOCUMENT_TYPES} onChange={setType} />
+        <TextField
+          label="Parent"
+          mono
+          placeholder="space://…"
+          help="Whoever may read the parent may read the document."
+          value={parent()}
+          onInput={(event) => setParent(event.currentTarget.value)}
+        />
+      </div>
+    </FormDialog>
+  );
 }

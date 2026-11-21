@@ -2,65 +2,74 @@
 // upload one, and delete what is there.
 //
 // A path is the account's: "" is its home, and a relative path is under it.
-// Uploading replaces a file of the same name.
-import { Show, createSignal } from "solid-js";
+// Uploading replaces a file of the same name. The directory is in the address,
+// so a reload or a link lands on the same one.
+import { For, Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
+import { useSearchParams } from "@solidjs/router";
 import type { HostFile } from "@rookery/proto";
-import { Button, Callout, Card, DataTable, type DataColumn, Select, TextField } from "@aiviarium/nocturne";
+import { Callout, Card, EmptyState, IconButton, ListRow, RowList, Skeleton, Tabs } from "@aiviarium/nocturne";
 
+import { createAction } from "../../../parts/action.ts";
+import { createLive } from "../../../parts/data.ts";
+import { ConfirmDialog } from "../../../parts/dialogs.tsx";
+import { View } from "../../../parts/view.tsx";
 import { useShell } from "../../../shell.tsx";
-import { Spinner } from "../../../parts/spinner.tsx";
-import { bytesSize, errorMessage, relativeTime, dateOf } from "../format.ts";
+import { bytesSize, dateOf, relativeTime } from "../format.ts";
+import { hostCrumbs, useHost } from "./domain.tsx";
 
 type Account = "operator" | "desktop" | "root";
 
-export function HostFiles(props: { host: string }): JSX.Element {
+const ACCOUNTS: ReadonlyArray<{ value: Account; label: string }> = [
+  { value: "operator", label: "Operator" },
+  { value: "desktop", label: "Desktop" },
+  { value: "root", label: "Root" },
+];
+
+/** parentOf is the directory above a path, "" for the home directory. */
+export function parentOf(path: string): string {
+  if (path === "" || path === "/") return "";
+  const absolute = path.startsWith("/");
+  const parts = path.split("/").filter((part) => part !== "");
+  parts.pop();
+  if (parts.length === 0) return absolute ? "/" : "";
+  return `${absolute ? "/" : ""}${parts.join("/")}`;
+}
+
+/** segmentsOf are the directories down to a path, for its crumbs. */
+export function segmentsOf(path: string): Array<{ label: string; path: string }> {
+  const absolute = path.startsWith("/");
+  const parts = path.split("/").filter((part) => part !== "");
+  const segments = [{ label: absolute ? "/" : "~", path: absolute ? "/" : "" }];
+  parts.forEach((part, index) => {
+    const joined = parts.slice(0, index + 1).join("/");
+    segments.push({ label: part, path: absolute ? `/${joined}` : joined });
+  });
+  return segments;
+}
+
+/** HostFilesPage is a host's files place. */
+export function HostFilesPage(): JSX.Element {
   const shell = useShell();
-  const [account, setAccount] = createSignal<Account>("operator");
-  const [path, setPath] = createSignal("");
-  const [draft, setDraft] = createSignal("");
-  const [entries, setEntries] = createSignal<HostFile[]>([]);
-  const [loaded, setLoaded] = createSignal(false);
-  const [busy, setBusy] = createSignal<string>();
-  const [failure, setFailure] = createSignal<string>();
+  const domain = useHost();
+  const [search, setSearch] = useSearchParams<{ path?: string; as?: string }>();
+  const path = () => search.path ?? "";
+  const account = (): Account => (ACCOUNTS.some((one) => one.value === search.as) ? (search.as as Account) : "operator");
+  const [removing, setRemoving] = createSignal<HostFile>();
   let upload: HTMLInputElement | undefined;
 
-  const open = async (next: string): Promise<void> => {
-    setBusy("list");
-    setFailure(undefined);
-    try {
-      const listed = await shell.rookery.files.list({
-        host: props.host,
-        file: { user: { name: account() }, path: next },
-      });
-      setEntries(listed.result?.entries ?? []);
-      setPath(next);
-      setDraft(next);
-    } catch (error) {
-      setFailure(errorMessage(error));
-    } finally {
-      setBusy(undefined);
-      setLoaded(true);
-    }
-  };
+  const listing = createLive(
+    () => shell.rookery.files.list({ host: domain.name(), file: { user: { name: account() }, path: path() } }),
+    { key: () => `${domain.name()}\n${account()}\n${path()}` },
+  );
+  const entries = () =>
+    [...(listing()?.result?.entries ?? [])].sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
+  const go = (next: string) => setSearch({ path: next === "" ? undefined : next });
+  const refresh = () => void listing.refresh().catch(() => undefined);
 
-  const parent = (): string => {
-    const current = path();
-    if (current === "" || current === "/") return "";
-    const parts = current.split("/").filter(part => part !== "");
-    parts.pop();
-    const joined = parts.join("/");
-    return joined === "" ? "/" : `${current.startsWith("/") ? "/" : ""}${joined}`;
-  };
-
-  const download = async (entry: HostFile): Promise<void> => {
-    setBusy(entry.path);
-    setFailure(undefined);
-    try {
-      const read = await shell.rookery.files.read({
-        host: props.host,
-        file: { user: { name: account() }, path: entry.path },
-      });
+  const download = createAction(
+    async (entry: HostFile) => {
+      const read = await shell.rookery.files.read({ host: domain.name(), file: { user: { name: account() }, path: entry.path } });
       const data = read.result?.data ?? new Uint8Array();
       const url = URL.createObjectURL(new Blob([data.slice()], { type: "application/octet-stream" }));
       const anchor = document.createElement("a");
@@ -68,162 +77,135 @@ export function HostFiles(props: { host: string }): JSX.Element {
       anchor.download = entry.name;
       anchor.click();
       URL.revokeObjectURL(url);
-    } catch (error) {
-      setFailure(errorMessage(error));
-    } finally {
-      setBusy(undefined);
-    }
-  };
+    },
+    { failed: "The file did not download" },
+  );
 
-  const send = async (file: File): Promise<void> => {
-    setBusy(file.name);
-    setFailure(undefined);
-    try {
+  const send = createAction(
+    async (file: File) => {
       const data = new Uint8Array(await file.arrayBuffer());
       const target = path() === "" ? file.name : `${path().replace(/\/$/, "")}/${file.name}`;
       await shell.rookery.files.write({
-        host: props.host,
+        host: domain.name(),
         file: { user: { name: account() }, path: target, data, create: false },
       });
-      await open(path());
-    } catch (error) {
-      setFailure(errorMessage(error));
-    } finally {
-      setBusy(undefined);
-    }
-  };
+      refresh();
+    },
+    { done: "Uploaded", failed: "The file did not upload" },
+  );
 
-  const remove = async (entry: HostFile): Promise<void> => {
-    setBusy(entry.path);
-    setFailure(undefined);
-    try {
-      await shell.rookery.files.delete({
-        host: props.host,
-        file: { user: { name: account() }, path: entry.path, recursive: entry.dir },
-      });
-      await open(path());
-    } catch (error) {
-      setFailure(errorMessage(error));
-    } finally {
-      setBusy(undefined);
-    }
-  };
-
-  const columns = (): DataColumn<HostFile>[] => [
-    {
-      id: "name",
-      header: "Name",
-      type: "mono",
-      accessor: entry => (entry.dir ? `${entry.name}/` : entry.name),
-    },
-    { id: "size", header: "Size", type: "num", accessor: entry => (entry.dir ? "" : bytesSize(Number(entry.size))) },
-    {
-      id: "mode",
-      header: "Mode",
-      type: "mono",
-      accessor: entry => (entry.mode === 0 ? "" : `0${entry.mode.toString(8)}`),
-    },
-    { id: "modified", header: "Modified", type: "time", accessor: entry => relativeTime(dateOf(entry.modifiedAt)) },
-    {
-      id: "actions",
-      header: "",
-      cell: entry => (
-        <span class="nc-row nc-row--tight">
-          <Button size="sm" disabled={entry.dir} onClick={() => void download(entry)}>
-            Download
-          </Button>
-          <Button size="sm" variant="danger" onClick={() => void remove(entry)}>
-            Delete
-          </Button>
-        </span>
-      ),
-    },
-  ];
+  const remove = createAction(async () => {
+    const entry = removing();
+    if (entry === undefined) return;
+    await shell.rookery.files.delete({
+      host: domain.name(),
+      file: { user: { name: account() }, path: entry.path, recursive: entry.dir },
+    });
+    refresh();
+  });
 
   return (
-    <Card title="Files" padding="none">
-      <div class="shell-pad nc-stack">
-        <form
-          class="nc-row"
-          onSubmit={event => {
-            event.preventDefault();
-            void open(draft());
-          }}
-        >
-          <Select
-            aria-label="Account"
-            value={account()}
-            options={[
-              { value: "operator", label: "operator" },
-              { value: "desktop", label: "desktop" },
-              { value: "root", label: "root" },
-            ]}
-            onChange={chosen => {
-              setAccount(chosen as Account);
-              void open("");
-            }}
-          />
-          <TextField
-            label="Path"
-            value={draft()}
-            placeholder="~ (the account's home)"
-            onInput={event => setDraft(event.currentTarget.value)}
-          />
-          <Button type="submit" size="sm">
-            Go
-          </Button>
-          <Button size="sm" onClick={() => void open(parent())}>
-            Up
-          </Button>
-          <Button size="sm" onClick={() => upload?.click()}>
-            Upload
-          </Button>
-          <Button size="sm" onClick={() => void open(path())}>
-            Refresh
-          </Button>
-          <input
-            type="file"
-            hidden
-            ref={element => {
-              upload = element ?? undefined;
-            }}
-            onChange={event => {
-              const file = event.currentTarget.files?.[0];
-              if (file !== undefined) void send(file);
-              event.currentTarget.value = "";
-            }}
-          />
-        </form>
-        <Show when={path() !== ""}>
-          <span class="nc-meta nc-code">{path()}</span>
-        </Show>
-        <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
-        <Show when={busy() !== undefined}>
-          <span class="nc-row nc-row--tight">
-            <Spinner label={busy()} /> {busy()}
-          </span>
-        </Show>
-        <Show
-          when={loaded()}
-          fallback={
-            <Button size="sm" onClick={() => void open("")}>
-              Read the home directory
-            </Button>
-          }
-        >
-          <DataTable
-            bare
-            label={`Files in ${path() === "" ? "the home directory" : path()}`}
-            rows={entries()}
-            columns={columns()}
-            getRowId={entry => entry.path}
-            onRowClick={entry => {
-              if (entry.dir) void open(entry.path);
-            }}
-            empty={{ title: "This directory has no files." }}
-          />
-        </Show>
+    <View
+      id="host-files"
+      crumbs={hostCrumbs(domain.name(), "Files")}
+      actions={[
+        { id: "up", label: "Up a directory", icon: "chevron-left", disabled: path() === "", onClick: () => go(parentOf(path())) },
+        { id: "refresh", label: "Read the directory again", icon: "refresh-cw", onClick: refresh },
+        {
+          id: "upload",
+          label: send.busy() ? "Uploading…" : "Upload",
+          icon: "upload",
+          primary: true,
+          disabled: send.busy(),
+          onClick: () => upload?.click(),
+        },
+      ]}
+    >
+      <input
+        type="file"
+        hidden
+        ref={(element) => {
+          upload = element ?? undefined;
+        }}
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          if (file !== undefined) void send.run(file);
+          event.currentTarget.value = "";
+        }}
+      />
+      <div class="shell-toolbar">
+        <Tabs
+          label="Account"
+          idPrefix="files-account"
+          items={ACCOUNTS.map((one) => ({ id: one.value, label: one.label }))}
+          value={account()}
+          onChange={(chosen) => setSearch({ as: chosen === "operator" ? undefined : chosen, path: undefined })}
+        />
+        <nav class="shell-path nc-code" aria-label="Directory">
+          <For each={segmentsOf(path())}>
+            {(segment, index) => (
+              <>
+                <Show when={index() > 0}>
+                  <span class="shell-path__sep" aria-hidden="true">
+                    /
+                  </span>
+                </Show>
+                <button type="button" class="shell-path__part" onClick={() => go(segment.path)}>
+                  {segment.label}
+                </button>
+              </>
+            )}
+          </For>
+        </nav>
       </div>
-    </Card>
+      <Show when={listing.error()}>
+        {(error) => <Callout tone="danger">The directory could not be read: {error().message}</Callout>}
+      </Show>
+      <Card padding="none">
+        <Show when={listing() !== undefined} fallback={<div class="shell-pad"><Skeleton width="30%" height="14px" /></div>}>
+          <Show
+            when={entries().length > 0}
+            fallback={<EmptyState size="sm" icon="folder" title="Nothing here" description="This directory is empty." />}
+          >
+            <RowList label={`Files in ${path() === "" ? "the home directory" : path()}`}>
+              <For each={entries()}>
+                {(entry) => (
+                  <ListRow
+                    data-file={entry.path}
+                    icon={entry.dir ? "folder" : "file"}
+                    title={<span class="nc-code">{entry.dir ? `${entry.name}/` : entry.name}</span>}
+                    detail={entry.mode === 0 ? undefined : <span class="nc-code">0{entry.mode.toString(8)}</span>}
+                    meta={
+                      <span class="nc-meta">
+                        {entry.dir ? "" : `${bytesSize(Number(entry.size))} · `}
+                        {relativeTime(dateOf(entry.modifiedAt))}
+                      </span>
+                    }
+                    onClick={entry.dir ? () => go(entry.path) : () => void download.run(entry)}
+                    actions={
+                      <>
+                        <Show when={!entry.dir}>
+                          <IconButton size="sm" label={`Download ${entry.name}`} icon="download" onClick={() => void download.run(entry)} />
+                        </Show>
+                        <IconButton size="sm" label={`Delete ${entry.name}`} icon="trash" onClick={() => setRemoving(entry)} />
+                      </>
+                    }
+                  />
+                )}
+              </For>
+            </RowList>
+          </Show>
+        </Show>
+      </Card>
+      <ConfirmDialog
+        open={removing() !== undefined}
+        title={`Delete ${removing()?.name ?? ""}?`}
+        description={removing()?.dir ? "The directory and everything in it are deleted from the host." : "The file is deleted from the host."}
+        confirm="Delete"
+        danger
+        action={remove}
+        onClose={() => setRemoving(undefined)}
+      />
+    </View>
   );
 }

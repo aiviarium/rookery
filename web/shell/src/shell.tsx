@@ -16,6 +16,7 @@ import { type Connection, createConnection } from "./connection.ts";
 import { type Notifications, createNotifications } from "./notifications.ts";
 import { type Plugins, createPlugins } from "./plugins.ts";
 import { type Spaces, createSpaces } from "./spaces.ts";
+import { type Theme, createTheme } from "./theme.ts";
 
 /** Shell is what every page and every plugin mounts with. */
 export interface Shell {
@@ -33,6 +34,8 @@ export interface Shell {
   readonly notifications: Notifications;
   /** plugins are the installed client halves. */
   readonly plugins: Plugins;
+  /** theme is the person's choice of dark, light or the system's. */
+  readonly theme: Theme;
   /** navigate sends the shell to a path, through its router. */
   navigate(path: string): void;
   /** setRouterNavigation installs the router's navigate, and removes it on undefined. */
@@ -69,6 +72,7 @@ export function createShell(options: ShellOptions = {}): Shell {
   const connection = createConnection(rookery, signedIn);
   const notifications = createNotifications(rookery, signedIn);
   const plugins = createPlugins(rookery, signedIn, () => spaces.currentSpace()?.kind);
+  const theme = createTheme();
 
   // The space list is one call per sign-in.
   createEffect(
@@ -87,6 +91,7 @@ export function createShell(options: ShellOptions = {}): Shell {
     connection,
     notifications,
     plugins,
+    theme,
     navigate: (path) => {
       if (routerNavigate !== undefined) {
         routerNavigate(path);

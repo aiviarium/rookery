@@ -4,14 +4,14 @@
 // page: the server answers the host's challenge. The clipboard is the desktop's,
 // read and written through DesktopService; a screenshot is a PNG the same service
 // takes for anyone who may view the host.
-import { Show, createSignal, onCleanup, onSettled } from "solid-js";
+import { Show, createSignal, onSettled, untrack } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import { useParams } from "@solidjs/router";
 import RFB from "@novnc/novnc";
-import { Button, Callout, Card, Dialog, State, TextArea, type DotStatus } from "@aiviarium/nocturne";
+import { Button, Dialog, State, TextArea, type DotStatus } from "@aiviarium/nocturne";
 
 import { useShell } from "../../../shell.tsx";
-import { Page } from "../../../parts/page.tsx";
+import { View } from "../../../parts/view.tsx";
+import { hostCrumbs, useHost } from "../hosts/domain.tsx";
 import { errorMessage } from "../format.ts";
 
 type DesktopState = "connecting" | "connected" | "lost" | "ended";
@@ -32,8 +32,9 @@ const WORD: Record<DesktopState, string> = {
 
 export function DesktopPage(): JSX.Element {
   const shell = useShell();
-  const params = useParams<{ name: string }>();
-  const host = () => params.name ?? "";
+  // One connection per host: the route mounts this page afresh for another host.
+  const name = untrack(useHost().name);
+  const host = () => name;
 
   let screen!: HTMLDivElement;
   let stage!: HTMLDivElement;
@@ -89,11 +90,11 @@ export function DesktopPage(): JSX.Element {
 
   onSettled(() => {
     connect();
-    onCleanup(() => {
+    return () => {
       disposed = true;
       if (retry !== undefined) clearTimeout(retry);
       rfb?.disconnect();
-    });
+    };
   });
 
   const fullscreen = async (): Promise<void> => {
@@ -153,45 +154,48 @@ export function DesktopPage(): JSX.Element {
   };
 
   return (
-    <Page
-      title={`Desktop of ${host()}`}
-      crumbs={() => [{ label: "Hosts", href: "/hosts" }, { label: host() }, { label: "Desktop" }]}
-      description="The workstation's shared desktop, drawn in this tab. Input and the clipboard go through the server."
+    <View
+      id="host-desktop"
+      crumbs={hostCrumbs(host(), "Desktop")}
       context={<State status={TONE[state()]}>{WORD[state()]}</State>}
-      actions={() => [
-        { id: "clipboard", label: "Clipboard", icon: "copy", onClick: () => setClipboardOpen(!clipboardOpen()) },
+      scroll={false}
+      error={failure()}
+      actions={[
+        { id: "clipboard", label: "Clipboard", icon: "copy", pressed: clipboardOpen(), onClick: () => setClipboardOpen(!clipboardOpen()) },
+        { id: "screenshot", label: "Take a screenshot", icon: "eye", onClick: () => void screenshot() },
         {
           id: "pause",
-          label: paused() ? "Resume" : "Pause",
+          label: paused() ? "Resume the desktop" : "Pause the desktop",
           icon: paused() ? "play" : "pause",
+          overflow: true,
           onClick: () => void togglePause(),
         },
-        { id: "screenshot", label: "Screenshot", icon: "eye", onClick: () => void screenshot() },
         { id: "fullscreen", label: "Full screen", primary: true, onClick: () => void fullscreen() },
       ]}
-    >
-      <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
-      <Show when={clipboardOpen()}>
-        <Card title="Clipboard">
-          <div class="nc-stack">
+      aside={
+        <Show when={clipboardOpen()}>
+          <div class="nc-stack shell-pad">
             <TextArea
               label="Clipboard"
-              rows={3}
+              help="What you send here is pasted on the desktop."
+              rows={6}
               value={clipboard()}
-              onInput={event => setClipboard(event.currentTarget.value)}
+              onInput={(event) => setClipboard(event.currentTarget.value)}
             />
             <div class="nc-row">
-              <Button onClick={() => void sendClipboard()}>Send to the desktop</Button>
+              <Button variant="primary" onClick={() => void sendClipboard()}>Send</Button>
               <Button onClick={() => void readClipboard()}>Read from the desktop</Button>
             </div>
           </div>
-        </Card>
-      </Show>
+        </Show>
+      }
+      asideLabel="Clipboard"
+    >
       <div class="shell-desktop" data-part="desktop-page" data-host={host()} data-state={state()} ref={stage}>
         <div class="shell-desktop__screen" ref={screen} />
         <Show when={state() !== "connected"}>
           <div class="shell-desktop__overlay">
-            <State status={TONE[state()]}>{detail() ?? `The desktop of ${host()}`}</State>
+            <State status={TONE[state()]}>{detail() ?? `Connecting to the desktop of ${host()}`}</State>
           </div>
         </Show>
       </div>
@@ -204,8 +208,9 @@ export function DesktopPage(): JSX.Element {
           <>
             <Button onClick={() => setShotOpen(false)}>Close</Button>
             <Show when={shot()}>
-              {url => (
+              {(url) => (
                 <Button
+                  variant="primary"
                   onClick={() => {
                     const anchor = document.createElement("a");
                     anchor.href = url();
@@ -220,8 +225,8 @@ export function DesktopPage(): JSX.Element {
           </>
         }
       >
-        <Show when={shot()}>{url => <img class="shell-shot" src={url()} alt={`The desktop of ${host()}`} />}</Show>
+        <Show when={shot()}>{(url) => <img class="shell-shot" src={url()} alt={`The desktop of ${host()}`} />}</Show>
       </Dialog>
-    </Page>
+    </View>
   );
 }

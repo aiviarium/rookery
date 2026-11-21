@@ -1,134 +1,107 @@
-// The home page: what this server holds, and where to go next.
-import { For, Show, onSettled } from "solid-js";
-import { createQuery } from "@rookery/client/solid";
-import { HostType } from "@rookery/proto";
-import {
-  Badge,
-  Callout,
-  Card,
-  EmptyState,
-  ListRow,
-  RowList,
-  Skeleton,
-  StatCard,
-} from "@aiviarium/nocturne";
+// Home: what needs the person, and what this server holds. Unread
+// notifications and hosts behind their profile come first, then the jobs that
+// ran last and the hosts, each a link to its place.
+import { For, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
+import { Badge, Callout, Card, EmptyState, ListRow, RowList, Skeleton, State, StatCard } from "@aiviarium/nocturne";
 
+import { createLive } from "../../parts/data.ts";
+import { View } from "../../parts/view.tsx";
 import { useShell } from "../../shell.tsx";
-import { Page } from "../../parts/page.tsx";
+import { dateOf, hostState, hostTypeLabel, hostTypeTone, relativeTime } from "../infra/format.ts";
+import { HOST_EVENTS, hostPath } from "../infra/hosts/paths.ts";
+import { JobRows } from "../infra/jobs/rows.tsx";
 
 /** HomePage is the first page a person sees after signing in. */
-export function HomePage() {
+export function HomePage(): JSX.Element {
   const shell = useShell();
-
-  const hosts = createQuery(() => shell.rookery.hosts.list({ limit: 200 }));
-  const spaces = createQuery(() => shell.rookery.spaces.list({ limit: 200 }));
-  const plugins = createQuery(() => shell.rookery.plugins.list({}));
-  const jobs = createQuery(() => shell.rookery.jobs.list({ state: "running", limit: 200 }));
-
-  // The events stream says when one of these changed, so the page follows the
-  // server rather than asking again on a timer.
-  onSettled(() => {
-    const stop = shell.connection.on("rookery/", () => {
-      void hosts.refresh().catch(() => undefined);
-      void spaces.refresh().catch(() => undefined);
-      void plugins.refresh().catch(() => undefined);
-      void jobs.refresh().catch(() => undefined);
-    });
-    return stop;
-  });
+  const hosts = createLive(() => shell.rookery.hosts.list({ limit: 200 }), { events: HOST_EVENTS, space: true });
+  const plugins = createLive(() => shell.rookery.plugins.list({}), { events: ["rookery/plugins."] });
+  const running = createLive(() => shell.rookery.jobs.list({ state: "running", limit: 200 }), { events: ["rookery/jobs."] });
+  const recent = createLive(() => shell.rookery.jobs.list({ limit: 6 }), { events: ["rookery/jobs."] });
 
   const user = () => shell.signIn.user();
   const name = () => user()?.name || user()?.email || "there";
+  const behind = () => (hosts()?.hosts ?? []).filter((host) => hostState(host).tone === "warn");
+  const unread = () => shell.notifications.items().filter((item) => !item.read).slice(0, 5);
 
   return (
-    <Page title={`Welcome, ${name()}`} description="This is the Rookery server you are signed in to.">
+    <View id="home" crumbs={[{ label: "Home" }]} reading>
+      <div class="shell-greeting">
+        <h1 class="title">{`Welcome, ${name()}`}</h1>
+        <p class="nc-meta">{shell.spaces.currentSpace() ? `You are in ${shell.spaces.currentSpace()!.name}.` : "You see every space."}</p>
+      </div>
       <div class="shell-stats">
         <StatCard label="Hosts" value={hosts()?.hosts.length ?? "—"} />
-        <StatCard label="Spaces" value={spaces()?.spaces.length ?? "—"} />
+        <StatCard label="Jobs running" value={running()?.jobs.length ?? "—"} />
         <StatCard label="Plugins" value={plugins()?.plugins.length ?? "—"} />
-        <StatCard label="Jobs running" value={jobs()?.jobs.length ?? "—"} />
+        <StatCard label="Unread" value={shell.notifications.unread()} />
       </div>
-
-      <Show when={hosts.error() !== undefined || spaces.error() !== undefined}>
-        <Callout tone="warning">
-          Some of this server could not be read. The page shows what it could.
-        </Callout>
+      <Show when={hosts.error() !== undefined}>
+        <Callout tone="warning">Some of this server could not be read. The page shows what it could.</Callout>
       </Show>
 
-      <Show when={shell.spaces.currentSpace()}>
-        {space => (
-          <Card title="The space you are in">
-            <div class="nc-row" style={{ "justify-content": "space-between" }}>
-              <span class="nc-row nc-row--tight">
-                <strong>{space().name}</strong>
-                <Badge tone="outline">{space().kind}</Badge>
-              </span>
-              <span class="nc-meta">Records and documents you open are in this space.</span>
-            </div>
-          </Card>
-        )}
+      <Show when={unread().length > 0 || behind().length > 0}>
+        <Card title="Needs you" padding="none" data-part="home-attention">
+          <RowList label="Needs you">
+            <For each={unread()} keyed={(item) => item.id}>
+              {(item) => (
+                <ListRow
+                  icon="bell"
+                  title={item().title}
+                  secondary={item().body}
+                  unread
+                  meta={relativeTime(dateOf(item().createdAt))}
+                  href={item().link || "/inbox"}
+                />
+              )}
+            </For>
+            <For each={behind()} keyed={(host) => host.name}>
+              {(host) => (
+                <ListRow
+                  icon="server"
+                  title={host().name}
+                  secondary="Runs an older profile than its own. Apply it to catch up."
+                  status={<State status="warn">Behind</State>}
+                  href={hostPath(host().name)}
+                />
+              )}
+            </For>
+          </RowList>
+        </Card>
       </Show>
 
-      <Card title="Hosts" count={hosts()?.hosts.length}>
-        <Show when={hosts() !== undefined} fallback={<Skeleton width="40%" />}>
-          <Show
-            when={(hosts()?.hosts.length ?? 0) > 0}
-            fallback={
-              <EmptyState
-                size="sm"
-                title="No hosts yet"
-                description="A host is a machine Rookery sets up and reaches over SSH and the tailnet."
-              >
-                <code class="nc-code">rookery host add NAME ADDRESS</code>
-              </EmptyState>
-            }
-          >
-            <RowList label="Hosts" variant="inset">
-              <For each={hosts()?.hosts ?? []}>
-                {host => <ListRow icon="server" title={host.name} secondary={hostType(host.type)} />}
-              </For>
-            </RowList>
+      <div class="shell-columns">
+        <Card title="Recent jobs" padding="none" action={<a class="shell-link nc-meta" href="/jobs">All jobs</a>}>
+          <JobRows jobs={recent()?.jobs} label="Recent jobs" resource empty={{ title: "No jobs yet", description: "Applying a host or a roll-out starts one." }} />
+        </Card>
+        <Card title="Hosts" count={hosts()?.hosts.length} padding="none" action={<a class="shell-link nc-meta" href="/hosts">All hosts</a>}>
+          <Show when={hosts() !== undefined} fallback={<div class="shell-pad"><Skeleton width="40%" /></div>}>
+            <Show
+              when={(hosts()?.hosts.length ?? 0) > 0}
+              fallback={
+                <EmptyState size="sm" icon="server" title="No hosts yet" description="A host is a machine Rookery sets up and reaches over SSH and the tailnet.">
+                  <a class="shell-link" href="/hosts">Add a host</a>
+                </EmptyState>
+              }
+            >
+              <RowList label="Hosts">
+                <For each={(hosts()?.hosts ?? []).slice(0, 6)} keyed={(host) => host.name}>
+                  {(host) => (
+                    <ListRow
+                      icon="server"
+                      title={host().name}
+                      status={<State status={hostState(host()).tone}>{hostState(host()).label}</State>}
+                      meta={<Badge tone={hostTypeTone(host().type)}>{hostTypeLabel(host().type)}</Badge>}
+                      href={hostPath(host().name)}
+                    />
+                  )}
+                </For>
+              </RowList>
+            </Show>
           </Show>
-        </Show>
-      </Card>
-
-      <Card title="Plugins" count={plugins()?.plugins.length}>
-        <Show when={plugins() !== undefined} fallback={<Skeleton width="40%" />}>
-          <Show
-            when={(plugins()?.plugins.length ?? 0) > 0}
-            fallback={<EmptyState size="sm" title="No plugins" description="Rookery ships the Docker and Incus plugins." />}
-          >
-            <RowList label="Plugins" variant="inset">
-              <For each={plugins()?.plugins ?? []}>
-                {plugin => (
-                  <ListRow
-                    icon="puzzle"
-                    title={plugin.name || plugin.id}
-                    secondary={plugin.version}
-                    meta={
-                      <Show when={plugin.enabled} fallback={<Badge>disabled</Badge>}>
-                        <Badge tone="success">enabled</Badge>
-                      </Show>
-                    }
-                  />
-                )}
-              </For>
-            </RowList>
-          </Show>
-        </Show>
-      </Card>
-    </Page>
+        </Card>
+      </div>
+    </View>
   );
-}
-
-/** hostType is what a host can do, in words. */
-function hostType(type: HostType): string {
-  switch (type) {
-    case HostType.MANAGED:
-      return "managed";
-    case HostType.WORKSTATION:
-      return "workstation";
-    default:
-      return "ssh";
-  }
 }

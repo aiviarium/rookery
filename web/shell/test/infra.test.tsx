@@ -46,18 +46,19 @@ describe("the hosts page", () => {
       "/hosts",
     );
     try {
-      expect(view.find("[data-part='data-table']")).not.toBeNull();
-      expect(view.text()).toContain("studio");
-      expect(view.text()).toContain("Current");
-      expect(view.text()).toContain("Never applied");
-      expect(view.text()).toContain("role=desk");
+      const studio = view.find("[data-host='studio']");
+      expect(studio?.textContent).toContain("Current");
+      expect(studio?.textContent).toContain("role=desk");
+      expect(view.find("[data-host='forge']")?.textContent).toContain("Never applied");
 
-      await view.click("[data-row-id='studio']");
+      await view.click("a[href='/hosts/studio']");
       expect(view.find("[data-part='view-header']")?.textContent).toContain("studio");
-      expect(view.text()).toContain("Profile");
+      // Inside a host the sidebar holds its places.
+      expect(view.find(".shell-sidebar a[href='/hosts/studio/profile']")?.textContent).toContain("Profile");
+      // A DOM without layout has no room for the details beside the overview, so they open over it.
+      await view.click("[data-part='view-aside-toggle']");
       expect(view.text()).toContain("ops@192.0.2.10");
-      // The actions tab lists what the host's type and features declare.
-      await view.click("#host-tabs-tab-actions");
+      // The overview lists what the host's type and features declare.
       expect(view.text()).toContain("Update packages");
     } finally {
       view.unmount();
@@ -68,12 +69,12 @@ describe("the hosts page", () => {
     const site = { user: STATIC_USER, hosts: [] as Host[] };
     const view = await mount(fakeClient(site), undefined, "/hosts");
     try {
-      await view.click("button[aria-label='Add host']");
+      await view.action("add");
       expect(view.find("[data-part='dialog']")).not.toBeNull();
 
-      await view.type("input[placeholder='studio']", "builder");
-      await view.type("input[placeholder='192.0.2.10']", "192.0.2.30");
-      await view.click("[data-part='add-host-submit']");
+      await view.fill("Name", "builder");
+      await view.fill("Address", "192.0.2.30");
+      await view.submit();
 
       expect(site.hosts.map((host) => host.name)).toEqual(["builder"]);
       expect(view.find("[data-part='view-header']")?.textContent).toContain("builder");
@@ -102,7 +103,7 @@ describe("a job's page", () => {
     );
     try {
       expect(view.find("[data-part='log-viewer']")).not.toBeNull();
-      expect(view.text()).toContain("Job log");
+      expect(view.find("[data-part='log-viewer']")?.getAttribute("aria-label") ?? "Job log").toContain("Job log");
       expect(view.text()).toContain("Installing rookeryd");
       expect(view.text()).toContain("Joining the tailnet");
       expect(view.text()).toContain("Succeeded");
@@ -135,11 +136,13 @@ describe("the machines page", () => {
       "/machines",
     );
     try {
-      expect(view.text()).toContain("lab-incus");
-      expect(view.text()).toContain("incus/container");
-      expect(view.text()).toContain("Up");
       expect(view.text()).toContain("desk-3");
       expect(view.text()).toContain("192.0.2.31");
+      expect(view.text()).toContain("lab-incus");
+      await view.click("[role='tab'][id$='-tab-provisioners']");
+      const provisioner = view.find("[data-provisioner='lab-incus']");
+      expect(provisioner?.textContent).toContain("incus/container");
+      expect(provisioner?.textContent).toContain("Up");
     } finally {
       view.unmount();
     }
@@ -161,13 +164,9 @@ describe("the machines page", () => {
       "/machines",
     );
     try {
-      const button = view.findAll("button").find(one => one.textContent?.trim() === "New machine");
-      expect(button).toBeDefined();
-      await view.clickElement(button as HTMLElement);
-      await view.type("input[placeholder='desk-3']", "desk-4");
-      const create = view.findAll("button").find(one => one.textContent?.trim() === "Create machine");
-      expect(create).toBeDefined();
-      await view.clickElement(create as HTMLElement);
+      await view.action("machine");
+      await view.fill("Host name", "desk-4");
+      await view.click("[data-part='create-machine']");
       expect(calls).toContain("create desk-4");
     } finally {
       view.unmount();
@@ -191,7 +190,8 @@ describe("the machines page", () => {
       "/machines",
     );
     try {
-      await view.click("[data-row-id='01hmachine'] button");
+      await view.rowMenu("desk-3", "Remove machine");
+      await view.submit();
       expect(calls).toContain("remove desk-3");
     } finally {
       view.unmount();
@@ -200,13 +200,16 @@ describe("the machines page", () => {
 });
 
 describe("the terminals page", () => {
-  test("offers the first host's shell", async () => {
+  test("opens a terminal on the first host", async () => {
     const view = await mount(fakeClient({ user: STATIC_USER, hosts: [STUDIO] }), undefined, "/terminals");
     try {
-      expect(view.text()).toContain("A new terminal");
-      expect(view.text()).toContain("No terminal is open");
-      // The host the page opens on is the first one the server lists.
-      expect(view.find("[data-part='select'] button")?.textContent).toContain("studio");
+      expect(view.text()).toContain("No terminal is running");
+      await view.action("open");
+      // The host the dialog offers first is the first one the server lists.
+      const host = [...document.querySelectorAll<HTMLElement>("[data-part='select']")].find(
+        (select) => select.querySelector(".nc-field__label")?.textContent === "Host",
+      );
+      expect(host?.querySelector("button")?.textContent).toContain("studio");
     } finally {
       view.unmount();
     }

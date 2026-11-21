@@ -424,10 +424,18 @@ export function fakeTransport(site: FakeSite): Transport {
         if (setting !== undefined) {
           setting.valueCbor = request.valueCbor;
           setting.scope = request.scope;
+          setting.valuesCbor = { ...setting.valuesCbor, [request.scope]: request.valueCbor };
         }
         return { setting };
       },
-      reset: () => ({}),
+      reset(request) {
+        const setting = settings.find((candidate) => candidate.key === request.key);
+        if (setting !== undefined) {
+          const { [request.scope]: _gone, ...rest } = setting.valuesCbor;
+          setting.valuesCbor = rest;
+        }
+        return {};
+      },
     });
 
     router.service(SecretService, {

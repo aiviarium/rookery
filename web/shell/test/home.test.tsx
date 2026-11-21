@@ -18,8 +18,8 @@ describe("the home page", () => {
     const view = await mount(client);
     try {
       expect(view.text()).toContain("Welcome, Ada Lovelace");
-      expect(view.text()).toContain("studio");
-      expect(view.text()).toContain("Example");
+      expect(view.find("a[href='/hosts/studio']")?.textContent).toContain("studio");
+      expect(view.find("[data-part='stat-card'], .nc-stat")?.textContent ?? view.text()).toContain("Hosts");
       // The sidebar's own navigation is there too.
       expect(view.find(".nc-nav a[href='/']")?.textContent).toContain("Home");
     } finally {
@@ -27,11 +27,11 @@ describe("the home page", () => {
     }
   });
 
-  test("points a server without hosts at the command that adds one", async () => {
+  test("points a server without hosts at the hosts page", async () => {
     const view = await mount(fakeClient({ user: STATIC_USER }));
     try {
       expect(view.text()).toContain("No hosts yet");
-      expect(view.text()).toContain("rookery host add");
+      expect(view.findAll("a[href='/hosts']").some((link) => link.textContent?.includes("Add a host"))).toBe(true);
     } finally {
       view.unmount();
     }

@@ -1,4 +1,4 @@
-// The chrome around the pages: notifications, the space switcher and the status.
+// The chrome around the pages: the inbox, the space switcher and the status bar.
 import { describe, expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import { EventSchema, type Notification } from "@rookery/proto";
@@ -22,18 +22,13 @@ function unread(): Notification {
 }
 
 describe("the chrome", () => {
-  test("counts unread notifications and marks them read", async () => {
-    const view = await mount(fakeClient({ user: STATIC_USER, notifications: [unread()] }));
+  test("counts unread notifications in the sidebar and marks them read in the inbox", async () => {
+    const view = await mount(fakeClient({ user: STATIC_USER, notifications: [unread()] }), { identityProvider: false }, "/inbox");
     try {
-      const bell = view.find("button[aria-label*='unread']");
-      expect(bell?.getAttribute("aria-label")).toContain("1 unread");
-      await view.clickElement(bell as HTMLElement);
-
-      const markAll = view.findAll("button").find((button) => button.textContent?.includes("Mark all read"));
-      expect(markAll).toBeDefined();
-      await view.clickElement(markAll as HTMLElement);
-
-      expect(view.find("button[aria-label='Notifications']")).not.toBeNull();
+      expect(view.find("a[href='/inbox']")?.textContent).toContain("1");
+      expect(view.text()).toContain("A job failed");
+      await view.action("read");
+      expect(view.find("a[href='/inbox']")?.textContent).not.toContain("1");
     } finally {
       view.unmount();
     }
@@ -43,7 +38,6 @@ describe("the chrome", () => {
     const client = fakeClient({ user: STATIC_USER, spaces: [A_SPACE, ANOTHER_SPACE] });
     const view = await mount(client);
     try {
-      expect(view.text()).toContain("All spaces");
       await view.click("[data-part='sidebar-switcher']");
       await view.pick("Analysis");
 
@@ -56,7 +50,7 @@ describe("the chrome", () => {
     }
   });
 
-  test("says the link is up once the events stream answers", async () => {
+  test("keeps the status bar quiet while the link is up", async () => {
     const view = await mount(
       fakeClient({
         user: STATIC_USER,
@@ -64,7 +58,7 @@ describe("the chrome", () => {
       }),
     );
     try {
-      expect(view.find(".nc-shell__status")?.textContent).toContain("Connected");
+      expect(view.find("[data-part='connection-state']")).toBeNull();
     } finally {
       view.unmount();
     }

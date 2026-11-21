@@ -848,7 +848,11 @@ func (i *Installer) applySettings(plugin string, manifest *Manifest) {
 			for _, scope := range setting.Scopes {
 				scopes = append(scopes, string(scope))
 			}
-			definitions = append(definitions, config.Definition{Key: name, Type: string(setting.Type), Default: value, Scopes: scopes})
+			definitions = append(definitions, config.Definition{
+				Key: name, Type: string(setting.Type), Default: value, Scopes: scopes,
+				Title: setting.Title, Description: setting.Description, Category: setting.Category,
+				Choices: setting.Choices, Minimum: setting.Minimum, Maximum: setting.Maximum, Unit: setting.Unit,
+			})
 		}
 	}
 	i.settings.ReplacePluginDefinitions(plugin, definitions)

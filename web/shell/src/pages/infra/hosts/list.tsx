@@ -1,115 +1,91 @@
-// The hosts: every machine Rookery runs, with its state, its type and its
-// labels. The list follows the server's own host events, so it changes as an
-// apply finishes or someone else adds a host.
-import { Show, createSignal, onSettled } from "solid-js";
+// The hosts: every machine Rookery runs, with its state. Opening one drills
+// the sidebar down into it. The list follows the server's host events, so it
+// changes as an apply finishes or someone else adds a host.
+import { For, Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import { createQuery } from "@rookery/client/solid";
-import type { Host } from "@rookery/proto";
-import { Badge, Card, DataTable, type DataColumn, State } from "@aiviarium/nocturne";
+import { Badge, Button, Card, EmptyState, ListRow, RowList, Skeleton, State } from "@aiviarium/nocturne";
 
+import { createLive } from "../../../parts/data.ts";
+import { errorMessage } from "../../../parts/errors.ts";
+import { View } from "../../../parts/view.tsx";
 import { useShell } from "../../../shell.tsx";
-import { Page } from "../../../parts/page.tsx";
-import { hostState, hostTypeLabel, hostTypeTone, labelsText, relativeTime, dateOf } from "../format.ts";
+import { dateOf, hostState, hostTypeLabel, hostTypeTone, labelsText, relativeTime } from "../format.ts";
 import { AddHost } from "./add.tsx";
-
-/** hostPath is a host's page. */
-export function hostPath(name: string): string {
-  return `/hosts/${encodeURIComponent(name)}`;
-}
-
-/** COLUMNS are what the hosts table shows, in order. */
-const COLUMNS: DataColumn<Host>[] = [
-  { id: "name", header: "Name", type: "mono", accessor: host => host.name, sortable: true },
-  {
-    id: "state",
-    header: "State",
-    accessor: host => hostState(host).label,
-    cell: host => <State status={hostState(host).tone}>{hostState(host).label}</State>,
-    sortable: true,
-  },
-  {
-    id: "type",
-    header: "Type",
-    accessor: host => hostTypeLabel(host.type),
-    cell: host => <Badge tone={hostTypeTone(host.type)}>{hostTypeLabel(host.type)}</Badge>,
-  },
-  {
-    id: "labels",
-    header: "Labels",
-    accessor: host => labelsText(host.labels),
-    cell: host => <span class="nc-mono nc-meta">{labelsText(host.labels)}</span>,
-  },
-  {
-    id: "address",
-    header: "Address",
-    type: "mono",
-    accessor: host => host.address || host.profile?.address || "",
-  },
-  {
-    id: "applied",
-    header: "Applied",
-    type: "time",
-    accessor: host => relativeTime(dateOf(host.appliedAt)),
-  },
-];
+import { HOST_EVENTS, hostPath } from "./paths.ts";
 
 export function HostsPage(): JSX.Element {
   const shell = useShell();
-  const hosts = createQuery(() => shell.rookery.hosts.list({ limit: 200 }));
+  const hosts = createLive(() => shell.rookery.hosts.list({ limit: 500 }), { events: HOST_EVENTS });
   const [adding, setAdding] = createSignal(false);
-
-  onSettled(() =>
-    shell.connection.on("rookery/hosts.changed", () => {
-      void hosts.refresh().catch(() => undefined);
-    }),
-  );
-
   const rows = () => hosts()?.hosts ?? [];
 
   return (
-    <Page
-      title="Hosts"
-      description="The machines Rookery runs: reached over SSH, set up with a profile, and used through terminals, files, ports and desktops."
-      actions={() => [
-        {
-          id: "refresh",
-          label: "Read the hosts again",
-          icon: "refresh-cw",
-          onClick: () => void hosts.refresh(),
-        },
-        { id: "add", label: "Add host", icon: "plus", onClick: () => setAdding(true) },
+    <View
+      id="hosts"
+      crumbs={[{ label: "Hosts" }]}
+      error={hosts.error() === undefined ? undefined : `The hosts could not be read. ${errorMessage(hosts.error())}`}
+      actions={[
+        { id: "refresh", label: "Refresh", icon: "refresh-cw", onClick: () => void hosts.refresh() },
+        { id: "add", label: "Add host", icon: "plus", primary: true, onClick: () => setAdding(true) },
       ]}
     >
-      <Card title="Hosts" count={rows().length} padding="none">
-        <DataTable
-          bare
-          label="Hosts"
-          rows={rows()}
-          columns={COLUMNS}
-          getRowId={host => host.name}
-          loading={hosts.pending() && hosts() === undefined}
-          onRowClick={host => shell.navigate(hostPath(host.name))}
-          empty={{
-            title: "No hosts yet",
-            description: "Add a machine Rookery reaches over SSH, and apply its profile to make it a managed host or a workstation.",
-          }}
-          error={
-            hosts.error() === undefined
-              ? undefined
-              : { message: "The hosts could not be read.", detail: hosts.error()?.message, onRetry: () => void hosts.refresh() }
+      <Show when={hosts() !== undefined} fallback={<Skeleton width="50%" />}>
+        <Show
+          when={rows().length > 0}
+          fallback={
+            <Card>
+              <EmptyState
+                icon="server"
+                title="No hosts yet"
+                description="A host is a machine Rookery reaches over SSH. Applying its profile installs rookeryd and makes it managed."
+              >
+                <Button variant="primary" icon="plus" onClick={() => setAdding(true)}>
+                  Add host
+                </Button>
+              </EmptyState>
+            </Card>
           }
-        />
-      </Card>
+        >
+          <Card padding="none">
+            <RowList label="Hosts">
+              <For each={rows()}>
+                {(host) => {
+                  const state = () => hostState(host);
+                  return (
+                    <ListRow
+                      data-host={host.name}
+                      icon="server"
+                      title={host.name}
+                      secondary={
+                        <span class="nc-mono">
+                          {[host.address || host.profile?.address || "no address", labelsText(host.labels)].filter((part) => part !== "").join(" · ")}
+                        </span>
+                      }
+                      status={<State status={state().tone}>{state().label}</State>}
+                      meta={
+                        <span class="nc-row nc-row--tight">
+                          <Badge tone={hostTypeTone(host.type)}>{hostTypeLabel(host.type)}</Badge>
+                          <span>{relativeTime(dateOf(host.appliedAt)) || "never applied"}</span>
+                        </span>
+                      }
+                      href={hostPath(host.name)}
+                    />
+                  );
+                }}
+              </For>
+            </RowList>
+          </Card>
+        </Show>
+      </Show>
       <Show when={adding()}>
         <AddHost
           onClose={() => setAdding(false)}
-          onAdded={(host, firstContact) => {
-            setAdding(false);
+          onAdded={(name, firstContact) => {
             void hosts.refresh().catch(() => undefined);
-            shell.navigate(firstContact === "" ? hostPath(host.name) : `/jobs/${encodeURIComponent(firstContact)}`);
+            shell.navigate(firstContact === "" ? hostPath(name) : `/jobs/${encodeURIComponent(firstContact)}`);
           }}
         />
       </Show>
-    </Page>
+    </View>
   );
 }

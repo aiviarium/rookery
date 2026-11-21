@@ -6,6 +6,10 @@ import { defineConfig } from "vite";
 // under that hash for a year.
 export default defineConfig({
   plugins: [solid()],
+  // One copy of Solid: Nocturne is source, and a checkout linked in for development brings its own node_modules.
+  resolve: { dedupe: ["solid-js", "@solidjs/web", "@solidjs/signals", "@ui-sdk/core", "@ui-sdk/solid"] },
+  // ui-sdk's core ships modules Vite's dependency scan must leave alone (its docs ask for this).
+  optimizeDeps: { exclude: ["@ui-sdk/core"] },
   build: {
     outDir: "../../internal/webshell/dist",
     emptyOutDir: true,
@@ -16,7 +20,7 @@ export default defineConfig({
       // parts a page does not use leave the bundle instead of shipping on every page.
       treeshake: {
         moduleSideEffects: (id: string) =>
-          !(id.includes("/@aiviarium/nocturne/src/") && !id.endsWith(".css")),
+          !((id.includes("/@aiviarium/nocturne/src/") || id.includes("/nocturne/src/")) && !id.endsWith(".css")),
       },
     },
   },

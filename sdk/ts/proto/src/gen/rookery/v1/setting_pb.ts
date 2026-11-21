@@ -16,7 +16,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file rookery/v1/setting.proto.
  */
 export const file_rookery_v1_setting: GenFile = /*@__PURE__*/
-  fileDesc("Chhyb29rZXJ5L3YxL3NldHRpbmcucHJvdG8SCnJvb2tlcnkudjEinQEKB1NldHRpbmcSCwoDa2V5GAEgASgJEgwKBHR5cGUYAiABKAkSFAoMZGVmYXVsdF9jYm9yGAMgASgMEg4KBnNjb3BlcxgEIAMoCRISCgp2YWx1ZV9jYm9yGAUgASgMEg0KBXNjb3BlGAYgASgJEi4KCnVwZGF0ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIhsKGVNldHRpbmdTZXJ2aWNlTGlzdFJlcXVlc3QiQwoaU2V0dGluZ1NlcnZpY2VMaXN0UmVzcG9uc2USJQoIc2V0dGluZ3MYASADKAsyEy5yb29rZXJ5LnYxLlNldHRpbmciNgoYU2V0dGluZ1NlcnZpY2VHZXRSZXF1ZXN0EgsKA2tleRgBIAEoCRINCgVzcGFjZRgCIAEoCSJBChlTZXR0aW5nU2VydmljZUdldFJlc3BvbnNlEiQKB3NldHRpbmcYASABKAsyEy5yb29rZXJ5LnYxLlNldHRpbmciWQoYU2V0dGluZ1NlcnZpY2VTZXRSZXF1ZXN0EgsKA2tleRgBIAEoCRINCgVzY29wZRgCIAEoCRINCgVzcGFjZRgDIAEoCRISCgp2YWx1ZV9jYm9yGAQgASgMIkEKGVNldHRpbmdTZXJ2aWNlU2V0UmVzcG9uc2USJAoHc2V0dGluZxgBIAEoCzITLnJvb2tlcnkudjEuU2V0dGluZyJHChpTZXR0aW5nU2VydmljZVJlc2V0UmVxdWVzdBILCgNrZXkYASABKAkSDQoFc2NvcGUYAiABKAkSDQoFc3BhY2UYAyABKAkiHQobU2V0dGluZ1NlcnZpY2VSZXNldFJlc3BvbnNlMokDCg5TZXR0aW5nU2VydmljZRJdCgRMaXN0EiUucm9va2VyeS52MS5TZXR0aW5nU2VydmljZUxpc3RSZXF1ZXN0GiYucm9va2VyeS52MS5TZXR0aW5nU2VydmljZUxpc3RSZXNwb25zZSIGirUYAggBEloKA0dldBIkLnJvb2tlcnkudjEuU2V0dGluZ1NlcnZpY2VHZXRSZXF1ZXN0GiUucm9va2VyeS52MS5TZXR0aW5nU2VydmljZUdldFJlc3BvbnNlIgaKtRgCCAESWgoDU2V0EiQucm9va2VyeS52MS5TZXR0aW5nU2VydmljZVNldFJlcXVlc3QaJS5yb29rZXJ5LnYxLlNldHRpbmdTZXJ2aWNlU2V0UmVzcG9uc2UiBoq1GAIIBRJgCgVSZXNldBImLnJvb2tlcnkudjEuU2V0dGluZ1NlcnZpY2VSZXNldFJlcXVlc3QaJy5yb29rZXJ5LnYxLlNldHRpbmdTZXJ2aWNlUmVzZXRSZXNwb25zZSIGirUYAggFQjpaOGdpdGh1Yi5jb20vYWl2aWFyaXVtL3Jvb2tlcnkvZ2VuL2dvL3Jvb2tlcnkvdjE7cm9va2VyeXYxYgZwcm90bzM", [file_google_protobuf_timestamp, file_rookery_v1_access]);
+  fileDesc("Chhyb29rZXJ5L3YxL3NldHRpbmcucHJvdG8SCnJvb2tlcnkudjEixQMKB1NldHRpbmcSCwoDa2V5GAEgASgJEgwKBHR5cGUYAiABKAkSFAoMZGVmYXVsdF9jYm9yGAMgASgMEg4KBnNjb3BlcxgEIAMoCRISCgp2YWx1ZV9jYm9yGAUgASgMEg0KBXNjb3BlGAYgASgJEi4KCnVwZGF0ZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg0KBXRpdGxlGAggASgJEhMKC2Rlc2NyaXB0aW9uGAkgASgJEhAKCGNhdGVnb3J5GAogASgJEg4KBnBsdWdpbhgLIAEoCRIPCgdjaG9pY2VzGAwgAygJEhQKB21pbmltdW0YDSABKAFIAIgBARIUCgdtYXhpbXVtGA4gASgBSAGIAQESDAoEdW5pdBgPIAEoCRI4Cgt2YWx1ZXNfY2JvchgQIAMoCzIjLnJvb2tlcnkudjEuU2V0dGluZy5WYWx1ZXNDYm9yRW50cnkSEAoIZWRpdGFibGUYESADKAkaMQoPVmFsdWVzQ2JvckVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoDDoCOAFCCgoIX21pbmltdW1CCgoIX21heGltdW0iGwoZU2V0dGluZ1NlcnZpY2VMaXN0UmVxdWVzdCJDChpTZXR0aW5nU2VydmljZUxpc3RSZXNwb25zZRIlCghzZXR0aW5ncxgBIAMoCzITLnJvb2tlcnkudjEuU2V0dGluZyI2ChhTZXR0aW5nU2VydmljZUdldFJlcXVlc3QSCwoDa2V5GAEgASgJEg0KBXNwYWNlGAIgASgJIkEKGVNldHRpbmdTZXJ2aWNlR2V0UmVzcG9uc2USJAoHc2V0dGluZxgBIAEoCzITLnJvb2tlcnkudjEuU2V0dGluZyJZChhTZXR0aW5nU2VydmljZVNldFJlcXVlc3QSCwoDa2V5GAEgASgJEg0KBXNjb3BlGAIgASgJEg0KBXNwYWNlGAMgASgJEhIKCnZhbHVlX2Nib3IYBCABKAwiQQoZU2V0dGluZ1NlcnZpY2VTZXRSZXNwb25zZRIkCgdzZXR0aW5nGAEgASgLMhMucm9va2VyeS52MS5TZXR0aW5nIkcKGlNldHRpbmdTZXJ2aWNlUmVzZXRSZXF1ZXN0EgsKA2tleRgBIAEoCRINCgVzY29wZRgCIAEoCRINCgVzcGFjZRgDIAEoCSIdChtTZXR0aW5nU2VydmljZVJlc2V0UmVzcG9uc2UyiQMKDlNldHRpbmdTZXJ2aWNlEl0KBExpc3QSJS5yb29rZXJ5LnYxLlNldHRpbmdTZXJ2aWNlTGlzdFJlcXVlc3QaJi5yb29rZXJ5LnYxLlNldHRpbmdTZXJ2aWNlTGlzdFJlc3BvbnNlIgaKtRgCCAESWgoDR2V0EiQucm9va2VyeS52MS5TZXR0aW5nU2VydmljZUdldFJlcXVlc3QaJS5yb29rZXJ5LnYxLlNldHRpbmdTZXJ2aWNlR2V0UmVzcG9uc2UiBoq1GAIIARJaCgNTZXQSJC5yb29rZXJ5LnYxLlNldHRpbmdTZXJ2aWNlU2V0UmVxdWVzdBolLnJvb2tlcnkudjEuU2V0dGluZ1NlcnZpY2VTZXRSZXNwb25zZSIGirUYAggFEmAKBVJlc2V0EiYucm9va2VyeS52MS5TZXR0aW5nU2VydmljZVJlc2V0UmVxdWVzdBonLnJvb2tlcnkudjEuU2V0dGluZ1NlcnZpY2VSZXNldFJlc3BvbnNlIgaKtRgCCAVCOlo4Z2l0aHViLmNvbS9haXZpYXJpdW0vcm9va2VyeS9nZW4vZ28vcm9va2VyeS92MTtyb29rZXJ5djFiBnByb3RvMw", [file_google_protobuf_timestamp, file_rookery_v1_access]);
 
 /**
  * Setting is one setting as a caller sees it.
@@ -70,6 +70,75 @@ export type Setting = Message<"rookery.v1.Setting"> & {
    * @generated from field: google.protobuf.Timestamp updated_at = 7;
    */
   updatedAt?: Timestamp | undefined;
+
+  /**
+   * Title is the setting's name as a person reads it; empty shows the key.
+   *
+   * @generated from field: string title = 8;
+   */
+  title: string;
+
+  /**
+   * Description says what the setting changes.
+   *
+   * @generated from field: string description = 9;
+   */
+  description: string;
+
+  /**
+   * Category groups settings within their plugin, such as Appearance.
+   *
+   * @generated from field: string category = 10;
+   */
+  category: string;
+
+  /**
+   * Plugin is the plugin that declares it, or rookery for the core.
+   *
+   * @generated from field: string plugin = 11;
+   */
+  plugin: string;
+
+  /**
+   * Choices are the values a string setting takes, when it takes only these.
+   *
+   * @generated from field: repeated string choices = 12;
+   */
+  choices: string[];
+
+  /**
+   * Minimum and Maximum bound a number.
+   *
+   * @generated from field: optional double minimum = 13;
+   */
+  minimum?: number | undefined;
+
+  /**
+   * @generated from field: optional double maximum = 14;
+   */
+  maximum?: number | undefined;
+
+  /**
+   * Unit follows a number, such as seconds.
+   *
+   * @generated from field: string unit = 15;
+   */
+  unit: string;
+
+  /**
+   * ValuesCbor are the values set at each scope that applies to the caller,
+   * by scope: user, space and global. A scope without a value is absent.
+   *
+   * @generated from field: map<string, bytes> values_cbor = 16;
+   */
+  valuesCbor: { [key: string]: Uint8Array };
+
+  /**
+   * Editable are the scopes the caller may set it at.
+   *
+   * @generated from field: repeated string editable = 17;
+   */
+  editable: string[];
 };
 
 /**

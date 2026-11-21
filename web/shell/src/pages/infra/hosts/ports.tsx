@@ -7,26 +7,21 @@
 // origin, so it sits beside the shell rather than inside it.
 import { For, Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import {
-  Button,
-  Callout,
-  Card,
-  EmptyState,
-  IconButton,
-  ListRow,
-  RowList,
-  TextField,
-} from "@aiviarium/nocturne";
+import { Button, Card, EmptyState, IconButton, ListRow, RowList, TextField } from "@aiviarium/nocturne";
+
+import { createAction } from "../../../parts/action.ts";
+import { FormDialog } from "../../../parts/dialogs.tsx";
+import { View } from "../../../parts/view.tsx";
+import { hostCrumbs, useHost } from "./domain.tsx";
 
 /** PortForward is one saved port on a host. */
-interface PortForward {
+export interface PortForward {
   readonly port: number;
   readonly label?: string;
 }
 
 const KEY = "rookery.shell.forwards.v1";
 
-/** loadForwards reads every host's forwards from this browser. */
 function loadForwards(): Record<string, PortForward[]> {
   try {
     const stored: unknown = JSON.parse(localStorage.getItem(KEY) ?? "null");
@@ -42,14 +37,22 @@ export function portPath(host: string, port: number): string {
   return `/hosts/${encodeURIComponent(host)}/ports/${port}/`;
 }
 
-export function HostPorts(props: { host: string }): JSX.Element {
+/** parsePort reads a port number, or says why it is not one. */
+export function parsePort(text: string): number | string {
+  const value = Number(text.trim());
+  if (text.trim() === "" || !Number.isInteger(value) || value <= 0 || value > 65535) return "A port is a number from 1 to 65535.";
+  return value;
+}
+
+/** HostPortsPage is a host's ports place. */
+export function HostPortsPage(): JSX.Element {
+  const domain = useHost();
   const [forwards, setForwards] = createSignal<Record<string, PortForward[]>>(loadForwards());
+  const [adding, setAdding] = createSignal(false);
   const [port, setPort] = createSignal("");
   const [label, setLabel] = createSignal("");
-  const [failure, setFailure] = createSignal<string>();
 
-  const saved = () => forwards()[props.host] ?? [];
-
+  const saved = () => forwards()[domain.name()] ?? [];
   const save = (next: Record<string, PortForward[]>): void => {
     setForwards(next);
     try {
@@ -58,93 +61,87 @@ export function HostPorts(props: { host: string }): JSX.Element {
       // The list still works for this visit.
     }
   };
+  const open = (value: number) => window.open(portPath(domain.name(), value), "_blank", "noopener,noreferrer");
 
-  const add = (): void => {
-    const value = Number(port());
-    if (!Number.isInteger(value) || value <= 0 || value > 65535) {
-      setFailure("A port is a number from 1 to 65535.");
-      return;
-    }
+  const add = createAction(async () => {
+    const value = parsePort(port());
+    if (typeof value === "string") throw new Error(value);
     const lists = { ...forwards() };
-    const others = (lists[props.host] ?? []).filter(forward => forward.port !== value);
+    const others = (lists[domain.name()] ?? []).filter((forward) => forward.port !== value);
     const forward: PortForward = label().trim() === "" ? { port: value } : { port: value, label: label().trim() };
-    lists[props.host] = [...others, forward].sort((a, b) => a.port - b.port);
+    lists[domain.name()] = [...others, forward].sort((a, b) => a.port - b.port);
     save(lists);
-    setPort("");
-    setLabel("");
-    setFailure(undefined);
-  };
+  });
 
   const forget = (value: number): void => {
     const lists = { ...forwards() };
-    const left = (lists[props.host] ?? []).filter(forward => forward.port !== value);
-    if (left.length === 0) delete lists[props.host];
-    else lists[props.host] = left;
+    const left = (lists[domain.name()] ?? []).filter((forward) => forward.port !== value);
+    if (left.length === 0) delete lists[domain.name()];
+    else lists[domain.name()] = left;
     save(lists);
   };
 
   return (
-    <Card title="Ports">
-      <form
-        class="nc-row"
-        onSubmit={event => {
-          event.preventDefault();
-          add();
+    <View
+      id="host-ports"
+      crumbs={hostCrumbs(domain.name(), "Ports")}
+      actions={[{ id: "add", label: "Add a port", icon: "plus", primary: true, onClick: () => setAdding(true) }]}
+    >
+      <Card padding="none">
+        <Show
+          when={saved().length > 0}
+          fallback={
+            <EmptyState
+              icon="plug"
+              title="No ports yet"
+              description={`A port a program on ${domain.name()} listens on, such as a dev server, opened through the server in a tab of its own.`}
+            >
+              <Button onClick={() => setAdding(true)}>Add a port</Button>
+            </EmptyState>
+          }
+        >
+          <RowList label="Ports">
+            <For each={saved()}>
+              {(forward) => (
+                <ListRow
+                  data-port={forward.port}
+                  icon="plug"
+                  title={<span class="nc-code">{forward.port}</span>}
+                  secondary={forward.label}
+                  detail={<span class="nc-code">{portPath(domain.name(), forward.port)}</span>}
+                  onClick={() => open(forward.port)}
+                  persistentActions={
+                    <Button size="sm" onClick={() => open(forward.port)}>
+                      Open
+                    </Button>
+                  }
+                  actions={
+                    <IconButton size="sm" label={`Forget the port ${forward.port}`} icon="close" onClick={() => forget(forward.port)} />
+                  }
+                />
+              )}
+            </For>
+          </RowList>
+        </Show>
+      </Card>
+      <p class="nc-meta">The server reaches only ports on the host's loopback. The list is kept in this browser.</p>
+      <FormDialog
+        open={adding()}
+        title="Add a port"
+        description={`A port on ${domain.name()}'s loopback.`}
+        submit="Add"
+        action={add}
+        disabled={port().trim() === ""}
+        size="sm"
+        onClose={() => {
+          setAdding(false);
+          setPort("");
+          setLabel("");
         }}
       >
-        <TextField label="Port" value={port()} placeholder="5173" onInput={event => setPort(event.currentTarget.value)} />
-        <TextField
-          label="What runs there"
-          value={label()}
-          placeholder="dev server"
-          onInput={event => setLabel(event.currentTarget.value)}
-        />
-        <Button type="submit" disabled={port() === ""}>
-          Add forward
-        </Button>
-      </form>
-      <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
-      <Show
-        when={saved().length > 0}
-        fallback={
-          <EmptyState
-            size="sm"
-            title="No forwards yet"
-            description={`A port a program on ${props.host} listens on, such as a dev server, opened through the server.`}
-          />
-        }
-      >
-        <RowList label="Port forwards" variant="inline">
-          <For each={saved()}>
-            {forward => (
-              <ListRow
-                data-port={forward.port}
-                title={<span class="nc-code">{forward.port}</span>}
-                secondary={forward.label ?? ""}
-                persistentActions={
-                  <Button
-                    size="sm"
-                    onClick={() => window.open(portPath(props.host, forward.port), "_blank", "noopener,noreferrer")}
-                  >
-                    Open
-                  </Button>
-                }
-                actions={
-                  <IconButton
-                    size="sm"
-                    label={`Forget the port ${forward.port}`}
-                    icon="close"
-                    onClick={() => forget(forward.port)}
-                  />
-                }
-              />
-            )}
-          </For>
-        </RowList>
-      </Show>
-      <p class="nc-muted">
-        A forward opens in a tab of its own. The server reaches only ports on {props.host}'s loopback.
-      </p>
-    </Card>
+        <TextField label="Port" inputmode="numeric" value={port()} placeholder="5173" onInput={(event) => setPort(event.currentTarget.value)} />
+        <TextField label="What runs there" value={label()} placeholder="dev server" onInput={(event) => setLabel(event.currentTarget.value)} />
+      </FormDialog>
+    </View>
   );
 }

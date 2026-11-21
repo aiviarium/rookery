@@ -5,7 +5,7 @@ import { useLocation } from "@solidjs/router";
 import { Button, EmptyState } from "@aiviarium/nocturne";
 
 import { useShell } from "../shell.tsx";
-import { Page } from "../parts/page.tsx";
+import { View } from "../parts/view.tsx";
 import { ClientHalfMount } from "./mount.tsx";
 
 /**
@@ -38,10 +38,10 @@ export function PluginRoute() {
 /** NotFound is a path nothing answers, with the way home. */
 export function NotFound(props: { path: string }): JSX.Element {
   return (
-    <Page title="Not found" description={`Nothing on this server answers ${props.path}.`}>
+    <View id="not-found" crumbs={[{ label: "Not found" }]}>
       <EmptyState
         title="This page does not exist"
-        description="A plugin may have been removed, or the address may have a typo."
+        description={`Nothing on this server answers ${props.path}. A plugin may have been removed, or the address may have a typo.`}
       >
         <Button
           variant="primary"
@@ -52,6 +52,6 @@ export function NotFound(props: { path: string }): JSX.Element {
           Go home
         </Button>
       </EmptyState>
-    </Page>
+    </View>
   );
 }

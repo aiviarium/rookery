@@ -73,7 +73,7 @@
       "name": "@rookery/shell",
       "version": "0.1.0",
       "dependencies": {
-        "@aiviarium/nocturne": "github:aiviarium/nocturne#f4c0a7bc4ff5fd97a29ce67a43a5b15dfad23fbc",
+        "@aiviarium/nocturne": "github:aiviarium/nocturne#4493bb7262c89939e99248717bdcaf88556ae350",
         "@novnc/novnc": "^1.7.0",
         "@rookery/client": "workspace:*",
         "@rookery/proto": "workspace:*",
@@ -92,6 +92,7 @@
         "@solidjs/compiler": "2.0.2",
         "@solidjs/vite-plugin": "^3.0.1",
         "@types/bun": "^1.3.0",
+        "@ui-sdk/core": "0.1.0-beta.13",
         "happy-dom": "^21.0.4",
         "typescript": "^5.9.0",
         "vite": "^8.3.8",
@@ -99,7 +100,7 @@
     },
   },
   "packages": {
-    "@aiviarium/nocturne": ["@aiviarium/nocturne@github:aiviarium/nocturne#f4c0a7b", { "dependencies": { "lib0": "^0.2.120", "markdown-it": "^15.0.3", "prosemirror-commands": "^1.7.2", "prosemirror-dropcursor": "^1.8.4", "prosemirror-gapcursor": "^1.4.1", "prosemirror-history": "^1.5.1", "prosemirror-inputrules": "^1.6.0", "prosemirror-keymap": "^1.2.3", "prosemirror-model": "^1.25.13", "prosemirror-schema-list": "^1.6.0", "prosemirror-state": "^1.4.4", "prosemirror-tables": "^1.8.5", "prosemirror-transform": "^1.12.5", "prosemirror-view": "^1.42.9", "y-prosemirror": "^1.3.7", "y-protocols": "^1.0.7", "yjs": "^13.6.33" }, "peerDependencies": { "@solidjs/web": "^2.0.0", "solid-js": "^2.0.0" } }, "aiviarium-nocturne-f4c0a7b", "sha512-+J9RDVp1nxB3jV/4Um/gJS9PwsLwXSlsCd0PHyb5DieB9mL/BpuCS0V00x3QAcIl8OkgH62RbHTMZDmF6h31Yg=="],
+    "@aiviarium/nocturne": ["@aiviarium/nocturne@github:aiviarium/nocturne#4493bb7", { "dependencies": { "@ui-sdk/core": "0.1.0-beta.13", "@ui-sdk/solid": "0.1.0-beta.13", "lib0": "^0.2.120", "markdown-it": "^15.0.3", "prosemirror-commands": "^1.7.2", "prosemirror-dropcursor": "^1.8.4", "prosemirror-gapcursor": "^1.4.1", "prosemirror-history": "^1.5.1", "prosemirror-inputrules": "^1.6.0", "prosemirror-keymap": "^1.2.3", "prosemirror-model": "^1.25.13", "prosemirror-schema-list": "^1.6.0", "prosemirror-state": "^1.4.4", "prosemirror-tables": "^1.8.5", "prosemirror-transform": "^1.12.5", "prosemirror-view": "^1.42.9", "y-prosemirror": "^1.3.7", "y-protocols": "^1.0.7", "yjs": "^13.6.33" }, "peerDependencies": { "@solidjs/web": "^2.0.0", "solid-js": "^2.0.0" } }, "aiviarium-nocturne-4493bb7", "sha512-y7HHH3XAaaXGk/8jhFzf8UYRl6l3yiiBdchu3UyT02NWEJuDHdESwDAz4SNZIscOXE0Vtm89PlVrKqfJJ39ndA=="],
 
     "@ampproject/remapping": ["@ampproject/remapping@2.3.0", "", { "dependencies": { "@jridgewell/gen-mapping": "^0.3.5", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw=="],
 
@@ -270,6 +271,10 @@
     "@types/ws": ["@types/ws@8.18.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w=="],
 
     "@typescript/vfs": ["@typescript/vfs@1.6.6", "", { "dependencies": { "debug": "^4.4.3" }, "peerDependencies": { "typescript": "*" } }, "sha512-gXw0+tpchiQUjTcbnNIPnyLFIhbwJ7M1VaxLQ1vXhjQxtTBK3sdDLY1ih0jxCu1I5K3V0dDxq8CkVZtIMspC3A=="],
+
+    "@ui-sdk/core": ["@ui-sdk/core@0.1.0-beta.13", "", {}, "sha512-URjk9hqdc/cZKDtw6Gb9NqjY48U8l0EgoP4d5ghlooa3av+GrR0iSmsav133UU4oelcuKIO1ZPJ4j7gIPMr1Vg=="],
+
+    "@ui-sdk/solid": ["@ui-sdk/solid@0.1.0-beta.13", "", { "peerDependencies": { "@solidjs/web": "^2.0.0", "@ui-sdk/core": "^0.1.0-beta.13", "solid-js": "^2.0.0" } }, "sha512-/YLOk1OGHzRvgVxmMpTXc4OSOCAucTbQ7XElaVAYlvcGqn6F8ALyc39nkcNAroREqyAKzbdxkVtYTLXPOVV13g=="],
 
     "@xterm/addon-fit": ["@xterm/addon-fit@0.11.0", "", {}, "sha512-jYcgT6xtVYhnhgxh3QgYDnnNMYTcf8ElbxxFzX0IZo+vabQqSPAjC3c1wJrKB5E19VwQei89QCiZZP86DCPF7g=="],
 

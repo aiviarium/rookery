@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5"
@@ -101,7 +103,12 @@ func ToConnect(err error) error {
 		code = connect.CodeCanceled
 	}
 
-	out := connect.NewError(code, err)
+	out := connect.NewError(code, &publicError{message: publicMessage(code, err, denied), cause: err})
+	if code == connect.CodeInternal {
+		// The cause names tables, queries and paths: it goes to the log, and the
+		// caller gets a sentence.
+		slog.Error("a call failed", slog.String("error", err.Error()))
+	}
 	if denied == nil {
 		return out
 	}
@@ -141,4 +148,53 @@ func RefusalOf(err error) *rookeryv1.Refusal {
 // have. It is a bug in the service, not in the call.
 func malformed(format string, args ...any) error {
 	return connect.NewError(connect.CodeInternal, fmt.Errorf("access: "+format, args...))
+}
+
+// publicError is the message a caller reads, over the error that caused it, so
+// errors.Is still sees the domain error on the server.
+type publicError struct {
+	message string
+	cause   error
+}
+
+func (e *publicError) Error() string { return e.message }
+func (e *publicError) Unwrap() error { return e.cause }
+
+// sentinels are the domain errors whose own words are a prefix, not news.
+var sentinels = []error{ErrInvalid, ErrUnauthenticated, ErrDenied, ErrNotFound, ErrConflict, ErrUnavailable}
+
+// publicMessage is what a caller reads: the words after the domain error, which
+// the package that wrapped it wrote for a person, without the chain of packages
+// before it. An internal error says only that the server failed.
+func publicMessage(code connect.Code, err error, denied *Denied) string {
+	if code == connect.CodeInternal {
+		return "the server could not do this; its log says why"
+	}
+	if denied != nil {
+		what := "this"
+		if denied.Resource != "" {
+			what = denied.Resource
+		}
+		reason := denied.Reason
+		if reason == "" {
+			reason = "ask an admin for access"
+		}
+		if denied.Capability != "" {
+			return fmt.Sprintf("%s needs the %s capability: %s", what, denied.Capability, reason)
+		}
+		return fmt.Sprintf("%s needs %s: %s", what, LevelName(denied.Need), reason)
+	}
+	text := err.Error()
+	for _, sentinel := range sentinels {
+		marker := sentinel.Error()
+		at := strings.LastIndex(text, marker)
+		if at < 0 {
+			continue
+		}
+		if rest := strings.TrimPrefix(text[at+len(marker):], ": "); rest != "" {
+			return rest
+		}
+		return strings.TrimPrefix(marker, "access: ")
+	}
+	return text
 }

@@ -7,7 +7,7 @@
 //
 // A call is a query: it holds the answer, says whether one is in flight, and asks
 // again on `refresh()` — after a write, or when the space changes.
-import { type Accessor, createSignal, getOwner, onCleanup } from "solid-js";
+import { type Accessor, createSignal, getOwner, onCleanup, untrack } from "solid-js";
 import type { User } from "@rookery/proto";
 
 import type { Rookery } from "../transport.ts";
@@ -21,7 +21,14 @@ import type { Watchable } from "../watchable.ts";
  */
 export function fromWatchable<T>(source: Watchable<T>): Accessor<T> {
   const [value, setValue] = createSignal<T>(source.get() as Exclude<T, Function>);
-  const stop = source.subscribe(setValue);
+  // subscribe calls the listener at once with the value the signal starts from.
+  // That first call is skipped: it would write the signal while the component
+  // that reads it is still running, which Solid 2 forbids.
+  let subscribed = false;
+  const stop = source.subscribe((next) => {
+    if (subscribed) setValue(() => next as Exclude<T, Function>);
+  });
+  subscribed = true;
   if (getOwner() !== null) onCleanup(stop);
   return value;
 }
@@ -57,16 +64,20 @@ export function createQuery<T>(run: () => Promise<T>): Query<T> {
   const [value, setValue] = createSignal<T>();
   const [status, setStatus] = createSignal<QueryStatus>("loading");
   const [error, setError] = createSignal<Error>();
-  const [pending, setPending] = createSignal(false);
+  // The first call starts while the component that made the query runs, and
+  // Solid 2 forbids writing a signal then, so pending starts true instead.
+  const [pending, setPending] = createSignal(true);
 
   let generation = 0;
   let disposed = false;
 
-  const start = (): Promise<T> => {
+  const start = (first = false): Promise<T> => {
     const mine = ++generation;
     const current = (): boolean => !disposed && mine === generation;
-    setPending(true);
-    return run().then(
+    if (!first) setPending(true);
+    // The call reads what it needs once. A query asks again on refresh(), not
+    // when a signal the call read changes.
+    return untrack(run).then(
       (answer) => {
         if (current()) {
           setValue(() => answer);
@@ -96,7 +107,7 @@ export function createQuery<T>(run: () => Promise<T>): Query<T> {
     disposed = true;
   };
 
-  void start().catch(() => undefined);
+  void start(true).catch(() => undefined);
   if (getOwner() !== null) onCleanup(() => query.dispose());
   return query;
 }

@@ -25,6 +25,26 @@ message Setting {
   // Scope is where the value came from: global, space, user or default.
   string scope = 6;
   google.protobuf.Timestamp updated_at = 7;
+  // Title is the setting's name as a person reads it; empty shows the key.
+  string title = 8;
+  // Description says what the setting changes.
+  string description = 9;
+  // Category groups settings within their plugin, such as Appearance.
+  string category = 10;
+  // Plugin is the plugin that declares it, or rookery for the core.
+  string plugin = 11;
+  // Choices are the values a string setting takes, when it takes only these.
+  repeated string choices = 12;
+  // Minimum and Maximum bound a number.
+  optional double minimum = 13;
+  optional double maximum = 14;
+  // Unit follows a number, such as seconds.
+  string unit = 15;
+  // ValuesCbor are the values set at each scope that applies to the caller,
+  // by scope: user, space and global. A scope without a value is absent.
+  map<string, bytes> values_cbor = 16;
+  // Editable are the scopes the caller may set it at.
+  repeated string editable = 17;
 }
 
 message SettingServiceListRequest {

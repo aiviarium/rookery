@@ -19,44 +19,128 @@
     min-width: 0;
   }
 
-  /* A page: the view header, one line about it, then its content. */
-  .shell-page {
+  /* The sidebar: header and places on top, the person's card at the foot. */
+  .shell-sidebar {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .shell-sidebar__body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  .shell-sidebar__foot {
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .shell-sidebar__note {
+    padding: 0 var(--space-2);
+  }
+
+  .shell-mark {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+
+  .shell-account {
+    width: 100%;
+    border: 0;
+    background: none;
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+  }
+
+  .shell-account__who {
+    display: flex;
+    align-items: center;
     gap: var(--space-3);
+    min-width: 0;
+    padding: var(--space-2);
+  }
+
+  .shell-account__text {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
     min-width: 0;
   }
 
-  .shell-page__description {
+  /* A page's content inside its view: padded like a card, its sections a gap apart. */
+  .shell-view {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    min-width: 0;
+    padding: var(--space-3);
+  }
+
+  /* A view that fills its frame, such as a terminal or a desktop. */
+  .shell-view--fill {
+    height: 100%;
+    min-height: 0;
+  }
+
+  /* A form in a dialog or a card: fields stacked a gap apart. */
+  .shell-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .shell-form__row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: var(--space-2);
+  }
+
+  /* Fields with a button at their end, such as "Add": the fields share the width and the button keeps its own,
+     on the line of the inputs. */
+  .shell-form__row--end {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+  }
+
+  .shell-form__row--end > .nc-field,
+  .shell-form__row--end > [data-part="text-field"] {
+    flex: 1 1 160px;
+    min-width: 0;
+  }
+
+  /* One line under a card's title about what the card holds. */
+  .shell-lede {
+    margin: 0 0 var(--space-3);
+  }
+
+  /* A link inside text or a property list. */
+  .shell-link {
+    color: var(--accent-strong);
+    text-decoration: none;
+  }
+
+  .shell-link:hover {
+    text-decoration: underline;
+  }
+
+  /* Home's greeting: the title and the space under it. */
+  .shell-greeting h1,
+  .shell-greeting p {
     margin: 0;
   }
 
-  /* The app's header row: the product at one end, the person's things at the other. */
-  .shell-topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-    width: 100%;
-    min-width: 0;
-  }
-
-  .shell-bell {
-    position: relative;
-    display: inline-flex;
-  }
-
-  .shell-bell__count {
-    position: absolute;
-    top: -4px;
-    right: -4px;
-    pointer-events: none;
-  }
-
-  .shell-notifications {
-    width: min(420px, 90vw);
-  }
-
-  .shell-status__where {
-    min-width: 0;
+  /* A part that keeps its own width in a view's column, such as segmented tabs. */
+  .shell-fit {
+    align-self: flex-start;
+    max-width: 100%;
   }
 
   /* A row of figures. */
@@ -106,3 +190,7 @@
     max-width: 440px;
   }
 }
+
+/* Settings: the scope switcher and what the scope does, on one line when it fits. */
+.shell-scope { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.shell-scope > p { flex: 1 1 240px; margin: 0; }

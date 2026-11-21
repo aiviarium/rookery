@@ -18,7 +18,8 @@ import {
 } from "@aiviarium/nocturne";
 
 import { useShell } from "../../../shell.tsx";
-import { errorMessage } from "../format.ts";
+import { errorMessage } from "../../../parts/errors.ts";
+import { hostPath } from "./paths.ts";
 
 /** accountLabel is which account an action runs as. */
 export function accountLabel(action: Action): string {
@@ -70,7 +71,7 @@ export function HostActions(props: { host: string; actions: readonly Action[] })
       if (execution.case === "terminal") {
         const id = execution.value.session?.id ?? "";
         setAsking(undefined);
-        if (id !== "") shell.navigate(`/terminals/${encodeURIComponent(id)}`);
+        if (id !== "") shell.navigate(`${hostPath(props.host, "terminal")}?attach=${encodeURIComponent(id)}`);
         return;
       }
       throw new Error("The action started neither a job nor a terminal.");

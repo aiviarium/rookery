@@ -11,7 +11,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@aiviarium/nocturne": "github:aiviarium/nocturne#f4c0a7bc4ff5fd97a29ce67a43a5b15dfad23fbc",
+    "@aiviarium/nocturne": "github:aiviarium/nocturne#4493bb7262c89939e99248717bdcaf88556ae350",
     "@rookery/client": "workspace:*",
     "@rookery/proto": "workspace:*",
     "@rookery/sdk": "workspace:*",
@@ -30,6 +30,7 @@
     "@solidjs/compiler": "2.0.2",
     "@solidjs/vite-plugin": "^3.0.1",
     "@types/bun": "^1.3.0",
+    "@ui-sdk/core": "0.1.0-beta.13",
     "happy-dom": "^21.0.4",
     "typescript": "^5.9.0",
     "vite": "^8.3.8"
