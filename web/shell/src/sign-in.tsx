@@ -39,7 +39,7 @@ export function SignIn(): JSX.Element {
                 <div class="nc-row nc-row--tight">
                   <span class="nc-type-label">Ask an admin for a sign-in link</span>
                   <InfoTip label="Sign-in link">
-                    On the server's own machine, <code class="nc-code">rookery server setup-key</code> prints a link
+                    On the server's own machine, <code class="nc-mono">rookery server setup-key</code> prints a link
                     for the first admin.
                   </InfoTip>
                 </div>

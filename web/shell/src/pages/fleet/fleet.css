@@ -11,13 +11,19 @@
     min-height: 0;
   }
 
+  /* The host's terminals fill the view: the tabs keep their height, and the
+     panes take the rest. */
   .shell-terminals {
     display: flex;
+    flex: 1;
     flex-direction: column;
     gap: var(--space-2);
-    min-height: 480px;
-    height: min(70vh, 900px);
+    min-height: 320px;
     min-width: 0;
+  }
+
+  .shell-terminals > [data-part="tab-strip"] {
+    flex: none;
   }
 
   /* The empty state takes the room the tabs and the panes would. */
@@ -62,6 +68,14 @@
 
   .infra-terminal__frame .xterm {
     height: 100%;
+  }
+
+  /* xterm's viewport is a few pixels taller than its rows and black by
+     default: it shows as a bar under the last row unless it takes the
+     terminal's own background. xterm's stylesheet has no layer, so it wins
+     over this one unless the rule is important. */
+  .infra-terminal__frame .xterm .xterm-viewport {
+    background-color: transparent !important;
   }
 
   /* A desktop: the RFB screen, with the state over it while it is not live. */

@@ -105,9 +105,9 @@ export function HostPortsPage(): JSX.Element {
                 <ListRow
                   data-port={forward.port}
                   icon="plug"
-                  title={<span class="nc-code">{forward.port}</span>}
+                  title={<span class="nc-mono">{forward.port}</span>}
                   secondary={forward.label}
-                  detail={<span class="nc-code">{portPath(domain.name(), forward.port)}</span>}
+                  detail={<span class="nc-mono">{portPath(domain.name(), forward.port)}</span>}
                   onClick={() => open(forward.port)}
                   menu={[
                     { id: "open", label: "Open", icon: "arrow-up-right" },

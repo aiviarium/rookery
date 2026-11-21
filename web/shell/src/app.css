@@ -60,6 +60,7 @@
 
   /* A view that fills its frame, such as a terminal or a desktop. */
   .shell-view--fill {
+    box-sizing: border-box;
     height: 100%;
     min-height: 0;
   }
