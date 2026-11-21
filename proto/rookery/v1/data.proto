@@ -5,6 +5,9 @@
 // the caller's level on each record's scope itself, so no method names one
 // resource in its access option: the datastore is the one place that knows a
 // record's scope.
+//
+// Each method's access option is view with no resource: the edge lets any
+// signed-in caller through, and the handler checks the level that matters.
 
 syntax = "proto3";
 
@@ -19,12 +22,12 @@ option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
 service DataService {
   // Get reads one record.
   rpc Get(GetRequest) returns (GetResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // Find reads the records a filter, an order and a window select.
   rpc Find(FindRequest) returns (FindResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // ListCollections lists the collections the caller may browse: those whose
@@ -35,68 +38,68 @@ service DataService {
 
   // Count counts the records a filter selects.
   rpc Count(CountRequest) returns (CountResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // Aggregate computes count, sum, min, max or avg, grouped or not.
   rpc Aggregate(AggregateRequest) returns (AggregateResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // Insert writes a record.
   rpc Insert(InsertRequest) returns (InsertResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // Update changes the fields a record names, checking the revision it expects.
   rpc Update(UpdateRequest) returns (UpdateResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // Upsert writes a record, or changes the one its id names.
   rpc Upsert(UpsertRequest) returns (UpsertResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // Delete marks a record deleted, following every reference's rule first.
   rpc Delete(DeleteRequest) returns (DeleteResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // Restore brings a deleted record back.
   rpc Restore(RestoreRequest) returns (RestoreResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // Batch runs several writes on one collection in one transaction.
   rpc Batch(BatchRequest) returns (BatchResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // History lists a record's revisions.
   rpc History(HistoryRequest) returns (HistoryResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // RefsTo lists the references that point at a resource.
   rpc RefsTo(RefsToRequest) returns (RefsToResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // RefsFrom lists the references a record holds.
   rpc RefsFrom(RefsFromRequest) returns (RefsFromResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // Live follows a query: the records that match now, then each change that
   // makes one match or stop matching.
   rpc Live(LiveRequest) returns (stream LiveResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // Changes streams the change feed from a sequence.
   rpc Changes(ChangesRequest) returns (stream ChangesResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 }
 

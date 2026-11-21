@@ -4,6 +4,9 @@
 // document that is one. Its URI names it, and the level on its access parent
 // decides who sees it, which the entity registry checks per entity; no method
 // option can name that resource.
+//
+// Each method's access option is view with no resource: the edge lets any
+// signed-in caller through, and the handler checks the level that matters.
 
 syntax = "proto3";
 
@@ -17,17 +20,17 @@ option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
 service EntityService {
   // Resolve returns one entity.
   rpc Resolve(ResolveRequest) returns (ResolveResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // ResolveMany returns the entities of several URIs that the caller may read.
   rpc ResolveMany(ResolveManyRequest) returns (ResolveManyResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // Search finds entities by full text, by vector similarity, or both.
   rpc Search(SearchRequest) returns (SearchResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 }
 
