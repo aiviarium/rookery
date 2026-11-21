@@ -35,7 +35,7 @@ function site(extra: Partial<FakeSite> = {}): FakeSite {
 
 describe("the people page", () => {
   test("makes a sign-in link an admin can hand over", async () => {
-    const view = await mount(fakeClient(site()), { identityProvider: false }, "/people");
+    const view = await mount(fakeClient(site()), { identityProvider: false }, "/admin/people");
     try {
       await view.action("invite");
       await view.fill("Email", "grace@example.test");
@@ -52,14 +52,17 @@ describe("the people page", () => {
 describe("the spaces page", () => {
   test("makes a space", async () => {
     const spaceSite = site();
-    const view = await mount(fakeClient(spaceSite), { identityProvider: false }, "/spaces");
+    const view = await mount(fakeClient(spaceSite), { identityProvider: false }, "/admin/spaces");
     try {
       await view.action("new");
-      await view.select("Kind", "Team");
+      // One kind of space needs no choice.
+      expect(view.text()).not.toContain("Kind");
       await view.fill("Name", "Simulations");
       await view.submit();
-      expect(spaceSite.spaces?.some((space) => space.name === "Simulations")).toBe(true);
-      expect(view.text()).toContain("Simulations");
+      const made = spaceSite.spaces?.find((space) => space.name === "Simulations");
+      expect(made).toBeDefined();
+      // Making a space opens it.
+      expect(location.pathname).toBe(`/spaces/${made?.id}`);
     } finally {
       view.unmount();
     }
@@ -99,8 +102,9 @@ describe("the settings place", () => {
     const view = await mount(fakeClient(made), { identityProvider: false }, "/settings");
     try {
       const row = () => view.find("[data-key='rookery/notifications']")!;
-      expect(row().textContent).toContain("From Server");
-      expect(view.find("[data-key='rookery/instance_name']")?.textContent).toContain("Not set per person");
+      expect(row().textContent).toContain("Set for everyone");
+      // What the person cannot set at the scope is not there.
+      expect(view.find("[data-key='rookery/instance_name']")).toBeNull();
 
       await view.clickElement(row().querySelector("[role='switch']") as HTMLElement);
       expect(cbor.decode(made.settings?.[1]?.valuesCbor.user)).toBe(true);
@@ -143,7 +147,7 @@ describe("the settings place", () => {
 describe("the secrets page", () => {
   test("sets a secret and lists its name, never its value", async () => {
     const secretSite = site();
-    const view = await mount(fakeClient(secretSite), { identityProvider: false }, "/settings/secrets");
+    const view = await mount(fakeClient(secretSite), { identityProvider: false }, "/admin/secrets");
     try {
       await view.action("add");
       await view.fill("Name", "github_token");
@@ -170,7 +174,7 @@ describe("the connections page", () => {
         }),
       ],
     });
-    const view = await mount(fakeClient(connectionSite), { identityProvider: false }, "/settings/connections");
+    const view = await mount(fakeClient(connectionSite), { identityProvider: false }, "/admin/connections");
     try {
       await view.action("add");
       await view.select("Type", "Registry");
@@ -188,7 +192,7 @@ describe("the connections page", () => {
 describe("the keys page", () => {
   test("rotates the key ring", async () => {
     const keySite = site({ keys: [create(KeySchema, { id: "01hkey", name: "default", type: "ssh-ed25519", fingerprint: "SHA256:old", active: true })] });
-    const view = await mount(fakeClient(keySite), { identityProvider: false }, "/keys");
+    const view = await mount(fakeClient(keySite), { identityProvider: false }, "/admin/keys");
     try {
       await view.action("rotate");
       await view.fill("Name", "second");
@@ -204,7 +208,7 @@ describe("the keys page", () => {
     const keySite = site({
       knownHosts: [create(KnownHostSchema, { address: "192.0.2.4:22", host: "forge", fingerprint: "SHA256:old", pendingFingerprint: "SHA256:new" })],
     });
-    const view = await mount(fakeClient(keySite), { identityProvider: false }, "/keys");
+    const view = await mount(fakeClient(keySite), { identityProvider: false }, "/admin/keys");
     try {
       await view.rowMenu("192.0.2.4:22", "Trust the new key");
       expect(keySite.knownHosts?.[0]?.fingerprint).toBe("SHA256:new");
@@ -217,9 +221,10 @@ describe("the keys page", () => {
 
 describe("the tailnet page", () => {
   test("configures the control server", async () => {
-    const view = await mount(fakeClient(site()), { identityProvider: false }, "/tailnet");
+    const view = await mount(fakeClient(site()), { identityProvider: false }, "/admin/tailnet");
     try {
-      await view.action("configure");
+      // An unconfigured tailnet offers one thing: configuring it.
+      await view.button("Configure");
       await view.fill("API key", "tskey-test");
       await view.submit();
       expect(view.text()).toContain("controlplane.tailscale.com");
@@ -236,7 +241,7 @@ describe("the plugins page", () => {
         { $typeName: "rookery.v1.Plugin", id: "example", name: "Example", version: "0.1.0", enabled: true, contributesJson: new Uint8Array(), manifest: new Uint8Array() } as never,
       ],
     });
-    const view = await mount(fakeClient(pluginSite), { identityProvider: false }, "/plugins");
+    const view = await mount(fakeClient(pluginSite), { identityProvider: false }, "/admin/plugins");
     try {
       await view.rowMenu("example", "Turn off");
       expect(pluginSite.plugins?.[0]?.enabled).toBe(false);
@@ -254,7 +259,7 @@ describe("the datastore page", () => {
       records: { "example/notes": [{ id: "01hnote", rev: 2, title: "A note" }] },
       history: { "example/notes/01hnote": [cbor.encode({ id: "01hnote", rev: 1, principal: "user:01huser", record: { title: "First" } })] },
     });
-    const view = await mount(fakeClient(dataSite), { identityProvider: false }, "/data");
+    const view = await mount(fakeClient(dataSite), { identityProvider: false }, "/admin/data");
     try {
       const collection = view.findAll("[data-part='list-row']").find((row) => row.textContent?.includes("example/notes"));
       await view.clickElement(collection?.querySelector<HTMLElement>("button, a, [role='button']") ?? (collection as HTMLElement));
@@ -273,7 +278,7 @@ describe("the datastore page", () => {
 describe("the documents page", () => {
   test("creates a document and shows its id", async () => {
     const documentSite = site();
-    const view = await mount(fakeClient(documentSite), { identityProvider: false }, "/documents");
+    const view = await mount(fakeClient(documentSite), { identityProvider: false }, "/admin/documents");
     try {
       await view.action("new");
       await view.fill("Parent", "space://01hspace");
@@ -304,7 +309,7 @@ describe("the server page", () => {
     });
     const original = globalThis.fetch;
     globalThis.fetch = (async () => new Response("ok", { status: 200 })) as unknown as typeof fetch;
-    const view = await mount(fakeClient(statusSite), { identityProvider: false }, "/status");
+    const view = await mount(fakeClient(statusSite), { identityProvider: false }, "/admin/server");
     try {
       expect(view.text()).toContain("Leads");
       expect(view.text()).toContain("SpaceService/Create");

@@ -1,0 +1,133 @@
+/* The fleet pages' layout: what Nocturne's classes do not say by
+   themselves. Every colour is a token; no literal ones. */
+
+@layer app {
+  /* A host's terminals: the host column, then the tabs over the panes. */
+  .shell-terminals-layout {
+    display: grid;
+    grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+    gap: var(--space-3);
+    align-items: start;
+    min-height: 0;
+  }
+
+  .shell-terminals {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-height: 480px;
+    height: min(70vh, 900px);
+    min-width: 0;
+  }
+
+  /* The empty state takes the room the tabs and the panes would. */
+  .shell-terminals > .nc-card {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .shell-terminals__panes {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .shell-terminals__pane {
+    position: absolute;
+    inset: 0;
+  }
+
+  .infra-terminal {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius-md);
+    background: var(--bg-0);
+  }
+
+  .infra-terminal__state {
+    justify-content: space-between;
+    padding: var(--space-1) var(--space-2);
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .infra-terminal__frame {
+    flex: 1;
+    min-height: 0;
+    padding: var(--space-2);
+  }
+
+  .infra-terminal__frame .xterm {
+    height: 100%;
+  }
+
+  /* A desktop: the RFB screen, with the state over it while it is not live. */
+  .shell-desktop {
+    position: relative;
+    min-height: 480px;
+    height: min(75vh, 960px);
+    overflow: hidden;
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius-md);
+    background: var(--bg-0);
+  }
+
+  .shell-desktop__screen {
+    height: 100%;
+  }
+
+  .shell-desktop__overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-0);
+  }
+
+  .shell-shot {
+    display: block;
+    max-width: 100%;
+    margin: 0 auto;
+    border: 1px solid var(--line-soft);
+    border-radius: var(--radius-sm);
+  }
+}
+
+/* Files: whose files they are, then the directory as a path of buttons. */
+.shell-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.shell-path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+  color: var(--text-3);
+}
+
+.shell-path__part {
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--text-1);
+  font: inherit;
+  cursor: pointer;
+}
+
+.shell-path__part:hover {
+  background: var(--bg-2);
+}
+
+.shell-path__part:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 1px;
+}

@@ -10,6 +10,7 @@ import { createLive } from "../../parts/data.ts";
 import { FormDialog } from "../../parts/dialogs.tsx";
 import { errorMessage } from "../../parts/errors.ts";
 import { View } from "../../parts/view.tsx";
+import { ADMIN } from "./people.tsx";
 import { useShell } from "../../shell.tsx";
 
 /** HOSTED is Tailscale's own control server. */
@@ -53,26 +54,20 @@ export function TailnetPage(): JSX.Element {
   return (
     <View
       id="tailnet"
-      crumbs={[{ label: "Tailnet" }]}
+      crumbs={[ADMIN, { label: "Tailnet" }]}
       context={
         <Show when={status()}>
           {(now) => (
-            <State status={!now().configured ? "off" : now().online ? "ok" : "warn"}>
-              {!now().configured ? "Not configured" : now().online ? "Online" : "Offline"}
-            </State>
+            <Show when={now().configured && !now().online}>
+              <State status="warn">Offline</State>
+            </Show>
           )}
         </Show>
       }
       error={failure() === undefined ? undefined : `The tailnet could not be read. ${errorMessage(failure())}`}
       actions={[
-        { id: "refresh", label: "Refresh", icon: "refresh-cw", onClick: refresh },
-        {
-          id: "configure",
-          label: configured() ? "Change settings" : "Configure",
-          icon: "settings",
-          primary: true,
-          onClick: () => setConfiguring(true),
-        },
+        ...(configured() ? [{ id: "configure", label: "Change settings", icon: "settings" as const, onClick: () => setConfiguring(true) }] : []),
+        { id: "refresh", label: "Refresh", icon: "refresh-cw", overflow: true, onClick: refresh },
       ]}
     >
       <Show when={status()} fallback={<Skeleton width="40%" />}>
@@ -83,10 +78,9 @@ export function TailnetPage(): JSX.Element {
               <Card>
                 <EmptyState
                   icon="link"
-                  title="No tailnet yet"
-                  description="With a tailnet, the server reaches its hosts at private addresses, and a host needs no open SSH port. Tailscale and Headscale both work."
+                  title="No tailnet"
                 >
-                  <Button variant="primary" icon="settings" onClick={() => setConfiguring(true)}>
+                  <Button icon="settings" onClick={() => setConfiguring(true)}>
                     Configure
                   </Button>
                 </EmptyState>
@@ -113,7 +107,7 @@ export function TailnetPage(): JSX.Element {
                 columns={columns()}
                 getRowId={(device) => device.id}
                 loading={devices() === undefined}
-                empty={{ title: "No devices", description: "Each host that joins the tailnet is a device here." }}
+                empty={{ title: "No devices" }}
               />
             </Card>
           </Show>
@@ -155,7 +149,7 @@ function ConfigureDialog(props: {
           label="Control URL"
           type="url"
           mono
-          help="Tailscale's hosted service, or your Headscale."
+          info="Tailscale's hosted service, or your Headscale"
           value={controlUrl()}
           onInput={(event) => setControlUrl(event.currentTarget.value)}
         />
@@ -163,11 +157,11 @@ function ConfigureDialog(props: {
           label="API key"
           type="password"
           autocomplete="new-password"
-          help="The server keeps it encrypted, and it is never shown again."
+          info="Kept encrypted, never shown again"
           value={apiKey()}
           onInput={(event) => setApiKey(event.currentTarget.value)}
         />
-        <TextField label="Tag" mono help="Every device Rookery adds carries it." value={tag()} onInput={(event) => setTag(event.currentTarget.value)} />
+        <TextField label="Tag" mono info="Every device Rookery adds carries it" value={tag()} onInput={(event) => setTag(event.currentTarget.value)} />
       </div>
     </FormDialog>
   );

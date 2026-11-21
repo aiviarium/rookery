@@ -1,5 +1,5 @@
-// People: who may sign in, the groups that gather them, and the grants that say
-// what each holds. One tab each; the header's primary action is the tab's own.
+// People, groups and access: who may sign in, the groups that gather them, and
+// the grants that say what each holds. Three places in Administration.
 import { For, Show, createMemo, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Level, type Grant, type Group, type User } from "@rookery/proto";
@@ -17,8 +17,6 @@ import {
   RowList,
   Select,
   Skeleton,
-  TabPanel,
-  Tabs,
   TextField,
 } from "@aiviarium/nocturne";
 
@@ -28,7 +26,6 @@ import { createLive } from "../../parts/data.ts";
 import { ConfirmDialog, FormDialog } from "../../parts/dialogs.tsx";
 import { errorMessage } from "../../parts/errors.ts";
 import { RowActions } from "../../parts/row-actions.tsx";
-import { createTab } from "../../parts/tab.ts";
 import { View } from "../../parts/view.tsx";
 import { useShell } from "../../shell.tsx";
 
@@ -39,91 +36,33 @@ const LEVELS = [
   { value: String(Level.MANAGE), label: "Manage", description: "Change and remove it." },
 ];
 
-const TABS = ["users", "groups", "grants"] as const;
-type Tab = (typeof TABS)[number];
+/** ADMIN is the first crumb of every page in Administration. */
+export const ADMIN = { label: "Administration", href: "/admin" };
 
-/** PeoplePage is the people, their groups and the grants on a resource. */
+/** PeoplePage is everyone who may sign in. */
 export function PeoplePage(): JSX.Element {
   const shell = useShell();
   const users = createLive(() => shell.rookery.users.list({ limit: 500 }));
-  const groups = createLive(() => shell.rookery.groups.list({ limit: 500 }));
-  const [tab, setTab] = createTab<Tab>(TABS);
-
   const [inviting, setInviting] = createSignal(false);
   const [link, setLink] = createSignal<{ email: string; url: string }>();
-  const [creatingGroup, setCreatingGroup] = createSignal(false);
-  const [granting, setGranting] = createSignal(false);
-  const [grantsVersion, setGrantsVersion] = createSignal(0);
-
-  const userRows = () => users()?.users ?? [];
-  const groupRows = () => groups()?.groups ?? [];
-  const refreshUsers = () => void users.refresh().catch(() => undefined);
-  const refreshGroups = () => void groups.refresh().catch(() => undefined);
-
-  const primary = () => {
-    switch (tab()) {
-      case "users":
-        return { id: "invite", label: "Invite", icon: "plus" as const, primary: true, onClick: () => setInviting(true) };
-      case "groups":
-        return { id: "new-group", label: "New group", icon: "plus" as const, primary: true, onClick: () => setCreatingGroup(true) };
-      default:
-        return { id: "grant", label: "Grant access", icon: "plus" as const, primary: true, onClick: () => setGranting(true) };
-    }
-  };
-
-  const failure = () => users.error() ?? groups.error();
-
+  const refresh = () => void users.refresh().catch(() => undefined);
   return (
     <View
       id="people"
-      crumbs={[{ label: "People" }]}
-      error={failure() === undefined ? undefined : `The people could not be read. ${errorMessage(failure())}`}
+      crumbs={[ADMIN, { label: "People" }]}
+      error={users.error() === undefined ? undefined : `The people could not be read. ${errorMessage(users.error())}`}
       actions={[
-        {
-          id: "refresh",
-          label: "Refresh",
-          icon: "refresh-cw",
-          onClick: () => {
-            refreshUsers();
-            refreshGroups();
-            setGrantsVersion((version) => version + 1);
-          },
-        },
-        primary(),
+        { id: "invite", label: "Invite", icon: "plus", onClick: () => setInviting(true) },
+        { id: "refresh", label: "Refresh", icon: "refresh-cw", overflow: true, onClick: refresh },
       ]}
     >
-      <Tabs
-        variant="underline"
-        label="People"
-        value={tab()}
-        onChange={(next) => setTab(next as Tab)}
-        items={[
-          { id: "users", label: "Users", count: users() === undefined ? undefined : userRows().length },
-          { id: "groups", label: "Groups", count: groups() === undefined ? undefined : groupRows().length },
-          { id: "grants", label: "Grants" },
-        ]}
-      >
-        <TabPanel id="users">
-          <UsersTab users={users() === undefined ? undefined : userRows()} onChanged={refreshUsers} onLink={setLink} onInvite={() => setInviting(true)} />
-        </TabPanel>
-        <TabPanel id="groups">
-          <GroupsTab
-            groups={groups() === undefined ? undefined : groupRows()}
-            onChanged={refreshGroups}
-            onCreate={() => setCreatingGroup(true)}
-          />
-        </TabPanel>
-        <TabPanel id="grants">
-          <GrantsTab users={userRows()} groups={groupRows()} version={grantsVersion()} onGrant={() => setGranting(true)} />
-        </TabPanel>
-      </Tabs>
-
+      <UsersTab users={users()?.users} onChanged={refresh} onLink={setLink} onInvite={() => setInviting(true)} />
       <Show when={inviting()}>
         <InviteDialog
           onClose={() => setInviting(false)}
           onMade={(made) => {
             setLink(made);
-            refreshUsers();
+            refresh();
           }}
         />
       </Show>
@@ -133,7 +72,7 @@ export function PeoplePage(): JSX.Element {
             open
             onClose={() => setLink(undefined)}
             title="Sign-in link"
-            description={`For ${made().email}. It works once and lasts a day. Send it to them yourself.`}
+            description={`${made().email} · works once, within a day`}
             footer={
               <Button variant="primary" onClick={() => setLink(undefined)}>
                 Done
@@ -144,16 +83,55 @@ export function PeoplePage(): JSX.Element {
           </Dialog>
         )}
       </Show>
-      <Show when={creatingGroup()}>
-        <NewGroupDialog onClose={() => setCreatingGroup(false)} onCreated={refreshGroups} />
+    </View>
+  );
+}
+
+/** GroupsPage is the groups that gather people for grants. */
+export function GroupsPage(): JSX.Element {
+  const shell = useShell();
+  const groups = createLive(() => shell.rookery.groups.list({ limit: 500 }));
+  const [creating, setCreating] = createSignal(false);
+  const refresh = () => void groups.refresh().catch(() => undefined);
+  return (
+    <View
+      id="groups"
+      crumbs={[ADMIN, { label: "Groups" }]}
+      error={groups.error() === undefined ? undefined : `The groups could not be read. ${errorMessage(groups.error())}`}
+      actions={[
+        { id: "new-group", label: "New group", icon: "plus", onClick: () => setCreating(true) },
+        { id: "refresh", label: "Refresh", icon: "refresh-cw", overflow: true, onClick: refresh },
+      ]}
+    >
+      <GroupsTab groups={groups()?.groups} onChanged={refresh} onCreate={() => setCreating(true)} />
+      <Show when={creating()}>
+        <NewGroupDialog onClose={() => setCreating(false)} onCreated={refresh} />
       </Show>
+    </View>
+  );
+}
+
+/** AccessPage is every grant, filtered by the resource it is on. */
+export function AccessPage(): JSX.Element {
+  const shell = useShell();
+  const users = createLive(() => shell.rookery.users.list({ limit: 500 }).catch(() => undefined));
+  const groups = createLive(() => shell.rookery.groups.list({ limit: 500 }).catch(() => undefined));
+  const [granting, setGranting] = createSignal(false);
+  const [version, setVersion] = createSignal(0);
+  const userRows = () => users()?.users ?? [];
+  const groupRows = () => groups()?.groups ?? [];
+  return (
+    <View
+      id="access"
+      crumbs={[ADMIN, { label: "Access" }]}
+      actions={[
+        { id: "grant", label: "Grant access", icon: "plus", onClick: () => setGranting(true) },
+        { id: "refresh", label: "Refresh", icon: "refresh-cw", overflow: true, onClick: () => setVersion((v) => v + 1) },
+      ]}
+    >
+      <GrantsTab users={userRows()} groups={groupRows()} version={version()} onGrant={() => setGranting(true)} />
       <Show when={granting()}>
-        <GrantDialog
-          users={userRows()}
-          groups={groupRows()}
-          onClose={() => setGranting(false)}
-          onGranted={() => setGrantsVersion((version) => version + 1)}
-        />
+        <GrantDialog users={userRows()} groups={groupRows()} onClose={() => setGranting(false)} onGranted={() => setVersion((v) => v + 1)} />
       </Show>
     </View>
   );
@@ -198,8 +176,8 @@ function UsersTab(props: {
           when={users().length > 0}
           fallback={
             <Card>
-              <EmptyState icon="users" title="No users" description="A person gets a user the first time they use a sign-in link.">
-                <Button variant="primary" icon="plus" onClick={props.onInvite}>
+              <EmptyState icon="users" title="No users">
+                <Button icon="plus" onClick={props.onInvite}>
                   Invite
                 </Button>
               </EmptyState>
@@ -269,9 +247,8 @@ function GroupsTab(props: { groups: readonly Group[] | undefined; onChanged: () 
                 <EmptyState
                   icon="users"
                   title="No groups"
-                  description="A grant can name a group, so people are added and removed in one place."
                 >
-                  <Button variant="primary" icon="plus" onClick={props.onCreate}>
+                  <Button icon="plus" onClick={props.onCreate}>
                     New group
                   </Button>
                 </EmptyState>
@@ -294,8 +271,15 @@ function GroupsTab(props: { groups: readonly Group[] | undefined; onChanged: () 
                       }
                       onClick={() => setOpenId(group.id)}
                       menu={[{ id: "delete", label: "Delete group", icon: "trash", danger: true }]}
+                      menuLabel={`Actions for ${group.name}`}
                       onMenuSelect={() => setRemoving(group)}
-                      actions={<IconButton size="sm" icon="trash" label={`Delete ${group.name}`} onClick={() => setRemoving(group)} />}
+                      persistentActions={
+                        <RowActions
+                          label={`Actions for ${group.name}`}
+                          items={[{ id: "delete", label: "Delete group", icon: "trash", danger: true }]}
+                          onSelect={() => setRemoving(group)}
+                        />
+                      }
                     />
                   )}
                 </For>
@@ -308,7 +292,7 @@ function GroupsTab(props: { groups: readonly Group[] | undefined; onChanged: () 
           <ConfirmDialog
             open={removing() !== undefined}
             title={`Delete ${removing()?.name ?? "the group"}?`}
-            description="Its grants go with it. The people in it keep their users."
+            description="Its grants go with it."
             confirm="Delete group"
             danger
             action={remove}
@@ -346,7 +330,6 @@ function GroupDialog(props: { group: Group; onClose: () => void; onChanged: () =
       open
       onClose={props.onClose}
       title={props.group.name}
-      description="Members are people by email. A claim from the identity provider adds whoever carries it."
       size="lg"
       footer={
         <Button variant="primary" onClick={props.onClose}>
@@ -376,7 +359,7 @@ function GroupDialog(props: { group: Group; onClose: () => void; onChanged: () =
         </form>
         <Show
           when={props.group.members.length > 0}
-          fallback={<p class="nc-muted">No members yet.</p>}
+          fallback={<EmptyState size="sm" title="No members" />}
         >
           <RowList label="Members" variant="inline">
             <For each={props.group.members}>
@@ -447,7 +430,11 @@ function GrantsTab(props: { users: readonly User[]; groups: readonly Group[]; ve
       id: "actions",
       header: "",
       cell: (grant) => (
-        <IconButton size="sm" icon="trash" label={`Revoke ${grant.resource}`} onClick={() => void revoke.run(grant)} />
+        <RowActions
+          label={`Actions for ${grant.resource}`}
+          items={[{ id: "revoke", label: "Revoke", icon: "trash", danger: true }]}
+          onSelect={() => void revoke.run(grant)}
+        />
       ),
     },
   ];
@@ -472,7 +459,6 @@ function GrantsTab(props: { users: readonly User[]; groups: readonly Group[]; ve
           loading={grants() === undefined}
           empty={{
             title: "No grants",
-            description: "Admins hold every level everywhere. Everyone else holds what a grant gives them.",
           }}
         />
       </Card>
@@ -491,7 +477,6 @@ function InviteDialog(props: { onClose: () => void; onMade: (made: { email: stri
     <FormDialog
       open
       title="Invite someone"
-      description="Rookery makes a one-time sign-in link for the address. It sends no mail."
       submit="Make link"
       action={make}
       disabled={!email().includes("@")}
@@ -501,7 +486,6 @@ function InviteDialog(props: { onClose: () => void; onMade: (made: { email: stri
         label="Email"
         type="email"
         placeholder="ada@example.test"
-        help="A person without a user gets one when they use the link."
         value={email()}
         onInput={(event) => setEmail(event.currentTarget.value)}
       />
@@ -569,7 +553,7 @@ function GrantDialog(props: {
           label="Resource"
           mono
           placeholder="space://…"
-          help="Such as space://01h…, host://forge or plugin://example."
+          info="space://…, host://forge, plugin://example"
           value={resource()}
           onInput={(event) => setResource(event.currentTarget.value)}
         />

@@ -17,13 +17,17 @@ test("a first admin signs in with the setup link and sees the shell", async ({ p
   // draws the chrome, the home view greets the admin, and the status bar stays
   // quiet while the link to the server is up.
   await expect(page.locator("[data-part='app-shell']")).toBeVisible();
-  await expect(page.locator("[data-view='home']")).toContainText("Welcome, Shell Operator");
+  await expect(page.locator("[data-view='home']")).toContainText("Shell");
   await expect(page.locator("[data-part='connection-state']")).toHaveCount(0);
 
-  // The navigation is built from the core's pages.
+  // The top of the sidebar is home, the inbox and the fleet, which drills in.
   await expect(page.getByRole("link", { name: "Home", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Fleet" }).click();
+  await expect(page.getByRole("link", { name: "Hosts", exact: true })).toBeVisible();
 
-  // A page of the server's own opens from it.
+  // Administration opens from the account menu, and its places are in the sidebar.
+  await page.locator("[data-part='account-menu']").click();
+  await page.getByRole("menuitem", { name: "Administration" }).click();
   await page.getByRole("link", { name: "Plugins", exact: true }).click();
   await expect(page.locator("[data-part='view-header']")).toContainText("Plugins");
   await page.getByRole("button", { name: "Install plugin" }).first().click();

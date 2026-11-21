@@ -1,22 +1,17 @@
 // What the settings places share: the scope in the address, which section a
-// setting is in, and a version the pages bump after a change so the sidebar's
-// counts follow. Settings changes publish no events, so the shell keeps step
-// itself.
+// setting is in, and a version the pages bump after a change so the sidebar
+// follows. Settings changes publish no events, so the shell keeps step itself.
 import { createSignal } from "solid-js";
 import { useSearchParams } from "@solidjs/router";
 import type { Setting } from "@rookery/proto";
-import type { IconName } from "@aiviarium/nocturne";
-
-import { useShell } from "../../shell.tsx";
 
 /** Scope is where a value is set. */
 export type Scope = "user" | "space" | "global";
 
-/** SCOPES are the scopes in the order the switcher shows them. */
-export const SCOPES: ReadonlyArray<{ id: Scope; label: string; icon: IconName }> = [
-  { id: "user", label: "You", icon: "user" },
-  { id: "space", label: "This space", icon: "layers" },
-  { id: "global", label: "Server", icon: "server" },
+/** SCOPES name the scopes a person picks between in Settings. A space's are in the space. */
+export const SCOPES: ReadonlyArray<{ id: Scope; label: string }> = [
+  { id: "user", label: "You" },
+  { id: "global", label: "Everyone" },
 ];
 
 /** CORE is the section of the settings Rookery itself declares. */
@@ -34,18 +29,18 @@ export function changed(): void {
 
 /** useScope is the scope in the address, and a way to change it. */
 export function useScope(): { scope: () => Scope; setScope: (scope: Scope) => void; query: () => string } {
-  const shell = useShell();
   const [search, setSearch] = useSearchParams<{ scope?: string }>();
-  const scope = (): Scope => {
-    const wanted = search.scope;
-    if (wanted === "space" && shell.spaces.current() === "") return "user";
-    return wanted === "space" || wanted === "global" ? wanted : "user";
-  };
+  const scope = (): Scope => (search.scope === "global" ? "global" : "user");
   return {
     scope,
     setScope: (next) => setSearch({ scope: next === "user" ? undefined : next }),
     query: () => (scope() === "user" ? "" : `?scope=${scope()}`),
   };
+}
+
+/** editableAt is true when the caller may set the setting at the scope. */
+export function editableAt(setting: Setting, scope: Scope): boolean {
+  return setting.scopes.includes(scope) && setting.editable.includes(scope);
 }
 
 /** modifiedAt is true when the scope sets its own value. */

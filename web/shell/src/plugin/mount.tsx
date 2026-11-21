@@ -16,6 +16,8 @@ export interface MountProps {
   readonly id: string;
   /** host is the host a host tab is about. */
   readonly host?: string;
+  /** at maps a path the plugin navigates to onto the shell's, such as into a space. */
+  readonly at?: (path: string) => string;
 }
 
 /**
@@ -29,11 +31,11 @@ export function ClientHalfMount(props: MountProps): JSX.Element {
 
   onSettled(() => {
     if (element === undefined) return;
-    const context = clientContext(shell.rookery, props.half, (path) => navigate(path));
+    const context = clientContext(shell.rookery, props.half, (path) => navigate(props.at === undefined ? path : props.at(path)));
     const mounts = props.map === "views" ? props.half.half.views : props.half.half.adminPages;
     const mount = mounts?.[props.id];
     if (mount === undefined) {
-      element.textContent = `This plugin declares ${props.id} but draws nothing for it.`;
+      element.textContent = `${props.id}: nothing to draw`;
       return;
     }
     const remove = mount(context, element);
@@ -58,7 +60,7 @@ export function HostTabMount(props: { half: LoadedClientHalf; id: string; host: 
     const context = clientContext(shell.rookery, props.half, (path) => navigate(path));
     const mount = props.half.half.hostTabs?.[props.id];
     if (mount === undefined) {
-      element.textContent = `This plugin declares the tab ${props.id} but draws nothing for it.`;
+      element.textContent = `${props.id}: nothing to draw`;
       return;
     }
     const remove = mount(context, element, props.host);

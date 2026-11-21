@@ -1,38 +1,44 @@
-// The shared sidebar: its header, the places, and the person at the foot.
+// The shared sidebar: the level it shows, and the person at the foot.
 //
-// At the top level the header shows the space the shell is in, with the
-// switcher to the others, and the places are the shell's pages and the
-// plugins'. Inside a domain, such as a host, an area's own sidebar takes the
-// header and the places: back to the list, the domain with a switcher, and the
-// domain's places. The person's card stays at the foot either way.
-import { For, Show, createMemo } from "solid-js";
+// The level is the deepest one that holds the page, unless the person drilled
+// the sidebar by hand since the page opened. Each level draws its own header
+// and places with LevelSidebar.
+import { For, createMemo, untrack } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Dynamic } from "@solidjs/web";
-import { useLocation, useMatch } from "@solidjs/router";
-import { Count, type MenuEntry, Nav, type NavItemProps, SidebarHeader } from "@aiviarium/nocturne";
+import { useLocation } from "@solidjs/router";
+import { type IconName, type MenuEntry, Nav, type NavItemProps, SidebarHeader } from "@aiviarium/nocturne";
 
-import { domains } from "../pages/index.ts";
+import { levels } from "../pages/index.ts";
 import { useShell } from "../shell.tsx";
 import { AccountMenu } from "./account-menu.tsx";
 import { useChrome } from "./context.ts";
-import { navigation } from "./navigation.ts";
+import { type LevelRef, TOP, resolveLevel, sameLevel } from "./levels.ts";
+import { TopSidebar } from "./top.tsx";
 
-/** Sidebar is the shell's navigation, drilled into a domain when the path is inside one. */
+/** Sidebar is the shell's navigation at the level the page or the person chose. */
 export function Sidebar(): JSX.Element {
-  const matches = domains.map((domain) => ({ domain, match: useMatch(() => domain.pattern) }));
-  const inside = createMemo(() => {
-    for (const entry of matches) {
-      const match = entry.match();
-      if (match !== undefined) return { domain: entry.domain, params: match.params as Record<string, string> };
-    }
-    return undefined;
-  });
+  const chrome = useChrome();
+  const location = useLocation();
+  const atPage = createMemo(() => resolveLevel(levels, location.pathname));
+  const shown = createMemo(() => chrome.drilled() ?? atPage());
+  // A level is drawn afresh when it changes, so its reads are its own.
+  const key = () => {
+    const level = shown();
+    return `${level.id}:${JSON.stringify(level.params ?? {})}`;
+  };
   return (
     <div class="shell-sidebar" data-part="shell-sidebar">
       <div class="shell-sidebar__body">
-        <Show when={inside()} keyed fallback={<TopSidebar />}>
-          {(current) => <Dynamic component={current.domain.Sidebar} params={current.params} />}
-        </Show>
+        <For each={[key()]}>
+          {() => {
+            const level = untrack(shown);
+            const found = levels.find((candidate) => candidate.id === level.id);
+            const inside = () => sameLevel(atPage(), level);
+            if (level.id === TOP || found === undefined) return <TopSidebar />;
+            return <Dynamic component={found.Sidebar} params={level.params ?? {}} inside={inside()} />;
+          }}
+        </For>
       </div>
       <div class="shell-sidebar__foot">
         <AccountMenu />
@@ -41,99 +47,115 @@ export function Sidebar(): JSX.Element {
   );
 }
 
-/** TopSidebar is the sidebar outside every domain: the space, then every place. */
-function TopSidebar(): JSX.Element {
-  const shell = useShell();
-  const chrome = useChrome();
-  const location = useLocation();
-
-  const current = (href: string): boolean =>
-    location.pathname === href || (href !== "/" && location.pathname.startsWith(`${href}/`));
-
-  const spaces = (): MenuEntry[] => [
-    { id: "", label: "All spaces", checked: shell.spaces.current() === "" },
-    ...shell.spaces.list().map((space) => ({
-      id: space.id,
-      label: space.name,
-      description: space.kind,
-      checked: shell.spaces.current() === space.id,
-    })),
-  ];
-  const place = () => shell.spaces.currentSpace()?.name ?? "Rookery";
-
-  const groups = () =>
-    navigation().map((group) => ({
-      label: group.title,
-      items: group.items.map(
-        (item): NavItemProps => ({
-          label: item.label,
-          href: item.href,
-          icon: item.icon,
-          current: current(item.href),
-          meta: item.count !== undefined && item.count > 0 ? <Count value={item.count} /> : undefined,
-          onClick: () => chrome.closeDrawer(),
-        }),
-      ),
-    }));
-
-  return (
-    <>
-      <SidebarHeader
-        title={place()}
-        mark={<span class="nc-nav-item__mark shell-mark">{place().slice(0, 1).toUpperCase()}</span>}
-        switcher={{ label: "Switch space", items: spaces(), onSelect: (id) => shell.spaces.select(id) }}
-        onHideSidebar={() => chrome.setSidebarHidden(true)}
-      />
-      <Nav label="Places" groups={groups()} />
-      <For each={shell.plugins.error() === undefined ? [] : [shell.plugins.error()!]}>
-        {(error) => <p class="nc-meta shell-sidebar__note">Plugins could not load: {error.message}</p>}
-      </For>
-    </>
-  );
+/** SidebarEntry is one row of a level: a place, or a row that drills into a level below. */
+export interface SidebarEntry {
+  readonly label: string;
+  /** href is the place the row opens. */
+  readonly href?: string;
+  /** drill is the level the row opens in the sidebar, leaving the page as it is. */
+  readonly drill?: LevelRef;
+  readonly icon?: IconName;
+  readonly leading?: JSX.Element;
+  /** meta is what is out of the ordinary about the place, such as a count of unread items. */
+  readonly meta?: JSX.Element;
+  readonly current?: boolean;
 }
 
-/** DomainSidebarProps are a drilled-in sidebar's header and places. */
-export interface DomainSidebarProps {
-  /** back is the list the domain sits in, such as "Hosts". */
-  readonly back: { label: string; href: string };
-  /** title is the domain, such as the host's name. */
+/** SidebarGroup is a run of rows under an optional heading, with one optional action beside it. */
+export interface SidebarGroup {
+  readonly label?: string;
+  readonly action?: { label: string; icon: IconName; onClick: () => void };
+  readonly items: readonly SidebarEntry[];
+}
+
+/** LevelSidebarProps are a level's header and places. */
+export interface LevelSidebarProps {
+  /** back is the level above, named for the button. Absent at the top. */
+  readonly back?: { label: string; to: LevelRef };
+  /** title is the level, such as the host's name. */
   readonly title: string;
-  /** mark is drawn before the title. */
   readonly mark?: JSX.Element;
-  /** switcher opens the other domains of the kind. */
+  /** switcher opens the level's siblings, such as the other hosts. */
   readonly switcher?: { label: string; items: MenuEntry[]; onSelect: (id: string) => void };
-  /** groups are the domain's places. */
-  readonly groups: Array<{ label?: string; items: NavItemProps[] }>;
+  readonly groups: readonly SidebarGroup[];
   /** label names the places for a screen reader. */
   readonly label: string;
 }
 
-/** DomainSidebar is the sidebar inside a domain, for an area's Sidebar to draw with. */
-export function DomainSidebar(props: DomainSidebarProps): JSX.Element {
-  const shell = useShell();
+/** LevelSidebar draws a level: its header with back and its switcher, then its places. */
+export function LevelSidebar(props: LevelSidebarProps): JSX.Element {
   const chrome = useChrome();
   const groups = () =>
-    props.groups.map((group) => ({
-      label: group.label,
-      items: group.items.map((item) => ({
-        ...item,
-        onClick: (event: MouseEvent & { currentTarget: HTMLAnchorElement; target: Element }) => {
-          const own = item.onClick;
-          if (typeof own === "function") own(event);
-          chrome.closeDrawer();
-        },
-      })),
-    }));
+    props.groups
+      .filter((group) => group.items.length > 0 || group.action !== undefined)
+      .map((group) => ({
+        label: group.label,
+        action: group.action,
+        items: group.items.map((entry): NavItemProps => {
+          const drill = entry.drill;
+          return {
+            label: entry.label,
+            icon: entry.icon,
+            leading: entry.leading,
+            meta: entry.meta,
+            current: entry.current,
+            href: drill === undefined ? entry.href : undefined,
+            drill: drill !== undefined,
+            onClick: () => {
+              if (drill !== undefined) chrome.drill(drill);
+              else chrome.closeDrawer();
+            },
+          };
+        }),
+      }));
   return (
     <>
       <SidebarHeader
         title={props.title}
         mark={props.mark}
-        back={{ to: props.back.label, onClick: () => shell.navigate(props.back.href) }}
+        back={props.back === undefined ? undefined : { to: props.back.label, onClick: () => chrome.drill(props.back!.to) }}
         switcher={props.switcher}
         onHideSidebar={() => chrome.setSidebarHidden(true)}
       />
       <Nav label={props.label} groups={groups()} />
     </>
   );
+}
+
+/**
+ * siblings is a level's switcher: picking a sibling keeps the page when the
+ * page is in the level, as forge's files become build-01's, and otherwise
+ * moves the sidebar alone.
+ */
+export function useSiblings(options: {
+  label: string;
+  items: () => ReadonlyArray<{ id: string; label: string; description?: string }>;
+  current: () => string;
+  inside: () => boolean;
+  /** path is a sibling's address for the place the page is at. */
+  path: (id: string) => string;
+  /** level is a sibling's level, for when the page is elsewhere. */
+  level: (id: string) => LevelRef;
+}): () => LevelSidebarProps["switcher"] {
+  const shell = useShell();
+  const chrome = useChrome();
+  return () => {
+    const items = options.items();
+    if (items.length < 2) return undefined;
+    return {
+      label: options.label,
+      items: items.map((item) => ({ id: item.id, label: item.label, description: item.description, checked: item.id === options.current() })),
+      onSelect: (id) => {
+        if (id === options.current()) return;
+        if (options.inside()) shell.navigate(options.path(id));
+        else chrome.drill(options.level(id));
+      },
+    };
+  };
+}
+
+/** at is true when the address is the place, or under it when `deep`. */
+export function at(path: string, href: string, deep = false): boolean {
+  const bare = href.split("?")[0] ?? href;
+  return path === bare || (deep && path.startsWith(`${bare}/`));
 }

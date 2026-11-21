@@ -1,7 +1,7 @@
-// Home: what the server holds and where to go next, and the person's inbox.
+// Home and the inbox. Both are at the top of the sidebar, which draws them
+// itself; the area adds their pages.
 import { defineRoutes } from "@solidjs/router";
 
-import type { Area } from "../types.ts";
 import { HomePage } from "./home.tsx";
 import { InboxPage } from "./inbox.tsx";
 
@@ -9,8 +9,3 @@ export const routes = defineRoutes([
   { path: "/", component: HomePage },
   { path: "/inbox", component: InboxPage },
 ]);
-
-export const nav: Area["nav"] = [
-  { label: "Home", href: "/", icon: "home" },
-  { label: "Inbox", href: "/inbox", icon: "inbox" },
-];

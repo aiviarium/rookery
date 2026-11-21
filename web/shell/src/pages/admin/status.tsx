@@ -8,8 +8,9 @@ import { Badge, Card, DataTable, type DataColumn, PropertyList, State, type DotS
 
 import { createLive } from "../../parts/data.ts";
 import { View } from "../../parts/view.tsx";
+import { ADMIN } from "./people.tsx";
 import { useShell } from "../../shell.tsx";
-import { dateOf, relativeTime } from "../infra/format.ts";
+import { dateOf, relativeTime } from "../fleet/format.ts";
 
 type Health = "checking" | "leader" | "standby" | "unreachable" | string;
 
@@ -65,13 +66,14 @@ export function ServerStatusPage(): JSX.Element {
   return (
     <View
       id="server"
-      crumbs={[{ label: "Server" }]}
+      crumbs={[ADMIN, { label: "Server" }]}
       context={<State status={healthDot()}>{healthLabel()}</State>}
       actions={[
         {
           id: "refresh",
           label: "Check again",
           icon: "refresh-cw",
+          overflow: true,
           onClick: () => {
             void check();
             void tailnet.refresh().catch(() => undefined);
@@ -109,7 +111,7 @@ export function ServerStatusPage(): JSX.Element {
           getRowId={(entry) => String(entry.id)}
           loading={audit() === undefined}
           error={audit.error() === undefined ? undefined : { message: "The audit trail could not be read.", detail: audit.error()?.message }}
-          empty={{ title: "Nothing audited yet", description: "Every call that changes state is recorded here." }}
+          empty={{ title: "Nothing audited" }}
         />
       </Card>
     </View>

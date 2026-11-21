@@ -7,11 +7,11 @@ installed plugin declares `shell: true`. It is a Bun workspace member beside
 | Path | What it is |
 | --- | --- |
 | `web/shell/` | `@rookery/shell`, the app: Vite, `@solidjs/vite-plugin`, SolidJS 2, happy-dom tests |
-| `web/shell/src/shell.tsx` | The shell's state: the client, sign-in, the space, the connection, notifications and the plugins' halves |
-| `web/shell/src/chrome/` | The chrome: sidebar, top bar, account menu, space switcher, notifications, status bar |
+| `web/shell/src/shell.tsx` | The shell's state: the client, sign-in, the spaces, the connection, notifications and the plugins' halves |
+| `web/shell/src/chrome/` | The chrome: the sidebar and its levels, the account menu, the status bar |
 | `web/shell/src/pages/` | The shell's own pages, one folder per area, joined by `index.ts` |
-| `web/shell/src/plugin/` | The client-half host: a plugin's page and its taps on a host's page |
-| `web/shell/src/ui.tsx` | The parts every page draws with |
+| `web/shell/src/parts/` | What pages share: the view frame, live queries, actions, dialogs, row menus |
+| `web/shell/src/plugin/` | The client-half host: a plugin's page and its tabs on a host's page |
 | `internal/webshell/` | The Go package that embeds `dist/` and serves it for `/` and unmatched paths |
 
 ## Commands
@@ -32,65 +32,102 @@ to look at it is `make dev` with the server, which serves the last build.
 the hashed assets beside it; those are ignored, and the built `index.html` shows
 as a change until it is restored. Never commit a built `index.html`.
 
+## How the shell is laid out
+
+The shell is designed from the person's objects outward. The sidebar is a stack
+of levels: the top, then the containers a person drills into.
+
+* The top holds Home and the Inbox, the Fleet, one row per space, and the
+  plugins' own views.
+* The Fleet holds hosts, terminals, machines, jobs, schedules and roll-outs, then
+  one row per host. A host holds its own places.
+* A space holds its overview, the views its kind's plugins add, its documents and
+  records, and its settings. Every call from a page under `/spaces/{id}` is scoped
+  to that space.
+* Administration and Settings open from the account menu.
+
+A drill row (›) moves the sidebar alone and leaves the page as it is. Back goes
+up a level. The level's switcher moves to a sibling, such as another host, and
+keeps the place. The sidebar follows the page until the person drills by hand,
+and that holds until the next page.
+
+The pages keep to the same rules:
+
+* No prose. A field's explanation is its `info` tip.
+* Nothing for the normal state, and no zero counts.
+* One empty state per view: a title and its action.
+* Adding is a header action with a plus. Deleting is in a row's menu, never a
+  button on the row.
+* Refresh is in the overflow menu.
+* What the person may not change is not shown.
+
 ## Pages: the seam
 
-A page area is a folder under `web/shell/src/pages/` with an `index.ts` that
-exports two things:
+A page area is a folder under `web/shell/src/pages/` whose `index.ts` exports an
+`Area` (`pages/types.ts`):
 
 ```ts
 // web/shell/src/pages/notes/index.ts
 import { defineRoutes } from "@solidjs/router";
 
+import { prefixMatch } from "../../chrome/levels.ts";
 import type { Area } from "../types.ts";
 import { NotesPage } from "./notes.tsx";
+import { NotesSidebar, useNotesRow } from "./sidebar.tsx";
 
 export const routes = defineRoutes([{ path: "/notes", component: NotesPage }]);
-
-export const nav: Area["nav"] = [{ label: "Notes", href: "/notes", group: "Workspace", icon: "document" }];
+export const levels: Area["levels"] = [{ id: "notes", depth: 1, match: prefixMatch("/notes"), Sidebar: NotesSidebar }];
+export const top: Area["top"] = [{ order: 30, use: useNotesRow }];
 ```
 
-* `routes` is what the area answers, as `@solidjs/router` route definitions. A
-  route may nest children, use parameters (`/hosts/:name`) and lazy components.
-* `nav` is where the area sits in the sidebar: `label`, `href`, an optional
-  `group` (the first group has none) and an optional `icon` from `GlyphName` in
-  `src/ui.tsx`.
+* `routes` is what the area answers, as `@solidjs/router` route definitions.
+* `levels` are the containers in it. `match` says which addresses are inside
+  one and with which values, such as a host's name. The deepest match wins.
+  `Sidebar` draws the level with `LevelSidebar` from `chrome/sidebar.tsx`,
+  which takes a back target, a title, a switcher from `useSiblings` and groups
+  of entries. An entry with `drill` opens a level below.
+* `top` adds groups to the top level, ordered by `order`. `use` runs in the
+  sidebar's scope and returns the groups, so it may read live data.
+* `overlays` are drawn over every page, such as the dialog the Spaces group's
+  plus opens.
 
 `web/shell/src/pages/index.ts` lists the areas (`AREAS`) and joins them. Adding
-an area is one import and one entry there: no other file changes, and areas
-never import each other.
+an area is one import and one entry there. No other file changes, and the
+chrome never names an area.
 
 Pages read the shell with `useShell()` from `src/shell.tsx`: `rookery` is the
 typed client (`@rookery/client`), `signIn` who is signed in, `spaces` the space
-list and the current space, `connection` the events stream, `notifications`, and
-`plugins` the installed client halves. A page never builds a transport.
+list and the space the address is in, `connection` the events stream,
+`notifications`, and `plugins` the installed client halves. A page never builds
+a transport.
 
-A page that shows data asks for it with `createQuery` from
-`@rookery/client/solid`, and asks again when the events stream says it changed:
+A page that shows data asks for it with `createLive` from `parts/data.ts`, which
+asks again when one of the named events arrives:
 
 ```tsx
-const hosts = createQuery(() => shell.rookery.hosts.list({ limit: 200 }));
-onSettled(() => shell.connection.on("rookery/hosts.changed", () => void hosts.refresh()));
+const hosts = createLive(() => shell.rookery.hosts.list({ limit: 200 }), { events: ["rookery/hosts."] });
 ```
 
-A page that shows a space's records reads `shell.spaces.version()` and asks
-again when it changes.
+A page in a space is drawn afresh for each space, so it reads the space once.
 
-## The chrome and plugin hosting
+## Plugin hosting
 
-The navigation is the areas' `nav` joined with the installed plugins'
-`contributes.nav`; each plugin's views and admin pages are routes resolved by
-`src/plugin/route.tsx` from `PluginService.Contributions`, and a page is mounted
-with `defineClient`'s contract — `mount(context, element)` — through
-`src/plugin/mount.tsx`, which also hands a host's page its tabs.
+A plugin's views are routes resolved by `src/plugin/route.tsx` from
+`PluginService.Contributions`. A view that names a kind of space is a place in
+each space of that kind, under `/spaces/{id}{route}`. An admin page is a place in
+Administration, under `/admin/p/{plugin}/{page}`. A page is mounted with
+`defineClient`'s contract, `mount(context, element)`, through
+`src/plugin/mount.tsx`. That file also hands a host's page its tabs, and maps a
+plugin's navigation into the space or Administration it is in.
 
-A plugin's client half is loaded from `/plugins/{id}/{hash}/index.js`; a half
-that fails to load is reported in the sidebar and left out.
+A plugin's client half is loaded from `/plugins/{id}/{hash}/index.js`. A half
+that fails to load is left out.
 
 ## The server's pages
 
-`pages/admin/` is the server's own area: people, groups and grants; spaces;
-settings, secrets and connections; the key ring and known hosts; the tailnet;
-plugins and registries; the datastore; documents; and the server's status.
+`pages/admin/` is Administration: people, groups and access; plugins and
+registries, spaces, the key ring and known hosts, the tailnet and the server's
+status; secrets and connections; the datastore and documents across every space.
 
 Three calls the pages needed are new in the contract, because nothing listed what
 a page could browse:
@@ -104,6 +141,11 @@ a page could browse:
 * `PluginService.InstallPackage` takes a whole package in one call, because a
   browser cannot stream a request body; the page's file field uses it, and a
   registry reference uses `InstallFromRegistry`.
+
+Settings shows what the person may set for themselves and, when they may, for
+everyone. The scope is a dropdown that shows only when there is more than one.
+Only rows the person may change at the scope are shown. A space's own values are
+in the space's Settings.
 
 ## Tests
 
@@ -121,12 +163,5 @@ Playwright's Chromium locally and fails in CI.
 
 Every UI part must come from `@aiviarium/nocturne` and use its tokens and
 `nc-*` classes; no literal colours, no forked primitives. Nocturne is pinned by
-the commit of its `solid-2` branch in `web/shell/package.json`; inside
-`aiviarium/mono` the workspace links the sibling `nocturne/` checkout when it is
-built against this one.
-
-The branch is published, and the pin is its commit; `src/ui.tsx` still draws the
-parts itself with Nocturne's `nc-*` classes and tokens, because the shell's
-props are not yet the components' props. Adopting them is one change in that
-file at a time — Nocturne's `Button`, `TextField`, `Menu`, `Dialog`, `Badge` and
-the rest — and the pages keep their imports.
+commit in `web/shell/package.json`. A part the shell needs and Nocturne lacks is
+a change to Nocturne first, then a new pin.

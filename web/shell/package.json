@@ -11,7 +11,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@aiviarium/nocturne": "github:aiviarium/nocturne#4493bb7262c89939e99248717bdcaf88556ae350",
+    "@aiviarium/nocturne": "github:aiviarium/nocturne#d2f8b11fdfe92965712c79a42fa52a662f568556",
     "@rookery/client": "workspace:*",
     "@rookery/proto": "workspace:*",
     "@rookery/sdk": "workspace:*",

@@ -1,4 +1,4 @@
-// The chrome around the pages: the inbox, the space switcher and the status bar.
+// The chrome around the pages: the inbox, drilling into a space and the status bar.
 import { describe, expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import { EventSchema, type Notification } from "@rookery/proto";
@@ -34,18 +34,27 @@ describe("the chrome", () => {
     }
   });
 
-  test("switches the space every call is scoped to", async () => {
+  test("drills into a space and scopes every call to it", async () => {
     const client = fakeClient({ user: STATIC_USER, spaces: [A_SPACE, ANOTHER_SPACE] });
-    const view = await mount(client);
+    const view = await mount(client, { identityProvider: false }, "/");
     try {
-      await view.click("[data-part='sidebar-switcher']");
-      await view.pick("Analysis");
+      // The space's row drills the sidebar in and leaves the page as it is.
+      await view.button("Analysis");
+      expect(location.pathname).toBe("/");
+      expect(view.find("[data-part='sidebar-switcher']")).not.toBeNull();
+      expect(client.space()).toBe("");
 
+      // A place in the space opens it, scoped to the space.
+      await view.click(`a[href='/spaces/${A_SPACE.id}']`);
+      expect(location.pathname).toBe(`/spaces/${A_SPACE.id}`);
       expect(client.space()).toBe(A_SPACE.id);
-      expect(localStorage.getItem("rookery-space")).toBe(A_SPACE.id);
-      expect(view.text()).toContain("Analysis");
+
+      // The switcher keeps the place and moves to the other space.
+      await view.click("[data-part='sidebar-switcher']");
+      await view.pick(ANOTHER_SPACE.name);
+      expect(location.pathname).toBe(`/spaces/${ANOTHER_SPACE.id}`);
+      expect(client.space()).toBe(ANOTHER_SPACE.id);
     } finally {
-      localStorage.removeItem("rookery-space");
       view.unmount();
     }
   });

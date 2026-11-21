@@ -7,7 +7,7 @@ import { A_SPACE, STATIC_USER, fakeClient } from "./fakes.ts";
 import { mount } from "./mount.tsx";
 
 describe("the home page", () => {
-  test("counts what the server holds", async () => {
+  test("shows what is running and the person's hosts and spaces", async () => {
     const client = fakeClient({
       user: STATIC_USER,
       spaces: [A_SPACE],
@@ -17,9 +17,12 @@ describe("the home page", () => {
     });
     const view = await mount(client);
     try {
-      expect(view.text()).toContain("Welcome, Ada Lovelace");
+      expect(view.text()).toContain("Ada");
       expect(view.find("a[href='/hosts/studio']")?.textContent).toContain("studio");
-      expect(view.find("[data-part='stat-card'], .nc-stat")?.textContent ?? view.text()).toContain("Hosts");
+      expect(view.find(`a[href='/spaces/${A_SPACE.id}']`)?.textContent).toContain(A_SPACE.name);
+      expect(view.text()).toContain("Running");
+      // Nothing needs the person, so that card is not there.
+      expect(view.text()).not.toContain("Needs you");
       // The sidebar's own navigation is there too.
       expect(view.find(".nc-nav a[href='/']")?.textContent).toContain("Home");
     } finally {
@@ -30,8 +33,9 @@ describe("the home page", () => {
   test("points a server without hosts at the hosts page", async () => {
     const view = await mount(fakeClient({ user: STATIC_USER }));
     try {
-      expect(view.text()).toContain("No hosts yet");
-      expect(view.findAll("a[href='/hosts']").some((link) => link.textContent?.includes("Add a host"))).toBe(true);
+      expect(view.text()).toContain("Add your first host");
+      await view.button("Add host");
+      expect(`${location.pathname}${location.search}`).toBe("/hosts?add=1");
     } finally {
       view.unmount();
     }

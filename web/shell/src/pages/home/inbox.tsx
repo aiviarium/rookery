@@ -10,7 +10,7 @@ import { errorMessage } from "../../parts/errors.ts";
 import { RowActions } from "../../parts/row-actions.tsx";
 import { View } from "../../parts/view.tsx";
 import { useShell } from "../../shell.tsx";
-import { dateOf, relativeTime } from "../infra/format.ts";
+import { dateOf, relativeTime } from "../fleet/format.ts";
 
 /** InboxPage is the person's notifications, newest first. */
 export function InboxPage(): JSX.Element {
@@ -19,7 +19,7 @@ export function InboxPage(): JSX.Element {
   const items = () => shell.notifications.items().filter((item) => filter() === "all" || !item.read);
   const unread = () => shell.notifications.unread();
 
-  const markAll = createAction(() => shell.notifications.markAllRead(), { done: "Marked every notification read" });
+  const markAll = createAction(() => shell.notifications.markAllRead());
   const mark = createAction((id: string, read: boolean) => shell.notifications.markRead(id, read), {
     failed: "The notification was not changed",
   });
@@ -43,8 +43,8 @@ export function InboxPage(): JSX.Element {
       crumbs={[{ label: "Inbox" }]}
       reading
       actions={[
+        ...(unread() > 0 ? [{ id: "read", label: "Mark all read", icon: "check" as const, disabled: markAll.busy(), onClick: () => void markAll.run() }] : []),
         { id: "refresh", label: "Check again", icon: "refresh-cw", overflow: true, onClick: () => void shell.notifications.refresh() },
-        { id: "read", label: "Mark all read", icon: "check", primary: true, disabled: unread() === 0 || markAll.busy(), onClick: () => void markAll.run() },
       ]}
     >
       <div class="shell-fit">
@@ -54,7 +54,7 @@ export function InboxPage(): JSX.Element {
           onChange={(next) => setFilter(next as "all" | "unread")}
           items={[
             { id: "all", label: "All" },
-            { id: "unread", label: unread() > 0 ? `Unread (${unread()})` : "Unread" },
+            { id: "unread", label: "Unread", count: unread() > 0 ? unread() : undefined },
           ]}
         />
       </div>
@@ -65,11 +65,7 @@ export function InboxPage(): JSX.Element {
         <Show
           when={items().length > 0}
           fallback={
-            <EmptyState
-              icon="inbox"
-              title={filter() === "unread" ? "Nothing unread" : "Nothing yet"}
-              description="Rookery tells you here when a job fails or a roll-out pauses."
-            />
+            <EmptyState icon="inbox" title={filter() === "unread" ? "Nothing unread" : "Nothing yet"} />
           }
         >
           <RowList label="Notifications">
