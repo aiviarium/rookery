@@ -93,7 +93,11 @@ export function createWorkbench(address: string): Workbench {
   const navigators = new Map<string, Navigator>();
 
   const save = () => write({ layout: layoutNow, tabs: tabsNow });
-  const setLayout = (next: DockLayout) => {
+  const setLayout = (given: DockLayout) => {
+    // A layout made from an older one may name a tab that has closed since;
+    // it stays closed, rather than coming back as a frame without a page.
+    let next = given;
+    for (const id of dockTabs(given)) if (tabsNow[id] === undefined) next = dockRemove(next, id);
     // A tab the layout no longer holds is gone.
     const open = new Set(dockTabs(next));
     const kept = Object.fromEntries(Object.entries(tabsNow).filter(([id]) => open.has(id)));

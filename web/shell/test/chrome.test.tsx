@@ -5,6 +5,9 @@ import { EventSchema, type Notification } from "@rookery/proto";
 
 import { ANOTHER_SPACE, A_SPACE, STATIC_USER, fakeClient } from "./fakes.ts";
 import { mount } from "./mount.tsx";
+import { createRoot } from "solid-js";
+import { dockTabs } from "@aiviarium/nocturne";
+import { WORKBENCH_KEY, createWorkbench } from "../src/chrome/workbench.ts";
 
 /** unread is one notification nobody has read. */
 function unread(): Notification {
@@ -121,5 +124,22 @@ describe("the chrome", () => {
     } finally {
       view.unmount();
     }
+  });
+});
+
+describe("the workbench", () => {
+  test("keeps a closed tab closed when a layout made before the close comes back", () => {
+    localStorage.removeItem(WORKBENCH_KEY);
+    createRoot((dispose) => {
+      const workbench = createWorkbench("/inbox");
+      const second = workbench.open("/", { edge: "right" });
+      const before = workbench.layout();
+      workbench.close(second);
+      workbench.setLayout(before);
+      expect(dockTabs(workbench.layout())).toHaveLength(1);
+      expect(workbench.layout().columns).toHaveLength(1);
+      dispose();
+    });
+    localStorage.removeItem(WORKBENCH_KEY);
   });
 });
