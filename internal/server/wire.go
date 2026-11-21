@@ -253,7 +253,7 @@ func (s *Server) wire(ctx context.Context, opened *store.Store) (*handlers, erro
 		s.log.Info("paused the roll-outs a stopped server left running", slog.Int64("rollouts", paused))
 	}
 
-	provisioners, provisionTokens, err := wireProvisioners(opened, checker, secrets, installer, supervisor, hostService, keyRing, tail, s.config, s.log)
+	provisioners, provisionTokens, err := wireProvisioners(opened, checker, secrets, installer, supervisor, hostService, keyRing, trusted, tail, s.config, s.log)
 	if err != nil {
 		return nil, err
 	}

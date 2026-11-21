@@ -211,6 +211,19 @@ func (k *KnownHosts) Forget(ctx context.Context, address string) error {
 	return nil
 }
 
+// ForgetHost deletes every key trusted for a host's addresses, for a host whose
+// machine is gone: a machine made again, perhaps at the same address, has keys
+// of its own. A host with no trusted key is not an error.
+func (k *KnownHosts) ForgetHost(ctx context.Context, host string) error {
+	if host == "" {
+		return nil
+	}
+	if _, err := k.store.Queries().DeleteKnownHostsOfHost(ctx, host); err != nil {
+		return fmt.Errorf("link: forgetting the keys of %s: %w", host, err)
+	}
+	return nil
+}
+
 // Line is a host's known_hosts line, as an apply writes it for Ansible:
 // "[address]:port key-type key". A host with no trusted key is an error: an
 // apply never trusts a key it has not seen.

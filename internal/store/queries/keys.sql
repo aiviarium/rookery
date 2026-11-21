@@ -31,6 +31,10 @@ SELECT *
 FROM rookery.known_hosts
 WHERE address = $1;
 
+-- name: DeleteKnownHostsOfHost :execrows
+DELETE FROM rookery.known_hosts
+WHERE host = $1;
+
 -- name: ListKnownHosts :many
 SELECT *
 FROM rookery.known_hosts

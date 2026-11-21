@@ -139,7 +139,7 @@ func (c *provisionCredentials) PluginByToken(token string) (string, bool) {
 }
 
 func wireProvisioners(opened *store.Store, checker *access.Checker, secrets *config.Secrets, installer *plugins.Installer,
-	supervisor *plugins.Supervisor, hostService *hosts.Service, keyRing *link.Ring, tail *tailnet.Manager,
+	supervisor *plugins.Supervisor, hostService *hosts.Service, keyRing *link.Ring, trusted *link.KnownHosts, tail *tailnet.Manager,
 	cfg Config, log *slog.Logger) (*provision.Service, *provisionCredentials, error) {
 	directory := filepath.Join(cfg.StateDir, "calls")
 	if err := os.MkdirAll(directory, 0o700); err != nil {
@@ -149,7 +149,7 @@ func wireProvisioners(opened *store.Store, checker *access.Checker, secrets *con
 	provisioners := provision.New(provision.Deps{
 		Store: opened, Checker: checker, Catalog: provisionCatalogue{installer}, Secrets: secrets, Tokens: credentials,
 		Runner: provision.NewRunner(cfg.Socket, directory, log), Logger: log,
-		Hosts: machineHosts{service: hostService},
+		Hosts: machineHosts{service: hostService, trusted: trusted},
 	})
 	seeds := machineSeeds{ring: keyRing, tail: tail}
 	return provision.NewService(provisioners, checker, seeds), credentials, nil
@@ -159,6 +159,7 @@ func wireProvisioners(opened *store.Store, checker *access.Checker, secrets *con
 // host records before the first contact and the apply.
 type machineHosts struct {
 	service *hosts.Service
+	trusted *link.KnownHosts
 }
 
 func (m machineHosts) AddMachine(ctx context.Context, machine provision.MachineHost) error {
@@ -181,10 +182,15 @@ func (m machineHosts) AddMachine(ctx context.Context, machine provision.MachineH
 
 func (m machineHosts) RemoveHost(ctx context.Context, host string) error {
 	err := m.service.RemoveHost(ctx, host)
-	if errors.Is(err, access.ErrNotFound) {
-		return nil
+	if err != nil && !errors.Is(err, access.ErrNotFound) {
+		return err
 	}
-	return err
+	// The machine is gone, and its host keys with it: a machine made again at
+	// the same address would otherwise be refused as a changed key.
+	if m.trusted != nil {
+		return m.trusted.ForgetHost(ctx, host)
+	}
+	return nil
 }
 
 // machineSeeds is what a created machine's cloud-init gets: the key ring's
