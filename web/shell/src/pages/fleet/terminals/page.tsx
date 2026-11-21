@@ -1,6 +1,6 @@
 // Terminals: every shell running on any host. A terminal lives on its host and
 // outlives the page, so this is the list, and each one opens in its host's
-// Terminal place, where the tabs and the screen are.
+// Terminal place, alone in its tab.
 import { For, Show, createSignal, untrack } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import type { Host, Terminal } from "@rookery/proto";
@@ -13,13 +13,9 @@ import { errorMessage } from "../../../parts/errors.ts";
 import { View } from "../../../parts/view.tsx";
 import { useShell } from "../../../shell.tsx";
 import { terminalTitle, type Account } from "../hosts/terminal.tsx";
-import { HOST_EVENTS } from "../hosts/paths.ts";
+import { HOST_EVENTS, terminalPath } from "../hosts/paths.ts";
 import { HostType } from "@rookery/proto";
 
-/** terminalPath opens a terminal in its host's Terminal place. */
-export function terminalPath(host: string, id: string): string {
-  return `/hosts/${encodeURIComponent(host)}/terminal?attach=${encodeURIComponent(id)}`;
-}
 
 export function TerminalsPage(): JSX.Element {
   const shell = useShell();

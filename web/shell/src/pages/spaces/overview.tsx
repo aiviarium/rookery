@@ -47,7 +47,7 @@ export function SpaceOverview(): JSX.Element {
     <View
       id="space-overview"
       crumbs={spaceCrumbs(domain)}
-      context={<Show when={domain.space()?.archived}><Badge>Archived</Badge></Show>}
+      context={domain.space()?.archived ? <Badge>Archived</Badge> : undefined}
       actions={
         domain.manages()
           ? [

@@ -134,6 +134,12 @@ export type Rookery = Clients &
     readonly signIn: SignIn;
     /** setSpace changes the space every following call is scoped to. */
     setSpace(space: string): void;
+    /**
+     * inSpace is a client whose calls are always in this space, or in none for
+     * "", whatever setSpace says. It shares the sign-in, so a page that shows
+     * one space beside a page in another keeps each one's calls in its own.
+     */
+    inSpace(space: string): Rookery;
     /** documents is DocumentService, with the live sync over `/ws/documents/{id}`. */
     readonly documents: Client<typeof DocumentService> & {
       open(id: string, options?: DocumentOptions): DocumentSync;
@@ -155,6 +161,11 @@ export type Rookery = Clients &
 
 /** createRookery makes the client for one server. */
 export function createRookery(options: RookeryOptions = {}): Rookery {
+  return build(options);
+}
+
+/** build makes a client, sharing the sign-in of the one it is scoped from. */
+function build(options: RookeryOptions, parent?: Rookery): Rookery {
   const baseUrl = (options.baseUrl ?? originOf()).replace(/\/+$/, "");
   const csrf = options.csrf ?? (() => readCookie(CSRF_COOKIE));
   let space = options.space ?? "";
@@ -184,11 +195,12 @@ export function createRookery(options: RookeryOptions = {}): Rookery {
   }
 
   const { screenshot, input, getClipboard, setClipboard, pause, resume } = createClient(DesktopService, transport);
+  const scoped = new Map<string, Rookery>();
   const rookery: Rookery = {
     ...(clients as unknown as Clients),
     baseUrl,
     transport,
-    signIn: createSignIn({
+    signIn: parent?.signIn ?? createSignIn({
       me: async () => {
         const { user } = await clients.auth.me({});
         if (user === undefined) {
@@ -211,8 +223,18 @@ export function createRookery(options: RookeryOptions = {}): Rookery {
       },
     }),
     space: () => space,
+    // A client made by inSpace stays in its space.
     setSpace: (next) => {
-      space = next;
+      if (parent === undefined) space = next;
+    },
+    inSpace: (id) => {
+      if (parent !== undefined) return parent.inSpace(id);
+      let found = scoped.get(id);
+      if (found === undefined) {
+        found = build({ ...options, space: id, autoSignIn: false }, rookery);
+        scoped.set(id, found);
+      }
+      return found;
     },
     url: (path) => `${baseUrl}${path.startsWith("/") ? path : `/${path}`}`,
     webSocketUrl: (path, query) => {
@@ -248,7 +270,7 @@ export function createRookery(options: RookeryOptions = {}): Rookery {
       loadClientHalves(rookery, { source: () => fetchContributions(transport), ...loaderOptions }),
   };
 
-  if (options.autoSignIn ?? true) {
+  if (parent === undefined && (options.autoSignIn ?? true)) {
     void rookery.signIn.refresh().catch(() => undefined);
   }
   return rookery;

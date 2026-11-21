@@ -29,7 +29,8 @@ test("a first admin signs in with the setup link and sees the shell", async ({ p
   await page.locator("[data-part='account-menu']").click();
   await page.getByRole("menuitem", { name: "Administration" }).click();
   await page.getByRole("link", { name: "Plugins", exact: true }).click();
-  await expect(page.locator("[data-part='view-header']")).toContainText("Plugins");
+  // The page names its tab; the sidebar shows where it is.
+  await expect(page.locator("[data-part='tab-strip-tab'][data-active]")).toContainText("Plugins");
   await page.getByRole("button", { name: "Install plugin" }).first().click();
   await expect(page.getByRole("dialog")).toBeVisible();
 });

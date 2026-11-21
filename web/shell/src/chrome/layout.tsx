@@ -1,36 +1,74 @@
-// The chrome around every page: the shared sidebar, the frame the page sits in,
+// The chrome around every page: the shared sidebar, the workbench of page tabs,
 // the quiet status bar and the toasts. There is no bar across the top on a
-// desktop: the frame starts at the top, and each page keeps its path and
+// desktop: the frames start at the top, and each page keeps its path and
 // actions in its own header. On a phone the sidebar is a drawer behind the top
 // bar's button.
 //
-// The space the address is in scopes the client's calls. The page is drawn
-// afresh when the address moves into another space or out of one, and the
-// client is scoped before the page asks anything.
-import { For, Loading, createEffect, createSignal, onSettled, untrack } from "solid-js";
+// The browser's address is the focused tab's: a tab that moves moves the
+// address, and an address that moves (the sidebar, the back button) moves the
+// focused tab. The space the address is in scopes the client's own calls, the
+// sidebar's and the plugins'; each tab's page has a client scoped to its own.
+import { For, createEffect, createMemo, createSignal, onSettled, untrack } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { useLocation, useNavigate } from "@solidjs/router";
-import { AppShell, Frame, IconButton, LinkProvider, Skeleton, ToastRegion } from "@aiviarium/nocturne";
+import { AppShell, IconButton, LinkProvider, ToastRegion } from "@aiviarium/nocturne";
 
 import { overlays } from "../pages/index.ts";
 import { activateHalves } from "../plugins.ts";
-import { useShell } from "../shell.tsx";
+import { ShellContext, useShell } from "../shell.tsx";
 import { ChromeContext, type Chrome } from "./context.ts";
 import type { LevelRef } from "./levels.ts";
 import { Sidebar } from "./sidebar.tsx";
 import { useStatusBar } from "./status-bar.tsx";
+import { createWorkbench } from "./workbench.ts";
+import { WorkbenchView } from "./workbench-view.tsx";
 
 /** WIDTH_KEY and HIDDEN_KEY are where the browser keeps the sidebar's width and whether it is hidden. */
 const WIDTH_KEY = "rookery-sidebar-width";
 const HIDDEN_KEY = "rookery-sidebar-hidden";
 
 /** ShellLayout is the chrome the signed-in shell draws around its pages. */
-export function ShellLayout(props: { children?: JSX.Element }): JSX.Element {
+export function ShellLayout(): JSX.Element {
   const shell = useShell();
   const navigate = useNavigate();
   const location = useLocation();
   const started = new Set<string>();
   shell.spaces.follow(() => location.pathname);
+  const here = () => `${location.pathname}${location.search}`;
+  const workbench = createWorkbench(untrack(here));
+
+  // The addresses the workbench sent the browser to, oldest first. The address
+  // router commits a move later, so one of these can arrive after the tab moved
+  // on; it is the workbench's own echo, not a move of the address.
+  let sent: string[] = [];
+  // An address that moves takes the focused tab with it.
+  createEffect(here, (address, previous) => {
+    // The first run is the address the workbench started from, which it shows.
+    if (previous === undefined) return;
+    const echo = sent.indexOf(address);
+    if (echo >= 0) {
+      sent = sent.slice(echo + 1);
+      return;
+    }
+    const id = untrack(workbench.focused);
+    if (untrack(() => workbench.tab(id)?.path) !== address) workbench.go(id, address);
+  });
+  // A tab that moves takes the address with it; a tab that takes the focus
+  // replaces the address, so the back button goes back in a tab, not across them.
+  const focusedPath = createMemo(() => workbench.tab(workbench.focused())?.path);
+  createEffect(
+    () => ({ id: workbench.focused(), path: focusedPath() }),
+    (next, previous) => {
+      if (next.path === undefined || next.path === untrack(here)) return;
+      sent = [...sent.slice(-15), next.path];
+      navigate(next.path, { replace: previous === undefined || previous.id !== next.id });
+    },
+  );
+  // The sidebar's and the plugins' calls are in the focused tab's space.
+  createEffect(
+    () => shell.spaces.current(),
+    (space) => shell.spaces.scope(space),
+  );
 
   const [width, setWidth] = createSignal(Number(read(WIDTH_KEY)) || 240);
   const [hidden, setHidden] = createSignal(read(HIDDEN_KEY) === "true");
@@ -55,7 +93,11 @@ export function ShellLayout(props: { children?: JSX.Element }): JSX.Element {
 
   onSettled(() => {
     shell.setRouterNavigation((path) => navigate(path));
-    return () => shell.setRouterNavigation(undefined);
+    shell.setTabOpener((path, place) => workbench.open(path, { edge: place?.edge }));
+    return () => {
+      shell.setRouterNavigation(undefined);
+      shell.setTabOpener(undefined);
+    };
   });
 
   // A half starts once, when it has loaded: `start` is where it registers what
@@ -75,7 +117,15 @@ export function ShellLayout(props: { children?: JSX.Element }): JSX.Element {
       <ChromeContext value={chrome}>
         <AppShell
           fill
-          sidebar={<Sidebar />}
+          sidebar={
+            <For each={[shell.spaces.current()]}>
+              {(space) => (
+                <ShellContext value={{ ...shell, rookery: shell.rookery.inSpace(space) }}>
+                  <Sidebar />
+                </ShellContext>
+              )}
+            </For>
+          }
           sidebarLabel="Navigation"
           sidebarWidth={width()}
           onSidebarResize={(next) => {
@@ -94,16 +144,7 @@ export function ShellLayout(props: { children?: JSX.Element }): JSX.Element {
           }
           statusbar={statusbar()}
         >
-          <Frame flush class="shell-frame">
-            <Loading fallback={<Skeleton width="40%" height="14px" />}>
-              <For each={[shell.spaces.current()]}>
-                {(space) => {
-                  shell.spaces.scope(untrack(() => space));
-                  return props.children;
-                }}
-              </For>
-            </Loading>
-          </Frame>
+          <WorkbenchView workbench={workbench} />
         </AppShell>
         <For each={[...overlays]}>{(Overlay) => <Overlay />}</For>
         <ToastRegion />

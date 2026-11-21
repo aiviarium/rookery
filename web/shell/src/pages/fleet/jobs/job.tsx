@@ -121,7 +121,7 @@ export function JobView(props: JobViewProps): JSX.Element {
     <View
       id="job"
       crumbs={props.crumbs?.(title()) ?? [{ label: "Jobs", href: "/jobs" }, { label: title() }]}
-      context={<Show when={job()}>{(shown) => <State status={jobState(shown().state).tone}>{jobState(shown().state).label}</State>}</Show>}
+      context={job() === undefined ? undefined : <State status={jobState(job()!.state).tone}>{jobState(job()!.state).label}</State>}
       actions={[
         ...(jobActive(job())
           ? [{ id: "cancel", label: cancel.busy() ? "Cancelling…" : "Cancel job", icon: "close" as const, disabled: cancel.busy(), onClick: () => void cancel.run() }]

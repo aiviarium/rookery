@@ -9,11 +9,17 @@ import type {
   ProvisionerEntry,
   ProvisionerResource,
   ProvisionerType,
+  Terminal,
 } from "@rookery/proto";
 import { HostType } from "@rookery/proto";
 
 import { STATIC_USER, fakeClient } from "./fakes.ts";
 import { mount } from "./mount.tsx";
+
+/** shownTab is the name of the tab the workbench shows: the page's own. */
+function shownTab(): string | undefined {
+  return document.querySelector("[data-part=dock] [data-part=tab-strip-tab][data-active]")?.textContent?.trim();
+}
 
 /** studio is a managed host whose profile is applied and current. */
 const STUDIO = {
@@ -53,7 +59,7 @@ describe("the hosts page", () => {
       expect(view.find("tr[data-row-id='forge']")?.textContent).toContain("Not set up");
 
       await view.click("tr[data-row-id='studio']");
-      expect(view.find("[data-part='view-header']")?.textContent).toContain("studio");
+      expect(shownTab()).toContain("studio");
       // Inside a host the sidebar holds its places.
       expect(view.find(".shell-sidebar a[href='/hosts/studio/profile']")?.textContent).toContain("Profile");
       // A DOM without layout has no room for the details beside the overview, so they open over it.
@@ -78,7 +84,7 @@ describe("the hosts page", () => {
       await view.submit();
 
       expect(site.hosts.map((host) => host.name)).toEqual(["builder"]);
-      expect(view.find("[data-part='view-header']")?.textContent).toContain("builder");
+      expect(shownTab()).toContain("builder");
     } finally {
       view.unmount();
     }
@@ -104,14 +110,13 @@ describe("a host's overview", () => {
       // Rookery is left out: back already names it.
       expect(view.find("[data-part='sidebar-path']")?.textContent).not.toContain("Rookery");
       expect(view.find("[data-part='sidebar-switcher']")?.textContent).toContain("studio");
-      expect(view.find("[data-part='view-header'] [data-part='crumb-switcher']")?.textContent).toContain("studio");
+      expect(view.find(".shell-sidebar [data-part='sidebar-switcher']")?.textContent).toContain("studio");
       // The row's play button runs the action; there is no second Run button.
       const row = view.find("[data-host-action='update']");
       expect([...(row?.querySelectorAll("button") ?? [])].some((button) => button.textContent?.trim() === "Run")).toBe(false);
       await view.click("[data-host-action='update'] [data-part='run-action']");
       expect(location.pathname).toBe("/hosts/studio/jobs/01hjob");
       expect(view.find(".shell-sidebar a[href='/hosts/studio/jobs']")?.getAttribute("aria-current")).toBe("page");
-      expect(view.find("[data-part='view-header']")?.textContent).toContain("Jobs");
     } finally {
       view.unmount();
     }
@@ -250,6 +255,26 @@ describe("the terminals page", () => {
         (select) => select.querySelector(".nc-field__label")?.textContent === "Host",
       );
       expect(host?.querySelector("button")?.textContent).toContain("studio");
+    } finally {
+      view.unmount();
+    }
+  });
+});
+
+describe("a host's terminal place", () => {
+  test("lists the running terminals, each opening alone in the tab, and leaves out the ended ones", async () => {
+    const terminals = [
+      { host: "studio", session: { id: "01hterm", user: "ops", command: "/bin/bash", running: true } },
+      { host: "studio", session: { id: "01hgone", user: "ops", command: "/bin/zsh", running: false, exitCode: 0 } },
+    ] as unknown as Terminal[];
+    const view = await mount(fakeClient({ user: STATIC_USER, hosts: [STUDIO], terminals }), undefined, "/hosts/studio/terminal");
+    try {
+      const rows = view.findAll("[data-terminal]");
+      expect(rows.map((row) => row.getAttribute("data-terminal"))).toEqual(["01hterm"]);
+      expect(rows[0]?.textContent).toContain("ops · bash");
+      expect(view.find("a[href='/hosts/studio/terminal?attach=01hterm']")).not.toBeNull();
+      // The tab is named after the place.
+      expect(view.find("[data-part=dock] [role=tab]")?.textContent).toContain("Terminal");
     } finally {
       view.unmount();
     }

@@ -28,6 +28,7 @@ import {
   SettingService,
   SpaceService,
   TailnetService,
+  TerminalService,
   UserService,
 } from "@rookery/proto";
 import type {
@@ -57,6 +58,7 @@ import type {
   Setting,
   Space,
   TailnetDevice,
+  Terminal,
   User,
 } from "@rookery/proto";
 
@@ -67,6 +69,8 @@ const TEST_AT = create(TimestampSchema, { seconds: 1_700_000_000n });
 export interface FakeSite {
   /** user is who is signed in, or undefined for nobody. */
   user?: User;
+  /** terminals are the shells running on the hosts. */
+  terminals?: Terminal[];
   spaces?: Space[];
   spaceKinds?: { id: string; label: string; plugin: string }[];
   plugins?: Plugin[];
@@ -236,6 +240,14 @@ export function fakeTransport(site: FakeSite): Transport {
       remove(request) {
         const at = registries.findIndex((registry) => registry.name === request.name);
         if (at >= 0) registries.splice(at, 1);
+        return {};
+      },
+    });
+
+    router.service(TerminalService, {
+      list: (request) => ({ terminals: (site.terminals ?? []).filter((one) => one.host === request.host) }),
+      close: (request) => {
+        site.terminals = (site.terminals ?? []).filter((one) => one.session?.id !== request.id);
         return {};
       },
     });

@@ -77,7 +77,7 @@ function RolloutView(props: { id: string }): JSX.Element {
     <View
       id="rollout"
       crumbs={[{ label: "Roll-outs", href: "/rollouts" }, { label: rollout() === undefined ? id.slice(0, 10) : rolloutTitle(rollout()!) }]}
-      context={<Show when={state()}>{(shown) => <State status={shown().tone}>{shown().label}</State>}</Show>}
+      context={state() === undefined ? undefined : <State status={state()!.tone}>{state()!.label}</State>}
       actions={actions()}
       error={failure()}
       aside={<Show when={rollout()}>{(current) => <Progress rollout={current()} />}</Show>}

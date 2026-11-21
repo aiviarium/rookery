@@ -73,7 +73,7 @@
       "name": "@rookery/shell",
       "version": "0.1.0",
       "dependencies": {
-        "@aiviarium/nocturne": "github:aiviarium/nocturne#94f5568d95a3f373d998a4babde4225ccf76ea69",
+        "@aiviarium/nocturne": "github:aiviarium/nocturne#299af853af0bdb32bc4add6758b3673ce8f728ea",
         "@novnc/novnc": "^1.7.0",
         "@rookery/client": "workspace:*",
         "@rookery/proto": "workspace:*",
@@ -100,7 +100,7 @@
     },
   },
   "packages": {
-    "@aiviarium/nocturne": ["@aiviarium/nocturne@github:aiviarium/nocturne#94f5568", { "dependencies": { "@ui-sdk/core": "0.1.0-beta.13", "@ui-sdk/solid": "0.1.0-beta.13", "lib0": "^0.2.120", "markdown-it": "^15.0.3", "prosemirror-commands": "^1.7.2", "prosemirror-dropcursor": "^1.8.4", "prosemirror-gapcursor": "^1.4.1", "prosemirror-history": "^1.5.1", "prosemirror-inputrules": "^1.6.0", "prosemirror-keymap": "^1.2.3", "prosemirror-model": "^1.25.13", "prosemirror-schema-list": "^1.6.0", "prosemirror-state": "^1.4.4", "prosemirror-tables": "^1.8.5", "prosemirror-transform": "^1.12.5", "prosemirror-view": "^1.42.9", "y-prosemirror": "^1.3.7", "y-protocols": "^1.0.7", "yjs": "^13.6.33" }, "peerDependencies": { "@solidjs/web": "^2.0.0", "solid-js": "^2.0.0" } }, "aiviarium-nocturne-94f5568", "sha512-hQm508pDN40eeUhoizQPpP6Vo2H1AGj2FfS1u7Td3jOsqj8oUCDHlpqcyKqiokyuRD69YsLea6cwd2AgySb6ag=="],
+    "@aiviarium/nocturne": ["@aiviarium/nocturne@github:aiviarium/nocturne#299af85", { "dependencies": { "@ui-sdk/core": "0.1.0-beta.13", "@ui-sdk/solid": "0.1.0-beta.13", "lib0": "^0.2.120", "markdown-it": "^15.0.3", "prosemirror-commands": "^1.7.2", "prosemirror-dropcursor": "^1.8.4", "prosemirror-gapcursor": "^1.4.1", "prosemirror-history": "^1.5.1", "prosemirror-inputrules": "^1.6.0", "prosemirror-keymap": "^1.2.3", "prosemirror-model": "^1.25.13", "prosemirror-schema-list": "^1.6.0", "prosemirror-state": "^1.4.4", "prosemirror-tables": "^1.8.5", "prosemirror-transform": "^1.12.5", "prosemirror-view": "^1.42.9", "y-prosemirror": "^1.3.7", "y-protocols": "^1.0.7", "yjs": "^13.6.33" }, "peerDependencies": { "@solidjs/web": "^2.0.0", "solid-js": "^2.0.0" } }, "aiviarium-nocturne-299af85", "sha512-Gt29AI9oy1OmtL6DJZjZXSc0rLHq/zs0xHBn0Wu0ni9PJoYu3xPXPMn8KzIDhr+1Ge0p7ZtQm52TI5n/pj/5tQ=="],
 
     "@ampproject/remapping": ["@ampproject/remapping@2.3.0", "", { "dependencies": { "@jridgewell/gen-mapping": "^0.3.5", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw=="],
 

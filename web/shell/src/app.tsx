@@ -30,7 +30,7 @@ export function App(props: AppProps): JSX.Element {
           </div>
         </Match>
         <Match when={shell.signIn().status === "signed-in"}>
-          <Router>{content => <ShellLayout>{content.children}</ShellLayout>}</Router>
+          <Router>{() => <ShellLayout />}</Router>
         </Match>
         <Match when={true}>
           <SignIn />

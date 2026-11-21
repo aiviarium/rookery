@@ -17,6 +17,12 @@ export interface ViewProps {
   readonly back?: ViewCrumb;
   /** context is a short state beside the path, such as a host's state. */
   readonly context?: JSX.Element;
+  /**
+   * bar is what the page shows in its header's row beside the actions, such as
+   * a switch between views and where in them the page is, so the page has one
+   * bar rather than a header over a toolbar.
+   */
+  readonly bar?: JSX.Element;
   /** actions are the page's, in Nocturne's order: icons, overflow, then the primary one. */
   readonly actions?: ViewAction[];
   /** error is a failure that stops the page from showing what it holds. */
@@ -37,7 +43,11 @@ export function View(props: ViewProps): JSX.Element {
   return (
     <ViewLayout
       id={props.id}
-      header={<ViewHeader crumbs={props.crumbs} back={props.back} context={props.context} actions={props.actions} noPin />}
+      header={
+        <ViewHeader crumbs={props.crumbs} back={props.back} context={props.context} actions={props.actions} noPin>
+          {props.bar}
+        </ViewHeader>
+      }
       aside={props.aside}
       asideLabel={props.asideLabel}
       reading={props.reading}

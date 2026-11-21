@@ -2,24 +2,12 @@
    themselves. Every colour is a token; no literal ones. */
 
 @layer app {
-  /* A host's terminals: the host column, then the tabs over the panes. */
-  .shell-terminals-layout {
-    display: grid;
-    grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
-    gap: var(--space-3);
-    align-items: start;
-    min-height: 0;
-  }
-
-  /* The host's terminals fill the view, tiled in Nocturne's Dock. */
-  .shell-terminals {
+  /* One terminal fills its tab's view. */
+  .shell-terminal {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
     min-height: 320px;
-  }
-
-  /* In a dock frame the frame is the edge: the terminal draws no second one. */
-  .shell-terminals .infra-terminal {
-    border: 0;
-    border-radius: 0;
   }
 
   .infra-terminal {
@@ -90,12 +78,13 @@
   }
 }
 
-/* Files: whose files they are, then the directory as a path of buttons. */
+/* Files, in the header's row: whose files they are, up, then the directory as a path of buttons. */
 .shell-toolbar {
   display: flex;
-  flex-wrap: wrap;
+  flex: 1;
   align-items: center;
-  gap: var(--space-2) var(--space-3);
+  gap: var(--space-2);
+  min-width: 0;
 }
 
 .shell-path {
