@@ -25,7 +25,32 @@ collections:
 database: sql
 
 spaceKinds: [{ id: notebook, label: Notebook }]
-settings: { greeting: { type: string, default: hello, scopes: [global, user] } }
+settings:
+  greeting:
+    type: string
+    default: hello
+    scopes: [global, user]
+    title: Greeting
+    description: The word a new note starts with.
+    category: Notes
+  sort:
+    type: string
+    default: newest
+    scopes: [global, space, user]
+    title: Sort notes by
+    description: The order the notes list shows.
+    category: Notes
+    choices: [newest, oldest, title]
+  reindex_batch:
+    type: int
+    default: 100
+    scopes: [global]
+    title: Reindex batch
+    description: How many notes a reindex job reads at a time.
+    category: Jobs
+    minimum: 10
+    maximum: 1000
+    unit: notes
 secrets: [example_token]
 connectionTypes: [{ id: notes-api, fields: { url: {}, token: { secret: true } }, test: true }]
 jobs: [{ kind: reindex, enqueue: { level: manage, resource: space }, timeout: 10m, retries: 3 }]
