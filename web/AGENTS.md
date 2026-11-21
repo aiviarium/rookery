@@ -75,6 +75,10 @@ The pages keep to the same rules:
   button on the row.
 * Refresh is in the overflow menu.
 * What the person may not change is not shown.
+* Several things of one kind side by side, such as a host's terminals, are
+  Nocturne's `Dock`: tiled frames with tabs, split by their buttons or by
+  dropping a tab on a frame's side. The dock is the page's content, never a
+  tab section inside it, and its layout is kept on the device.
 * Every page fills the main column, left-aligned: lists, forms, settings and
   logs alike. `reading` is for long prose only, such as a document's body.
 * A row's leading icon that looks pressable is: an action's play icon is the

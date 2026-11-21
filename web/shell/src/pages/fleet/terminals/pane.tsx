@@ -153,11 +153,13 @@ export function TerminalPane(props: { id: string; active: boolean }): JSX.Elemen
     };
   });
 
-  // A tab that comes back fits again: it had no size while it was hidden.
+  // A tab that comes back fits again: it had no size while it was hidden. Only
+  // a tab that was hidden takes the focus, so two panes in view never pass it
+  // back and forth.
   createEffect(
     () => props.active,
-    (active) => {
-      if (!active) return;
+    (active, previous) => {
+      if (!active || previous === true) return;
       queueMicrotask(() => {
         if (term === undefined || fit === undefined) return;
         try {
