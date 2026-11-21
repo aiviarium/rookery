@@ -43,7 +43,7 @@ export function View(props: ViewProps): JSX.Element {
       reading={props.reading}
       scroll={props.scroll}
     >
-      <div class="shell-view" data-view={props.id}>
+      <div class={props.scroll === false ? "shell-view shell-view--fill" : "shell-view"} data-view={props.id}>
         <Show when={props.error}>{(message) => <Callout tone="danger">{message()}</Callout>}</Show>
         {props.children}
       </div>

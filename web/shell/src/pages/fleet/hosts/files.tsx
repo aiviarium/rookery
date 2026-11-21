@@ -135,7 +135,7 @@ export function HostFilesPage(): JSX.Element {
           value={account()}
           onChange={(chosen) => setSearch({ as: chosen === "operator" ? undefined : chosen, path: undefined })}
         />
-        <nav class="shell-path nc-code" aria-label="Directory">
+        <nav class="shell-path nc-mono" aria-label="Directory">
           <For each={segmentsOf(path())}>
             {(segment, index) => (
               <>
@@ -167,8 +167,8 @@ export function HostFilesPage(): JSX.Element {
                   <ListRow
                     data-file={entry.path}
                     icon={entry.dir ? "folder" : "file"}
-                    title={<span class="nc-code">{entry.dir ? `${entry.name}/` : entry.name}</span>}
-                    detail={entry.mode === 0 ? undefined : <span class="nc-code">0{entry.mode.toString(8)}</span>}
+                    title={<span class="nc-mono">{entry.dir ? `${entry.name}/` : entry.name}</span>}
+                    detail={entry.mode === 0 ? undefined : <span class="nc-mono">0{entry.mode.toString(8)}</span>}
                     meta={
                       <span class="nc-meta">
                         {entry.dir ? "" : `${bytesSize(Number(entry.size))} · `}
