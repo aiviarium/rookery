@@ -17,7 +17,7 @@ import { RowActions } from "../../../parts/row-actions.tsx";
 import { View } from "../../../parts/view.tsx";
 import { useShell } from "../../../shell.tsx";
 import { bytesSize, dateOf, relativeTime } from "../format.ts";
-import { hostCrumbs, useHost } from "./domain.tsx";
+import { useHost } from "./domain.tsx";
 
 type Account = "operator" | "desktop" | "root";
 
@@ -108,7 +108,7 @@ export function HostFilesPage(): JSX.Element {
   return (
     <View
       id="host-files"
-      crumbs={hostCrumbs(domain.name(), "Files")}
+      crumbs={domain.crumbs("Files")}
       actions={[
         { id: "up", label: "Up a directory", icon: "chevron-left", disabled: path() === "", onClick: () => go(parentOf(path())) },
         { id: "upload", label: send.busy() ? "Uploading…" : "Upload", icon: "upload", disabled: send.busy(), onClick: () => upload?.click() },

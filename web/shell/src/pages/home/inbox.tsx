@@ -41,7 +41,6 @@ export function InboxPage(): JSX.Element {
     <View
       id="inbox"
       crumbs={[{ label: "Inbox" }]}
-      reading
       actions={[
         ...(unread() > 0 ? [{ id: "read", label: "Mark all read", icon: "check" as const, disabled: markAll.busy(), onClick: () => void markAll.run() }] : []),
         { id: "refresh", label: "Check again", icon: "refresh-cw", overflow: true, onClick: () => void shell.notifications.refresh() },

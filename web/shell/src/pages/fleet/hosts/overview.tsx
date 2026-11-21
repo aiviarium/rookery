@@ -16,7 +16,7 @@ import { useShell } from "../../../shell.tsx";
 import { dateOf, hostIssue, hostTypeLabel, relativeTime } from "../format.ts";
 import { JobRows, jobPath } from "../jobs/rows.tsx";
 import { HostActions } from "./actions.tsx";
-import { hostCrumbs, useHost } from "./domain.tsx";
+import { useHost } from "./domain.tsx";
 import { hostPath, hostResource } from "./paths.ts";
 
 /** HostOverview is the first of a host's places. */
@@ -34,7 +34,7 @@ export function HostOverview(): JSX.Element {
   const apply = createAction(
     async () => {
       const started = await shell.rookery.hosts.apply({ name: domain.name() });
-      shell.navigate(jobPath(started.job));
+      shell.navigate(jobPath(started.job, domain.name()));
     },
     { failed: "The apply did not start" },
   );
@@ -46,10 +46,10 @@ export function HostOverview(): JSX.Element {
   return (
     <View
       id="host-overview"
-      crumbs={hostCrumbs(domain.name())}
+      crumbs={domain.crumbs()}
       context={<Show when={issue()}>{(shown) => <State status={shown().tone}>{shown().label}</State>}</Show>}
       actions={[
-        { id: "apply", label: "Apply profile", icon: "play", disabled: apply.busy() || domain.host() === undefined, onClick: () => void apply.run() },
+        { id: "apply", label: apply.busy() ? "Applying…" : "Apply profile", primary: true, disabled: apply.busy() || domain.host() === undefined, onClick: () => void apply.run() },
         { id: "rename", label: "Rename", icon: "edit", overflow: true, onClick: () => setRenaming(true) },
         { id: "remove", label: "Remove", icon: "trash", overflow: true, danger: true, onClick: () => setRemoving(true) },
       ]}
@@ -63,7 +63,7 @@ export function HostOverview(): JSX.Element {
             <HostActions host={host().name} actions={actions()?.actions ?? []} />
             <Show when={(jobs()?.jobs.length ?? 0) > 0}>
               <Card title="Jobs" padding="none" action={<a class="shell-link nc-meta" href={hostPath(host().name, "jobs")}>All</a>}>
-                <JobRows jobs={jobs()?.jobs} label={`Jobs on ${host().name}`} empty={{ title: "No jobs" }} />
+                <JobRows jobs={jobs()?.jobs} label={`Jobs on ${host().name}`} host={host().name} empty={{ title: "No jobs" }} />
               </Card>
             </Show>
           </>

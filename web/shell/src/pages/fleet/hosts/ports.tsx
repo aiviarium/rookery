@@ -13,7 +13,7 @@ import { createAction } from "../../../parts/action.ts";
 import { FormDialog } from "../../../parts/dialogs.tsx";
 import { RowActions } from "../../../parts/row-actions.tsx";
 import { View } from "../../../parts/view.tsx";
-import { hostCrumbs, useHost } from "./domain.tsx";
+import { useHost } from "./domain.tsx";
 
 /** PortForward is one saved port on a host. */
 export interface PortForward {
@@ -85,7 +85,7 @@ export function HostPortsPage(): JSX.Element {
   return (
     <View
       id="host-ports"
-      crumbs={hostCrumbs(domain.name(), "Ports")}
+      crumbs={domain.crumbs("Ports")}
       actions={[{ id: "add", label: "Add port", icon: "plus", onClick: () => setAdding(true) }]}
     >
       <Card padding="none">

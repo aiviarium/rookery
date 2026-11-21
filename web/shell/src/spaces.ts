@@ -28,6 +28,15 @@ export interface Spaces {
   scope(id: string): void;
   /** refresh reads the list again, after a space was made, renamed or archived. */
   refresh(): Promise<void>;
+  /** switcher is a menu of the spaces for the current one's crumb; picking one keeps the place in it. */
+  switcher(navigate: (to: string) => void): SpaceSwitcher | undefined;
+}
+
+/** SpaceSwitcher is the menu a crumb opens to move to another space. */
+export interface SpaceSwitcher {
+  label: string;
+  items: Array<{ id: string; label: string; checked: boolean }>;
+  onSelect: (id: string) => void;
 }
 
 /** spacePath is the address of one of a space's places. */
@@ -77,6 +86,17 @@ export function createSpaces(rookery: Rookery): Spaces {
     },
     scope: (id) => rookery.setSpace(id),
     refresh,
+    switcher: (navigate) => {
+      const id = current();
+      if (id === "") return undefined;
+      return {
+        label: "Switch space",
+        items: list().map((space) => ({ id: space.id, label: space.name, checked: space.id === id })),
+        onSelect: (other) => {
+          if (other !== id) navigate(spacePath(other) + path().slice(spacePath(id).length));
+        },
+      };
+    },
   };
 }
 
@@ -84,8 +104,13 @@ export function createSpaces(rookery: Rookery): Spaces {
  * inSpace puts what holds a page before its crumbs: the space the address is
  * in, or Administration, which holds the same pages for every space at once.
  */
-export function inSpace(spaces: Spaces, crumbs: Array<{ label: string; href?: string; onClick?: () => void }>) {
+export function inSpace(
+  spaces: Spaces,
+  crumbs: Array<{ label: string; href?: string; onClick?: () => void }>,
+  navigate?: (to: string) => void,
+) {
   const id = spaces.current();
   if (id === "") return [{ label: "Administration", href: "/admin" }, ...crumbs];
-  return [{ label: spaces.currentSpace()?.name ?? "Space", href: spacePath(id) }, ...crumbs];
+  const switcher = navigate === undefined ? undefined : spaces.switcher(navigate);
+  return [{ label: spaces.currentSpace()?.name ?? "Space", href: spacePath(id), switcher }, ...crumbs];
 }

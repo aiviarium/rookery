@@ -3,21 +3,32 @@
 // The level is the deepest one that holds the page, unless the person drilled
 // the sidebar by hand since the page opened. Each level draws its own header
 // and places with LevelSidebar.
-import { For, createMemo, untrack } from "solid-js";
+import { For, createContext, createMemo, untrack, useContext } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Dynamic } from "@solidjs/web";
 import { useLocation } from "@solidjs/router";
-import { type IconName, type MenuEntry, Nav, type NavItemProps, SidebarHeader } from "@aiviarium/nocturne";
+import { cbor } from "@rookery/client";
+import { type IconName, type MenuEntry, Nav, type NavItemProps, type PathShow, SidebarHeader } from "@aiviarium/nocturne";
 
 import { levels } from "../pages/index.ts";
+import { createLive } from "../parts/data.ts";
 import { useShell } from "../shell.tsx";
 import { AccountMenu } from "./account-menu.tsx";
 import { useChrome } from "./context.ts";
 import { type LevelRef, TOP, resolveLevel, sameLevel } from "./levels.ts";
 import { TopSidebar } from "./top.tsx";
 
+/** SIDEBAR_PATH is the person's setting for how much of the way down the sidebar's head shows. */
+export const SIDEBAR_PATH = "rookery/sidebar_path";
+
+/** PathLength is that setting: the levels each level chose, or all of them. */
+export type PathLength = "short" | "full";
+
+const PathLengthContext = createContext<() => PathLength>(() => "short");
+
 /** Sidebar is the shell's navigation at the level the page or the person chose. */
 export function Sidebar(): JSX.Element {
+  const shell = useShell();
   const chrome = useChrome();
   const location = useLocation();
   const atPage = createMemo(() => resolveLevel(levels, location.pathname));
@@ -27,7 +38,19 @@ export function Sidebar(): JSX.Element {
     const level = shown();
     return `${level.id}:${JSON.stringify(level.params ?? {})}`;
   };
+  // Read again as the level changes, so a change on the settings page shows once the person moves on.
+  const setting = createLive(() => shell.rookery.settings.get({ key: SIDEBAR_PATH }).catch(() => undefined), { key });
+  const length = (): PathLength => {
+    const raw = setting()?.setting?.valueCbor;
+    if (raw === undefined || raw.length === 0) return "short";
+    try {
+      return cbor.decode<string>(raw) === "full" ? "full" : "short";
+    } catch {
+      return "short";
+    }
+  };
   return (
+    <PathLengthContext value={length}>
     <div class="shell-sidebar" data-part="shell-sidebar">
       <div class="shell-sidebar__body">
         <For each={[key()]}>
@@ -44,6 +67,7 @@ export function Sidebar(): JSX.Element {
         <AccountMenu />
       </div>
     </div>
+    </PathLengthContext>
   );
 }
 
@@ -72,6 +96,13 @@ export interface SidebarGroup {
 export interface LevelSidebarProps {
   /** back is the level above, named for the button. Absent at the top. */
   readonly back?: { label: string; to: LevelRef };
+  /**
+   * path is the levels above, from the top, shown before the title as
+   * `Fleet / build-01`. Each says how it shows by default: in the row, in the
+   * `…` menu, or left out, as the top is, since back already names it. A
+   * person whose setting asks for the full path sees every level in the row.
+   */
+  readonly path?: ReadonlyArray<{ label: string; to: LevelRef; show?: PathShow }>;
   /** title is the level, such as the host's name. */
   readonly title: string;
   readonly mark?: JSX.Element;
@@ -85,6 +116,7 @@ export interface LevelSidebarProps {
 /** LevelSidebar draws a level: its header with back and its switcher, then its places. */
 export function LevelSidebar(props: LevelSidebarProps): JSX.Element {
   const chrome = useChrome();
+  const length = useContext(PathLengthContext);
   const groups = () =>
     props.groups
       .filter((group) => group.items.length > 0 || group.action !== undefined)
@@ -114,6 +146,11 @@ export function LevelSidebar(props: LevelSidebarProps): JSX.Element {
         title={props.title}
         mark={props.mark}
         back={props.back === undefined ? undefined : { to: props.back.label, onClick: () => chrome.drill(props.back!.to) }}
+        path={(props.path ?? []).map((level) => ({
+          label: level.label,
+          show: length() === "full" ? "inline" : (level.show ?? "inline"),
+          onClick: () => chrome.drill(level.to),
+        }))}
         switcher={props.switcher}
       />
       <Nav label={props.label} groups={groups()} />
@@ -140,7 +177,8 @@ export function useSiblings(options: {
   const chrome = useChrome();
   return () => {
     const items = options.items();
-    if (items.length < 2) return undefined;
+    // A place of a kind always has its switcher, even while it is the only one.
+    if (items.length === 0) return undefined;
     return {
       label: options.label,
       items: items.map((item) => ({ id: item.id, label: item.label, description: item.description, checked: item.id === options.current() })),

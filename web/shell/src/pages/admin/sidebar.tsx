@@ -41,5 +41,5 @@ export function AdminSidebar(_props: LevelProps): JSX.Element {
       items: shell.plugins.adminPages().map((page) => place(page.label, adminPluginPath(page.plugin, page.id), "puzzle")),
     },
   ];
-  return <LevelSidebar label="Administration" title="Administration" back={{ label: "Rookery", to: { id: TOP } }} groups={groups()} />;
+  return <LevelSidebar label="Administration" title="Administration" back={{ label: "Rookery", to: { id: TOP } }} path={[{ label: "Rookery", to: { id: TOP }, show: "hidden" }]} groups={groups()} />;
 }

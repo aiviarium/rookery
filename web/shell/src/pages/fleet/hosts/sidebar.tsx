@@ -6,7 +6,7 @@ import { useLocation } from "@solidjs/router";
 import { HostType } from "@rookery/proto";
 import { StatusDot } from "@aiviarium/nocturne";
 
-import type { LevelProps } from "../../../chrome/levels.ts";
+import { type LevelProps, TOP } from "../../../chrome/levels.ts";
 import { LevelSidebar, type SidebarEntry, useSiblings } from "../../../chrome/sidebar.tsx";
 import { createLive } from "../../../parts/data.ts";
 import { useShell } from "../../../shell.tsx";
@@ -60,6 +60,10 @@ export function HostSidebar(props: LevelProps): JSX.Element {
     <LevelSidebar
       label={`${name()}'s places`}
       back={{ label: "Fleet", to: { id: "fleet" } }}
+      path={[
+        { label: "Rookery", to: { id: TOP }, show: "hidden" },
+        { label: "Fleet", to: { id: "fleet" } },
+      ]}
       title={name()}
       mark={
         <span class="shell-host-mark">

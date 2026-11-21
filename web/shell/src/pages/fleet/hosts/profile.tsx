@@ -13,7 +13,7 @@ import { createAction } from "../../../parts/action.ts";
 import { View } from "../../../parts/view.tsx";
 import { useShell } from "../../../shell.tsx";
 import { jobPath } from "../jobs/rows.tsx";
-import { hostCrumbs, useHost } from "./domain.tsx";
+import { useHost } from "./domain.tsx";
 
 /** FeatureDraft is one feature row, with its variables as JSON. */
 interface FeatureDraft {
@@ -86,7 +86,7 @@ export function HostProfilePage(): JSX.Element {
   return (
     <Show
       when={domain.host() !== undefined}
-      fallback={<View id="host-profile" crumbs={hostCrumbs(domain.name(), "Profile")} />}
+      fallback={<View id="host-profile" crumbs={domain.crumbs("Profile")} />}
     >
       <ProfileForm host={untrack(() => domain.host()!)} />
     </Show>
@@ -143,7 +143,7 @@ function ProfileForm(props: { host: Host }): JSX.Element {
 
   const apply = createAction(async () => {
     const started = await shell.rookery.hosts.apply({ name: domain.name() });
-    shell.navigate(jobPath(started.job));
+    shell.navigate(jobPath(started.job, domain.name()));
   }, { failed: "The apply did not start" });
 
   const submit = () => {
@@ -163,8 +163,7 @@ function ProfileForm(props: { host: Host }): JSX.Element {
   return (
     <View
       id="host-profile"
-      crumbs={hostCrumbs(domain.name(), "Profile")}
-      reading
+      crumbs={domain.crumbs("Profile")}
       actions={[
         { id: "reset", label: "Discard changes", icon: "rotate-ccw", overflow: true, disabled: !dirty(), onClick: () => set(saved()) },
         {

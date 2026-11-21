@@ -6,11 +6,12 @@ import type { JSX } from "@solidjs/web";
 import type { Job } from "@rookery/proto";
 import { EmptyState, ListRow, RowList, Skeleton, State } from "@aiviarium/nocturne";
 
-import { dateOf, jobKindLabel, jobState, relativeTime, resourceLabel } from "../format.ts";
+import { dateOf, jobState, jobTitle, relativeTime, resourceLabel } from "../format.ts";
 
-/** jobPath is a job's page. */
-export function jobPath(id: string): string {
-  return `/jobs/${encodeURIComponent(id)}`;
+/** jobPath is a job's page: under its host when given, so the person stays in the host. */
+export function jobPath(id: string, host?: string): string {
+  const job = `jobs/${encodeURIComponent(id)}`;
+  return host === undefined ? `/${job}` : `/hosts/${encodeURIComponent(host)}/${job}`;
 }
 
 /** JobRowsProps are the rows and what to say without any. */
@@ -20,6 +21,8 @@ export interface JobRowsProps {
   /** resource shows what each job is about; a host's own list leaves it out. */
   readonly resource?: boolean;
   readonly empty: { title: string };
+  /** host opens each job under this host instead of under the fleet's jobs. */
+  readonly host?: string;
 }
 
 /** JobRows is a list of jobs, each a link to its page. */
@@ -38,8 +41,8 @@ export function JobRows(props: JobRowsProps): JSX.Element {
               return (
                 <ListRow
                   data-job={job().id}
-                  href={jobPath(job().id)}
-                  title={jobKindLabel(job().kind)}
+                  href={jobPath(job().id, props.host)}
+                  title={jobTitle(job())}
                   secondary={
                     props.resource && job().resource !== "" ? <span class="nc-mono">{resourceLabel(job().resource)}</span> : undefined
                   }

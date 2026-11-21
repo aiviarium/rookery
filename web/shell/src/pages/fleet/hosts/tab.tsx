@@ -8,7 +8,7 @@ import { EmptyState } from "@aiviarium/nocturne";
 import { HostTabMount } from "../../../plugin/mount.tsx";
 import { View } from "../../../parts/view.tsx";
 import { useShell } from "../../../shell.tsx";
-import { hostCrumbs, useHost } from "./domain.tsx";
+import { useHost } from "./domain.tsx";
 
 /** HostTabPage is a plugin's place on a host, at /hosts/:name/tab/:plugin/:tab. */
 export function HostTabPage(): JSX.Element {
@@ -18,7 +18,7 @@ export function HostTabPage(): JSX.Element {
   const entry = () =>
     shell.plugins.hostTabs().find((candidate) => candidate.plugin === params.plugin && candidate.id === params.tab);
   return (
-    <View id={`host-tab-${params.plugin}-${params.tab}`} crumbs={hostCrumbs(domain.name(), entry()?.label ?? params.tab ?? "")}>
+    <View id={`host-tab-${params.plugin}-${params.tab}`} crumbs={domain.crumbs(entry()?.label ?? params.tab ?? "")}>
       <Show
         when={entry()}
         fallback={

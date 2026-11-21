@@ -15,7 +15,7 @@ import { createLive } from "../../../parts/data.ts";
 import { View } from "../../../parts/view.tsx";
 import { useShell } from "../../../shell.tsx";
 import { TerminalPane } from "../terminals/pane.tsx";
-import { hostCrumbs, useHost } from "./domain.tsx";
+import { useHost } from "./domain.tsx";
 
 /** Account is who a new shell runs as on the host. */
 export type Account = "operator" | "desktop" | "root";
@@ -126,7 +126,7 @@ export function HostTerminalPage(): JSX.Element {
   ];
 
   return (
-    <View id="host-terminal" crumbs={hostCrumbs(domain.name(), "Terminal")} actions={actions()} scroll={false}>
+    <View id="host-terminal" crumbs={domain.crumbs("Terminal")} actions={actions()} scroll={false}>
       <Show when={listing.error()}>
         {(error) => <Callout tone="danger">{error().message}</Callout>}
       </Show>

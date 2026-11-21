@@ -269,6 +269,7 @@ export function fakeTransport(site: FakeSite): Transport {
         return { host, firstContact: "" };
       },
       listActions: () => ({ actions: site.actions ?? [] }),
+      runAction: () => ({ execution: { case: "job" as const, value: "01hjob" } }),
       apply: () => ({ job: "01hjob" }),
       rename: () => ({ host: site.hosts?.[0] }),
       setLabels: (request) => {

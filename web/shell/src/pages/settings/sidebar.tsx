@@ -37,5 +37,5 @@ export function SettingsSidebar(_props: LevelProps): JSX.Element {
       ),
   ];
 
-  return <LevelSidebar label="Settings" title="Settings" back={{ label: "Rookery", to: { id: TOP } }} groups={[{ items: items() }]} />;
+  return <LevelSidebar label="Settings" title="Settings" back={{ label: "Rookery", to: { id: TOP } }} path={[{ label: "Rookery", to: { id: TOP }, show: "hidden" }]} groups={[{ items: items() }]} />;
 }

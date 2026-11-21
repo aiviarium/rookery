@@ -98,7 +98,7 @@ export function SpaceSidebar(props: LevelProps): JSX.Element {
   return (
     <LevelSidebar
       label={`${name()}'s places`}
-      back={{ label: "Rookery", to: { id: TOP } }}
+      back={{ label: "Rookery", to: { id: TOP } }} path={[{ label: "Rookery", to: { id: TOP }, show: "hidden" }]}
       title={name()}
       mark={<Mark name={name()} hue="accent" decorative />}
       switcher={switcher()}
