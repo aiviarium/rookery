@@ -79,5 +79,5 @@ export function FleetSidebar(_props: LevelProps): JSX.Element {
       }),
     },
   ];
-  return <LevelSidebar label="Fleet" title="Fleet" back={{ label: "Rookery", to: { id: TOP } }} groups={groups()} />;
+  return <LevelSidebar label="Fleet" title="Fleet" back={{ label: "Rookery", to: { id: TOP } }} path={[{ label: "Rookery", to: { id: TOP }, show: "hidden" }]} groups={groups()} />;
 }

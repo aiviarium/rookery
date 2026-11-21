@@ -51,8 +51,9 @@ the sidebar toggle (pass `onSidebarHiddenChange`, never a view action), a
 level's `mark` is a `Mark`, and the account is Nocturne's `AccountMenu`.
 
 A drill row (›) moves the sidebar alone and leaves the page as it is. Back goes
-up a level. The sidebar's head shows the way down, as `Fleet / box1`: a level
-passes `path` to `LevelSidebar` when it is deeper than back's target. The
+up a level. The sidebar's head may show the way down, as `Fleet / box1`: a level
+passes `path` to `LevelSidebar` with the levels that help, and leaves out
+what adds nothing, such as Rookery itself, which back already names. The
 level's switcher moves to a sibling, such as another host, and keeps the place.
 A host or a space always has it, even while it is the only one, and its crumb in
 the page's header has the same switcher (`useHost().crumbs`, `spaceCrumbs`,

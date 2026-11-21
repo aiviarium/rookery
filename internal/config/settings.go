@@ -85,6 +85,11 @@ func CoreSettings() []Definition {
 			Title: "Notifications", Category: "General",
 			Description: "Whether the shell tells you when a job you started ends or a host needs attention.",
 		},
+		{
+			Key: "rookery/sidebar_path", Type: "string", Default: mustCBOR("short"), Scopes: []string{ScopeGlobal, ScopeUser},
+			Title: "Path in the sidebar", Category: "General", Choices: []string{"short", "full"},
+			Description: "How much of the way down the sidebar's head shows: short leaves out the levels back already names, full shows every level.",
+		},
 	}
 }
 

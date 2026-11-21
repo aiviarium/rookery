@@ -101,6 +101,8 @@ describe("a host's overview", () => {
     try {
       // The sidebar says where it came from, and the host is one of a kind in the path and the sidebar.
       expect(view.find("[data-part='sidebar-path']")?.textContent).toContain("Fleet");
+      // Rookery is left out: back already names it.
+      expect(view.find("[data-part='sidebar-path']")?.textContent).not.toContain("Rookery");
       expect(view.find("[data-part='sidebar-switcher']")?.textContent).toContain("studio");
       expect(view.find("[data-part='view-header'] [data-part='crumb-switcher']")?.textContent).toContain("studio");
       // The row's play button runs the action; there is no second Run button.

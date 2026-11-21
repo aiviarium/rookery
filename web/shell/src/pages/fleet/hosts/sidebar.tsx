@@ -61,7 +61,7 @@ export function HostSidebar(props: LevelProps): JSX.Element {
       label={`${name()}'s places`}
       back={{ label: "Fleet", to: { id: "fleet" } }}
       path={[
-        { label: "Rookery", to: { id: TOP } },
+        { label: "Rookery", to: { id: TOP }, show: "hidden" },
         { label: "Fleet", to: { id: "fleet" } },
       ]}
       title={name()}
