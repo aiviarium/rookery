@@ -4,6 +4,7 @@ import { render } from "@solidjs/web";
 import type { AuthConfig, Rookery } from "@rookery/client";
 
 import { App } from "../src/app.tsx";
+import { WORKBENCH_KEY } from "../src/chrome/workbench.ts";
 
 /** Mounted is a rendered shell, and what a test asks it. */
 export interface Mounted {
@@ -60,6 +61,8 @@ export async function mount(
   // one that does not keeps the URL it set itself.
   const started = `${location.pathname}${location.search}`;
   if (path !== undefined) history.pushState({}, "", path);
+  // Each shell starts with no tabs kept from the one before.
+  localStorage.removeItem(WORKBENCH_KEY);
   const container = document.createElement("div");
   document.body.append(container);
   const dispose = render(() => <App client={client} config={config} />, container);

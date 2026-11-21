@@ -55,10 +55,22 @@ up a level. The sidebar's head may show the way down, as `Fleet / box1`: a level
 passes `path` to `LevelSidebar` with the levels that help, and leaves out
 what adds nothing, such as Rookery itself, which back already names. The
 level's switcher moves to a sibling, such as another host, and keeps the place.
-A host or a space always has it, even while it is the only one, and its crumb in
-the page's header has the same switcher (`useHost().crumbs`, `spaceCrumbs`,
-`inSpace`). The sidebar follows the page until the person drills by hand, and
-that holds until the next page.
+A host or a space always has it, even while it is the only one. The sidebar
+follows the focused page until the person drills by hand, and that holds until
+the next page.
+
+The pages are tabs of the workbench (`chrome/workbench.ts`): Nocturne's `Dock`
+across the content area, frames side by side and stacked, kept on the device.
+Each tab has its own router and a client scoped to its own space
+(`rookery.inSpace`), so pages read `useShell()` and `useNavigate()` as ever and
+move their own tab. The browser's address is the focused tab's: the sidebar, a
+reload and the back button follow it. `shell.openTab` opens a path in a new tab
+or beside the page, and `usePageTab()` says whether a page is in view and has
+the focus. On a phone the focused tab is the page.
+
+The sidebar's head shows where the person is, so a page's header shows no path:
+its crumbs still go to `View`, which names the tab after the last one, and the
+header keeps the page's actions.
 
 What happens in a container stays in it: a job a host's page starts opens
 under the host (`jobPath(id, host)`), not under the Fleet's jobs.
@@ -76,9 +88,9 @@ The pages keep to the same rules:
 * Refresh is in the overflow menu.
 * What the person may not change is not shown.
 * Several things of one kind side by side, such as a host's terminals, are
-  Nocturne's `Dock`: tiled frames with tabs, split by their buttons or by
-  dropping a tab on a frame's side. The dock is the page's content, never a
-  tab section inside it, and its layout is kept on the device.
+  tabs of the workbench: a page per thing, with its address (`?attach=` for a
+  terminal), opened with `shell.openTab`. A page draws its own `Dock` only for
+  tiles that make no sense apart from it.
 * Every page fills the main column, left-aligned: lists, forms, settings and
   logs alike. `reading` is for long prose only, such as a document's body.
 * A row's leading icon that looks pressable is: an action's play icon is the

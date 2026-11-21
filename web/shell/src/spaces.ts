@@ -24,6 +24,8 @@ export interface Spaces {
   readonly currentSpace: Accessor<Space | undefined>;
   /** follow hands over the router's path, which `current` reads. The chrome calls it once. */
   follow(path: Accessor<string>): void;
+  /** at is the same list seen from another path, such as a tab's that is not in view. */
+  at(path: Accessor<string>): Spaces;
   /** scope makes every following call one in this space, or in none for "". */
   scope(id: string): void;
   /** refresh reads the list again, after a space was made, renamed or archived. */
@@ -59,7 +61,6 @@ export function createSpaces(rookery: Rookery): Spaces {
   // The path is the router's, which exists only inside it; until the chrome
   // hands it over the shell is in no space.
   let path: Accessor<string> = () => "";
-  const current = () => spaceOf(path());
 
   const refresh = async () => {
     try {
@@ -75,29 +76,37 @@ export function createSpaces(rookery: Rookery): Spaces {
     }
   };
 
-  return {
-    list,
-    kinds,
-    error,
-    current,
-    currentSpace: () => list().find((space) => space.id === current()),
-    follow: (next) => {
+  const view = (at: Accessor<string>, follow: (next: Accessor<string>) => void): Spaces => {
+    const current = () => spaceOf(at());
+    return {
+      list,
+      kinds,
+      error,
+      current,
+      currentSpace: () => list().find((space) => space.id === current()),
+      follow,
+      at: (next) => view(next, () => undefined),
+      scope: (id) => rookery.setSpace(id),
+      refresh,
+      switcher: (navigate) => {
+        const id = current();
+        if (id === "") return undefined;
+        return {
+          label: "Switch space",
+          items: list().map((space) => ({ id: space.id, label: space.name, checked: space.id === id })),
+          onSelect: (other) => {
+            if (other !== id) navigate(spacePath(other) + at().slice(spacePath(id).length));
+          },
+        };
+      },
+    };
+  };
+  return view(
+    () => path(),
+    (next) => {
       path = next;
     },
-    scope: (id) => rookery.setSpace(id),
-    refresh,
-    switcher: (navigate) => {
-      const id = current();
-      if (id === "") return undefined;
-      return {
-        label: "Switch space",
-        items: list().map((space) => ({ id: space.id, label: space.name, checked: space.id === id })),
-        onSelect: (other) => {
-          if (other !== id) navigate(spacePath(other) + path().slice(spacePath(id).length));
-        },
-      };
-    },
-  };
+  );
 }
 
 /**

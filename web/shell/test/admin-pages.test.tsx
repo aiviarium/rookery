@@ -123,8 +123,10 @@ describe("the settings place", () => {
     const made = settingsSite();
     const client = fakeClient(made);
     const calls: string[] = [];
-    const original = client.settings.set.bind(client.settings);
-    (client.settings as { set: unknown }).set = (request: { key: string; scope: string }) => {
+    // A page calls through its tab's client, which is in the tab's space: none here.
+    const page = client.inSpace("");
+    const original = page.settings.set.bind(page.settings);
+    (page.settings as { set: unknown }).set = (request: { key: string; scope: string }) => {
       calls.push(`${request.key}@${request.scope}`);
       return original(request as never);
     };

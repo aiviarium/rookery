@@ -34,6 +34,42 @@ describe("the chrome", () => {
     }
   });
 
+  test("tiles pages as tabs: the address and the sidebar follow the focused one", async () => {
+    const view = await mount(fakeClient({ user: STATIC_USER }), { identityProvider: false }, "/inbox");
+    const frames = () => view.findAll("[data-dock-frame]");
+    const focusedTab = () =>
+      document.querySelector(`[data-part=frame][data-focused] [data-dock-tab]:not([hidden])`)?.getAttribute("data-dock-tab");
+    try {
+      expect(frames()).toHaveLength(1);
+      expect(view.findAll("[data-page-tab]")).toHaveLength(1);
+
+      // A split opens the page beside itself, focused.
+      await view.click("[data-part=dock-split-right]");
+      expect(frames()).toHaveLength(2);
+      expect(location.pathname).toBe("/inbox");
+      const second = focusedTab();
+      expect(second).toBeTruthy();
+
+      // The sidebar moves the focused tab alone, and the address with it.
+      await view.click("a[href='/']");
+      expect(location.pathname).toBe("/");
+      const [left, right] = frames();
+      expect(left?.textContent).toContain("Inbox");
+      expect(right?.querySelector(`[data-dock-tab='${second}']`)).not.toBeNull();
+
+      // Focusing the other frame brings its tab's address back.
+      left!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      await view.click("[data-dock-frame] [data-page-tab]");
+      expect(location.pathname).toBe("/inbox");
+
+      // Closing a frame's only tab closes the frame, and the other fills the row.
+      await view.clickElement(right!.querySelector("[data-part=tab-strip-close], [aria-label^='Close']") as HTMLElement);
+      expect(frames()).toHaveLength(1);
+    } finally {
+      view.unmount();
+    }
+  });
+
   test("drills into a space and scopes every call to it", async () => {
     const client = fakeClient({ user: STATIC_USER, spaces: [A_SPACE, ANOTHER_SPACE] });
     const view = await mount(client, { identityProvider: false }, "/");

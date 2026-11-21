@@ -40,6 +40,18 @@ export interface Shell {
   navigate(path: string): void;
   /** setRouterNavigation installs the router's navigate, and removes it on undefined. */
   setRouterNavigation(navigate?: (path: string) => void): void;
+  /**
+   * openTab opens a path in a new tab of the workbench: in the frame of the
+   * page that asks, or in a new frame to its right or below it.
+   */
+  openTab(path: string, place?: TabPlace): void;
+  /** setTabOpener installs the workbench's open, and removes it on undefined. */
+  setTabOpener(open?: (path: string, place?: TabPlace) => void): void;
+}
+
+/** TabPlace is where a new tab goes: beside the frame that opens it, or in it. */
+export interface TabPlace {
+  readonly edge?: "right" | "bottom";
 }
 
 /** ShellContext is the shell, for the components under it. */
@@ -83,6 +95,14 @@ export function createShell(options: ShellOptions = {}): Shell {
   );
 
   let routerNavigate: ((path: string) => void) | undefined;
+  let tabOpener: ((path: string, place?: TabPlace) => void) | undefined;
+  const navigate = (path: string) => {
+    if (routerNavigate !== undefined) {
+      routerNavigate(path);
+      return;
+    }
+    if (typeof location !== "undefined") location.assign(path);
+  };
   return {
     rookery,
     signIn,
@@ -92,15 +112,16 @@ export function createShell(options: ShellOptions = {}): Shell {
     notifications,
     plugins,
     theme,
-    navigate: (path) => {
-      if (routerNavigate !== undefined) {
-        routerNavigate(path);
-        return;
-      }
-      if (typeof location !== "undefined") location.assign(path);
-    },
+    navigate,
     setRouterNavigation: (navigate) => {
       routerNavigate = navigate;
+    },
+    openTab: (path, place) => {
+      if (tabOpener !== undefined) tabOpener(path, place);
+      else navigate(path);
+    },
+    setTabOpener: (open) => {
+      tabOpener = open;
     },
   };
 }

@@ -13,3 +13,8 @@ export function hostResource(name: string): string {
 
 /** HOST_EVENTS are the events that change a host's record. */
 export const HOST_EVENTS = ["rookery/hosts."] as const;
+
+/** terminalPath is one of a host's terminals, shown alone in its Terminal place. */
+export function terminalPath(host: string, id: string): string {
+  return `${hostPath(host, "terminal")}?attach=${encodeURIComponent(id)}`;
+}

@@ -90,6 +90,22 @@ describe("createRookery", () => {
     expect(requests[1]?.headers.get("Rookery-Space")).toBe("01hother");
   });
 
+  test("keeps a client made for a space in it, whatever the current space is", async () => {
+    const { fetch, requests } = recordingFetch(() => me());
+    const rookery = createRookery({ baseUrl: "https://rookery.test", fetch, autoSignIn: false, space: "01hfirst" });
+    const other = rookery.inSpace("01hother");
+    expect(rookery.inSpace("01hother")).toBe(other);
+    expect(other.signIn).toBe(rookery.signIn);
+
+    rookery.setSpace("01hthird");
+    other.setSpace("01hignored");
+    await other.auth.me({});
+    await rookery.inSpace("").auth.me({});
+    await rookery.auth.me({});
+    expect(requests.map((request) => request.headers.get("Rookery-Space"))).toEqual(["01hother", null, "01hthird"]);
+    expect(other.webSocketUrl("/ws/terminals/01hterm")).toBe("wss://rookery.test/ws/terminals/01hterm?space=01hother");
+  });
+
   test("turns an unauthenticated Me into a signed-out state", async () => {
     const { fetch } = recordingFetch(
       () =>
