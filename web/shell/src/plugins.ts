@@ -59,6 +59,10 @@ export interface Plugins {
   readonly mounts: Accessor<readonly PluginMount[]>;
   /** nav is what they add to the navigation. */
   readonly nav: Accessor<readonly PluginNav[]>;
+  /** spaceViews are the views of a kind of space, which are places in each space of that kind. */
+  spaceViews(kind: string): readonly PluginMount[];
+  /** adminPages are the pages they add to Administration. */
+  readonly adminPages: Accessor<readonly PluginMount[]>;
   /** hostTabs are the tabs they add to a host's page. */
   readonly hostTabs: Accessor<readonly HostTab[]>;
   /** loading says whether the halves are being loaded. */
@@ -73,11 +77,7 @@ export interface Plugins {
 const DEFAULT_GROUP = "Plugins";
 
 /** createPlugins loads the enabled plugins' client halves. */
-export function createPlugins(
-  rookery: Rookery,
-  signedIn: Accessor<boolean>,
-  spaceKind: Accessor<string | undefined>,
-): Plugins {
+export function createPlugins(rookery: Rookery, signedIn: Accessor<boolean>): Plugins {
   const [contributions, setContributions] = createSignal<readonly PluginContributions[]>([]);
   const [halves, setHalves] = createSignal<readonly LoadedClientHalf[]>([]);
   const [loading, setLoading] = createSignal(false);
@@ -140,8 +140,8 @@ export function createPlugins(
       for (const entry of half.contributes.nav ?? []) {
         const view = (half.contributes.views ?? []).find((candidate) => candidate.id === entry.view);
         if (view === undefined) continue;
-        // A view that needs a kind of space is offered where there is one.
-        if (view.space !== undefined && view.space !== "" && view.space !== spaceKind()) continue;
+        // A view that needs a kind of space is a place in each space of the kind, not at the top.
+        if (view.space !== undefined && view.space !== "") continue;
         out.push({ label: view.label, href: view.route, group: entry.group ?? DEFAULT_GROUP });
       }
     }
@@ -158,11 +158,16 @@ export function createPlugins(
     return out;
   };
 
+  const spaceViews = (kind: string) => mounts().filter((mount) => mount.kind === "views" && mount.space === kind);
+  const adminPages = () => mounts().filter((mount) => mount.kind === "adminPages");
+
   return {
     contributions,
     halves,
     mounts,
     nav,
+    spaceViews,
+    adminPages,
     hostTabs,
     loading,
     error,

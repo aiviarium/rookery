@@ -3,14 +3,20 @@
 // desktop: the frame starts at the top, and each page keeps its path and
 // actions in its own header. On a phone the sidebar is a drawer behind the top
 // bar's button.
-import { Loading, createEffect, createSignal, onSettled } from "solid-js";
+//
+// The space the address is in scopes the client's calls. The page is drawn
+// afresh when the address moves into another space or out of one, and the
+// client is scoped before the page asks anything.
+import { For, Loading, createEffect, createSignal, onSettled, untrack } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import { useNavigate } from "@solidjs/router";
+import { useLocation, useNavigate } from "@solidjs/router";
 import { AppShell, Frame, IconButton, LinkProvider, Skeleton, ToastRegion } from "@aiviarium/nocturne";
 
+import { overlays } from "../pages/index.ts";
 import { activateHalves } from "../plugins.ts";
 import { useShell } from "../shell.tsx";
 import { ChromeContext, type Chrome } from "./context.ts";
+import type { LevelRef } from "./levels.ts";
 import { Sidebar } from "./sidebar.tsx";
 import { StatusBar } from "./status-bar.tsx";
 
@@ -22,11 +28,19 @@ const HIDDEN_KEY = "rookery-sidebar-hidden";
 export function ShellLayout(props: { children?: JSX.Element }): JSX.Element {
   const shell = useShell();
   const navigate = useNavigate();
+  const location = useLocation();
   const started = new Set<string>();
+  shell.spaces.follow(() => location.pathname);
 
   const [width, setWidth] = createSignal(Number(read(WIDTH_KEY)) || 240);
   const [hidden, setHidden] = createSignal(read(HIDDEN_KEY) === "true");
   const [drawer, setDrawer] = createSignal(false);
+  const [drilled, setDrilled] = createSignal<LevelRef>();
+  // A page of its own puts the sidebar back at the page's level.
+  createEffect(
+    () => location.pathname,
+    () => setDrilled(undefined),
+  );
 
   const chrome: Chrome = {
     sidebarHidden: hidden,
@@ -35,6 +49,8 @@ export function ShellLayout(props: { children?: JSX.Element }): JSX.Element {
       write(HIDDEN_KEY, next ? "true" : "");
     },
     closeDrawer: () => setDrawer(false),
+    drilled,
+    drill: (level) => setDrilled(level),
   };
 
   onSettled(() => {
@@ -76,9 +92,17 @@ export function ShellLayout(props: { children?: JSX.Element }): JSX.Element {
           statusbar={<StatusBar />}
         >
           <Frame flush class="shell-frame">
-            <Loading fallback={<Skeleton width="40%" height="14px" />}>{props.children}</Loading>
+            <Loading fallback={<Skeleton width="40%" height="14px" />}>
+              <For each={[shell.spaces.current()]}>
+                {(space) => {
+                  shell.spaces.scope(untrack(() => space));
+                  return props.children;
+                }}
+              </For>
+            </Loading>
           </Frame>
         </AppShell>
+        <For each={[...overlays]}>{(Overlay) => <Overlay />}</For>
         <ToastRegion />
       </ChromeContext>
     </LinkProvider>

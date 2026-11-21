@@ -26,7 +26,7 @@ export interface Shell {
   readonly signIn: SignInAccessor;
   /** config is which ways into this deployment there are. */
   readonly config: Accessor<AuthConfig>;
-  /** spaces is the space list, and the current space. */
+  /** spaces is the space list, and the space the address is in. */
   readonly spaces: Spaces;
   /** connection is the link to the server, which the status bar shows. */
   readonly connection: Connection;
@@ -71,7 +71,7 @@ export function createShell(options: ShellOptions = {}): Shell {
   const spaces = createSpaces(rookery);
   const connection = createConnection(rookery, signedIn);
   const notifications = createNotifications(rookery, signedIn);
-  const plugins = createPlugins(rookery, signedIn, () => spaces.currentSpace()?.kind);
+  const plugins = createPlugins(rookery, signedIn);
   const theme = createTheme();
 
   // The space list is one call per sign-in.

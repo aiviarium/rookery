@@ -27,8 +27,9 @@ import { FileField } from "../../parts/file-field.tsx";
 import { RowActions } from "../../parts/row-actions.tsx";
 import { createTab } from "../../parts/tab.ts";
 import { View } from "../../parts/view.tsx";
+import { ADMIN } from "./people.tsx";
 import { useShell } from "../../shell.tsx";
-import { dateOf, relativeTime } from "../infra/format.ts";
+import { dateOf, relativeTime } from "../fleet/format.ts";
 
 const TABS = ["installed", "registries"] as const;
 type Tab = (typeof TABS)[number];
@@ -74,13 +75,13 @@ export function PluginsPage(): JSX.Element {
   return (
     <View
       id="plugins"
-      crumbs={[{ label: "Plugins" }]}
+      crumbs={[ADMIN, { label: "Plugins" }]}
       error={failure() === undefined ? undefined : `The plugins could not be read. ${errorMessage(failure())}`}
       actions={[
-        { id: "refresh", label: "Refresh", icon: "refresh-cw", onClick: () => (changed(), refreshRegistries()) },
         tab() === "installed"
-          ? { id: "install", label: "Install plugin", icon: "plus", primary: true, onClick: () => setInstalling(true) }
-          : { id: "add-registry", label: "Add registry", icon: "plus", primary: true, onClick: () => setAddingRegistry(true) },
+          ? { id: "install", label: "Install plugin", icon: "plus", onClick: () => setInstalling(true) }
+          : { id: "add-registry", label: "Add registry", icon: "plus", onClick: () => setAddingRegistry(true) },
+        { id: "refresh", label: "Refresh", icon: "refresh-cw", overflow: true, onClick: () => (changed(), refreshRegistries()) },
       ]}
     >
       <Tabs
@@ -89,8 +90,8 @@ export function PluginsPage(): JSX.Element {
         value={tab()}
         onChange={(next) => setTab(next as Tab)}
         items={[
-          { id: "installed", label: "Installed", count: plugins()?.plugins.length },
-          { id: "registries", label: "Registries", count: registries()?.registries.length },
+          { id: "installed", label: "Installed", count: plugins()?.plugins.length || undefined },
+          { id: "registries", label: "Registries", count: registries()?.registries.length || undefined },
         ]}
       >
         <TabPanel id="installed">
@@ -100,8 +101,8 @@ export function PluginsPage(): JSX.Element {
                 when={answer().plugins.length > 0}
                 fallback={
                   <Card>
-                    <EmptyState icon="board" title="No plugins" description="A plugin adds views, host tabs, provisioners and settings.">
-                      <Button variant="primary" icon="plus" onClick={() => setInstalling(true)}>
+                    <EmptyState icon="board" title="No plugins">
+                      <Button icon="plus" onClick={() => setInstalling(true)}>
                         Install plugin
                       </Button>
                     </EmptyState>
@@ -151,8 +152,8 @@ export function PluginsPage(): JSX.Element {
                 when={answer().registries.length > 0}
                 fallback={
                   <Card>
-                    <EmptyState icon="archive" title="No registries" description="A registry is a signed index of plugin packages, served over HTTPS.">
-                      <Button variant="primary" icon="plus" onClick={() => setAddingRegistry(true)}>
+                    <EmptyState icon="archive" title="No registries">
+                      <Button icon="plus" onClick={() => setAddingRegistry(true)}>
                         Add registry
                       </Button>
                     </EmptyState>
@@ -167,10 +168,15 @@ export function PluginsPage(): JSX.Element {
                           icon="archive"
                           title={registry().name}
                           secondary={<span class="nc-mono">{registry().url}</span>}
-                          actions={
-                            <Button size="sm" variant="ghost" icon="trash" onClick={() => setRemovingRegistry(registry())}>
-                              Remove
-                            </Button>
+                          menu={[{ id: "remove", label: "Remove", icon: "trash", danger: true }]}
+                          menuLabel={`Actions for ${registry().name}`}
+                          onMenuSelect={() => setRemovingRegistry(registry())}
+                          persistentActions={
+                            <RowActions
+                              label={`Actions for ${registry().name}`}
+                              items={[{ id: "remove", label: "Remove", icon: "trash", danger: true }]}
+                              onSelect={() => setRemovingRegistry(registry())}
+                            />
                           }
                         />
                       )}
@@ -195,7 +201,7 @@ export function PluginsPage(): JSX.Element {
       <ConfirmDialog
         open={removingRegistry() !== undefined}
         title={`Remove ${removingRegistry()?.name ?? "the registry"}?`}
-        description="Installed plugins stay. They no longer update from it."
+        description="Installed plugins stay."
         confirm="Remove registry"
         danger
         action={removeRegistry}
@@ -248,7 +254,7 @@ function InstallDialog(props: { onClose: () => void; onInstalled: () => void }):
             label="Plugin"
             mono
             placeholder="example@0.2.0"
-            help="Its id, with a version or without one for the latest."
+            info="Its id, with a version or without one for the latest"
             value={reference()}
             onInput={(event) => setReference(event.currentTarget.value)}
           />
@@ -290,7 +296,7 @@ function AddRegistryDialog(props: { onClose: () => void; onAdded: () => void }):
         />
         <TextArea
           label="Public key"
-          help="The key the registry signs its index with."
+          info="The key the registry signs its index with"
           rows={3}
           value={key()}
           onInput={(event) => setKey(event.currentTarget.value)}
@@ -310,7 +316,7 @@ function RemoveDialog(props: { plugin: Plugin; onClose: () => void; onRemoved: (
     <ConfirmDialog
       open
       title={`Remove ${props.plugin.name || props.plugin.id}?`}
-      description="Its views and host tabs go at once. Hosts keep its features until their next apply."
+      description="Hosts keep its features until their next apply."
       confirm="Remove plugin"
       danger
       action={remove}

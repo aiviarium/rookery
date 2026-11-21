@@ -11,6 +11,7 @@ import { ConfirmDialog, FormDialog } from "../../parts/dialogs.tsx";
 import { errorMessage } from "../../parts/errors.ts";
 import { RowActions } from "../../parts/row-actions.tsx";
 import { View } from "../../parts/view.tsx";
+import { ADMIN } from "./people.tsx";
 import { useShell } from "../../shell.tsx";
 
 /** KeysPage is the key ring and the known hosts. */
@@ -93,18 +94,18 @@ export function KeysPage(): JSX.Element {
   return (
     <View
       id="keys"
-      crumbs={[{ label: "Keys" }]}
+      crumbs={[ADMIN, { label: "Keys" }]}
       error={failure() === undefined ? undefined : `The keys could not be read. ${errorMessage(failure())}`}
       actions={[
-        { id: "refresh", label: "Refresh", icon: "refresh-cw", onClick: refresh },
-        { id: "rotate", label: "Rotate key", icon: "rotate-ccw", primary: true, onClick: () => setRotating(true) },
+        { id: "rotate", label: "Rotate key", icon: "rotate-ccw", onClick: () => setRotating(true) },
+        { id: "refresh", label: "Refresh", icon: "refresh-cw", overflow: true, onClick: refresh },
       ]}
     >
       <Show when={changed().length > 0}>
         <Callout tone="warning">
           {changed().length === 1
-            ? `The key of ${changed()[0]!.address} changed. Rookery does not reach it until an admin trusts the new key.`
-            : `${changed().length} hosts changed their keys. Rookery does not reach them until an admin trusts the new keys.`}
+            ? `${changed()[0]!.address}: host key changed`
+            : `${changed().length} hosts changed their keys`}
         </Callout>
       </Show>
       <Card title="Key ring" count={keys()?.keys.length} padding="none">
@@ -115,7 +116,7 @@ export function KeysPage(): JSX.Element {
           columns={keyColumns()}
           getRowId={(key) => key.id}
           loading={keys() === undefined}
-          empty={{ title: "No keys", description: "The server makes its ring on its first start." }}
+          empty={{ title: "No keys" }}
         />
       </Card>
       <Card title="Known hosts" count={known()?.hosts.length} padding="none">
@@ -128,7 +129,6 @@ export function KeysPage(): JSX.Element {
           loading={known() === undefined}
           empty={{
             title: "No host keys yet",
-            description: "The first contact with a host records its key. A changed key waits for an admin.",
           }}
         />
       </Card>
@@ -159,7 +159,7 @@ function RotateDialog(props: { onClose: () => void; onRotated: () => void }): JS
     <FormDialog
       open
       title="Rotate the server's key"
-      description="The ring makes a new key and uses it from now on. Hosts take it on their next apply. The old key stays until then."
+      description="Hosts take it on their next apply."
       submit="Rotate"
       action={rotate}
       onClose={props.onClose}
@@ -168,7 +168,6 @@ function RotateDialog(props: { onClose: () => void; onRotated: () => void }): JS
       <TextField
         label="Name"
         placeholder="default"
-        help="Leave it empty for the default name."
         value={name()}
         onInput={(event) => setName(event.currentTarget.value)}
       />

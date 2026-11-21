@@ -1,8 +1,9 @@
-// Preferences: every setting the core and the plugins declare, one section per
-// plugin, as rows with their control. The scope (you, this space, the server)
-// is chosen above the rows and kept in the address; a row shows the value that
-// applies at that scope, says where it comes from when the scope does not set
-// it, and resets with its "Modified" chip. A change applies at once.
+// Preferences: every setting the core and the plugins declare that the person
+// may change at a scope, one section per plugin, as rows with their control.
+// In Settings the scope is a choice in the header, kept in the address, shown
+// only when there is more than one; in a space it is the space. A row shows the
+// value that applies, where it comes from when the scope does not set it, and
+// resets with its "Modified" chip. A change applies at once.
 import { For, Show, createEffect, createMemo, createSignal, untrack } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { useSearchParams } from "@solidjs/router";
@@ -20,7 +21,6 @@ import {
   SettingRow,
   Skeleton,
   Switch,
-  Tabs,
   TextArea,
   TextField,
 } from "@aiviarium/nocturne";
@@ -30,10 +30,10 @@ import { createLive } from "../../parts/data.ts";
 import { errorMessage } from "../../parts/errors.ts";
 import { View } from "../../parts/view.tsx";
 import { useShell } from "../../shell.tsx";
-import { CORE, SCOPES, type Scope, changed, modifiedAt, sectionPath, settingsVersion, useScope } from "./scope.ts";
+import { CORE, SCOPES, type Scope, changed, editableAt, modifiedAt, sectionPath, settingsVersion, useScope } from "./scope.ts";
 
 /** FROM names a scope a value is inherited from. */
-const FROM: Record<string, string> = { user: "From you", space: "From this space", global: "From Server", default: "Default" };
+const FROM: Record<string, string> = { user: "From you", space: "From the space", global: "Set for everyone" };
 
 /** INHERITS are the scopes a scope falls back to, nearest first. */
 const INHERITS: Record<Scope, Scope[]> = { user: ["user", "space", "global"], space: ["space", "global"], global: ["global"] };
@@ -50,7 +50,7 @@ export function atScope(setting: Setting, scope: Scope): { value: Uint8Array; fr
 /** useSettings is every setting, read again when one changes here or the space does. */
 export function useSettings() {
   const shell = useShell();
-  const settings = createLive(() => shell.rookery.settings.list({}), { key: settingsVersion, space: true });
+  const settings = createLive(() => shell.rookery.settings.list({}), { key: settingsVersion });
   const plugins = createLive(() => shell.rookery.plugins.list({}).catch(() => undefined));
   const titleOf = (plugin: string) =>
     plugin === CORE ? "General" : plugins()?.plugins.find((one) => one.id === plugin)?.name || plugin;
@@ -62,25 +62,22 @@ export function useSettings() {
   return { settings, sections, titleOf };
 }
 
-/** SCOPE_NOTE says what a value at a scope does. */
-function scopeNote(scope: Scope, space: string, admin: boolean): string {
-  if (scope === "user") return "Your own values. They win over the space's and the server's.";
-  if (scope === "space") return `Values for everyone in ${space}. A person's own values still win.`;
-  return admin ? "Values for everyone on this server, unless a space or a person sets their own." : "Values for everyone on this server. Only admins change them.";
-}
-
-/** PreferencesPage is the settings of one section, or of all of them. */
-export function PreferencesPage(props: { plugin?: string }): JSX.Element {
-  const shell = useShell();
-  const { scope, setScope } = useScope();
+/** PreferencesPage is the settings of one section, or of all of them, at Settings' scope or a space's. */
+export function PreferencesPage(props: { plugin?: string; space?: string; crumbs?: Array<{ label: string; href?: string }> }): JSX.Element {
+  const address = useScope();
   const [search, setSearch] = useSearchParams<{ q?: string; modified?: string }>();
   const { settings, sections, titleOf } = useSettings();
-  const space = () => shell.spaces.current();
+  const inSpace = () => props.space !== undefined;
+  // The scopes the person may change anything at; a space's page has its own.
+  const scopes = createMemo(() =>
+    SCOPES.filter((one) => one.id === "user" || (settings()?.settings ?? []).some((setting) => editableAt(setting, one.id))),
+  );
+  const scope = (): Scope => (inSpace() ? "space" : scopes().some((one) => one.id === address.scope()) ? address.scope() : "user");
   const [query, setQuery] = createSignal(untrack(() => search.q ?? ""));
   const [json, setJson] = createSignal(false);
   const onlyModified = () => search.modified === "1";
 
-  const inView = (setting: Setting) => props.plugin === undefined || setting.plugin === props.plugin;
+  const inView = (setting: Setting) => (props.plugin === undefined || setting.plugin === props.plugin) && editableAt(setting, scope());
   const matches = (setting: Setting): boolean => {
     if (!inView(setting)) return false;
     if (onlyModified() && !modifiedAt(setting, scope())) return false;
@@ -98,8 +95,7 @@ export function PreferencesPage(props: { plugin?: string }): JSX.Element {
       }))
       .filter((section) => section.rows.length > 0),
   );
-  const modifiedHere = () => (settings()?.settings ?? []).filter((setting) => inView(setting) && modifiedAt(setting, scope())).length;
-  const scopeLabel = () => SCOPES.find((one) => one.id === scope())!.label;
+  const any = () => (settings()?.settings ?? []).some(inView);
   const asJson = () => {
     const out: Record<string, unknown> = {};
     for (const setting of settings()?.settings ?? []) {
@@ -109,47 +105,49 @@ export function PreferencesPage(props: { plugin?: string }): JSX.Element {
     return JSON.stringify(out, null, 2);
   };
   const title = () => (props.plugin === undefined ? "All settings" : titleOf(props.plugin));
+  const crumbs = () =>
+    props.crumbs ?? [{ label: "Settings", href: props.plugin === undefined ? undefined : sectionPath() }, ...(props.plugin === undefined ? [] : [{ label: title() }])];
 
   return (
     <View
       id="settings"
-      crumbs={[{ label: "Settings", href: props.plugin === undefined ? undefined : sectionPath() }, ...(props.plugin === undefined ? [] : [{ label: title() }])]}
+      crumbs={crumbs()}
       reading
-      actions={[
-        { id: "refresh", label: "Refresh", icon: "refresh-cw", overflow: true, onClick: changed },
-        { id: "json", label: "Open as JSON", icon: "file", overflow: true, onClick: () => setJson(true) },
-      ]}
+      actions={[{ id: "json", label: "Open as JSON", icon: "file", overflow: true, onClick: () => setJson(true) }]}
     >
       <div class="nc-stack" data-part="settings">
-        <div class="shell-scope" data-part="settings-scope">
-          <Tabs
-            label="Scope"
-            value={scope()}
-            onChange={(next) => setScope(next as Scope)}
-            items={SCOPES.map((one) => ({ id: one.id, label: one.label, icon: one.icon, disabled: one.id === "space" && space() === "" }))}
+        <Show when={any()}>
+          <FilterBar
+            label="Settings filters"
+            search={
+              <TextField
+                variant="search"
+                aria-label="Search settings"
+                placeholder={props.plugin === undefined ? "Search settings" : `Search ${title()}`}
+                value={query()}
+                onInput={(event) => {
+                  const next = event.currentTarget.value;
+                  setQuery(next);
+                  setSearch({ q: next === "" ? undefined : next }, { replace: true });
+                }}
+              />
+            }
+            end={
+              <div class="nc-row">
+                <Show when={!inSpace() && scopes().length > 1}>
+                  <Select
+                    aria-label="Scope"
+                    data-part="settings-scope"
+                    value={scope()}
+                    options={scopes().map((one) => ({ value: one.id, label: one.label }))}
+                    onChange={(next) => address.setScope(next as Scope)}
+                  />
+                </Show>
+                <Switch label="Modified" checked={onlyModified()} onChange={(on) => setSearch({ modified: on ? "1" : undefined })} />
+              </div>
+            }
           />
-          <p class="nc-meta">
-            {scopeNote(scope(), shell.spaces.currentSpace()?.name ?? "this space", shell.signIn.user()?.admin === true)}
-            <Show when={space() === "" && scope() === "user"}> Choose a space in the sidebar's header to set values for it.</Show>
-          </p>
-        </div>
-        <FilterBar
-          label="Settings filters"
-          search={
-            <TextField
-              variant="search"
-              aria-label="Search settings"
-              placeholder={props.plugin === undefined ? "Search settings" : `Search ${title()}`}
-              value={query()}
-              onInput={(event) => {
-                const next = event.currentTarget.value;
-                setQuery(next);
-                setSearch({ q: next === "" ? undefined : next }, { replace: true });
-              }}
-            />
-          }
-          end={<Switch label={`Modified only (${modifiedHere()})`} checked={onlyModified()} onChange={(on) => setSearch({ modified: on ? "1" : undefined })} />}
-        />
+        </Show>
         <Show when={settings.error()}>
           {(failure) => <Callout tone="danger">The settings could not be read. {errorMessage(failure())}</Callout>}
         </Show>
@@ -160,22 +158,16 @@ export function PreferencesPage(props: { plugin?: string }): JSX.Element {
               <Card>
                 <EmptyState
                   icon={query() === "" && !onlyModified() ? "settings" : "search"}
-                  title={onlyModified() ? `Nothing is modified at ${scopeLabel()}` : query() === "" ? "No settings" : "No setting matches"}
-                  description={query() === "" && !onlyModified() ? "The core and each installed plugin declare the settings they take." : undefined}
+                  title={onlyModified() && query() === "" ? "Nothing modified" : query() === "" ? "No settings" : "No setting matches"}
                 />
               </Card>
             }
           >
             <For each={shown()} keyed={(section) => section.plugin}>
               {(section) => (
-                <Card
-                  title={titleOf(section().plugin)}
-                  count={section().rows.length}
-                  padding="none"
-                  data-plugin={section().plugin}
-                >
+                <Card title={titleOf(section().plugin)} padding="none" data-plugin={section().plugin}>
                   <For each={section().rows} keyed={(setting) => setting.key}>
-                    {(setting) => <Row setting={setting()} section={titleOf(section().plugin)} scope={scope()} space={space()} />}
+                    {(setting) => <Row setting={setting()} section={titleOf(section().plugin)} scope={scope()} space={props.space ?? ""} />}
                   </For>
                 </Card>
               )}
@@ -183,7 +175,7 @@ export function PreferencesPage(props: { plugin?: string }): JSX.Element {
           </Show>
         </Show>
       </div>
-      <Dialog open={json()} onClose={() => setJson(false)} size="lg" title={`${title()} set at ${scopeLabel()}`}>
+      <Dialog open={json()} onClose={() => setJson(false)} size="lg" title={title()}>
         <CodeBlock language="json" lineNumbers={false} code={asJson()} />
       </Dialog>
     </View>
@@ -193,8 +185,7 @@ export function PreferencesPage(props: { plugin?: string }): JSX.Element {
 /** Row is one setting at the scope shown. */
 function Row(props: { setting: Setting; section: string; scope: Scope; space: string }): JSX.Element {
   const shell = useShell();
-  const has = () => props.setting.scopes.includes(props.scope);
-  const editable = () => has() && props.setting.editable.includes(props.scope);
+  const editable = () => editableAt(props.setting, props.scope);
   const modified = () => props.setting.valuesCbor[props.scope] !== undefined;
   const shown = () => atScope(props.setting, props.scope);
   const value = () => cbor.decode<unknown>(shown().value);
@@ -209,11 +200,8 @@ function Row(props: { setting: Setting; section: string; scope: Scope; space: st
     changed();
   }, { failed: "The setting was not reset" });
 
-  const note = (): string | undefined => {
-    if (!has()) return `Not set per ${props.scope === "user" ? "person" : props.scope === "space" ? "space" : "server"}`;
-    if (modified()) return undefined;
-    return FROM[shown().from];
-  };
+  // A default value is the normal state and says nothing.
+  const note = (): string | undefined => (modified() || shown().from === "default" ? undefined : FROM[shown().from]);
 
   return (
     <SettingRow
@@ -225,7 +213,6 @@ function Row(props: { setting: Setting; section: string; scope: Scope; space: st
       modified={modified()}
       onReset={editable() ? () => void reset.run() : undefined}
       inherited={note()}
-      muted={!has()}
       control={(ids) => <Control setting={props.setting} value={value()} disabled={!editable() || set.busy()} labelId={ids.labelId} onSet={(next) => void set.run(next)} />}
     />
   );

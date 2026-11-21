@@ -131,11 +131,6 @@
     text-decoration: underline;
   }
 
-  /* Home's greeting: the title and the space under it. */
-  .shell-greeting h1,
-  .shell-greeting p {
-    margin: 0;
-  }
 
   /* A part that keeps its own width in a view's column, such as segmented tabs. */
   .shell-fit {
@@ -143,20 +138,7 @@
     max-width: 100%;
   }
 
-  /* A row of figures. */
-  .shell-stats {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: var(--space-2);
-  }
 
-  /* Two columns of cards that stack when narrow. */
-  .shell-columns {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: var(--space-3);
-    align-items: start;
-  }
 
   /* A card that holds its own padding: a form or a block above a flush table. */
   .shell-pad {
@@ -189,8 +171,69 @@
     width: 100%;
     max-width: 440px;
   }
+
+  /* Home: the greeting, then cards in one column, the places side by side when they fit. */
+  .shell-home {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .shell-home__greeting {
+    margin: 0;
+  }
+
+  .shell-home__places {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--space-3);
+    align-items: start;
+  }
+
+  /* A short warning beside a sidebar row, such as "2 behind". */
+  .shell-trouble {
+    color: var(--warning);
+    font-size: var(--nc-type-section, 11px);
+    white-space: nowrap;
+  }
+
+  /* A table cell with a name and, under it, what tells it apart. */
+  .shell-cell {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .shell-cell > * {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* A host's labels, as badges that wrap. */
+  .shell-labels {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+
+  /* The marks in a level's header: a host's state, a space's initial. */
+  .shell-host-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+  }
+
+  .shell-space-mark {
+    color: var(--accent-strong);
+    border-color: var(--accent-strong);
+  }
+
+  /* A run of rows' heading inside a card. */
+  .shell-group__head {
+    padding: var(--space-2) var(--nc-pad, 12px) 0;
+  }
 }
 
-/* Settings: the scope switcher and what the scope does, on one line when it fits. */
-.shell-scope { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
-.shell-scope > p { flex: 1 1 240px; margin: 0; }

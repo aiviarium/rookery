@@ -1,51 +1,41 @@
-// The sidebar inside Settings: back home, then all settings and one place per
-// section with the number modified at the scope shown, then, for admins, the
-// server's secrets and connections. The scope stays as the places change.
+// Settings' level: all settings, then one place per section that has a
+// setting the person may change at the scope. The scope stays as places change.
 import type { JSX } from "@solidjs/web";
 import { useLocation } from "@solidjs/router";
-import { Count, type NavItemProps } from "@aiviarium/nocturne";
+import { Count } from "@aiviarium/nocturne";
 
-import { DomainSidebar } from "../../chrome/sidebar.tsx";
-import { useShell } from "../../shell.tsx";
+import { type LevelProps, TOP } from "../../chrome/levels.ts";
+import { LevelSidebar, type SidebarEntry } from "../../chrome/sidebar.tsx";
 import { useSettings } from "./preferences.tsx";
-import { CORE, modifiedAt, sectionPath, useScope } from "./scope.ts";
+import { CORE, editableAt, modifiedAt, sectionPath, useScope } from "./scope.ts";
 
-/** SettingsSidebar is the settings domain's sidebar. */
-export function SettingsSidebar(): JSX.Element {
-  const shell = useShell();
+/** SettingsSidebar is the settings level's sidebar. */
+export function SettingsSidebar(_props: LevelProps): JSX.Element {
   const location = useLocation();
   const { scope, query } = useScope();
   const { settings, sections, titleOf } = useSettings();
 
-  const count = (plugin?: string) =>
-    (settings()?.settings ?? []).filter((setting) => (plugin === undefined || setting.plugin === plugin) && modifiedAt(setting, scope())).length;
-  const meta = (value: number) => (value > 0 ? <Count value={value} /> : undefined);
+  const here = (plugin?: string) =>
+    (settings()?.settings ?? []).filter((setting) => (plugin === undefined || setting.plugin === plugin) && editableAt(setting, scope()));
+  const meta = (plugin?: string) => {
+    const modified = here(plugin).filter((setting) => modifiedAt(setting, scope())).length;
+    return modified > 0 ? <Count value={modified} /> : undefined;
+  };
 
-  const groups = () => {
-    const preferences: NavItemProps[] = [
-      { label: "All settings", icon: "settings", href: `${sectionPath()}${query()}`, current: location.pathname === "/settings", meta: meta(count()) },
-      ...sections().map(
-        (plugin): NavItemProps => ({
+  const items = (): SidebarEntry[] => [
+    { label: "All settings", icon: "settings", href: `${sectionPath()}${query()}`, current: location.pathname === "/settings", meta: meta() },
+    ...sections()
+      .filter((plugin) => here(plugin).length > 0)
+      .map(
+        (plugin): SidebarEntry => ({
           label: titleOf(plugin),
           icon: plugin === CORE ? "sliders-horizontal" : "puzzle",
           href: `${sectionPath(plugin)}${query()}`,
           current: location.pathname === sectionPath(plugin),
-          meta: meta(count(plugin)),
+          meta: meta(plugin),
         }),
       ),
-    ];
-    const out: Array<{ label?: string; items: NavItemProps[] }> = [{ label: "Preferences", items: preferences }];
-    if (shell.signIn.user()?.admin === true) {
-      out.push({
-        label: "Server",
-        items: [
-          { label: "Secrets", icon: "lock", href: "/settings/secrets", current: location.pathname === "/settings/secrets" },
-          { label: "Connections", icon: "link", href: "/settings/connections", current: location.pathname === "/settings/connections" },
-        ],
-      });
-    }
-    return out;
-  };
+  ];
 
-  return <DomainSidebar label="Settings" back={{ label: "Home", href: "/" }} title="Settings" groups={groups()} />;
+  return <LevelSidebar label="Settings" title="Settings" back={{ label: "Rookery", to: { id: TOP } }} groups={[{ items: items() }]} />;
 }

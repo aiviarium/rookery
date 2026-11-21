@@ -1,6 +1,9 @@
 // The chrome's own state, for the parts inside it: whether the sidebar is
-// hidden, and closing the phone drawer after a choice.
+// hidden, the level it was drilled to by hand, and closing the phone drawer
+// after a choice.
 import { type Accessor, createContext, useContext } from "solid-js";
+
+import type { LevelRef } from "./levels.ts";
 
 /** Chrome is what a view and the sidebar ask of the frame around them. */
 export interface Chrome {
@@ -10,6 +13,10 @@ export interface Chrome {
   setSidebarHidden(hidden: boolean): void;
   /** closeDrawer closes the sidebar's drawer on a phone, after a link in it was followed. */
   closeDrawer(): void;
+  /** drilled is the level the person moved the sidebar to by hand, until the next page. */
+  readonly drilled: Accessor<LevelRef | undefined>;
+  /** drill moves the sidebar to a level and leaves the page as it is. */
+  drill(level: LevelRef): void;
 }
 
 /** ChromeContext is the chrome, for the views and the sidebar. */
@@ -22,6 +29,8 @@ export function useChrome(): Chrome {
       sidebarHidden: () => false,
       setSidebarHidden: () => undefined,
       closeDrawer: () => undefined,
+      drilled: () => undefined,
+      drill: () => undefined,
     }
   );
 }

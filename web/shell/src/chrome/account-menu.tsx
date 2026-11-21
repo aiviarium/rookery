@@ -1,5 +1,6 @@
-// The person at the foot of the sidebar: who is signed in, the theme, and
-// signing out.
+// The person at the foot of the sidebar: who is signed in, their settings,
+// Administration for an admin, the theme, and signing out.
+import { Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Avatar, Badge, DropdownMenu, Icon, type MenuEntry } from "@aiviarium/nocturne";
 
@@ -26,13 +27,15 @@ export function AccountMenu(): JSX.Element {
               <span class="label nc-truncate">{name()}</span>
               <span class="nc-meta nc-truncate">{user()?.email}</span>
             </span>
-            <Badge tone={user()?.admin ? "accent" : "neutral"}>{user()?.admin ? "Admin" : "Member"}</Badge>
+            <Show when={user()?.admin}>
+              <Badge tone="accent">Admin</Badge>
+            </Show>
           </div>
         ),
       },
       { type: "separator" },
-      { id: "inbox", label: "Inbox", icon: "inbox" },
       { id: "settings", label: "Settings", icon: "settings" },
+      ...(user()?.admin ? [{ id: "admin", label: "Administration", icon: "shield" as const }] : []),
       { type: "separator" },
       { type: "label", label: "Theme" },
       { id: "theme.system", label: "System", checked: theme === "system" },
@@ -44,7 +47,7 @@ export function AccountMenu(): JSX.Element {
   };
 
   const choose = (id: string) => {
-    if (id === "inbox" || id === "settings") {
+    if (id === "settings" || id === "admin") {
       shell.navigate(`/${id}`);
       chrome.closeDrawer();
     } else if (id === "theme.system" || id === "theme.dark" || id === "theme.light") {

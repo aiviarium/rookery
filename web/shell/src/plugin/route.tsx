@@ -9,9 +9,10 @@ import { View } from "../parts/view.tsx";
 import { ClientHalfMount } from "./mount.tsx";
 
 /**
- * PluginRoute resolves the current path against the pages the installed client
- * halves declared. A path under a declared route is the same page, so a plugin
- * may route inside it.
+ * PluginRoute resolves the current path against the top-level views the
+ * installed client halves declared. A path under a declared route is the same
+ * page, so a plugin may route inside it. Views of a kind of space are places in
+ * each space and answer there; admin pages answer in Administration.
  */
 export function PluginRoute() {
   const shell = useShell();
@@ -21,36 +22,28 @@ export function PluginRoute() {
     const path = location.pathname;
     return shell.plugins
       .mounts()
-      .find((candidate) => path === candidate.route || path.startsWith(`${candidate.route}/`));
+      .find(
+        (candidate) =>
+          candidate.kind === "views" &&
+          (candidate.space ?? "") === "" &&
+          (path === candidate.route || path.startsWith(`${candidate.route}/`)),
+      );
   };
 
   return (
-    <Switch
-      fallback={<NotFound path={location.pathname} />}
-    >
-      <Match when={mount()}>
-        {found => <ClientHalfMount half={found().half} map={found().kind} id={found().id} />}
-      </Match>
+    <Switch fallback={<NotFound />}>
+      <Match when={mount()}>{(found) => <ClientHalfMount half={found().half} map={found().kind} id={found().id} />}</Match>
     </Switch>
   );
 }
 
 /** NotFound is a path nothing answers, with the way home. */
-export function NotFound(props: { path: string }): JSX.Element {
+export function NotFound(): JSX.Element {
+  const shell = useShell();
   return (
     <View id="not-found" crumbs={[{ label: "Not found" }]}>
-      <EmptyState
-        title="This page does not exist"
-        description={`Nothing on this server answers ${props.path}. A plugin may have been removed, or the address may have a typo.`}
-      >
-        <Button
-          variant="primary"
-          onClick={() => {
-            location.assign("/");
-          }}
-        >
-          Go home
-        </Button>
+      <EmptyState icon="search" title="Nothing here">
+        <Button onClick={() => shell.navigate("/")}>Home</Button>
       </EmptyState>
     </View>
   );

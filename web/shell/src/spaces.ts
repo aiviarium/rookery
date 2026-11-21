@@ -1,57 +1,66 @@
 // The spaces this person may use, and which one the shell is in.
 //
-// Every call carries the current space in `Rookery-Space`; pages that show a
-// space's records read `version()` and ask again when it changes.
+// A space is a container the sidebar drills into: the shell is in one while the
+// address is under /spaces/{id}, and in none elsewhere. The chrome scopes the
+// client's calls to it (`Rookery-Space`) before a page in it asks anything.
 import { type Accessor, createSignal } from "solid-js";
 import type { Rookery } from "@rookery/client";
-import type { Space } from "@rookery/proto";
+import type { Space, SpaceKind } from "@rookery/proto";
 
-/** SPACE_KEY is where the browser remembers the space it was in. */
-const SPACE_KEY = "rookery-space";
+/** SPACE_PATH matches an address inside a space, with the space's id. */
+const SPACE_PATH = /^\/spaces\/([^/]+)(?:\/|$)/;
 
-/** Spaces is the space list, and the one the shell is in. */
+/** Spaces is the space list, the kinds there are, and the one the shell is in. */
 export interface Spaces {
-  /** list is what the person may open. */
+  /** list is the spaces the person may open, archived ones aside. */
   readonly list: Accessor<readonly Space[]>;
+  /** kinds are the kinds of space the plugins declare. */
+  readonly kinds: Accessor<readonly SpaceKind[]>;
   /** error is why the list could not be read. */
   readonly error: Accessor<Error | undefined>;
-  /** current is the id of the space the shell is in, or "" for none. */
+  /** current is the id of the space the address is in, or "" for none. */
   readonly current: Accessor<string>;
-  /** currentSpace is the space itself, when it is in the list. */
+  /** currentSpace is the space itself, once the list has it. */
   readonly currentSpace: Accessor<Space | undefined>;
-  /** version rises on every change, so a page knows to ask again. */
-  readonly version: Accessor<number>;
-  /** select moves the shell into a space, or out of every space with "". */
-  select(id: string): void;
-  /** refresh reads the list again, after a space was made or archived. */
+  /** follow hands over the router's path, which `current` reads. The chrome calls it once. */
+  follow(path: Accessor<string>): void;
+  /** scope makes every following call one in this space, or in none for "". */
+  scope(id: string): void;
+  /** refresh reads the list again, after a space was made, renamed or archived. */
   refresh(): Promise<void>;
 }
 
-/** createSpaces reads the space list and keeps the current space. */
+/** spacePath is the address of one of a space's places. */
+export function spacePath(id: string, place = ""): string {
+  const base = `/spaces/${encodeURIComponent(id)}`;
+  return place === "" ? base : `${base}/${place}`;
+}
+
+/** spaceOf is the id of the space an address is in, or "". */
+export function spaceOf(path: string): string {
+  const found = SPACE_PATH.exec(path);
+  return found === null ? "" : decodeURIComponent(found[1] ?? "");
+}
+
+/** createSpaces reads the space list and follows the space in the address. */
 export function createSpaces(rookery: Rookery): Spaces {
-  const stored = readStored();
-  if (stored !== "") rookery.setSpace(stored);
-
   const [list, setList] = createSignal<readonly Space[]>([]);
+  const [kinds, setKinds] = createSignal<readonly SpaceKind[]>([]);
   const [error, setError] = createSignal<Error>();
-  const [current, setCurrent] = createSignal(stored);
-  const [version, setVersion] = createSignal(0);
-
-  const select = (id: string) => {
-    rookery.setSpace(id);
-    setCurrent(id);
-    setVersion((count) => count + 1);
-    writeStored(id);
-  };
+  // The path is the router's, which exists only inside it; until the chrome
+  // hands it over the shell is in no space.
+  let path: Accessor<string> = () => "";
+  const current = () => spaceOf(path());
 
   const refresh = async () => {
     try {
-      const answer = await rookery.spaces.list({ limit: 200 });
-      setList(answer.spaces);
+      const [spaces, declared] = await Promise.all([
+        rookery.spaces.list({ limit: 500 }),
+        rookery.spaces.listKinds({}).catch(() => ({ kinds: [] as SpaceKind[] })),
+      ]);
+      setList(spaces.spaces.filter((space) => !space.archived));
+      setKinds(declared.kinds);
       setError(undefined);
-      // A space that was archived or removed while it was open is no longer a
-      // place the shell can be.
-      if (current() !== "" && !answer.spaces.some((space) => space.id === current())) select("");
     } catch (failure) {
       setError(failure instanceof Error ? failure : new Error(String(failure)));
     }
@@ -59,27 +68,24 @@ export function createSpaces(rookery: Rookery): Spaces {
 
   return {
     list,
+    kinds,
     error,
     current,
     currentSpace: () => list().find((space) => space.id === current()),
-    version,
-    select,
+    follow: (next) => {
+      path = next;
+    },
+    scope: (id) => rookery.setSpace(id),
     refresh,
   };
 }
 
-/** readStored is the space this browser was in, when it still asks for one. */
-function readStored(): string {
-  if (typeof localStorage === "undefined") return "";
-  return localStorage.getItem(SPACE_KEY) ?? "";
-}
-
-/** writeStored remembers the space, or forgets it for "". */
-function writeStored(id: string): void {
-  if (typeof localStorage === "undefined") return;
-  if (id === "") {
-    localStorage.removeItem(SPACE_KEY);
-    return;
-  }
-  localStorage.setItem(SPACE_KEY, id);
+/**
+ * inSpace puts what holds a page before its crumbs: the space the address is
+ * in, or Administration, which holds the same pages for every space at once.
+ */
+export function inSpace(spaces: Spaces, crumbs: Array<{ label: string; href?: string; onClick?: () => void }>) {
+  const id = spaces.current();
+  if (id === "") return [{ label: "Administration", href: "/admin" }, ...crumbs];
+  return [{ label: spaces.currentSpace()?.name ?? "Space", href: spacePath(id) }, ...crumbs];
 }
