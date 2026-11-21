@@ -11,36 +11,15 @@
     min-height: 0;
   }
 
-  /* The host's terminals fill the view: the tabs keep their height, and the
-     panes take the rest. */
+  /* The host's terminals fill the view, tiled in Nocturne's Dock. */
   .shell-terminals {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    gap: var(--space-2);
     min-height: 320px;
-    min-width: 0;
   }
 
-  .shell-terminals > [data-part="tab-strip"] {
-    flex: none;
-  }
-
-  /* The empty state takes the room the tabs and the panes would. */
-  .shell-terminals > .nc-card {
-    flex: 1;
-    min-height: 0;
-  }
-
-  .shell-terminals__panes {
-    position: relative;
-    flex: 1;
-    min-height: 0;
-  }
-
-  .shell-terminals__pane {
-    position: absolute;
-    inset: 0;
+  /* In a dock frame the frame is the edge: the terminal draws no second one. */
+  .shell-terminals .infra-terminal {
+    border: 0;
+    border-radius: 0;
   }
 
   .infra-terminal {
