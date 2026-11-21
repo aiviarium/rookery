@@ -240,7 +240,7 @@ func (s *Service) Add(ctx context.Context, request *connect.Request[rookeryv1.Ho
 		Name:      request.Msg.GetName(),
 		Type:      hostType,
 		Profile:   p,
-		CreatedBy: principal.ID,
+		CreatedBy: principal.UserID(),
 	})
 	if err != nil {
 		return nil, access.ToConnect(err)

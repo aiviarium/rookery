@@ -250,12 +250,11 @@ func (s *Spaces) create(ctx context.Context, creatorID, kind, name string, known
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	queries := s.store.Queries().WithTx(tx)
-	space, err := queries.CreateSpace(ctx, store.CreateSpaceParams{
-		ID:        id.New(),
-		Kind:      kind,
-		Name:      name,
-		CreatedBy: &creatorID,
-	})
+	params := store.CreateSpaceParams{ID: id.New(), Kind: kind, Name: name}
+	if creatorID != "" {
+		params.CreatedBy = &creatorID
+	}
+	space, err := queries.CreateSpace(ctx, params)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return store.RookerySpaces{}, fmt.Errorf("%w: a %s space called %s is there already", access.ErrConflict, kind, name)
@@ -265,12 +264,14 @@ func (s *Spaces) create(ctx context.Context, creatorID, kind, name string, known
 	if err := queries.UpsertResource(ctx, store.UpsertResourceParams{Uri: access.SpaceURI(space.ID)}); err != nil {
 		return store.RookerySpaces{}, fmt.Errorf("spaces: recording the new space's resource: %w", err)
 	}
-	if _, err := queries.UpsertGrant(ctx, store.UpsertGrantParams{
-		Resource:  access.SpaceURI(space.ID),
-		Principal: access.UserPrincipal(creatorID),
-		Level:     int16(access.Manage),
-	}); err != nil {
-		return store.RookerySpaces{}, fmt.Errorf("spaces: granting manage on the new space: %w", err)
+	if creatorID != "" {
+		if _, err := queries.UpsertGrant(ctx, store.UpsertGrantParams{
+			Resource:  access.SpaceURI(space.ID),
+			Principal: access.UserPrincipal(creatorID),
+			Level:     int16(access.Manage),
+		}); err != nil {
+			return store.RookerySpaces{}, fmt.Errorf("spaces: granting manage on the new space: %w", err)
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return store.RookerySpaces{}, fmt.Errorf("spaces: committing the create: %w", err)
@@ -413,7 +414,7 @@ func (s *Service) Get(ctx context.Context, request *connect.Request[rookeryv1.Sp
 // Create makes a space.
 func (s *Service) Create(ctx context.Context, request *connect.Request[rookeryv1.SpaceServiceCreateRequest]) (*connect.Response[rookeryv1.SpaceServiceCreateResponse], error) {
 	principal := access.MustPrincipal(ctx)
-	space, err := s.spaces.create(ctx, principal.ID, request.Msg.GetKind(), request.Msg.GetName(), s.registry.Has)
+	space, err := s.spaces.create(ctx, principal.UserID(), request.Msg.GetKind(), request.Msg.GetName(), s.registry.Has)
 	if err != nil {
 		return nil, access.ToConnect(err)
 	}

@@ -188,6 +188,15 @@ func LocalAdmin() Principal { return Principal{Kind: KindLocal, ID: KindLocal} }
 // Plugin is a plugin service's principal.
 func Plugin(id string) Principal { return Principal{Kind: KindPluginPrincipal, ID: id} }
 
+// UserID is the user's id, or empty when a plugin or the Unix socket calls. It
+// is what a column that references rookery.users records as who did a thing.
+func (p Principal) UserID() string {
+	if p.Kind != KindUser {
+		return ""
+	}
+	return p.ID
+}
+
 // IsLocal reports whether the principal is the Unix socket's admin.
 func (p Principal) IsLocal() bool { return p.Kind == KindLocal }
 

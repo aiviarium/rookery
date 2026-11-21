@@ -133,7 +133,7 @@ func (s *UsersService) Search(ctx context.Context, request *connect.Request[rook
 // CreateLink makes a one-time sign-in link for an email.
 func (s *UsersService) CreateLink(ctx context.Context, request *connect.Request[rookeryv1.UserServiceCreateLinkRequest]) (*connect.Response[rookeryv1.UserServiceCreateLinkResponse], error) {
 	principal := access.MustPrincipal(ctx)
-	link, token, err := s.links.Create(ctx, request.Msg.GetEmail(), principal.ID)
+	link, token, err := s.links.Create(ctx, request.Msg.GetEmail(), principal.UserID())
 	if err != nil {
 		return nil, access.ToConnect(err)
 	}
