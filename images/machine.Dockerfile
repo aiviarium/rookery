@@ -50,10 +50,13 @@ RUN systemctl mask \
  && systemctl enable ssh.service
 
 # cloud-init reads its seed from the NoCloud volume and configures no network of
-# its own: the machine's network is the container's.
+# its own: the machine's network is the container's. It keeps the image's apt
+# sources, which it would otherwise rewrite with an unknown release when it
+# starts without a seed.
 RUN printf '%s\n' \
         'datasource_list: [NoCloud, None]' \
         'network: {config: disabled}' \
+        'apt_preserve_sources_list: true' \
         > /etc/cloud/cloud.cfg.d/99-rookery.cfg \
  && rm -f /etc/cloud/cloud.cfg.d/subiquity-disable-cloudinit-networking.cfg \
  && mkdir -p /var/lib/cloud/seed/nocloud
