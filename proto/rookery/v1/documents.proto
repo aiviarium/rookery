@@ -4,6 +4,9 @@
 // comes from; the core stores and relays its updates without reading them. The
 // level is checked on document://<id> for every call, so no method option names
 // the resource.
+//
+// Each method's access option is view with no resource: the edge lets any
+// signed-in caller through, and the handler checks the level that matters.
 
 syntax = "proto3";
 
@@ -18,12 +21,12 @@ option go_package = "github.com/aiviarium/rookery/gen/go/rookery/v1;rookeryv1";
 service DocumentService {
   // Create makes a document under a parent resource.
   rpc Create(DocumentServiceCreateRequest) returns (DocumentServiceCreateResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // Get returns a document.
   rpc Get(DocumentServiceGetRequest) returns (DocumentServiceGetResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // List returns the documents the caller may read, newest first.
@@ -35,23 +38,23 @@ service DocumentService {
   // and updates, then relays what the others send, and appends what this
   // participant sends.
   rpc Sync(stream DocumentServiceSyncRequest) returns (stream DocumentServiceSyncResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // Snapshot stores a compacted state covering a sequence, and a version for the
   // document's history.
   rpc Snapshot(SnapshotRequest) returns (SnapshotResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // History lists the document's versions.
   rpc History(DocumentServiceHistoryRequest) returns (DocumentServiceHistoryResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 
   // Delete marks a document deleted.
   rpc Delete(DocumentServiceDeleteRequest) returns (DocumentServiceDeleteResponse) {
-    option (rookery.v1.access) = { level: LEVEL_UNSPECIFIED };
+    option (rookery.v1.access) = { level: LEVEL_VIEW };
   }
 }
 
