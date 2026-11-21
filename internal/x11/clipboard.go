@@ -164,6 +164,14 @@ func (c *clipboard) run() {
 func (c *clipboard) handleRequest(request any) {
 	switch typed := request.(type) {
 	case getRequest:
+		// The server knows who owns the selection; a SelectionClear may still be
+		// queued behind this request, so ask it rather than trust c.owner alone.
+		if c.owner {
+			if reply, err := xproto.GetSelectionOwner(c.conn, c.clipboardAtom).Reply(); err == nil && reply.Owner != c.win {
+				c.owner = false
+				c.text = ""
+			}
+		}
 		if c.owner {
 			typed.result <- getResult{text: c.text}
 			return
