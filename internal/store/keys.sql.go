@@ -102,6 +102,19 @@ func (q *Queries) DeleteKnownHost(ctx context.Context, address string) (int64, e
 	return result.RowsAffected(), nil
 }
 
+const deleteKnownHostsOfHost = `-- name: DeleteKnownHostsOfHost :execrows
+DELETE FROM rookery.known_hosts
+WHERE host = $1
+`
+
+func (q *Queries) DeleteKnownHostsOfHost(ctx context.Context, host string) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteKnownHostsOfHost, host)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getActiveSSHKey = `-- name: GetActiveSSHKey :one
 SELECT id, name, key_type, public_key, private_key, key_id, fingerprint, created_at, retired_at
 FROM rookery.keys

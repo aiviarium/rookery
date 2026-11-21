@@ -150,6 +150,11 @@ func TestMachineHostConfig(t *testing.T) {
 	if unprivileged.NanoCPUs != int64(4*1e9) || unprivileged.Memory != 8192<<20 {
 		t.Fatalf("the machine's resources are %+v", unprivileged.Resources)
 	}
+	// The image remounts its cgroups writable, which Docker's AppArmor profile
+	// refuses.
+	if !contains(unprivileged.SecurityOpt, "apparmor=unconfined") {
+		t.Errorf("the unprivileged machine keeps an AppArmor profile: %v", unprivileged.SecurityOpt)
+	}
 	if unprivileged.Tmpfs["/run"] == "" || unprivileged.Tmpfs["/run/lock"] == "" {
 		t.Fatalf("the machine's /run is not its own: %v", unprivileged.Tmpfs)
 	}
@@ -159,7 +164,7 @@ func TestMachineHostConfig(t *testing.T) {
 
 	// sysbox gives systemd everything itself: no capability is added on top.
 	withSysbox := machineHostConfig(chosen, machineRuntime{name: sysbox}, "rookery", mounts)
-	if withSysbox.Runtime != sysbox || len(withSysbox.CapAdd) != 0 {
+	if withSysbox.Runtime != sysbox || len(withSysbox.CapAdd) != 0 || len(withSysbox.SecurityOpt) != 0 {
 		t.Fatalf("the sysbox machine is %+v", withSysbox)
 	}
 	if withSysbox.Privileged {
