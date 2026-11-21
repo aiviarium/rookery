@@ -1,5 +1,5 @@
-// The fleet: hosts and what runs on them. Terminals, desktops, machines and
-// their provisioners, jobs, schedules and roll-outs.
+// The fleet: hosts, the provisioners that make them, and what runs on them:
+// terminals, desktops, jobs, schedules and roll-outs.
 //
 // At the top of the sidebar the fleet is one row that drills in. Inside it are
 // its places and its hosts, and a host drills into its own places.
@@ -19,7 +19,6 @@ import { HostsPage } from "./hosts/list.tsx";
 import { JobPage } from "./jobs/job.tsx";
 import { JobsPage } from "./jobs/list.tsx";
 import { SchedulesPage } from "./jobs/schedules.tsx";
-import { MachinesPage } from "./machines/page.tsx";
 import { RolloutPage } from "./rollouts/rollout.tsx";
 import { RolloutsPage } from "./rollouts/list.tsx";
 import { FLEET_PLACES, FleetSidebar, useFleetRow } from "./sidebar.tsx";
@@ -49,7 +48,6 @@ export const routes = defineRoutes([
     ],
   },
   { path: "/terminals", component: TerminalsPage },
-  { path: "/machines", component: MachinesPage },
   { path: "/jobs", component: JobsPage },
   { path: "/jobs/:job", component: JobPage },
   { path: "/schedules", component: SchedulesPage },

@@ -12,15 +12,21 @@ export interface RowActionsProps {
   readonly onSelect: (id: string) => void;
 }
 
-/** RowActions is a row's menu behind a "more" button. */
+/**
+ * RowActions is a row's menu behind a "more" button. The menu draws in a
+ * portal, whose clicks still bubble to the row through Solid's tree, so they
+ * stop here: picking an item never also opens the row.
+ */
 export function RowActions(props: RowActionsProps): JSX.Element {
   return (
-    <DropdownMenu
-      label={props.label}
-      placement="bottom-end"
-      items={props.items}
-      onSelect={props.onSelect}
-      trigger={(trigger) => <IconButton {...trigger} size="sm" icon="more" label={props.label} />}
-    />
+    <span class="shell-row-actions" onClick={(event) => event.stopPropagation()}>
+      <DropdownMenu
+        label={props.label}
+        placement="bottom-end"
+        items={props.items}
+        onSelect={props.onSelect}
+        trigger={(trigger) => <IconButton {...trigger} size="sm" icon="more" label={props.label} />}
+      />
+    </span>
   );
 }
