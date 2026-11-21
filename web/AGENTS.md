@@ -46,6 +46,10 @@ of levels: the top, then the containers a person drills into.
   to that space.
 * Administration and Settings open from the account menu.
 
+The chrome is built from Nocturne's parts, not drawn here: `AppShell` places
+the sidebar toggle (pass `onSidebarHiddenChange`, never a view action), a
+level's `mark` is a `Mark`, and the account is Nocturne's `AccountMenu`.
+
 A drill row (›) moves the sidebar alone and leaves the page as it is. Back goes
 up a level. The level's switcher moves to a sibling, such as another host, and
 keeps the place. The sidebar follows the page until the person drills by hand,

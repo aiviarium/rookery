@@ -59,6 +59,20 @@ describe("the chrome", () => {
     }
   });
 
+  test("hides the sidebar and brings it back from the start of the page's header", async () => {
+    const view = await mount(fakeClient({ user: STATIC_USER }), { identityProvider: false }, "/inbox");
+    try {
+      await view.click("[data-part='sidebar-header'] [data-part='sidebar-toggle']");
+      expect(view.find("[data-part='app-shell']")?.getAttribute("data-sidebar")).toBe("hidden");
+      const show = view.find("[data-part='view-header'] > [data-part='sidebar-toggle']");
+      expect(show?.getAttribute("aria-label")).toBe("Show the sidebar");
+      await view.click("[data-part='view-header'] > [data-part='sidebar-toggle']");
+      expect(view.find("[data-part='app-shell']")?.hasAttribute("data-sidebar")).toBe(false);
+    } finally {
+      view.unmount();
+    }
+  });
+
   test("keeps the status bar quiet while the link is up", async () => {
     const view = await mount(
       fakeClient({

@@ -3,7 +3,7 @@
 // areas: each adds a section through the page seam, as a plugin adds its views.
 import type { JSX } from "@solidjs/web";
 import { useLocation } from "@solidjs/router";
-import { Count } from "@aiviarium/nocturne";
+import { Count, Mark } from "@aiviarium/nocturne";
 
 import { topSections } from "../pages/index.ts";
 import { useShell } from "../shell.tsx";
@@ -44,7 +44,7 @@ export function TopSidebar(): JSX.Element {
     <LevelSidebar
       label="Places"
       title="Rookery"
-      mark={<span class="nc-nav-item__mark shell-mark">R</span>}
+      mark={<Mark name="Rookery" hue="accent" solid decorative />}
       groups={[main(), ...sections.flatMap((groups) => groups()), ...plugins()]}
     />
   );

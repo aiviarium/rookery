@@ -1,13 +1,11 @@
 // The frame of every page: Nocturne's ViewLayout with a ViewHeader.
 //
 // The header holds the path and the page's actions; the page never repeats its
-// name as a heading. While the person hid the sidebar, the header's first
-// action brings it back.
+// name as a heading. While the person hid the sidebar, Nocturne's shell puts
+// the toggle that brings it back at the start of the header.
 import { Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { Callout, ViewHeader, ViewLayout, type ViewAction, type ViewCrumb } from "@aiviarium/nocturne";
-
-import { useChrome } from "../chrome/context.ts";
 
 /** ViewProps are what a page shows around its content. */
 export interface ViewProps {
@@ -36,19 +34,10 @@ export interface ViewProps {
 
 /** View is one page's frame. */
 export function View(props: ViewProps): JSX.Element {
-  const chrome = useChrome();
-  const actions = (): ViewAction[] => {
-    const own = props.actions ?? [];
-    if (!chrome.sidebarHidden()) return own;
-    return [
-      { id: "show-sidebar", label: "Show the sidebar", icon: "sidebar", onClick: () => chrome.setSidebarHidden(false) },
-      ...own,
-    ];
-  };
   return (
     <ViewLayout
       id={props.id}
-      header={<ViewHeader crumbs={props.crumbs} back={props.back} context={props.context} actions={actions()} noPin />}
+      header={<ViewHeader crumbs={props.crumbs} back={props.back} context={props.context} actions={props.actions} noPin />}
       aside={props.aside}
       asideLabel={props.asideLabel}
       reading={props.reading}
