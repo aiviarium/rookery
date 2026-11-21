@@ -52,15 +52,31 @@ RUN systemctl mask \
 # cloud-init reads its seed from the NoCloud volume and configures no network of
 # its own: the machine's network is the container's. It keeps the image's apt
 # sources, which it would otherwise rewrite with an unknown release when it
-# starts without a seed.
+# starts without a seed, or with one: inside a container it cannot tell the
+# release and would name it UNAVAILABLE. The file is the image's own; a seed's
+# 99-rookery.cfg replaces nothing here.
 RUN printf '%s\n' \
         'datasource_list: [NoCloud, None]' \
         'network: {config: disabled}' \
         'apt_preserve_sources_list: true' \
-        > /etc/cloud/cloud.cfg.d/99-rookery.cfg \
+        > /etc/cloud/cloud.cfg.d/90-rookery-machine.cfg \
  && rm -f /etc/cloud/cloud.cfg.d/subiquity-disable-cloudinit-networking.cfg \
  && mkdir -p /var/lib/cloud/seed/nocloud
 
+# systemd writes its own cgroups. sysbox mounts them writable; without sysbox
+# the engine mounts the container's cgroup namespace read-only, so the machine
+# makes it writable itself before systemd starts. The provisioner gives that
+# container the capability and the AppArmor profile the remount needs.
+RUN printf '%s\n' \
+        '#!/bin/sh' \
+        'if ! touch /sys/fs/cgroup/.rookery 2>/dev/null; then' \
+        '    mount -o remount,rw /sys/fs/cgroup || echo "rookery: /sys/fs/cgroup stays read-only" >&2' \
+        'fi' \
+        'rm -f /sys/fs/cgroup/.rookery' \
+        'exec /sbin/init "$@"' \
+        > /usr/local/sbin/rookery-init \
+ && chmod 0755 /usr/local/sbin/rookery-init
+
 STOPSIGNAL SIGRTMIN+3
 
-CMD ["/sbin/init"]
+CMD ["/usr/local/sbin/rookery-init"]

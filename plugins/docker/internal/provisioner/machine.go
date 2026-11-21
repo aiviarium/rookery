@@ -139,17 +139,23 @@ func createMachine(ctx context.Context, opened *client.Client, arguments argumen
 // switch and its power state, and has suspended the machine that ran it. sysbox
 // gives systemd the namespaces it wants without that; without sysbox the
 // container keeps its own cgroup namespace, mounts /run itself, and has only the
-// capabilities systemd needs.
+// capabilities systemd needs. The engine mounts that namespace read-only, and
+// the image remounts it writable before systemd starts, which Docker's default
+// AppArmor profile refuses: so that container runs without one, as a sysbox
+// container does under sysbox's own.
 func machineHostConfig(chosen size, runtime machineRuntime, networkName string, mounts []mount.Mount) *container.HostConfig {
 	caps := []string{}
+	security := []string{}
 	if runtime.name != sysbox {
 		caps = machineCapabilities()
+		security = []string{"apparmor=unconfined"}
 	}
 	return &container.HostConfig{
 		Runtime:      runtime.name,
 		Privileged:   false,
 		CgroupnsMode: container.CgroupnsModePrivate,
 		CapAdd:       caps,
+		SecurityOpt:  security,
 		NetworkMode:  container.NetworkMode(networkName),
 		RestartPolicy: container.RestartPolicy{
 			Name: container.RestartPolicyMode("unless-stopped"),
