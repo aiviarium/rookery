@@ -9,16 +9,20 @@ import { defineRoutes, type RouteDefinition } from "@solidjs/router";
 
 import * as admin from "./admin/index.ts";
 import * as home from "./home/index.ts";
-import * as infra from "./infra/index.ts";
-import type { Area, NavEntry } from "./types.ts";
+import * as infra from "./infra/index.tsx";
+import * as settings from "./settings/index.tsx";
+import type { Area, Domain, NavEntry } from "./types.ts";
 
-export type { Area, NavEntry } from "./types.ts";
+export type { Area, Domain, NavEntry } from "./types.ts";
 
 /** AREAS is every area the shell has. Add one folder, then one entry here. */
-const AREAS: readonly Area[] = [home, infra, admin];
+const AREAS: readonly Area[] = [home, infra, admin, settings];
 
 /** routes is every path the shell's own pages answer. */
 export const routes: readonly RouteDefinition[] = defineRoutes(AREAS.flatMap((area) => area.routes));
 
 /** nav is every entry the areas add to the navigation, in area order. */
 export const nav: readonly NavEntry[] = AREAS.flatMap((area) => area.nav);
+
+/** domains are the places the sidebar drills down into, in area order. */
+export const domains: readonly Domain[] = AREAS.flatMap((area) => area.domains ?? []);

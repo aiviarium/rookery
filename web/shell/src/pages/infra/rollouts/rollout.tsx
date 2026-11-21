@@ -1,160 +1,95 @@
 // One roll-out: the hosts it works, the batch each is in, and what became of it.
-// Progress arrives on RolloutService.Watch; the buttons steer it, and the work of
+// Progress arrives on RolloutService.Watch; the header steers it, and the work of
 // each host is a child job that opens from its row.
-import { Show, createSignal, onCleanup, onSettled } from "solid-js";
+import { For, Show, createSignal, onSettled, untrack } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { useParams } from "@solidjs/router";
 import type { Rollout, RolloutHost } from "@rookery/proto";
-import {
-  Button,
-  Callout,
-  Card,
-  DataTable,
-  type DataColumn,
-  Dialog,
-  PropertyList,
-  Skeleton,
-  State,
-  TextField,
-} from "@aiviarium/nocturne";
+import { Button, Callout, Card, ListRow, PropertyList, RowList, Skeleton, State, TextField, type ViewAction } from "@aiviarium/nocturne";
 
+import { createAction } from "../../../parts/action.ts";
+import { FormDialog } from "../../../parts/dialogs.tsx";
+import { View } from "../../../parts/view.tsx";
 import { useShell } from "../../../shell.tsx";
-import { Page } from "../../../parts/page.tsx";
-import { errorMessage, relativeTime, rolloutActive, rolloutHostState, rolloutState, dateOf } from "../format.ts";
+import { dateOf, errorMessage, relativeTime, rolloutActive, rolloutHostState, rolloutState } from "../format.ts";
+import { rolloutTitle, selectionText } from "./list.tsx";
 
+/** RolloutPage is the roll-out in the path; another one mounts afresh. */
 export function RolloutPage(): JSX.Element {
-  const shell = useShell();
   const params = useParams<{ rollout: string }>();
-  const id = () => params.rollout ?? "";
+  return <For each={[params.rollout ?? ""]}>{(id) => <RolloutView id={id} />}</For>;
+}
 
+function RolloutView(props: { id: string }): JSX.Element {
+  const shell = useShell();
+  const id = untrack(() => props.id);
   const [rollout, setRollout] = createSignal<Rollout>();
   const [failure, setFailure] = createSignal<string>();
-  const [busy, setBusy] = createSignal<"pause" | "resume" | "cancel">();
   const [pausing, setPausing] = createSignal(false);
-  const [why, setWhy] = createSignal("");
-  let controller: AbortController | undefined;
-
-  const read = async (): Promise<void> => {
-    try {
-      const got = await shell.rookery.rollouts.get({ rollout: id() });
-      if (got.rollout !== undefined) setRollout(got.rollout);
-    } catch (error) {
-      setFailure(errorMessage(error));
-    }
-  };
-
-  const watch = async (): Promise<void> => {
-    controller = new AbortController();
-    try {
-      for await (const message of shell.rookery.rollouts.watch({ rollout: id() }, { signal: controller.signal })) {
-        if (message.rollout === undefined) continue;
-        setRollout(message.rollout);
-        if (!rolloutActive(message.rollout)) break;
-      }
-    } catch (error) {
-      if (!controller.signal.aborted) setFailure(errorMessage(error));
-    }
-  };
 
   onSettled(() => {
-    void read();
-    void watch();
-    onCleanup(() => controller?.abort());
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const got = await shell.rookery.rollouts.get({ rollout: id });
+        if (got.rollout !== undefined) setRollout(got.rollout);
+        for await (const message of shell.rookery.rollouts.watch({ rollout: id }, { signal: controller.signal })) {
+          if (message.rollout === undefined) continue;
+          setRollout(message.rollout);
+          if (!rolloutActive(message.rollout)) break;
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) setFailure(errorMessage(error));
+      }
+    })();
+    return () => controller.abort();
   });
 
-  const steer = async (what: "pause" | "resume" | "cancel", reason = ""): Promise<void> => {
-    if (busy() !== undefined) return;
-    setBusy(what);
-    setFailure(undefined);
-    try {
-      const changed =
-        what === "pause"
-          ? await shell.rookery.rollouts.pause({ rollout: id(), why: reason })
-          : what === "resume"
-            ? await shell.rookery.rollouts.resume({ rollout: id() })
-            : await shell.rookery.rollouts.cancel({ rollout: id() });
-      if (changed.rollout !== undefined) setRollout(changed.rollout);
-    } catch (error) {
-      setFailure(errorMessage(error));
-    } finally {
-      setBusy(undefined);
-      setPausing(false);
-    }
-  };
-
-  const rows = (): RolloutHost[] => {
-    const current = rollout();
-    if (current === undefined) return [];
-    return [...current.hosts, ...current.skipped].sort((a, b) => a.batch - b.batch || a.host.localeCompare(b.host));
-  };
+  const steer = createAction(async (what: "resume" | "cancel") => {
+    const changed = what === "resume" ? await shell.rookery.rollouts.resume({ rollout: id }) : await shell.rookery.rollouts.cancel({ rollout: id });
+    if (changed.rollout !== undefined) setRollout(changed.rollout);
+  }, { failed: "The roll-out did not change" });
 
   const state = () => {
     const current = rollout();
     return current === undefined ? undefined : rolloutState(current.pausedBecause === "" ? current.state : "paused");
   };
+  const hosts = (): RolloutHost[] => {
+    const current = rollout();
+    if (current === undefined) return [];
+    return [...current.hosts].sort((a, b) => a.batch - b.batch || a.host.localeCompare(b.host));
+  };
 
-  const columns = (): DataColumn<RolloutHost>[] => [
-    { id: "host", header: "Host", type: "mono", accessor: host => host.host },
-    { id: "batch", header: "Batch", type: "num", accessor: host => `${host.batch}` },
-    {
-      id: "state",
-      header: "State",
-      accessor: host => rolloutHostState(host.state).label,
-      cell: host => {
-        const shown = rolloutHostState(host.state);
-        return <State status={shown.tone}>{shown.label}</State>;
-      },
-    },
-    { id: "why", header: "Why", accessor: host => host.error || host.reason },
-    { id: "job", header: "Job", type: "mono", accessor: host => host.job.slice(0, 10) },
-  ];
+  const actions = (): ViewAction[] => {
+    const current = rollout();
+    const list: ViewAction[] = [];
+    if (rolloutActive(current)) {
+      list.push({ id: "cancel", label: "Cancel roll-out", icon: "close", overflow: true, danger: true, disabled: steer.busy(), onClick: () => void steer.run("cancel") });
+    }
+    if (current?.state === "running") list.push({ id: "pause", label: "Pause", icon: "pause", primary: true, onClick: () => setPausing(true) });
+    if (current?.state === "paused") {
+      list.push({ id: "resume", label: "Resume", icon: "play", primary: true, disabled: steer.busy(), onClick: () => void steer.run("resume") });
+    }
+    return list;
+  };
 
   return (
-    <Page
-      title={`Roll-out ${id().slice(0, 10)}`}
-      crumbs={() => [{ label: "Roll-outs", href: "/rollouts" }, { label: id().slice(0, 10) }]}
-      description={
-        rollout()?.kind === "host.action" ? "One action, on the hosts in batches." : "An apply, on the hosts in batches."
-      }
-      context={<Show when={state()}>{shown => <State status={shown().tone}>{shown().label}</State>}</Show>}
-      actions={() => [
-        {
-          id: "pause",
-          label: busy() === "pause" ? "Pausing…" : "Pause",
-          disabled: rollout()?.state !== "running" || busy() !== undefined,
-          onClick: () => setPausing(true),
-        },
-        {
-          id: "resume",
-          label: busy() === "resume" ? "Resuming…" : "Resume",
-          disabled: rollout()?.state !== "paused" || busy() !== undefined,
-          onClick: () => void steer("resume"),
-        },
-        {
-          id: "cancel",
-          label: busy() === "cancel" ? "Cancelling…" : "Cancel",
-          overflow: true,
-          danger: true,
-          disabled: !rolloutActive(rollout()) || busy() !== undefined,
-          onClick: () => void steer("cancel"),
-        },
-      ]}
+    <View
+      id="rollout"
+      crumbs={[{ label: "Roll-outs", href: "/rollouts" }, { label: rollout() === undefined ? id.slice(0, 10) : rolloutTitle(rollout()!) }]}
+      context={<Show when={state()}>{(shown) => <State status={shown().tone}>{shown().label}</State>}</Show>}
+      actions={actions()}
+      error={failure()}
+      aside={<Show when={rollout()}>{(current) => <Progress rollout={current()} />}</Show>}
+      asideLabel="Progress"
     >
-      <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
-      <Show
-        when={rollout()?.pausedBecause}
-        fallback={
-          <Show when={rollout()?.state === "running"}>
-            <Callout tone="info">Running. Its hosts change as their jobs end.</Callout>
-          </Show>
-        }
-      >
-        {reason => (
+      <Show when={rollout()?.pausedBecause}>
+        {(reason) => (
           <Callout
             tone="warning"
             action={
               <Show when={rollout()?.state === "paused"}>
-                <Button size="sm" onClick={() => void steer("resume")}>
+                <Button size="sm" onClick={() => void steer.run("resume")}>
                   Resume
                 </Button>
               </Show>
@@ -164,67 +99,92 @@ export function RolloutPage(): JSX.Element {
           </Callout>
         )}
       </Show>
-      <Show when={rollout()} fallback={<Skeleton width="40%" />}>
-        {current => (
-          <Card title="Progress">
-            <PropertyList
-              items={[
-                { label: "Succeeded", value: `${current().succeeded}` },
-                { label: "Running", value: `${current().running}` },
-                { label: "Pending", value: `${current().pending}` },
-                { label: "Failed", value: `${current().failed}` },
-                { label: "Started", value: relativeTime(dateOf(current().createdAt)) || "Not yet" },
-                { label: "Finished", value: relativeTime(dateOf(current().finishedAt)) },
-                {
-                  label: "Selection",
-                  value: `${current().selection?.labels ?? ""}${(current().selection?.hosts.length ?? 0) > 0 ? ` ${current().selection?.hosts.join(", ")}` : ""}${current().selection?.behind === true ? " behind" : ""}`,
-                },
-              ]}
-            />
-          </Card>
+      <Show when={rollout()} fallback={<Skeleton width="50%" />}>
+        {(current) => (
+          <>
+            <Card title="Hosts" count={hosts().length} padding="none">
+              <Show when={hosts().length > 0} fallback={<p class="shell-pad nc-muted">The plan named no host that can take it.</p>}>
+                <RowList label="Hosts of the roll-out">
+                  <For each={hosts()} keyed={(host) => host.host}>
+                    {(host) => {
+                      const shown = () => rolloutHostState(host().state);
+                      return (
+                        <ListRow
+                          icon="server"
+                          title={host().host}
+                          secondary={`Batch ${host().batch}`}
+                          detail={host().error || undefined}
+                          status={<State status={shown().tone}>{shown().label}</State>}
+                          href={host().job === "" ? undefined : `/jobs/${encodeURIComponent(host().job)}`}
+                        />
+                      );
+                    }}
+                  </For>
+                </RowList>
+              </Show>
+            </Card>
+            <Show when={current().skipped.length > 0}>
+              <Card title="Skipped" count={current().skipped.length} padding="none">
+                <RowList label="Skipped hosts">
+                  <For each={current().skipped} keyed={(host) => host.host}>
+                    {(host) => <ListRow icon="server" muted title={host().host} secondary={host().reason || host().error} href={`/hosts/${encodeURIComponent(host().host)}`} />}
+                  </For>
+                </RowList>
+              </Card>
+            </Show>
+          </>
         )}
       </Show>
-      <Card title="Hosts" count={rows().length} padding="none">
-        <DataTable
-          bare
-          label="Hosts of the roll-out"
-          rows={rows()}
-          columns={columns()}
-          getRowId={host => `${host.batch}/${host.host}`}
-          onRowClick={host => {
-            if (host.job !== "") shell.navigate(`/jobs/${encodeURIComponent(host.job)}`);
-          }}
-          empty={{ title: "No host", description: "The plan named none that can take it." }}
-        />
-      </Card>
       <Show when={pausing()}>
-        <Dialog
-          open
-          onClose={() => setPausing(false)}
-          title="Pause the roll-out?"
-          description="Running hosts finish their work, and no new batch starts until it is resumed."
-          footer={
-            <>
-              <Button onClick={() => setPausing(false)} disabled={busy() !== undefined}>
-                Cancel
-              </Button>
-              <Button variant="primary" onClick={() => void steer("pause", why())} disabled={busy() !== undefined}>
-                Pause
-              </Button>
-            </>
-          }
-        >
-          <div class="nc-stack">
-            <TextField
-              label="Why"
-              help="The person who started it is told this."
-              value={why()}
-              placeholder="A person is checking the first batch"
-              onInput={event => setWhy(event.currentTarget.value)}
-            />
-          </div>
-        </Dialog>
+        <PauseDialog id={id} onClose={() => setPausing(false)} onPaused={setRollout} />
       </Show>
-    </Page>
+    </View>
+  );
+}
+
+function Progress(props: { rollout: Rollout }): JSX.Element {
+  return (
+    <div class="shell-view">
+      <PropertyList
+        items={[
+          { label: "Runs", value: rolloutTitle(props.rollout) },
+          { label: "Hosts", value: selectionText(props.rollout.selection) },
+          { label: "Succeeded", value: String(props.rollout.succeeded) },
+          { label: "Running", value: String(props.rollout.running) },
+          { label: "Pending", value: String(props.rollout.pending) },
+          { label: "Failed", value: String(props.rollout.failed) },
+          { label: "Started", value: relativeTime(dateOf(props.rollout.startedAt ?? props.rollout.createdAt)) || "Not yet" },
+          { label: "Finished", value: relativeTime(dateOf(props.rollout.finishedAt)) || "Not yet" },
+          { label: "By", value: <span class="nc-mono">{props.rollout.createdBy}</span> },
+        ]}
+      />
+    </div>
+  );
+}
+
+function PauseDialog(props: { id: string; onClose: () => void; onPaused: (rollout: Rollout) => void }): JSX.Element {
+  const shell = useShell();
+  const [why, setWhy] = createSignal("");
+  const pause = createAction(async () => {
+    const changed = await shell.rookery.rollouts.pause({ rollout: props.id, why: why().trim() });
+    if (changed.rollout !== undefined) props.onPaused(changed.rollout);
+  });
+  return (
+    <FormDialog
+      open
+      title="Pause the roll-out?"
+      description="Running hosts finish their work, and no new batch starts until it is resumed."
+      submit="Pause"
+      action={pause}
+      onClose={props.onClose}
+    >
+      <TextField
+        label="Why"
+        help="Shown on the roll-out while it waits."
+        placeholder="Checking the first batch"
+        value={why()}
+        onInput={(event) => setWhy(event.currentTarget.value)}
+      />
+    </FormDialog>
   );
 }

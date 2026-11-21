@@ -185,3 +185,30 @@ export function bytesSize(bytes: number): string {
 export function machineAddress(resource: ProvisionerResource): string {
   return resource.address === "" ? "Not known yet" : resource.address;
 }
+
+/** JOB_KINDS are what the core's job kinds are called; a plugin's kind is shown as it is. */
+const JOB_KINDS: Record<string, string> = {
+  "host.apply": "Apply",
+  "host.action": "Action",
+  "host.contact": "First contact",
+  "host.create": "Create machine",
+  "host.remove": "Remove machine",
+};
+
+/** jobKindLabel is a job's kind as a person reads it. */
+export function jobKindLabel(kind: string): string {
+  return JOB_KINDS[kind] ?? kind;
+}
+
+/** resourceLabel is a job's resource without its scheme, such as "forge" for host://forge. */
+export function resourceLabel(resource: string): string {
+  const at = resource.indexOf("://");
+  return at < 0 ? resource : resource.slice(at + 3);
+}
+
+/** resourcePath is the shell's place for a resource, such as a host's page for host://forge, if it has one. */
+export function resourcePath(resource: string): string | undefined {
+  if (resource.startsWith("host://")) return `/hosts/${encodeURIComponent(resource.slice("host://".length))}`;
+  if (resource.startsWith("rollout://")) return `/rollouts/${encodeURIComponent(resource.slice("rollout://".length))}`;
+  return undefined;
+}

@@ -82,11 +82,11 @@ export function createPlugins(
   const [halves, setHalves] = createSignal<readonly LoadedClientHalf[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<Error>();
-  const [generation, setGeneration] = createSignal(0);
+  // Each load is numbered so an answer that lands after a newer load is dropped.
+  let generation = 0;
 
   const load = async () => {
-    const mine = generation() + 1;
-    setGeneration(mine);
+    const mine = ++generation;
     setLoading(true);
     try {
       const declared = await rookery.contributions();
@@ -94,17 +94,17 @@ export function createPlugins(
       // hosts: it is the shell, and this shell would not be served.
       const hosted = declared.filter((entry) => entry.shell !== true && entry.hash !== "");
       const loaded = await rookery.loadClientHalves({ contributions: hosted });
-      if (mine !== generation()) return;
+      if (mine !== generation) return;
       setContributions(hosted);
       setHalves(loaded);
       setError(undefined);
     } catch (failure) {
-      if (mine !== generation()) return;
+      if (mine !== generation) return;
       // A signed-out or refused caller has no halves, which is not a fault of
       // the plugins.
       if (!isUnauthenticated(failure) && !isPermissionDenied(failure)) setError(asError(failure));
     } finally {
-      if (mine === generation()) setLoading(false);
+      if (mine === generation) setLoading(false);
     }
   };
 

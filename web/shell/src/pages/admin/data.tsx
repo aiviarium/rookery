@@ -1,185 +1,190 @@
-// The datastore: the collections plugins declare, their records, a record's
-// history, and the changes that arrive while the page is open.
-import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
+// The datastore: the collections plugins declare, their records, and a record's
+// history. The collection and the record are in the address; a collection's
+// records follow its live query while the page is open.
+import { For, Show, createMemo } from "solid-js";
 import type { JSX } from "@solidjs/web";
+import { useSearchParams } from "@solidjs/router";
 import { cbor } from "@rookery/client";
-import { createQuery, useLiveQuery } from "@rookery/client/solid";
+import { useLiveQuery } from "@rookery/client/solid";
 import type { Collection } from "@rookery/proto";
 import {
   Badge,
-  Button,
-  Callout,
   Card,
   CodeBlock,
   DataTable,
   type DataColumn,
   EmptyState,
+  ListRow,
   MetaLine,
-  Select,
+  RowList,
   Skeleton,
+  State,
 } from "@aiviarium/nocturne";
 
+import { createLive } from "../../parts/data.ts";
+import { errorMessage } from "../../parts/errors.ts";
+import { View } from "../../parts/view.tsx";
 import { useShell } from "../../shell.tsx";
-import { Page } from "../../parts/page.tsx";
 
 /** DataPage browses the collections the caller may read. */
 export function DataPage(): JSX.Element {
   const shell = useShell();
-  const collections = createQuery(() =>
-    shell.rookery.data.listCollections({ space: shell.spaces.current() }),
-  );
-  const [selected, setSelected] = createSignal("");
-
-  const collection = (): Collection | undefined =>
-    (collections()?.collections ?? []).find((candidate) => keyOf(candidate) === selected());
+  const [search, setSearch] = useSearchParams<{ collection?: string; record?: string }>();
+  const collections = createLive(() => shell.rookery.data.listCollections({ space: shell.spaces.current() }), { space: true });
+  const rows = () => collections()?.collections ?? [];
+  const chosen = createMemo(() => rows().find((one) => keyOf(one) === search.collection));
 
   return (
-    <Page title="Datastore" description="The records of every collection this account may read.">
-      <Card
-        title="Collections"
-        action={
-          <Select
-            aria-label="The collection"
-            value={selected()}
-            options={[
-              { value: "", label: "Choose a collection" },
-              ...(collections()?.collections ?? []).map((candidate) => ({
-                value: keyOf(candidate),
-                label: `${keyOf(candidate)} (${candidate.scope})`,
-              })),
-            ]}
-            onChange={setSelected}
-          />
-        }
-      >
-        <Show when={collections() !== undefined} fallback={<Skeleton width="30%" />}>
-          <Show
-            when={(collections()?.collections.length ?? 0) > 0}
-            fallback={
-              <EmptyState
-                size="sm"
-                title="No collections to read"
-                description="A collection is declared by a plugin's manifest, and its records are checked against the space or plugin they belong to."
-              />
-            }
-          >
-            <Show when={collection()} fallback={<p class="nc-meta">Choose a collection to see its records.</p>}>
-              {candidate => (
-                <div class="nc-row" style={{ gap: "var(--space-3)" }}>
-                  <Badge tone="outline">{candidate().scope}</Badge>
-                  <Show when={candidate().history}>
-                    <Badge tone="info">keeps history</Badge>
-                  </Show>
-                  <MetaLine items={[{ label: candidate().fields.join(", "), mono: true }]} />
-                </div>
-              )}
+    <Show
+      when={chosen()}
+      keyed
+      fallback={
+        <View
+          id="datastore"
+          crumbs={[{ label: "Datastore" }]}
+          error={collections.error() === undefined ? undefined : `The collections could not be read. ${errorMessage(collections.error())}`}
+          actions={[{ id: "refresh", label: "Refresh", icon: "refresh-cw", onClick: () => void collections.refresh().catch(() => undefined) }]}
+        >
+          <Show when={collections()} fallback={<Skeleton width="50%" />}>
+            <Show
+              when={rows().length > 0}
+              fallback={
+                <Card>
+                  <EmptyState
+                    icon="layers"
+                    title="No collections to read"
+                    description="Plugins declare collections in their manifests. Records belong to a space or to the plugin."
+                  />
+                </Card>
+              }
+            >
+              <Card padding="none">
+                <RowList label="Collections">
+                  <For each={rows()} keyed={(one) => keyOf(one)}>
+                    {(one) => (
+                      <ListRow
+                        icon="layers"
+                        title={<span class="nc-mono">{keyOf(one())}</span>}
+                        label={keyOf(one())}
+                        secondary={one().fields.join(", ")}
+                        meta={
+                          <span class="nc-row nc-row--tight">
+                            <Badge tone="outline">{one().scope}</Badge>
+                            <Show when={one().history}>
+                              <Badge tone="info">history</Badge>
+                            </Show>
+                          </span>
+                        }
+                        onClick={() => setSearch({ collection: keyOf(one()), record: undefined })}
+                      />
+                    )}
+                  </For>
+                </RowList>
+              </Card>
             </Show>
           </Show>
-        </Show>
-      </Card>
-
-      <Show when={collection()} keyed>
-        {candidate => <Records collection={candidate} />}
-      </Show>
-    </Page>
+        </View>
+      }
+    >
+      {(collection) => (
+        <Records
+          collection={collection}
+          record={search.record ?? ""}
+          onRecord={(id) => setSearch({ record: id === "" ? undefined : id })}
+          onBack={() => setSearch({ collection: undefined, record: undefined })}
+        />
+      )}
+    </Show>
   );
 }
 
-/** Records is one collection's records, kept up to date by its live query. */
-function Records(props: { collection: Collection }): JSX.Element {
+/** Records is one collection's records, kept up to date by its live query, and the chosen record beside them. */
+function Records(props: { collection: Collection; record: string; onRecord: (id: string) => void; onBack: () => void }): JSX.Element {
   const shell = useShell();
   const key = keyOf(props.collection);
-  const live = useLiveQuery<Record<string, unknown>>(shell.rookery.data, {
-    collection: key,
-    space: shell.spaces.current(),
-    limit: 200,
-  });
-  const [open, setOpen] = createSignal("");
-  const history = createQuery(() =>
-    open() === "" ? Promise.resolve(undefined) : shell.rookery.data.history({ collection: key, id: open(), limit: 50 }),
-  );
-
-  // The history is the open record's, so it is asked again when another row is
-  // chosen.
-  createEffect(
-    () => open(),
-    (id) => {
-      if (id !== "") void history.refresh().catch(() => undefined);
-    },
-  );
-
-  const fields = createMemo(() => props.collection.fields.slice(0, 6));
+  const live = useLiveQuery<Record<string, unknown>>(shell.rookery.data, { collection: key, space: shell.spaces.current(), limit: 200 });
+  const records = () => live.records().map((row) => row.record ?? {});
+  const open = () => records().find((row) => recordID(row) === props.record);
+  const fields = createMemo(() => props.collection.fields.filter((field) => field !== "id").slice(0, 6));
 
   const columns = (): DataColumn<Record<string, unknown>>[] => [
-    { id: "id", header: "id", type: "mono", accessor: row => recordID(row) },
-    ...fields().map(field => ({
-      id: field,
-      header: field,
-      accessor: (row: Record<string, unknown>) => formatValue(row[field]),
-    })),
+    { id: "id", header: "id", type: "mono", accessor: (row) => recordID(row) },
+    ...fields().map((field) => ({ id: field, header: field, accessor: (row: Record<string, unknown>) => formatValue(row[field]) })),
   ];
 
   return (
-    <div class="shell-columns">
-      <Card title={key} padding="none" action={<MetaLine items={[`${live.records().length} records, live: ${live.status()}`]} />}>
-        <Show
-          when={live.status() !== "loading"}
-          fallback={<Skeleton width="40%" />}
-        >
+    <View
+      id="datastore-records"
+      crumbs={[{ label: "Datastore", onClick: props.onBack }, { label: key }]}
+      context={
+        <State status={live.status() === "live" ? "live" : live.status() === "error" ? "error" : "idle"}>
+          {`${records().length} records`}
+        </State>
+      }
+      actions={[{ id: "refresh", label: "Ask again", icon: "refresh-cw", onClick: () => live.restart() }]}
+      aside={
+        <Show when={props.record !== ""}>
+          <RecordDetail collection={props.collection} id={props.record} record={open()} />
+        </Show>
+      }
+      asideLabel="Record"
+    >
+      <Card padding="none">
+        <Show when={live.status() !== "loading"} fallback={<Skeleton width="40%" />}>
           <DataTable
             bare
             label={`Records in ${key}`}
-            rows={live.records().map(row => row.record ?? {})}
+            rows={records()}
             columns={columns()}
-            getRowId={row => recordID(row)}
-            onRowClick={row => setOpen(recordID(row))}
+            getRowId={(row) => recordID(row)}
+            onRowClick={(row) => props.onRecord(recordID(row))}
             empty={{
               title: "No records",
-              description: "Nothing in this collection matches, or the rows are in a space you are not in.",
+              description: "Nothing in this collection, or its records are in a space you are not in.",
             }}
-            footer={
-              <Button
-                size="sm"
-                onClick={() => {
-                  live.restart();
-                }}
-              >
-                Ask again
-              </Button>
-            }
           />
         </Show>
       </Card>
+    </View>
+  );
+}
 
-      <Card title="History">
-        <Show when={open() !== ""} fallback={<p class="nc-meta">Choose a record to see its revisions.</p>}>
-          <Show
-            when={(history()?.entriesCbor.length ?? 0) > 0}
-            fallback={<Callout tone="info">This collection keeps no history, or the record has one revision.</Callout>}
-          >
-            <div class="nc-stack">
-              <For each={history()?.entriesCbor ?? []}>
-                {entry => (
-                  <div class="nc-stack">
-                    <MetaLine
-                      items={[
-                        { label: `rev ${revisionOf(entry)}` },
-                        { label: principalOf(entry), mono: true },
-                      ]}
-                    />
-                    <CodeBlock
-                      language="json"
-                      title="record"
-                      lineNumbers={false}
-                      code={JSON.stringify(cbor.decode<Record<string, unknown>>(entry)?.["record"] ?? {}, null, 2)}
-                    />
-                  </div>
-                )}
-              </For>
-            </div>
+function RecordDetail(props: { collection: Collection; id: string; record: Record<string, unknown> | undefined }): JSX.Element {
+  const shell = useShell();
+  const history = createLive(
+    () =>
+      props.collection.history
+        ? shell.rookery.data.history({ collection: keyOf(props.collection), id: props.id, limit: 50 })
+        : Promise.resolve(undefined),
+    { key: () => props.id },
+  );
+  return (
+    <div class="shell-view">
+      <Show when={props.record} fallback={<p class="nc-muted">This record is not among the ones shown.</p>}>
+        {(record) => <CodeBlock language="json" title={props.id} lineNumbers={false} code={JSON.stringify(record(), null, 2)} />}
+      </Show>
+      <Show when={props.collection.history}>
+        <Card title="History">
+          <Show when={history()} fallback={<Skeleton width="60%" />}>
+            {(answer) => (
+              <Show when={answer().entriesCbor.length > 0} fallback={<p class="nc-muted">No revisions recorded.</p>}>
+                <For each={answer().entriesCbor}>
+                  {(entry) => (
+                    <div class="nc-stack">
+                      <MetaLine items={[{ label: `rev ${revisionOf(entry)}` }, { label: principalOf(entry), mono: true }]} />
+                      <CodeBlock
+                        language="json"
+                        lineNumbers={false}
+                        code={JSON.stringify(cbor.decode<Record<string, unknown>>(entry)?.["record"] ?? {}, null, 2)}
+                      />
+                    </div>
+                  )}
+                </For>
+              </Show>
+            )}
           </Show>
-        </Show>
-      </Card>
+        </Card>
+      </Show>
     </div>
   );
 }
@@ -203,8 +208,7 @@ function revisionOf(entry: Uint8Array): number {
 
 /** principalOf is who made a history entry. */
 function principalOf(entry: Uint8Array): string {
-  const decoded = cbor.decode<{ principal?: string }>(entry);
-  return decoded?.principal ?? "";
+  return cbor.decode<{ principal?: string }>(entry)?.principal ?? "";
 }
 
 /** formatValue is a field's value as a cell. */

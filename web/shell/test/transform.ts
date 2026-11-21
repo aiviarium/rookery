@@ -17,12 +17,31 @@ const SERVER_TO_BROWSER: Array<[RegExp, string]> = [
   [/@solidjs[\\/]web[\\/]dist[\\/]server\.dev\.js$/, "web.dev.js"],
 ];
 
+// One copy of Solid for every importer. A Nocturne checkout linked in for local
+// work brings its own node_modules, and two runtimes do not share an owner, so a
+// Show inside one of its panels would never update. Vite dedupes these; here a
+// copy outside the shell re-exports the shell's own.
+const SHELL = new URL("..", import.meta.url).pathname;
+/** home is where the shell's copy of a package resolves from: signals is Solid's own dependency. */
+const SOLID = Bun.resolveSync("solid-js", SHELL);
+const home = (name: string) => (name === "@solidjs/signals" ? SOLID : SHELL);
+const OWN = ["solid-js", "@solidjs/web", "@solidjs/signals"].map((name) => {
+  const file = Bun.resolveSync(name, home(name));
+  return file.slice(0, file.indexOf(`/node_modules/${name}/`) + `/node_modules/${name}/`.length);
+});
+const PACKAGE = /[\\/]node_modules[\\/](solid-js|@solidjs[\\/]web|@solidjs[\\/]signals)[\\/]dist[\\/]/;
+
 plugin({
   name: "solid",
   setup(build) {
-    build.onLoad({ filter: /solid-js[\\/]dist[\\/]server(\.dev)?\.js$|web[\\/]dist[\\/]server(\.dev)?\.js$/ }, (args) => {
+    build.onLoad({ filter: /(solid-js|@solidjs[\\/]web|@solidjs[\\/]signals)[\\/]dist[\\/].*\.js$/ }, (args) => {
+      const other = PACKAGE.exec(args.path);
+      if (other !== null && !OWN.some((root) => args.path.startsWith(root))) {
+        const name = other[1]!.replace("\\", "/");
+        return { contents: `export * from ${JSON.stringify(Bun.resolveSync(name, home(name)))};`, loader: "js" };
+      }
       const hit = SERVER_TO_BROWSER.find(([pattern]) => pattern.test(args.path));
-      if (hit === undefined) return undefined;
+      if (hit === undefined) return { contents: readFileSync(args.path, "utf8"), loader: "js" };
       return { contents: readFileSync(args.path.replace(/server(\.dev)?\.js$/, hit[1] ?? "solid.js"), "utf8"), loader: "js" };
     });
 

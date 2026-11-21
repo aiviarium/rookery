@@ -1,140 +1,130 @@
 // Schedules: a job kind, or a roll-out, on a cron expression in a time zone.
 //
-// A schedule that is enabled runs by itself; "Run now" starts it once, at once,
-// and the page opens the job or the roll-out it started.
-import { Show, createSignal } from "solid-js";
+// A schedule that is on runs by itself; "Run now" starts it once, at once, and
+// the page opens the job or the roll-out it started.
+import { For, Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import { createQuery } from "@rookery/client/solid";
 import type { Schedule } from "@rookery/proto";
-import {
-  Badge,
-  Button,
-  Callout,
-  Card,
-  DataTable,
-  type DataColumn,
-  Dialog,
-  Select,
-  State,
-  TextField,
-} from "@aiviarium/nocturne";
+import { Badge, Button, Card, EmptyState, ListRow, RowList, Select, Skeleton, State, TextField } from "@aiviarium/nocturne";
 
+import { createAction } from "../../../parts/action.ts";
+import { createLive } from "../../../parts/data.ts";
+import { ConfirmDialog, FormDialog } from "../../../parts/dialogs.tsx";
+import { RowActions } from "../../../parts/row-actions.tsx";
+import { View } from "../../../parts/view.tsx";
 import { useShell } from "../../../shell.tsx";
-import { Page } from "../../../parts/page.tsx";
-import { errorMessage, relativeTime, dateOf } from "../format.ts";
+import { dateOf, errorMessage, jobKindLabel, relativeTime } from "../format.ts";
+
+/** ZONES are the time zones offered first; the browser's own leads. */
+function zones(): string[] {
+  const own = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return [...new Set(["UTC", own, "Europe/Berlin", "Europe/London", "America/New_York", "America/Los_Angeles", "Asia/Tokyo"])];
+}
 
 export function SchedulesPage(): JSX.Element {
   const shell = useShell();
-  const schedules = createQuery(() => shell.rookery.schedules.list({ limit: 200 }));
+  const schedules = createLive(() => shell.rookery.schedules.list({ limit: 200 }), { events: ["rookery/schedules."] });
   const [creating, setCreating] = createSignal(false);
-  const [failure, setFailure] = createSignal<string>();
-
+  const [deleting, setDeleting] = createSignal<Schedule>();
   const rows = (): Schedule[] => schedules()?.schedules ?? [];
+  const refresh = () => void schedules.refresh().catch(() => undefined);
 
-  const run = async (schedule: Schedule): Promise<void> => {
-    setFailure(undefined);
-    try {
+  const change = createAction(async (schedule: Schedule, id: string) => {
+    if (id === "run") {
       const fired = await shell.rookery.schedules.runNow({ schedule: schedule.id });
       if (fired.rollout !== "") shell.navigate(`/rollouts/${encodeURIComponent(fired.rollout)}`);
       else if (fired.job !== "") shell.navigate(`/jobs/${encodeURIComponent(fired.job)}`);
-      void schedules.refresh().catch(() => undefined);
-    } catch (error) {
-      setFailure(errorMessage(error));
     }
-  };
+    if (id === "toggle") await shell.rookery.schedules.update({ schedule: schedule.id, enabled: !schedule.enabled });
+    refresh();
+  }, { failed: "The schedule did not change" });
+  const remove = createAction(async () => {
+    const schedule = deleting();
+    if (schedule !== undefined) await shell.rookery.schedules.delete({ schedule: schedule.id });
+    refresh();
+  }, { done: "Schedule deleted" });
 
-  const enable = async (schedule: Schedule, enabled: boolean): Promise<void> => {
-    setFailure(undefined);
-    try {
-      await shell.rookery.schedules.update({ schedule: schedule.id, enabled });
-      void schedules.refresh().catch(() => undefined);
-    } catch (error) {
-      setFailure(errorMessage(error));
-    }
-  };
-
-  const remove = async (schedule: Schedule): Promise<void> => {
-    setFailure(undefined);
-    try {
-      await shell.rookery.schedules.delete({ schedule: schedule.id });
-      void schedules.refresh().catch(() => undefined);
-    } catch (error) {
-      setFailure(errorMessage(error));
-    }
-  };
-
-  const columns = (): DataColumn<Schedule>[] => [
-    { id: "name", header: "Name", accessor: schedule => schedule.name },
-    {
-      id: "runs",
-      header: "Runs",
-      accessor: schedule => (schedule.rolloutCbor.length > 0 ? "roll-out" : schedule.kind),
-      cell: schedule =>
-        schedule.rolloutCbor.length > 0 ? <Badge tone="outline">roll-out</Badge> : <span class="nc-code">{schedule.kind}</span>,
-    },
-    { id: "cron", header: "Cron", type: "mono", accessor: schedule => `${schedule.cron} ${schedule.timezone}` },
-    {
-      id: "enabled",
-      header: "On",
-      accessor: schedule => (schedule.enabled ? "on" : "off"),
-      cell: schedule => <State status={schedule.enabled ? "ok" : "off"}>{schedule.enabled ? "On" : "Off"}</State>,
-    },
-    { id: "next", header: "Next", type: "time", accessor: schedule => relativeTime(dateOf(schedule.nextRunAt)) },
-    { id: "last", header: "Last", type: "time", accessor: schedule => relativeTime(dateOf(schedule.lastRunAt)) },
-    {
-      id: "actions",
-      header: "",
-      cell: schedule => (
-        <span class="nc-row nc-row--tight">
-          <Button size="sm" onClick={() => void run(schedule)}>
-            Run now
-          </Button>
-          <Button size="sm" onClick={() => void enable(schedule, !schedule.enabled)}>
-            {schedule.enabled ? "Disable" : "Enable"}
-          </Button>
-          <Button size="sm" variant="danger" onClick={() => void remove(schedule)}>
-            Delete
-          </Button>
-        </span>
-      ),
-    },
+  const menu = (schedule: Schedule) => [
+    { id: "run", label: "Run now", icon: "play" as const },
+    { id: "toggle", label: schedule.enabled ? "Turn off" : "Turn on", icon: schedule.enabled ? ("pause" as const) : ("clock" as const) },
+    { type: "separator" as const },
+    { id: "delete", label: "Delete", icon: "trash" as const, danger: true },
   ];
+  const choose = (schedule: Schedule, id: string) => (id === "delete" ? setDeleting(schedule) : void change.run(schedule, id));
 
   return (
-    <Page
-      title="Schedules"
-      description="A job kind or a roll-out on a cron expression, in a time zone. A missed run is enqueued once."
-      actions={() => [
-        { id: "refresh", label: "Read the schedules again", icon: "refresh-cw", onClick: () => void schedules.refresh() },
-        { id: "new", label: "New schedule", primary: true, onClick: () => setCreating(true) },
+    <View
+      id="schedules"
+      crumbs={[{ label: "Schedules" }]}
+      error={schedules.error() === undefined ? undefined : `The schedules could not be read. ${errorMessage(schedules.error())}`}
+      actions={[
+        { id: "refresh", label: "Refresh", icon: "refresh-cw", onClick: refresh },
+        { id: "new", label: "New schedule", icon: "plus", primary: true, onClick: () => setCreating(true) },
       ]}
     >
-      <Show when={schedules.error()}>{error => <Callout tone="danger">{error().message}</Callout>}</Show>
-      <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
-      <Card title="Schedules" count={rows().length} padding="none">
-        <DataTable
-          bare
-          label="Schedules"
-          rows={rows()}
-          columns={columns()}
-          getRowId={schedule => schedule.id}
-          loading={schedules.pending() && schedules() === undefined}
-          empty={{
-            title: "No schedules",
-            description: "A schedule runs a job kind or a roll-out by itself.",
-          }}
-        />
-      </Card>
-      <Show when={creating()}>
-        <NewSchedule
-          onClose={() => setCreating(false)}
-          onCreated={() => {
-            setCreating(false);
-            void schedules.refresh().catch(() => undefined);
-          }}
-        />
+      <Show when={schedules()} fallback={<Skeleton width="50%" />}>
+        <Show
+          when={rows().length > 0}
+          fallback={
+            <Card>
+              <EmptyState icon="calendar" title="No schedules" description="A schedule runs a job kind or a roll-out by itself, such as an apply every night.">
+                <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
+                  New schedule
+                </Button>
+              </EmptyState>
+            </Card>
+          }
+        >
+          <Card padding="none">
+            <RowList label="Schedules">
+              <For each={rows()} keyed={(schedule) => schedule.id}>
+                {(schedule) => (
+                  <ListRow
+                    data-schedule={schedule().name}
+                    icon="calendar"
+                    title={schedule().name}
+                    secondary={
+                      <span class="nc-row nc-row--tight">
+                        <Show when={schedule().rolloutCbor.length > 0} fallback={<span>{jobKindLabel(schedule().kind)}</span>}>
+                          <Badge tone="outline">roll-out</Badge>
+                        </Show>
+                        <span class="nc-mono">{`${schedule().cron} · ${schedule().timezone}`}</span>
+                      </span>
+                    }
+                    muted={!schedule().enabled}
+                    status={<State status={schedule().enabled ? "ok" : "off"}>{schedule().enabled ? "On" : "Off"}</State>}
+                    meta={
+                      schedule().enabled && schedule().nextRunAt !== undefined
+                        ? `next ${relativeTime(dateOf(schedule().nextRunAt))}`
+                        : schedule().lastRunAt !== undefined
+                          ? `last ${relativeTime(dateOf(schedule().lastRunAt))}`
+                          : undefined
+                    }
+                    menu={menu(schedule())}
+                    onMenuSelect={(id) => choose(schedule(), id)}
+                    persistentActions={
+                      <RowActions label={`Actions for ${schedule().name}`} items={menu(schedule())} onSelect={(id) => choose(schedule(), id)} />
+                    }
+                  />
+                )}
+              </For>
+            </RowList>
+          </Card>
+        </Show>
       </Show>
-    </Page>
+      <Show when={creating()}>
+        <NewSchedule onClose={() => setCreating(false)} onCreated={refresh} />
+      </Show>
+      <ConfirmDialog
+        open={deleting() !== undefined}
+        title={`Delete ${deleting()?.name ?? "the schedule"}?`}
+        description="Jobs it already started keep running."
+        confirm="Delete schedule"
+        danger
+        action={remove}
+        onClose={() => setDeleting(undefined)}
+      />
+    </View>
   );
 }
 
@@ -145,82 +135,42 @@ function NewSchedule(props: { onClose: () => void; onCreated: () => void }): JSX
   const [kind, setKind] = createSignal("host.apply");
   const [cron, setCron] = createSignal("0 3 * * *");
   const [timezone, setTimezone] = createSignal("UTC");
-  const [busy, setBusy] = createSignal(false);
-  const [failure, setFailure] = createSignal<string>();
-
-  const submit = async (): Promise<void> => {
-    if (busy()) return;
-    setBusy(true);
-    setFailure(undefined);
-    try {
-      await shell.rookery.schedules.create({
-        name: name().trim(),
-        kind: kind().trim(),
-        cron: cron().trim(),
-        timezone: timezone().trim(),
-      });
-      props.onCreated();
-    } catch (error) {
-      setFailure(errorMessage(error));
-    } finally {
-      setBusy(false);
-    }
-  };
-
+  const create = createAction(async () => {
+    await shell.rookery.schedules.create({ name: name().trim(), kind: kind().trim(), cron: cron().trim(), timezone: timezone() });
+  }, { done: "Schedule created" });
+  const fields = () => cron().trim().split(/\s+/).length;
   return (
-    <Dialog
+    <FormDialog
       open
-      onClose={props.onClose}
       title="New schedule"
-      description="A five-field cron expression in an IANA time zone."
-      footer={
-        <>
-          <Button onClick={props.onClose} disabled={busy()}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            loading={busy()}
-            disabled={name().trim() === "" || kind().trim() === "" || cron().trim() === ""}
-            onClick={() => void submit()}
-          >
-            Create schedule
-          </Button>
-        </>
-      }
+      description="A roll-out on a schedule is made by its plugin or with rookery rollout."
+      submit="Create schedule"
+      action={create}
+      disabled={name().trim() === "" || kind().trim() === "" || fields() !== 5}
+      onClose={props.onClose}
+      onDone={props.onCreated}
     >
       <div class="nc-stack">
-        <TextField
-          label="Name"
-          value={name()}
-          placeholder="Nightly apply"
-          onInput={event => setName(event.currentTarget.value)}
-        />
+        <TextField label="Name" placeholder="Nightly apply" value={name()} onInput={(event) => setName(event.currentTarget.value)} />
         <TextField
           label="Job kind"
+          mono
           help="A core kind such as host.apply, or a plugin's."
           value={kind()}
-          onInput={event => setKind(event.currentTarget.value)}
+          onInput={(event) => setKind(event.currentTarget.value)}
         />
-        <div class="nc-row">
-          <TextField label="Cron" value={cron()} onInput={event => setCron(event.currentTarget.value)} />
-          <Select
-            label="Time zone"
-            value={timezone()}
-            options={[
-              { value: "UTC", label: "UTC" },
-              { value: "Europe/Berlin", label: "Europe/Berlin" },
-              { value: "America/New_York", label: "America/New_York" },
-              { value: "Asia/Tokyo", label: "Asia/Tokyo" },
-            ]}
-            onChange={setTimezone}
+        <div class="shell-form__row">
+          <TextField
+            label="When"
+            mono
+            help="Minute, hour, day, month, weekday."
+            error={cron().trim() !== "" && fields() !== 5 ? "Five fields." : undefined}
+            value={cron()}
+            onInput={(event) => setCron(event.currentTarget.value)}
           />
+          <Select label="Time zone" value={timezone()} options={zones().map((zone) => ({ value: zone, label: zone }))} onChange={setTimezone} />
         </div>
-        <Show when={failure()}>{message => <Callout tone="danger">{message()}</Callout>}</Show>
-        <p class="nc-muted">
-          A schedule that starts a roll-out is made by its plugin or by <span class="nc-code">rookery rollout</span>.
-        </p>
       </div>
-    </Dialog>
+    </FormDialog>
   );
 }

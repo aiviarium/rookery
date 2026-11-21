@@ -8,6 +8,8 @@ One Go workspace. `cmd/` holds only `main` packages, `internal/` the packages th
 
 The TypeScript workspace is at the repository root: `sdk/ts/` holds `@rookery/proto`, `@rookery/client` and `@rookery/sdk`, and `web/shell/` holds `@rookery/shell`, the UI the server serves at `/`. One lockfile covers both. `internal/webshell` embeds the shell's build, and a checkout without one embeds a placeholder page.
 
+The shell's views are built from Nocturne's parts on ui-sdk. Follow the `nocturne` and `ui-sdk` skills (`.claude/skills` and `.agents/skills`, links into `web/shell/node_modules` that `bun install` fills) when you change one: each view is a `View` with its own header, the account card stays at the sidebar's foot, and a part that lacks something gets a variant in Nocturne, not a one-off here.
+
 The foundations everything else builds on:
 
 - `internal/cborx` is the only way a dynamic value becomes bytes: CBOR in Core Deterministic mode.

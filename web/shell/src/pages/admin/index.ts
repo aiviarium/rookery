@@ -8,7 +8,6 @@ import { DocumentsPage } from "./documents.tsx";
 import { KeysPage } from "./keys.tsx";
 import { PeoplePage } from "./people.tsx";
 import { PluginsPage } from "./plugins.tsx";
-import { SettingsPage } from "./settings.tsx";
 import { SpacesPage } from "./spaces.tsx";
 import { ServerStatusPage } from "./status.tsx";
 import { TailnetPage } from "./tailnet.tsx";
@@ -16,7 +15,6 @@ import { TailnetPage } from "./tailnet.tsx";
 export const routes = defineRoutes([
   { path: "/people", component: PeoplePage },
   { path: "/spaces", component: SpacesPage },
-  { path: "/settings", component: SettingsPage },
   { path: "/keys", component: KeysPage },
   { path: "/tailnet", component: TailnetPage },
   { path: "/plugins", component: PluginsPage },
@@ -28,7 +26,6 @@ export const routes = defineRoutes([
 export const nav: Area["nav"] = [
   { label: "People", href: "/people", group: "Administration", icon: "users" },
   { label: "Spaces", href: "/spaces", group: "Administration", icon: "building-2" },
-  { label: "Settings", href: "/settings", group: "Administration", icon: "settings" },
   { label: "Keys", href: "/keys", group: "Administration", icon: "key-round" },
   { label: "Tailnet", href: "/tailnet", group: "Administration", icon: "link" },
   { label: "Plugins", href: "/plugins", group: "Administration", icon: "puzzle" },

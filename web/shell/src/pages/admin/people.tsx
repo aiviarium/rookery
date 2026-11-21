@@ -1,313 +1,396 @@
-// People, groups and grants: who may sign in, what gathers them, and what they
-// hold.
-import { For, Show, createSignal } from "solid-js";
+// People: who may sign in, the groups that gather them, and the grants that say
+// what each holds. One tab each; the header's primary action is the tab's own.
+import { For, Show, createMemo, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import { createQuery } from "@rookery/client/solid";
-import { Level } from "@rookery/proto";
-import type { Grant, Group, User } from "@rookery/proto";
+import { Level, type Grant, type Group, type User } from "@rookery/proto";
 import {
+  Avatar,
   Badge,
   Button,
-  Callout,
   Card,
   DataTable,
   type DataColumn,
+  Dialog,
   EmptyState,
   IconButton,
   ListRow,
   RowList,
   Select,
+  Skeleton,
+  TabPanel,
+  Tabs,
   TextField,
 } from "@aiviarium/nocturne";
 
+import { createAction } from "../../parts/action.ts";
+import { CopyField } from "../../parts/copy-field.tsx";
+import { createLive } from "../../parts/data.ts";
+import { ConfirmDialog, FormDialog } from "../../parts/dialogs.tsx";
+import { errorMessage } from "../../parts/errors.ts";
+import { RowActions } from "../../parts/row-actions.tsx";
+import { createTab } from "../../parts/tab.ts";
+import { View } from "../../parts/view.tsx";
 import { useShell } from "../../shell.tsx";
-import { Page } from "../../parts/page.tsx";
 
 /** LEVELS are the levels a grant gives, in order. */
 const LEVELS = [
-  { value: String(Level.VIEW), label: "view" },
-  { value: String(Level.USE), label: "use" },
-  { value: String(Level.MANAGE), label: "manage" },
+  { value: String(Level.VIEW), label: "View", description: "See it." },
+  { value: String(Level.USE), label: "Use", description: "Open terminals, run actions." },
+  { value: String(Level.MANAGE), label: "Manage", description: "Change and remove it." },
 ];
+
+const TABS = ["users", "groups", "grants"] as const;
+type Tab = (typeof TABS)[number];
 
 /** PeoplePage is the people, their groups and the grants on a resource. */
 export function PeoplePage(): JSX.Element {
   const shell = useShell();
-  const users = createQuery(() => shell.rookery.users.list({ limit: 500 }));
-  const groups = createQuery(() => shell.rookery.groups.list({ limit: 500 }));
+  const users = createLive(() => shell.rookery.users.list({ limit: 500 }));
+  const groups = createLive(() => shell.rookery.groups.list({ limit: 500 }));
+  const [tab, setTab] = createTab<Tab>(TABS);
 
-  // The sign-in link the admin just made, if any.
-  const [link, setLink] = createSignal("");
-  const [linkEmail, setLinkEmail] = createSignal("");
-  const [linkError, setLinkError] = createSignal("");
+  const [inviting, setInviting] = createSignal(false);
+  const [link, setLink] = createSignal<{ email: string; url: string }>();
+  const [creatingGroup, setCreatingGroup] = createSignal(false);
+  const [granting, setGranting] = createSignal(false);
+  const [grantsVersion, setGrantsVersion] = createSignal(0);
 
-  const [newGroup, setNewGroup] = createSignal("");
-  const [memberEmail, setMemberEmail] = createSignal("");
-  const [claim, setClaim] = createSignal("groups");
-  const [claimValue, setClaimValue] = createSignal("");
+  const userRows = () => users()?.users ?? [];
+  const groupRows = () => groups()?.groups ?? [];
+  const refreshUsers = () => void users.refresh().catch(() => undefined);
+  const refreshGroups = () => void groups.refresh().catch(() => undefined);
 
-  const [resource, setResource] = createSignal(shell.spaces.current() === "" ? "" : `space://${shell.spaces.current()}`);
-  const [grantee, setGrantee] = createSignal<"user" | "group" | "everyone">("user");
-  const [userID, setUserID] = createSignal("");
-  const [groupID, setGroupID] = createSignal("");
-  const [level, setLevel] = createSignal(String(Level.VIEW));
-  const [grantError, setGrantError] = createSignal("");
-  const grants = createQuery(() =>
-    shell.rookery.access.listGrants({ resource: resource(), limit: 200 }),
-  );
-
-  const refreshAll = () => {
-    void users.refresh().catch(() => undefined);
-    void groups.refresh().catch(() => undefined);
-    void grants.refresh().catch(() => undefined);
-  };
-
-  const makeLink = async (email: string) => {
-    setLinkError("");
-    try {
-      const answer = await shell.rookery.users.createLink({ email });
-      setLink(answer.link?.url ?? "");
-    } catch (failure) {
-      setLinkError(failure instanceof Error ? failure.message : String(failure));
+  const primary = () => {
+    switch (tab()) {
+      case "users":
+        return { id: "invite", label: "Invite", icon: "plus" as const, primary: true, onClick: () => setInviting(true) };
+      case "groups":
+        return { id: "new-group", label: "New group", icon: "plus" as const, primary: true, onClick: () => setCreatingGroup(true) };
+      default:
+        return { id: "grant", label: "Grant access", icon: "plus" as const, primary: true, onClick: () => setGranting(true) };
     }
   };
 
-  const addGroup = async () => {
-    if (newGroup().trim() === "") return;
-    await shell.rookery.groups.create({ name: newGroup().trim() });
-    setNewGroup("");
-    void groups.refresh();
-  };
+  const failure = () => users.error() ?? groups.error();
 
-  const addMember = async () => {
-    if (groupID() === "" || memberEmail().trim() === "") return;
-    await shell.rookery.groups.addMember({ group: groupID(), email: memberEmail().trim() });
-    setMemberEmail("");
-    void groups.refresh();
-  };
+  return (
+    <View
+      id="people"
+      crumbs={[{ label: "People" }]}
+      error={failure() === undefined ? undefined : `The people could not be read. ${errorMessage(failure())}`}
+      actions={[
+        {
+          id: "refresh",
+          label: "Refresh",
+          icon: "refresh-cw",
+          onClick: () => {
+            refreshUsers();
+            refreshGroups();
+            setGrantsVersion((version) => version + 1);
+          },
+        },
+        primary(),
+      ]}
+    >
+      <Tabs
+        variant="underline"
+        label="People"
+        value={tab()}
+        onChange={(next) => setTab(next as Tab)}
+        items={[
+          { id: "users", label: "Users", count: users() === undefined ? undefined : userRows().length },
+          { id: "groups", label: "Groups", count: groups() === undefined ? undefined : groupRows().length },
+          { id: "grants", label: "Grants" },
+        ]}
+      >
+        <TabPanel id="users">
+          <UsersTab users={users() === undefined ? undefined : userRows()} onChanged={refreshUsers} onLink={setLink} onInvite={() => setInviting(true)} />
+        </TabPanel>
+        <TabPanel id="groups">
+          <GroupsTab
+            groups={groups() === undefined ? undefined : groupRows()}
+            onChanged={refreshGroups}
+            onCreate={() => setCreatingGroup(true)}
+          />
+        </TabPanel>
+        <TabPanel id="grants">
+          <GrantsTab users={userRows()} groups={groupRows()} version={grantsVersion()} onGrant={() => setGranting(true)} />
+        </TabPanel>
+      </Tabs>
 
-  const bindClaim = async () => {
-    if (groupID() === "" || claimValue().trim() === "") return;
-    await shell.rookery.groups.bindClaim({ group: groupID(), claim: claim().trim(), value: claimValue().trim() });
-    setClaimValue("");
-    void groups.refresh();
-  };
-
-  const grant = async () => {
-    setGrantError("");
-    const who =
-      grantee() === "user"
-        ? { case: "userId" as const, value: userID() }
-        : grantee() === "group"
-          ? { case: "groupId" as const, value: groupID() }
-          : { case: "everyone" as const, value: true };
-    try {
-      await shell.rookery.access.grant({ resource: resource().trim(), grantee: { who }, level: Number(level()) as Level });
-      void grants.refresh();
-    } catch (failure) {
-      setGrantError(failure instanceof Error ? failure.message : String(failure));
-    }
-  };
-
-  const userOptions = () => (users()?.users ?? []).map((user) => ({ value: user.id, label: user.email || user.name || user.id }));
-  const groupOptions = () => (groups()?.groups ?? []).map((group) => ({ value: group.id, label: group.name }));
-
-  const userColumns = (): DataColumn<User>[] => [
-    { id: "email", header: "Email", accessor: user => user.email },
-    { id: "name", header: "Name", accessor: user => user.name },
-    {
-      id: "admin",
-      header: "Admin",
-      accessor: user => (user.admin ? "admin" : "no"),
-      cell: user => (
-        <Show when={user.admin} fallback={<span class="nc-meta">no</span>}>
-          <Badge tone="accent">admin</Badge>
-        </Show>
-      ),
-    },
-    {
-      id: "signs-in",
-      header: "Signs in",
-      accessor: user => (user.disabled ? "disabled" : "yes"),
-      cell: user => (
-        <Show when={!user.disabled} fallback={<Badge tone="danger">disabled</Badge>}>
-          <Badge tone="success">yes</Badge>
-        </Show>
-      ),
-    },
-    {
-      id: "actions",
-      header: "",
-      cell: user => (
-        <div class="nc-row nc-row--tight">
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              void shell.rookery.users.setAdmin({ user: user.id, admin: !user.admin }).then(refreshAll);
-            }}
-          >
-            {user.admin ? "Remove admin" : "Make admin"}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              void shell.rookery.users.setDisabled({ user: user.id, disabled: !user.disabled }).then(refreshAll);
-            }}
-          >
-            {user.disabled ? "Let in" : "Disable"}
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => {
-              void makeLink(user.email);
-            }}
-          >
-            Link
-          </Button>
-        </div>
-      ),
-    },
-  ];
-
-  const grantColumns = (): DataColumn<Grant>[] => [
-    { id: "resource", header: "Resource", type: "mono", accessor: grant => grant.resource },
-    {
-      id: "who",
-      header: "Who",
-      accessor: grant => granteeName(grant, users()?.users ?? [], groups()?.groups ?? []),
-    },
-    {
-      id: "level",
-      header: "Level",
-      accessor: grant => levelName(grant.level),
-    },
-    {
-      id: "actions",
-      header: "",
-      cell: grant => (
-        <Button
-          size="sm"
-          variant="danger"
-          onClick={() => {
-            void shell.rookery.access
-              .revoke({ resource: grant.resource, grantee: grant.grantee })
-              .then(() => grants.refresh());
+      <Show when={inviting()}>
+        <InviteDialog
+          onClose={() => setInviting(false)}
+          onMade={(made) => {
+            setLink(made);
+            refreshUsers();
           }}
-        >
-          Revoke
-        </Button>
-      ),
-    },
+        />
+      </Show>
+      <Show when={link()}>
+        {(made) => (
+          <Dialog
+            open
+            onClose={() => setLink(undefined)}
+            title="Sign-in link"
+            description={`For ${made().email}. It works once and lasts a day. Send it to them yourself.`}
+            footer={
+              <Button variant="primary" onClick={() => setLink(undefined)}>
+                Done
+              </Button>
+            }
+          >
+            <CopyField label="Link" value={made().url} />
+          </Dialog>
+        )}
+      </Show>
+      <Show when={creatingGroup()}>
+        <NewGroupDialog onClose={() => setCreatingGroup(false)} onCreated={refreshGroups} />
+      </Show>
+      <Show when={granting()}>
+        <GrantDialog
+          users={userRows()}
+          groups={groupRows()}
+          onClose={() => setGranting(false)}
+          onGranted={() => setGrantsVersion((version) => version + 1)}
+        />
+      </Show>
+    </View>
+  );
+}
+
+function UsersTab(props: {
+  users: readonly User[] | undefined;
+  onChanged: () => void;
+  onLink: (made: { email: string; url: string }) => void;
+  onInvite: () => void;
+}): JSX.Element {
+  const shell = useShell();
+  const me = () => shell.signIn.user()?.id;
+  const change = createAction(async (user: User, id: string) => {
+    switch (id) {
+      case "admin":
+        await shell.rookery.users.setAdmin({ user: user.id, admin: !user.admin });
+        break;
+      case "disable":
+        await shell.rookery.users.setDisabled({ user: user.id, disabled: !user.disabled });
+        break;
+      case "link": {
+        const answer = await shell.rookery.users.createLink({ email: user.email });
+        props.onLink({ email: user.email, url: answer.link?.url ?? "" });
+        return;
+      }
+    }
+    props.onChanged();
+  }, { failed: "The change did not go through" });
+
+  const menu = (user: User) => [
+    { id: "link", label: "New sign-in link", icon: "link" as const },
+    { type: "separator" as const },
+    { id: "admin", label: user.admin ? "Remove admin" : "Make admin", icon: "lock" as const, disabled: user.id === me() },
+    { id: "disable", label: user.disabled ? "Let in again" : "Disable", danger: !user.disabled, disabled: user.id === me() },
   ];
 
   return (
-    <Page title="People" description="Who may sign in, what gathers them, and what they hold.">
-      <Show when={link() !== ""}>
-        <Callout
-          tone="info"
-          action={
-            <Button variant="ghost" size="sm" onClick={() => setLink("")}>
-              Done
-            </Button>
-          }
-        >
-          A one-time sign-in link. It works once and lasts a day. <code class="nc-code">{link()}</code>
-        </Callout>
-      </Show>
-
-      <Card
-        title="Sign-in link"
-        action={
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => {
-              void makeLink(linkEmail());
-            }}
-          >
-            Make a link
-          </Button>
-        }
-      >
-        <div class="nc-stack">
-          <TextField
-            label="Email"
-            help="A person without a user gets one when the link is used."
-            id="link-email"
-            type="email"
-            value={linkEmail()}
-            placeholder="ada@example.test"
-            onInput={event => setLinkEmail(event.currentTarget.value)}
-          />
-          <Show when={linkError() !== ""}>
-            <Callout tone="danger">{linkError()}</Callout>
-          </Show>
-        </div>
-      </Card>
-
-      <Card title="Users" count={users()?.users.length} padding="none">
-        <DataTable
-          bare
-          label="Users"
-          rows={users()?.users ?? []}
-          columns={userColumns()}
-          getRowId={user => user.id}
-          loading={users.pending() && users() === undefined}
-          empty={{ title: "No users", description: "A person gets a user when they use a sign-in link." }}
-        />
-      </Card>
-
-      <Card
-        title="Groups"
-        action={
-          <div class="nc-row nc-row--tight">
-            <TextField
-              aria-label="A new group's name"
-              id="new-group"
-              value={newGroup()}
-              placeholder="Team name"
-              onInput={event => setNewGroup(event.currentTarget.value)}
-            />
-            <Button size="sm" onClick={() => void addGroup()}>
-              Create
-            </Button>
-          </div>
-        }
-      >
+    <Show when={props.users} fallback={<Skeleton width="50%" />}>
+      {(users) => (
         <Show
-          when={(groups()?.groups.length ?? 0) > 0}
+          when={users().length > 0}
           fallback={
-            <EmptyState
-              size="sm"
-              title="No groups"
-              description="A group is what a grant names, so people can be added and removed in one place."
-            />
+            <Card>
+              <EmptyState icon="users" title="No users" description="A person gets a user the first time they use a sign-in link.">
+                <Button variant="primary" icon="plus" onClick={props.onInvite}>
+                  Invite
+                </Button>
+              </EmptyState>
+            </Card>
           }
         >
-          <RowList label="Groups" variant="inline">
-            <For each={groups()?.groups ?? []}>
-              {(group: Group) => (
+          <Card padding="none">
+            <RowList label="Users">
+              <For each={users()}>
+                {(user) => (
+                  <ListRow
+                    data-user={user.email}
+                    leading={<Avatar name={user.name || user.email} size="sm" />}
+                    title={user.name || user.email}
+                    secondary={user.name ? user.email : undefined}
+                    muted={user.disabled}
+                    status={
+                      <span class="nc-row nc-row--tight">
+                        <Show when={user.id === me()}>
+                          <Badge>you</Badge>
+                        </Show>
+                        <Show when={user.admin}>
+                          <Badge tone="accent">admin</Badge>
+                        </Show>
+                        <Show when={user.disabled}>
+                          <Badge tone="danger">disabled</Badge>
+                        </Show>
+                      </span>
+                    }
+                    menu={menu(user)}
+                    menuLabel={`Actions for ${user.email}`}
+                    onMenuSelect={(id) => void change.run(user, id)}
+                    persistentActions={
+                      <RowActions label={`Actions for ${user.email}`} items={menu(user)} onSelect={(id) => void change.run(user, id)} />
+                    }
+                  />
+                )}
+              </For>
+            </RowList>
+          </Card>
+        </Show>
+      )}
+    </Show>
+  );
+}
+
+function GroupsTab(props: { groups: readonly Group[] | undefined; onChanged: () => void; onCreate: () => void }): JSX.Element {
+  const shell = useShell();
+  const [openId, setOpenId] = createSignal<string>();
+  const [removing, setRemoving] = createSignal<Group>();
+  const open = createMemo(() => props.groups?.find((group) => group.id === openId()));
+  const remove = createAction(async () => {
+    const group = removing();
+    if (group === undefined) return;
+    await shell.rookery.groups.delete({ group: group.id });
+    props.onChanged();
+  }, { done: "Group deleted" });
+
+  return (
+    <Show when={props.groups} fallback={<Skeleton width="50%" />}>
+      {(groups) => (
+        <>
+          <Show
+            when={groups().length > 0}
+            fallback={
+              <Card>
+                <EmptyState
+                  icon="users"
+                  title="No groups"
+                  description="A grant can name a group, so people are added and removed in one place."
+                >
+                  <Button variant="primary" icon="plus" onClick={props.onCreate}>
+                    New group
+                  </Button>
+                </EmptyState>
+              </Card>
+            }
+          >
+            <Card padding="none">
+              <RowList label="Groups">
+                <For each={groups()}>
+                  {(group) => (
+                    <ListRow
+                      data-group={group.name}
+                      icon="users"
+                      title={group.name}
+                      secondary={`${group.members.length} member${group.members.length === 1 ? "" : "s"}`}
+                      meta={
+                        <span class="nc-row nc-row--tight">
+                          <For each={group.claims}>{(bound) => <Badge tone="info">{`${bound.claim}=${bound.value}`}</Badge>}</For>
+                        </span>
+                      }
+                      onClick={() => setOpenId(group.id)}
+                      menu={[{ id: "delete", label: "Delete group", icon: "trash", danger: true }]}
+                      onMenuSelect={() => setRemoving(group)}
+                      actions={<IconButton size="sm" icon="trash" label={`Delete ${group.name}`} onClick={() => setRemoving(group)} />}
+                    />
+                  )}
+                </For>
+              </RowList>
+            </Card>
+          </Show>
+          <Show when={open()} keyed>
+            {(group) => <GroupDialog group={group} onClose={() => setOpenId(undefined)} onChanged={props.onChanged} />}
+          </Show>
+          <ConfirmDialog
+            open={removing() !== undefined}
+            title={`Delete ${removing()?.name ?? "the group"}?`}
+            description="Its grants go with it. The people in it keep their users."
+            confirm="Delete group"
+            danger
+            action={remove}
+            onClose={() => setRemoving(undefined)}
+          />
+        </>
+      )}
+    </Show>
+  );
+}
+
+/** GroupDialog shows a group's members and claims, and changes them. */
+function GroupDialog(props: { group: Group; onClose: () => void; onChanged: () => void }): JSX.Element {
+  const shell = useShell();
+  const [email, setEmail] = createSignal("");
+  const [claim, setClaim] = createSignal("groups");
+  const [value, setValue] = createSignal("");
+  const add = createAction(async () => {
+    await shell.rookery.groups.addMember({ group: props.group.id, email: email().trim() });
+    setEmail("");
+    props.onChanged();
+  });
+  const removeMember = createAction(async (member: string) => {
+    await shell.rookery.groups.removeMember({ group: props.group.id, email: member });
+    props.onChanged();
+  }, { failed: "The member was not removed" });
+  const bind = createAction(async () => {
+    await shell.rookery.groups.bindClaim({ group: props.group.id, claim: claim().trim(), value: value().trim() });
+    setValue("");
+    props.onChanged();
+  });
+
+  return (
+    <Dialog
+      open
+      onClose={props.onClose}
+      title={props.group.name}
+      description="Members are people by email. A claim from the identity provider adds whoever carries it."
+      size="lg"
+      footer={
+        <Button variant="primary" onClick={props.onClose}>
+          Done
+        </Button>
+      }
+    >
+      <div class="nc-stack">
+        <form
+          class="shell-form__row shell-form__row--end"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (email().trim() !== "") void add.run();
+          }}
+        >
+          <TextField
+            label="Add a member"
+            type="email"
+            placeholder="ada@example.test"
+            value={email()}
+            error={add.error()}
+            onInput={(event) => setEmail(event.currentTarget.value)}
+          />
+          <Button type="submit" loading={add.busy()} disabled={email().trim() === ""}>
+            Add
+          </Button>
+        </form>
+        <Show
+          when={props.group.members.length > 0}
+          fallback={<p class="nc-muted">No members yet.</p>}
+        >
+          <RowList label="Members" variant="inline">
+            <For each={props.group.members}>
+              {(member) => (
                 <ListRow
-                  title={group.name}
-                  secondary={`${group.members.length} member${group.members.length === 1 ? "" : "s"}`}
-                  meta={
-                    <span class="nc-row nc-row--tight">
-                      <For each={group.claims}>
-                        {(bound) => <Badge tone="info">{bound.claim}={bound.value}</Badge>}
-                      </For>
-                    </span>
-                  }
+                  leading={<Avatar name={member.name || member.email} size="sm" />}
+                  title={member.name || member.email}
+                  secondary={member.name ? member.email : undefined}
                   actions={
                     <IconButton
                       size="sm"
-                      label={`Delete ${group.name}`}
-                      icon="trash"
-                      onClick={() => {
-                        void shell.rookery.groups.delete({ group: group.id }).then(refreshAll);
-                      }}
+                      icon="close"
+                      label={`Remove ${member.email}`}
+                      onClick={() => void removeMember.run(member.email)}
                     />
                   }
                 />
@@ -315,113 +398,222 @@ export function PeoplePage(): JSX.Element {
             </For>
           </RowList>
         </Show>
-        <div class="nc-stack" style={{ "margin-top": "var(--space-3)" }}>
-          <div class="nc-row">
-            <Select
-              aria-label="The group"
-              value={groupID()}
-              options={[{ value: "", label: "Choose a group" }, ...groupOptions()]}
-              onChange={setGroupID}
-            />
-            <TextField
-              aria-label="A person's email"
-              id="member-email"
-              type="email"
-              value={memberEmail()}
-              placeholder="ada@example.test"
-              onInput={event => setMemberEmail(event.currentTarget.value)}
-            />
-            <Button size="sm" onClick={() => void addMember()}>
-              Add member
-            </Button>
-          </div>
-          <div class="nc-row">
-            <TextField aria-label="The claim" id="claim" value={claim()} placeholder="Claim" onInput={event => setClaim(event.currentTarget.value)} />
-            <TextField
-              aria-label="The claim's value"
-              id="claim-value"
-              value={claimValue()}
-              placeholder="Value"
-              onInput={event => setClaimValue(event.currentTarget.value)}
-            />
-            <Button size="sm" onClick={() => void bindClaim()}>
-              Bind claim
-            </Button>
-          </div>
-        </div>
-      </Card>
-
-      <Card
-        title="Grants"
-        action={
-          <Button
-            size="sm"
-            variant="ghost"
-            icon="refresh-cw"
-            onClick={() => {
-              void grants.refresh();
-            }}
-          >
-            Refresh
-          </Button>
-        }
-        padding="none"
-      >
-        <div class="shell-pad nc-stack">
+        <form
+          class="shell-form__row shell-form__row--end"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (claim().trim() !== "" && value().trim() !== "") void bind.run();
+          }}
+        >
+          <TextField label="Claim" mono value={claim()} onInput={(event) => setClaim(event.currentTarget.value)} />
           <TextField
-            label="Resource"
-            help="For example space://01h…, host://forge, plugin://example."
-            id="grant-resource"
-            value={resource()}
-            placeholder="space://…"
-            onInput={event => setResource(event.currentTarget.value)}
+            label="Value"
+            mono
+            placeholder="engineering"
+            value={value()}
+            error={bind.error()}
+            onInput={(event) => setValue(event.currentTarget.value)}
           />
-          <div class="nc-row">
-            <Select
-              aria-label="Who the grant is for"
-              value={grantee()}
-              options={[
-                { value: "user", label: "A user" },
-                { value: "group", label: "A group" },
-                { value: "everyone", label: "Everyone" },
-              ]}
-              onChange={(value) => setGrantee(value as "user" | "group" | "everyone")}
-            />
-            <Show when={grantee() === "user"}>
-              <Select aria-label="The user" value={userID()} options={[{ value: "", label: "Choose a user" }, ...userOptions()]} onChange={setUserID} />
-            </Show>
-            <Show when={grantee() === "group"}>
-              <Select aria-label="The group" value={groupID()} options={[{ value: "", label: "Choose a group" }, ...groupOptions()]} onChange={setGroupID} />
-            </Show>
-            <Select aria-label="The level" value={level()} options={LEVELS} onChange={setLevel} />
-            <Button size="sm" variant="primary" onClick={() => void grant()}>
-              Grant
-            </Button>
+          <Button type="submit" loading={bind.busy()} disabled={claim().trim() === "" || value().trim() === ""}>
+            Bind
+          </Button>
+        </form>
+        <Show when={props.group.claims.length > 0}>
+          <div class="nc-row nc-row--tight">
+            <For each={props.group.claims}>{(bound) => <Badge tone="info">{`${bound.claim}=${bound.value}`}</Badge>}</For>
           </div>
-          <Show when={grantError() !== ""}>
-            <Callout tone="danger">{grantError()}</Callout>
-          </Show>
-        </div>
+        </Show>
+      </div>
+    </Dialog>
+  );
+}
+
+function GrantsTab(props: { users: readonly User[]; groups: readonly Group[]; version: number; onGrant: () => void }): JSX.Element {
+  const shell = useShell();
+  const [resource, setResource] = createSignal("");
+  const grants = createLive(() => shell.rookery.access.listGrants({ resource: resource().trim(), limit: 200 }), {
+    key: () => [resource().trim(), props.version],
+  });
+  const revoke = createAction(async (grant: Grant) => {
+    await shell.rookery.access.revoke({ resource: grant.resource, grantee: grant.grantee });
+    void grants.refresh().catch(() => undefined);
+  }, { done: "Access revoked", failed: "The grant was not revoked" });
+
+  const columns = (): DataColumn<Grant>[] => [
+    { id: "resource", header: "Resource", type: "mono", accessor: (grant) => grant.resource },
+    { id: "who", header: "Who", accessor: (grant) => granteeName(grant, props.users, props.groups) },
+    { id: "level", header: "Level", accessor: (grant) => levelName(grant.level) },
+    {
+      id: "actions",
+      header: "",
+      cell: (grant) => (
+        <IconButton size="sm" icon="trash" label={`Revoke ${grant.resource}`} onClick={() => void revoke.run(grant)} />
+      ),
+    },
+  ];
+
+  return (
+    <div class="nc-stack">
+      <TextField
+        variant="search"
+        aria-label="Resource"
+        placeholder="Filter by resource, such as host://forge"
+        mono
+        value={resource()}
+        onInput={(event) => setResource(event.currentTarget.value)}
+      />
+      <Card padding="none">
         <DataTable
           bare
           label="Grants"
           rows={grants()?.grants ?? []}
-          columns={grantColumns()}
-          getRowId={grant => `${grant.resource}/${granteeName(grant, users()?.users ?? [], groups()?.groups ?? [])}`}
-          loading={grants.pending() && grants() === undefined}
-          empty={{ title: "No grants here", description: "An admin holds every level everywhere and needs none." }}
+          columns={columns()}
+          getRowId={(grant) => `${grant.resource}/${granteeName(grant, props.users, props.groups)}`}
+          loading={grants() === undefined}
+          empty={{
+            title: "No grants",
+            description: "Admins hold every level everywhere. Everyone else holds what a grant gives them.",
+          }}
         />
       </Card>
-    </Page>
+    </div>
+  );
+}
+
+function InviteDialog(props: { onClose: () => void; onMade: (made: { email: string; url: string }) => void }): JSX.Element {
+  const shell = useShell();
+  const [email, setEmail] = createSignal("");
+  const make = createAction(async () => {
+    const answer = await shell.rookery.users.createLink({ email: email().trim() });
+    props.onMade({ email: email().trim(), url: answer.link?.url ?? "" });
+  });
+  return (
+    <FormDialog
+      open
+      title="Invite someone"
+      description="Rookery makes a one-time sign-in link for the address. It sends no mail."
+      submit="Make link"
+      action={make}
+      disabled={!email().includes("@")}
+      onClose={props.onClose}
+    >
+      <TextField
+        label="Email"
+        type="email"
+        placeholder="ada@example.test"
+        help="A person without a user gets one when they use the link."
+        value={email()}
+        onInput={(event) => setEmail(event.currentTarget.value)}
+      />
+    </FormDialog>
+  );
+}
+
+function NewGroupDialog(props: { onClose: () => void; onCreated: () => void }): JSX.Element {
+  const shell = useShell();
+  const [name, setName] = createSignal("");
+  const create = createAction(async () => {
+    await shell.rookery.groups.create({ name: name().trim() });
+  }, { done: "Group created" });
+  return (
+    <FormDialog
+      open
+      title="New group"
+      submit="Create group"
+      action={create}
+      disabled={name().trim() === ""}
+      onClose={props.onClose}
+      onDone={props.onCreated}
+    >
+      <TextField label="Name" placeholder="Platform team" value={name()} onInput={(event) => setName(event.currentTarget.value)} />
+    </FormDialog>
+  );
+}
+
+type Grantee = "user" | "group" | "everyone";
+
+function GrantDialog(props: {
+  users: readonly User[];
+  groups: readonly Group[];
+  onClose: () => void;
+  onGranted: () => void;
+}): JSX.Element {
+  const shell = useShell();
+  const space = shell.spaces.current();
+  const [resource, setResource] = createSignal(space === "" ? "" : `space://${space}`);
+  const [grantee, setGrantee] = createSignal<Grantee>("user");
+  const [who, setWho] = createSignal("");
+  const [level, setLevel] = createSignal(String(Level.VIEW));
+  const grant = createAction(async () => {
+    const target =
+      grantee() === "user"
+        ? { case: "userId" as const, value: who() }
+        : grantee() === "group"
+          ? { case: "groupId" as const, value: who() }
+          : { case: "everyone" as const, value: true };
+    await shell.rookery.access.grant({ resource: resource().trim(), grantee: { who: target }, level: Number(level()) as Level });
+  }, { done: "Access granted" });
+  const complete = () => resource().trim() !== "" && (grantee() === "everyone" || who() !== "");
+  return (
+    <FormDialog
+      open
+      title="Grant access"
+      submit="Grant"
+      action={grant}
+      disabled={!complete()}
+      onClose={props.onClose}
+      onDone={props.onGranted}
+    >
+      <div class="nc-stack">
+        <TextField
+          label="Resource"
+          mono
+          placeholder="space://…"
+          help="Such as space://01h…, host://forge or plugin://example."
+          value={resource()}
+          onInput={(event) => setResource(event.currentTarget.value)}
+        />
+        <div class="shell-form__row">
+          <Select
+            label="For"
+            value={grantee()}
+            options={[
+              { value: "user", label: "A user" },
+              { value: "group", label: "A group" },
+              { value: "everyone", label: "Everyone signed in" },
+            ]}
+            onChange={(value) => {
+              setGrantee(value as Grantee);
+              setWho("");
+            }}
+          />
+          <Show when={grantee() === "user"}>
+            <Select
+              label="User"
+              placeholder="Choose a user"
+              value={who()}
+              options={props.users.map((user) => ({ value: user.id, label: user.email || user.name || user.id }))}
+              onChange={setWho}
+            />
+          </Show>
+          <Show when={grantee() === "group"}>
+            <Select
+              label="Group"
+              placeholder="Choose a group"
+              value={who()}
+              options={props.groups.map((group) => ({ value: group.id, label: group.name }))}
+              onChange={setWho}
+            />
+          </Show>
+        </div>
+        <Select label="Level" value={level()} options={LEVELS} onChange={setLevel} />
+      </div>
+    </FormDialog>
   );
 }
 
 /** granteeName is who a grant is for, in words. */
-function granteeName(
-  grant: Grant,
-  users: readonly { id: string; email: string; name: string }[],
-  groups: readonly { id: string; name: string }[],
-): string {
+function granteeName(grant: Grant, users: readonly User[], groups: readonly Group[]): string {
   const who = grant.grantee?.who;
   switch (who?.case) {
     case "userId":
@@ -439,13 +631,13 @@ function granteeName(
 function levelName(level: Level): string {
   switch (level) {
     case Level.VIEW:
-      return "view";
+      return "View";
     case Level.USE:
-      return "use";
+      return "Use";
     case Level.MANAGE:
-      return "manage";
+      return "Manage";
     case Level.ADMIN:
-      return "admin";
+      return "Admin";
     default:
       return "—";
   }

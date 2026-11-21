@@ -4,7 +4,7 @@
 // that drops reattaches from the byte it last had, so the screen keeps what it
 // showed instead of starting again.
 import { browserSocket, type TerminalSession } from "@rookery/client";
-import { Show, createEffect, createSignal, onCleanup, onSettled } from "solid-js";
+import { Show, createEffect, createSignal, onSettled } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
@@ -143,13 +143,14 @@ export function TerminalPane(props: { id: string; active: boolean }): JSX.Elemen
       connect();
     });
 
-    onCleanup(() => {
+    // Solid 2 takes a settled callback's cleanup as its return value.
+    return () => {
       closed = true;
       if (retry !== undefined) clearTimeout(retry);
       measure.disconnect();
       session?.close();
       terminal.dispose();
-    });
+    };
   });
 
   // A tab that comes back fits again: it had no size while it was hidden.
@@ -172,13 +173,12 @@ export function TerminalPane(props: { id: string; active: boolean }): JSX.Elemen
 
   return (
     <div class="infra-terminal" data-part="terminal" data-terminal={props.id} data-state={state()}>
-      <div class="nc-row infra-terminal__state">
-        <State status={TONE[state()]}>{exited() === undefined ? WORD[state()] : `Exited with ${exited()}`}</State>
-        <span class="nc-meta nc-code">{props.id}</span>
-      </div>
       <div class="infra-terminal__frame" ref={frame} />
-      <Show when={state() === "error"}>
-        <p class="nc-meta">The connection dropped. The terminal reattaches from where it stopped.</p>
+      {/* While all is well the screen is all there is; a pane that is not live says so in its corner. */}
+      <Show when={state() !== "live"}>
+        <div class="infra-terminal__state" title={state() === "error" ? "The connection dropped. The terminal reattaches from where it stopped." : undefined}>
+          <State status={TONE[state()]}>{exited() === undefined ? WORD[state()] : `Exited with ${exited()}`}</State>
+        </div>
       </Show>
     </div>
   );
