@@ -45,14 +45,46 @@ type Definition struct {
 	Default []byte
 	// Scopes are the scopes the setting has.
 	Scopes []string
+	// Title is its name as a person reads it, and Description what it changes.
+	Title       string
+	Description string
+	// Category groups it within its plugin.
+	Category string
+	// Choices are the only values a string setting takes, when set.
+	Choices []string
+	// Minimum and Maximum bound a number, when set.
+	Minimum *float64
+	Maximum *float64
+	// Unit follows a number, such as seconds.
+	Unit string
+}
+
+// plugin is the plugin a key belongs to: the part before its first slash.
+func (d Definition) plugin() string {
+	if at := strings.IndexByte(d.Key, '/'); at > 0 {
+		return d.Key[:at]
+	}
+	return "rookery"
 }
 
 // CoreSettings are the settings the core declares.
 func CoreSettings() []Definition {
 	return []Definition{
-		{Key: "rookery/instance_name", Type: "string", Default: mustCBOR("Rookery"), Scopes: []string{ScopeGlobal}},
-		{Key: "rookery/timezone", Type: "string", Default: mustCBOR("UTC"), Scopes: []string{ScopeGlobal, ScopeUser}},
-		{Key: "rookery/notifications", Type: "bool", Default: mustCBOR(true), Scopes: []string{ScopeGlobal, ScopeUser}},
+		{
+			Key: "rookery/instance_name", Type: "string", Default: mustCBOR("Rookery"), Scopes: []string{ScopeGlobal},
+			Title: "Name", Category: "General",
+			Description: "The name the shell shows in its sidebar and the browser shows on its tab.",
+		},
+		{
+			Key: "rookery/timezone", Type: "string", Default: mustCBOR("UTC"), Scopes: []string{ScopeGlobal, ScopeUser},
+			Title: "Time zone", Category: "General",
+			Description: "The IANA time zone schedules and times are shown in, such as Europe/Berlin.",
+		},
+		{
+			Key: "rookery/notifications", Type: "bool", Default: mustCBOR(true), Scopes: []string{ScopeGlobal, ScopeUser},
+			Title: "Notifications", Category: "General",
+			Description: "Whether the shell tells you when a job you started ends or a host needs attention.",
+		},
 	}
 }
 
@@ -113,6 +145,12 @@ type Value struct {
 	Value     []byte
 	Scope     string
 	UpdatedAt time.Time
+	// Definition is what the setting is.
+	Definition Definition
+	// Values are the values set at each scope that applies to the caller.
+	Values map[string][]byte
+	// Editable are the scopes the caller may set it at, once SetEditable has run.
+	Editable []string
 }
 
 // Message is a setting as the edge API has it.
@@ -124,6 +162,16 @@ func (v Value) Message() *rookeryv1.Setting {
 		Scopes:      v.Scopes,
 		ValueCbor:   v.Value,
 		Scope:       v.Scope,
+		Title:       v.Definition.Title,
+		Description: v.Definition.Description,
+		Category:    v.Definition.Category,
+		Plugin:      v.Definition.plugin(),
+		Choices:     v.Definition.Choices,
+		Minimum:     v.Definition.Minimum,
+		Maximum:     v.Definition.Maximum,
+		Unit:        v.Definition.Unit,
+		ValuesCbor:  v.Values,
+		Editable:    v.Editable,
 	}
 	if !v.UpdatedAt.IsZero() {
 		out.UpdatedAt = timestamppb.New(v.UpdatedAt)
@@ -145,6 +193,9 @@ func (s *Settings) Get(ctx context.Context, key string, principal access.Princip
 		Scopes:  definition.Scopes,
 		Value:   definition.Default,
 		Scope:   "default",
+
+		Definition: definition,
+		Values:     map[string][]byte{},
 	}
 
 	// The nearest scope that has a value wins: user, then space, then global.
@@ -161,6 +212,9 @@ func (s *Settings) Get(ctx context.Context, key string, principal access.Princip
 	}
 	lookups = append(lookups, lookup{scope: ScopeGlobal})
 
+	// Every scope's value is read, for a page that shows what each scope says;
+	// the nearest one resolves.
+	resolved := false
 	for _, candidate := range lookups {
 		if !hasScope(definition, candidate.scope) {
 			continue
@@ -176,10 +230,13 @@ func (s *Settings) Get(ctx context.Context, key string, principal access.Princip
 		case err != nil:
 			return Value{}, fmt.Errorf("config: reading the setting %s: %w", key, err)
 		}
-		value.Value = record.Value
-		value.Scope = candidate.scope
-		value.UpdatedAt = record.UpdatedAt
-		break
+		value.Values[candidate.scope] = record.Value
+		if !resolved {
+			value.Value = record.Value
+			value.Scope = candidate.scope
+			value.UpdatedAt = record.UpdatedAt
+			resolved = true
+		}
 	}
 	return value, nil
 }
@@ -223,6 +280,9 @@ func (s *Settings) Set(ctx context.Context, key, scope, space string, value []by
 		return err
 	}
 	if err := checkValue(definition, value); err != nil {
+		return err
+	}
+	if err := checkBounds(definition, value); err != nil {
 		return err
 	}
 
@@ -327,6 +387,61 @@ func checkValue(definition Definition, value []byte) error {
 	return nil
 }
 
+// checkBounds refuses a choice the definition does not offer and a number out
+// of its bounds.
+func checkBounds(definition Definition, value []byte) error {
+	if len(definition.Choices) > 0 && definition.Type == "string" {
+		var text string
+		if err := cborx.Unmarshal(value, &text); err == nil {
+			for _, choice := range definition.Choices {
+				if choice == text {
+					return nil
+				}
+			}
+			return fmt.Errorf("%w: the setting %s is one of %s", access.ErrInvalid, definition.Key, strings.Join(definition.Choices, ", "))
+		}
+	}
+	if (definition.Type == "int" || definition.Type == "float") && (definition.Minimum != nil || definition.Maximum != nil) {
+		var number float64
+		if err := cborx.Unmarshal(value, &number); err == nil {
+			if definition.Minimum != nil && number < *definition.Minimum {
+				return fmt.Errorf("%w: the setting %s is at least %g", access.ErrInvalid, definition.Key, *definition.Minimum)
+			}
+			if definition.Maximum != nil && number > *definition.Maximum {
+				return fmt.Errorf("%w: the setting %s is at most %g", access.ErrInvalid, definition.Key, *definition.Maximum)
+			}
+		}
+	}
+	return nil
+}
+
+// EditableScopes are the scopes a caller may write in the space they work in:
+// global for an admin, space for whoever manages it, user for a signed-in user.
+func EditableScopes(ctx context.Context, principal access.Principal, space string, checker *access.Checker) []string {
+	var scopes []string
+	if principal.Kind == access.KindUser {
+		scopes = append(scopes, ScopeUser)
+	}
+	if space != "" && checker != nil && checker.Check(ctx, principal, access.SpaceURI(space), access.Manage) == nil {
+		scopes = append(scopes, ScopeSpace)
+	}
+	if principal.IsAdmin() {
+		scopes = append(scopes, ScopeGlobal)
+	}
+	return scopes
+}
+
+// SetEditable marks the scopes of a value the caller may write, from the scopes
+// it may write anywhere.
+func (v *Value) SetEditable(scopes []string) {
+	v.Editable = nil
+	for _, scope := range scopes {
+		if hasScope(v.Definition, scope) {
+			v.Editable = append(v.Editable, scope)
+		}
+	}
+}
+
 // mustCBOR encodes a definition's default, which cannot fail.
 func mustCBOR(value any) []byte {
 	encoded, err := cborx.Marshal(value)
@@ -359,12 +474,15 @@ func NewSettingsService(settings *Settings, checker *access.Checker) *SettingsSe
 // List resolves every setting the deployment knows for the caller.
 func (s *SettingsService) List(ctx context.Context, _ *connect.Request[rookeryv1.SettingServiceListRequest]) (*connect.Response[rookeryv1.SettingServiceListResponse], error) {
 	principal := access.MustPrincipal(ctx)
-	values, err := s.settings.List(ctx, principal, access.SpaceFrom(ctx))
+	space := access.SpaceFrom(ctx)
+	values, err := s.settings.List(ctx, principal, space)
 	if err != nil {
 		return nil, access.ToConnect(err)
 	}
+	editable := EditableScopes(ctx, principal, space, s.checker)
 	out := make([]*rookeryv1.Setting, 0, len(values))
 	for _, value := range values {
+		value.SetEditable(editable)
 		out = append(out, value.Message())
 	}
 	return connect.NewResponse(&rookeryv1.SettingServiceListResponse{Settings: out}), nil
@@ -381,6 +499,7 @@ func (s *SettingsService) Get(ctx context.Context, request *connect.Request[rook
 	if err != nil {
 		return nil, access.ToConnect(err)
 	}
+	value.SetEditable(EditableScopes(ctx, principal, space, s.checker))
 	return connect.NewResponse(&rookeryv1.SettingServiceGetResponse{Setting: value.Message()}), nil
 }
 
@@ -399,6 +518,7 @@ func (s *SettingsService) Set(ctx context.Context, request *connect.Request[rook
 	if err != nil {
 		return nil, access.ToConnect(err)
 	}
+	value.SetEditable(EditableScopes(ctx, principal, space, s.checker))
 	return connect.NewResponse(&rookeryv1.SettingServiceSetResponse{Setting: value.Message()}), nil
 }
 

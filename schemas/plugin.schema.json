@@ -420,7 +420,25 @@
             "additionalProperties": {
               "type": "object",
               "properties": {
+                "category": {
+                  "type": "string"
+                },
+                "choices": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
                 "default": {},
+                "description": {
+                  "type": "string"
+                },
+                "maximum": {
+                  "type": "number"
+                },
+                "minimum": {
+                  "type": "number"
+                },
                 "scopes": {
                   "type": "array",
                   "items": {
@@ -432,6 +450,9 @@
                     ]
                   }
                 },
+                "title": {
+                  "type": "string"
+                },
                 "type": {
                   "type": "string",
                   "enum": [
@@ -442,6 +463,9 @@
                     "time",
                     "cbor"
                   ]
+                },
+                "unit": {
+                  "type": "string"
                 }
               },
               "required": [
@@ -656,7 +680,25 @@
       "additionalProperties": {
         "type": "object",
         "properties": {
+          "category": {
+            "type": "string"
+          },
+          "choices": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "default": {},
+          "description": {
+            "type": "string"
+          },
+          "maximum": {
+            "type": "number"
+          },
+          "minimum": {
+            "type": "number"
+          },
           "scopes": {
             "type": "array",
             "items": {
@@ -668,6 +710,9 @@
               ]
             }
           },
+          "title": {
+            "type": "string"
+          },
           "type": {
             "type": "string",
             "enum": [
@@ -678,6 +723,9 @@
               "time",
               "cbor"
             ]
+          },
+          "unit": {
+            "type": "string"
           }
         },
         "required": [

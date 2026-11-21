@@ -85,6 +85,56 @@ func TestASettingResolvesNearestFirst(t *testing.T) {
 	}
 }
 
+func TestASettingShowsEveryScopeAndWhatTheCallerMaySet(t *testing.T) {
+	t.Parallel()
+
+	opened := storetest.New(t)
+	checker := access.NewChecker(opened)
+	ctx := t.Context()
+	principal := alice(ctx, t, opened, checker)
+	low, high := 1.0, 10.0
+	settings := config.NewSettings(opened, config.Definition{
+		Key: "example/batch", Type: "int", Default: mustCBOR(t, 2), Scopes: []string{config.ScopeGlobal, config.ScopeSpace, config.ScopeUser},
+		Title: "Batch", Minimum: &low, Maximum: &high,
+	}, config.Definition{
+		Key: "example/theme", Type: "string", Default: mustCBOR(t, "dark"), Scopes: []string{config.ScopeUser},
+		Choices: []string{"dark", "light"},
+	})
+
+	if err := settings.Set(ctx, "example/batch", config.ScopeGlobal, "", mustCBOR(t, 4), access.LocalAdmin(), checker); err != nil {
+		t.Fatalf("setting it globally: %v", err)
+	}
+	if err := settings.Set(ctx, "example/batch", config.ScopeSpace, "01hspace", mustCBOR(t, 6), principal, checker); err != nil {
+		t.Fatalf("setting it for the space: %v", err)
+	}
+	value, err := settings.Get(ctx, "example/batch", principal, "01hspace")
+	if err != nil {
+		t.Fatalf("reading it: %v", err)
+	}
+	if value.Scope != config.ScopeSpace || len(value.Values) != 2 || value.Values[config.ScopeGlobal] == nil || value.Values[config.ScopeSpace] == nil {
+		t.Fatalf("the value is from %q with %d scopes: %v", value.Scope, len(value.Values), value.Values)
+	}
+	if message := value.Message(); message.GetPlugin() != "example" || message.GetTitle() != "Batch" {
+		t.Fatalf("the message says plugin %q, title %q", message.GetPlugin(), message.GetTitle())
+	}
+
+	// alice manages the space but is no admin.
+	value.SetEditable(config.EditableScopes(ctx, principal, "01hspace", checker))
+	if got := value.Editable; len(got) != 2 || got[0] != config.ScopeUser || got[1] != config.ScopeSpace {
+		t.Fatalf("alice may set it at %v", got)
+	}
+
+	if err := settings.Set(ctx, "example/batch", config.ScopeUser, "", mustCBOR(t, 11), principal, checker); !errors.Is(err, access.ErrInvalid) {
+		t.Fatalf("a number above the maximum gave %v", err)
+	}
+	if err := settings.Set(ctx, "example/theme", config.ScopeUser, "", mustCBOR(t, "pink"), principal, checker); !errors.Is(err, access.ErrInvalid) {
+		t.Fatalf("a value outside the choices gave %v", err)
+	}
+	if err := settings.Set(ctx, "example/theme", config.ScopeUser, "", mustCBOR(t, "light"), principal, checker); err != nil {
+		t.Fatalf("a choice was refused: %v", err)
+	}
+}
+
 func TestOnlyAnAdminSetsGlobal(t *testing.T) {
 	t.Parallel()
 

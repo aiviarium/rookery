@@ -248,6 +248,19 @@ type Variable struct {
 	// Scopes are where it may be set: global, space or user. Only settings have
 	// them.
 	Scopes []Scope `yaml:"scopes,omitempty" json:"scopes,omitempty"`
+	// Title is its name as a person reads it. Without one the page shows its key.
+	Title string `yaml:"title,omitempty" json:"title,omitempty"`
+	// Description says what it changes, in a sentence.
+	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+	// Category groups settings within the plugin's section.
+	Category string `yaml:"category,omitempty" json:"category,omitempty"`
+	// Choices are the only values a string takes, shown as a choice.
+	Choices []string `yaml:"choices,omitempty" json:"choices,omitempty"`
+	// Minimum and Maximum bound an int or a float.
+	Minimum *float64 `yaml:"minimum,omitempty" json:"minimum,omitempty"`
+	Maximum *float64 `yaml:"maximum,omitempty" json:"maximum,omitempty"`
+	// Unit follows a number, such as seconds.
+	Unit string `yaml:"unit,omitempty" json:"unit,omitempty"`
 }
 
 // VariableType is a setting's type.
