@@ -43,7 +43,7 @@ export function DataPage(): JSX.Element {
       fallback={
         <View
           id="datastore"
-          crumbs={inSpace(shell.spaces, [{ label: "Datastore" }])}
+          crumbs={inSpace(shell.spaces, [{ label: "Datastore" }], shell.navigate)}
           error={collections.error() === undefined ? undefined : `The collections could not be read. ${errorMessage(collections.error())}`}
           actions={[{ id: "refresh", label: "Refresh", icon: "refresh-cw", overflow: true, onClick: () => void collections.refresh().catch(() => undefined) }]}
         >
@@ -113,7 +113,7 @@ function Records(props: { collection: Collection; record: string; onRecord: (id:
   return (
     <View
       id="datastore-records"
-      crumbs={inSpace(shell.spaces, [{ label: "Datastore", onClick: props.onBack }, { label: key }])}
+      crumbs={inSpace(shell.spaces, [{ label: "Datastore", onClick: props.onBack }, { label: key }], shell.navigate)}
       context={
         <State status={live.status() === "live" ? "live" : live.status() === "error" ? "error" : "idle"}>
           {`${records().length} records`}

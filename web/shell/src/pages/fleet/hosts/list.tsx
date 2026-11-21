@@ -228,7 +228,7 @@ export function HostsPage(): JSX.Element {
             onClose={closeAdd}
             onAdded={(added) => {
               refresh();
-              shell.navigate(added.job === "" ? hostPath(added.name) : jobPath(added.job));
+              shell.navigate(added.job === "" ? hostPath(added.name) : jobPath(added.job, added.name));
             }}
           />
         )}

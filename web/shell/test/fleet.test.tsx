@@ -85,6 +85,37 @@ describe("the hosts page", () => {
   });
 });
 
+describe("a host's overview", () => {
+  test("runs an action from its play button and follows the job under the host", async () => {
+    const job = { id: "01hjob", kind: "host.action", state: "running", resource: "host://studio", argsCbor: new Uint8Array() } as unknown as Job;
+    const view = await mount(
+      fakeClient({
+        user: STATIC_USER,
+        hosts: [STUDIO, FORGE],
+        jobs: [job],
+        actions: [{ name: "update", label: "Update packages", group: "", user: 2, arguments: [] } as unknown as Action],
+      }),
+      undefined,
+      "/hosts/studio",
+    );
+    try {
+      // The sidebar says where it came from, and the host is one of a kind in the path and the sidebar.
+      expect(view.find("[data-part='sidebar-path']")?.textContent).toContain("Fleet");
+      expect(view.find("[data-part='sidebar-switcher']")?.textContent).toContain("studio");
+      expect(view.find("[data-part='view-header'] [data-part='crumb-switcher']")?.textContent).toContain("studio");
+      // The row's play button runs the action; there is no second Run button.
+      const row = view.find("[data-host-action='update']");
+      expect([...(row?.querySelectorAll("button") ?? [])].some((button) => button.textContent?.trim() === "Run")).toBe(false);
+      await view.click("[data-host-action='update'] [data-part='run-action']");
+      expect(location.pathname).toBe("/hosts/studio/jobs/01hjob");
+      expect(view.find(".shell-sidebar a[href='/hosts/studio/jobs']")?.getAttribute("aria-current")).toBe("page");
+      expect(view.find("[data-part='view-header']")?.textContent).toContain("Jobs");
+    } finally {
+      view.unmount();
+    }
+  });
+});
+
 describe("a job's page", () => {
   test("follows the log to the job's end", async () => {
     const job = { id: "01hjob", kind: "host.apply", state: "running", resource: "host://studio" } as unknown as Job;

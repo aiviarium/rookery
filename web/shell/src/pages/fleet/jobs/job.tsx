@@ -8,12 +8,12 @@ import { For, Show, createSignal, onSettled, untrack } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { useParams } from "@solidjs/router";
 import type { Job, JobServiceFollowResponse } from "@rookery/proto";
-import { Callout, LogViewer, PropertyList, State, type LogEntry, type StreamStatus } from "@aiviarium/nocturne";
+import { Callout, LogViewer, PropertyList, State, type LogEntry, type StreamStatus, type ViewCrumb } from "@aiviarium/nocturne";
 
 import { createAction } from "../../../parts/action.ts";
 import { View } from "../../../parts/view.tsx";
 import { useShell } from "../../../shell.tsx";
-import { dateOf, errorMessage, jobActive, jobKindLabel, jobState, relativeTime, resourceLabel, resourcePath } from "../format.ts";
+import { dateOf, errorMessage, jobActive, jobState, jobTitle, relativeTime, resourceLabel, resourcePath } from "../format.ts";
 
 /** wait pauses between two attempts to follow a job. */
 function wait(milliseconds: number): Promise<void> {
@@ -26,7 +26,15 @@ export function JobPage(): JSX.Element {
   return <For each={[params.job ?? ""]}>{(id) => <JobView id={id} />}</For>;
 }
 
-function JobView(props: { id: string }): JSX.Element {
+/** JobViewProps are the job and the path to it. */
+export interface JobViewProps {
+  readonly id: string;
+  /** crumbs are the path to the job from where it was opened; the fleet's jobs when left out. */
+  readonly crumbs?: (title: string) => ViewCrumb[];
+}
+
+/** JobView is one job's page. A host's place shows it under the host. */
+export function JobView(props: JobViewProps): JSX.Element {
   const shell = useShell();
   const id = untrack(() => props.id);
   const [job, setJob] = createSignal<Job>();
@@ -107,12 +115,12 @@ function JobView(props: { id: string }): JSX.Element {
   }, { failed: "The job was not retried" });
 
   const retriable = () => job()?.state === "failed" || job()?.state === "cancelled";
-  const title = () => (job() === undefined ? `Job ${id.slice(0, 10)}` : jobKindLabel(job()!.kind));
+  const title = () => (job() === undefined ? `Job ${id.slice(0, 10)}` : jobTitle(job()!));
 
   return (
     <View
       id="job"
-      crumbs={[{ label: "Jobs", href: "/jobs" }, { label: title() }]}
+      crumbs={props.crumbs?.(title()) ?? [{ label: "Jobs", href: "/jobs" }, { label: title() }]}
       context={<Show when={job()}>{(shown) => <State status={jobState(shown().state).tone}>{jobState(shown().state).label}</State>}</Show>}
       actions={[
         ...(jobActive(job())

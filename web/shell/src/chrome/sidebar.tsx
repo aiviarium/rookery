@@ -72,6 +72,11 @@ export interface SidebarGroup {
 export interface LevelSidebarProps {
   /** back is the level above, named for the button. Absent at the top. */
   readonly back?: { label: string; to: LevelRef };
+  /**
+   * path is the levels above, from the top down, shown before the title as
+   * `Fleet / build-01`. Left out, it is the level back goes to.
+   */
+  readonly path?: ReadonlyArray<{ label: string; to: LevelRef }>;
   /** title is the level, such as the host's name. */
   readonly title: string;
   readonly mark?: JSX.Element;
@@ -114,6 +119,10 @@ export function LevelSidebar(props: LevelSidebarProps): JSX.Element {
         title={props.title}
         mark={props.mark}
         back={props.back === undefined ? undefined : { to: props.back.label, onClick: () => chrome.drill(props.back!.to) }}
+        path={(props.path ?? (props.back === undefined ? [] : [props.back])).map((level) => ({
+          label: level.label,
+          onClick: () => chrome.drill(level.to),
+        }))}
         switcher={props.switcher}
       />
       <Nav label={props.label} groups={groups()} />
@@ -140,7 +149,8 @@ export function useSiblings(options: {
   const chrome = useChrome();
   return () => {
     const items = options.items();
-    if (items.length < 2) return undefined;
+    // A place of a kind always has its switcher, even while it is the only one.
+    if (items.length === 0) return undefined;
     return {
       label: options.label,
       items: items.map((item) => ({ id: item.id, label: item.label, description: item.description, checked: item.id === options.current() })),

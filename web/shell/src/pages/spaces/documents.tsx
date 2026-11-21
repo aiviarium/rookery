@@ -50,7 +50,7 @@ export function DocumentsPage(): JSX.Element {
   return (
     <View
       id="documents"
-      crumbs={inSpace(shell.spaces, [{ label: "Documents" }])}
+      crumbs={inSpace(shell.spaces, [{ label: "Documents" }], shell.navigate)}
       error={documents.error() === undefined ? undefined : `The documents could not be read. ${errorMessage(documents.error())}`}
       actions={[
         { id: "new", label: "New document", icon: "plus", onClick: () => setCreating(true) },

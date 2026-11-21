@@ -9,7 +9,7 @@ import { defineRoutes } from "@solidjs/router";
 import type { Area } from "../types.ts";
 import { HostDomain } from "./hosts/domain.tsx";
 import { HostFilesPage } from "./hosts/files.tsx";
-import { HostJobsPage } from "./hosts/jobs.tsx";
+import { HostJobPage, HostJobsPage } from "./hosts/jobs.tsx";
 import { HostOverview } from "./hosts/overview.tsx";
 import { HostPortsPage } from "./hosts/ports.tsx";
 import { HostProfilePage } from "./hosts/profile.tsx";
@@ -43,6 +43,7 @@ export const routes = defineRoutes([
       { path: "/ports", component: HostPortsPage },
       { path: "/desktop", component: DesktopPage },
       { path: "/jobs", component: HostJobsPage },
+      { path: "/jobs/:job", component: HostJobPage },
       { path: "/profile", component: HostProfilePage },
       { path: "/tab/:plugin/:tab", component: HostTabPage },
     ],

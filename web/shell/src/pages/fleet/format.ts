@@ -4,6 +4,7 @@
 // The words are the CLI's, so a page and a terminal read the same.
 import type { DotStatus } from "@aiviarium/nocturne";
 import type { Host, HostType, Job, ProvisionerResource, Rollout } from "@rookery/proto";
+import { cbor } from "@rookery/client";
 
 /** Shown is a state as a page draws it: the words, and the dot Nocturne's `State` takes. */
 export interface Shown {
@@ -205,6 +206,25 @@ const JOB_KINDS: Record<string, string> = {
 /** jobKindLabel is a job's kind as a person reads it. */
 export function jobKindLabel(kind: string): string {
   return JOB_KINDS[kind] ?? kind;
+}
+
+/**
+ * jobTitle names a job as a person reads it: an action by the action it ran,
+ * such as "Update packages", and every other job by its kind.
+ */
+export function jobTitle(job: Pick<Job, "kind" | "argsCbor">): string {
+  if (job.kind === "host.action" && job.argsCbor.length > 0) {
+    try {
+      const name = cbor.decode<{ action?: string }>(job.argsCbor)?.action ?? "";
+      if (name !== "") {
+        const words = name.replace(/[-_.]+/g, " ").trim();
+        return words.charAt(0).toUpperCase() + words.slice(1);
+      }
+    } catch {
+      // A job whose arguments do not decode is named by its kind.
+    }
+  }
+  return jobKindLabel(job.kind);
 }
 
 /** resourceLabel is a job's resource without its scheme, such as "forge" for host://forge. */

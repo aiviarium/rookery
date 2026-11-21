@@ -112,7 +112,6 @@ export function PreferencesPage(props: { plugin?: string; space?: string; crumbs
     <View
       id="settings"
       crumbs={crumbs()}
-      reading
       actions={[{ id: "json", label: "Open as JSON", icon: "file", overflow: true, onClick: () => setJson(true) }]}
     >
       <div class="nc-stack" data-part="settings">

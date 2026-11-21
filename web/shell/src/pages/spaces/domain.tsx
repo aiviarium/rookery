@@ -5,7 +5,7 @@ import { For, Show, createContext, untrack, useContext } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { useParams } from "@solidjs/router";
 import { Level, type Space } from "@rookery/proto";
-import { Button, EmptyState } from "@aiviarium/nocturne";
+import { Button, EmptyState, type ViewCrumb } from "@aiviarium/nocturne";
 
 import { createLive } from "../../parts/data.ts";
 import { View } from "../../parts/view.tsx";
@@ -23,6 +23,8 @@ export interface SpaceDomainValue {
   readonly manages: () => boolean;
   /** refresh reads the space again. */
   readonly refresh: () => void;
+  /** switcher moves to another space at the same place, for the space's crumb. */
+  readonly switcher: () => ViewCrumb["switcher"];
 }
 
 const SpaceContext = createContext<SpaceDomainValue>();
@@ -58,6 +60,7 @@ function SpaceScope(props: { id: string; children?: JSX.Element }): JSX.Element 
       void query.refresh().catch(() => undefined);
       void shell.spaces.refresh();
     },
+    switcher: () => shell.spaces.switcher(shell.navigate),
   };
   const missing = () => query() === undefined && query.error() !== undefined;
   return (
@@ -81,8 +84,9 @@ function Missing(): JSX.Element {
 }
 
 /** spaceCrumbs are the path to one of a space's places. */
-export function spaceCrumbs(domain: SpaceDomainValue, place?: string, href?: string): Array<{ label: string; href?: string }> {
+export function spaceCrumbs(domain: SpaceDomainValue, place?: string, href?: string): ViewCrumb[] {
   const name = domain.space()?.name ?? "Space";
-  if (place === undefined) return [{ label: name }];
-  return [{ label: name, href: href ?? `/spaces/${encodeURIComponent(domain.id)}` }, { label: place }];
+  const switcher = domain.switcher();
+  if (place === undefined) return [{ label: name, switcher }];
+  return [{ label: name, href: href ?? `/spaces/${encodeURIComponent(domain.id)}`, switcher }, { label: place }];
 }

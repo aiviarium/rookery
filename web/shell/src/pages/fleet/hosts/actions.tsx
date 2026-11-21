@@ -10,14 +10,17 @@ import {
   Callout,
   Card,
   Dialog,
+  IconButton,
   ListRow,
   RowList,
   SectionHeading,
+  State,
   TextField,
 } from "@aiviarium/nocturne";
 
 import { useShell } from "../../../shell.tsx";
 import { errorMessage } from "../../../parts/errors.ts";
+import { jobPath } from "../jobs/rows.tsx";
 import { hostPath } from "./paths.ts";
 
 /** accountLabel is which account an action runs as. */
@@ -64,7 +67,7 @@ export function HostActions(props: { host: string; actions: readonly Action[] })
       const execution = ran.execution;
       if (execution.case === "job" && execution.value !== "") {
         setAsking(undefined);
-        shell.navigate(`/jobs/${encodeURIComponent(execution.value)}`);
+        shell.navigate(jobPath(execution.value, props.host));
         return;
       }
       if (execution.case === "terminal") {
@@ -105,13 +108,18 @@ export function HostActions(props: { host: string; actions: readonly Action[] })
                     <ListRow
                       data-host-action={action.name}
                       title={action.label === "" ? action.name : action.label}
-                      icon={action.terminal ? "terminal" : "play"}
-                      secondary={action.user === 2 ? "as root" : action.user === 3 ? "as the desktop user" : undefined}
-                      persistentActions={
-                        <Button size="sm" disabled={busy() !== undefined} onClick={() => run(action)}>
-                          {busy() === action.name ? "Starting…" : "Run"}
-                        </Button>
+                      leading={
+                        <IconButton
+                          size="sm"
+                          icon={action.terminal ? "terminal" : "play"}
+                          label={`${action.terminal ? "Open" : "Run"} ${action.label === "" ? action.name : action.label}`}
+                          disabled={busy() !== undefined}
+                          data-part="run-action"
+                          onClick={() => run(action)}
+                        />
                       }
+                      secondary={action.user === 2 ? "as root" : action.user === 3 ? "as the desktop user" : undefined}
+                      status={busy() === action.name ? <State status="live">Starting</State> : undefined}
                     />
                   )}
                 </For>

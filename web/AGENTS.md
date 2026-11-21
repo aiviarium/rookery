@@ -51,9 +51,16 @@ the sidebar toggle (pass `onSidebarHiddenChange`, never a view action), a
 level's `mark` is a `Mark`, and the account is Nocturne's `AccountMenu`.
 
 A drill row (›) moves the sidebar alone and leaves the page as it is. Back goes
-up a level. The level's switcher moves to a sibling, such as another host, and
-keeps the place. The sidebar follows the page until the person drills by hand,
-and that holds until the next page.
+up a level. The sidebar's head shows the way down, as `Fleet / box1`: a level
+passes `path` to `LevelSidebar` when it is deeper than back's target. The
+level's switcher moves to a sibling, such as another host, and keeps the place.
+A host or a space always has it, even while it is the only one, and its crumb in
+the page's header has the same switcher (`useHost().crumbs`, `spaceCrumbs`,
+`inSpace`). The sidebar follows the page until the person drills by hand, and
+that holds until the next page.
+
+What happens in a container stays in it: a job a host's page starts opens
+under the host (`jobPath(id, host)`), not under the Fleet's jobs.
 
 The pages keep to the same rules:
 
@@ -67,6 +74,12 @@ The pages keep to the same rules:
   button on the row.
 * Refresh is in the overflow menu.
 * What the person may not change is not shown.
+* Every page fills the main column, left-aligned: lists, forms, settings and
+  logs alike. `reading` is for long prose only, such as a document's body.
+* A row's leading icon that looks pressable is: an action's play icon is the
+  `IconButton` that runs it, with no second button at the row's end. A header
+  action that is not plainly one icon's meaning, such as applying a profile,
+  is a labelled primary action.
 
 ## Pages: the seam
 

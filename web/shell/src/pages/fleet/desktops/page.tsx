@@ -11,7 +11,7 @@ import { Button, Dialog, State, TextArea, type DotStatus } from "@aiviarium/noct
 
 import { useShell } from "../../../shell.tsx";
 import { View } from "../../../parts/view.tsx";
-import { hostCrumbs, useHost } from "../hosts/domain.tsx";
+import { useHost } from "../hosts/domain.tsx";
 import { errorMessage } from "../format.ts";
 
 type DesktopState = "connecting" | "connected" | "lost" | "ended";
@@ -33,7 +33,8 @@ const WORD: Record<DesktopState, string> = {
 export function DesktopPage(): JSX.Element {
   const shell = useShell();
   // One connection per host: the route mounts this page afresh for another host.
-  const name = untrack(useHost().name);
+  const domain = useHost();
+  const name = untrack(domain.name);
   const host = () => name;
 
   let screen!: HTMLDivElement;
@@ -156,7 +157,7 @@ export function DesktopPage(): JSX.Element {
   return (
     <View
       id="host-desktop"
-      crumbs={hostCrumbs(host(), "Desktop")}
+      crumbs={domain.crumbs("Desktop")}
       context={<State status={TONE[state()]}>{WORD[state()]}</State>}
       scroll={false}
       error={failure()}
