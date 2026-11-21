@@ -26,7 +26,8 @@ type Seed struct {
 	Operator string
 
 	// PublicKey is the key ring's public key, in authorized_keys form: one line,
-	// such as "ssh-ed25519 AAAA… rookery".
+	// such as "ssh-ed25519 AAAA… rookery". The newline that ends a line in that
+	// form, as ssh.MarshalAuthorizedKey writes it, is allowed and left out.
 	PublicKey string
 
 	// TailnetKey is a one-use, pre-authorised auth key the machine joins the
@@ -41,7 +42,7 @@ func (s Seed) Validate() error {
 		return fmt.Errorf("%w: a seed needs a valid host name", access.ErrInvalid)
 	case strings.TrimSpace(s.PublicKey) == "":
 		return fmt.Errorf("%w: a seed carries the key ring's public key", access.ErrInvalid)
-	case strings.ContainsAny(s.PublicKey, "\n\r"):
+	case strings.ContainsAny(s.key(), "\n\r"):
 		return fmt.Errorf("%w: the public key is one line", access.ErrInvalid)
 	case strings.ContainsAny(s.TailnetKey, " \t\r\n"):
 		return fmt.Errorf("%w: a tailnet auth key has no space", access.ErrInvalid)
@@ -50,6 +51,11 @@ func (s Seed) Validate() error {
 		return fmt.Errorf("%w: %q is not an account name", access.ErrInvalid, name)
 	}
 	return nil
+}
+
+// key is the public key without the newline that ends an authorized_keys line.
+func (s Seed) key() string {
+	return strings.TrimRight(s.PublicKey, "\r\n")
 }
 
 // operator is the account the seed makes.
@@ -82,7 +88,7 @@ func RenderSeed(seed Seed) (string, error) {
 			Shell:      "/bin/bash",
 			LockPasswd: true,
 			SSHAuthorizedKeys: []string{
-				seed.PublicKey,
+				seed.key(),
 			},
 		}},
 		WriteFiles: []cloudFile{{

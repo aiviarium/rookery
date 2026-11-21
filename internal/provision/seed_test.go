@@ -38,6 +38,10 @@ func TestRenderSeed(t *testing.T) {
 				"https://tailscale.com/install.sh",
 			},
 		},
+		"the key ring's key, ended by a newline as ssh writes it": {
+			seed:  provision.Seed{Host: "desk-4", PublicKey: "ssh-ed25519 AAAAtest\n"},
+			wants: []string{"- ssh-ed25519 AAAAtest\n"},
+		},
 		"another operator account": {
 			seed:  provision.Seed{Host: "desk-3", Operator: "admin", PublicKey: "ssh-ed25519 AAAAtest rookery"},
 			wants: []string{"name: admin"},
