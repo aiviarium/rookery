@@ -115,7 +115,6 @@ export function LevelSidebar(props: LevelSidebarProps): JSX.Element {
         mark={props.mark}
         back={props.back === undefined ? undefined : { to: props.back.label, onClick: () => chrome.drill(props.back!.to) }}
         switcher={props.switcher}
-        onHideSidebar={() => chrome.setSidebarHidden(true)}
       />
       <Nav label={props.label} groups={groups()} />
     </>

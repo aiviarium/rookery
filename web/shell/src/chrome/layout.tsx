@@ -83,6 +83,7 @@ export function ShellLayout(props: { children?: JSX.Element }): JSX.Element {
             write(WIDTH_KEY, String(next));
           }}
           sidebarHidden={hidden()}
+          onSidebarHiddenChange={chrome.setSidebarHidden}
           drawerOpen={drawer()}
           onDrawerClose={() => setDrawer(false)}
           topbar={

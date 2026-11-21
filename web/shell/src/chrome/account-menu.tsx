@@ -1,8 +1,8 @@
 // The person at the foot of the sidebar: who is signed in, their settings,
-// Administration for an admin, the theme, and signing out.
-import { Show } from "solid-js";
+// Administration for an admin, the theme, and signing out. Nocturne's
+// AccountMenu draws it.
 import type { JSX } from "@solidjs/web";
-import { Avatar, Badge, DropdownMenu, Icon, type MenuEntry } from "@aiviarium/nocturne";
+import { AccountMenu as Menu, type MenuEntry } from "@aiviarium/nocturne";
 
 import { useShell } from "../shell.tsx";
 import { useChrome } from "./context.ts";
@@ -14,67 +14,23 @@ export function AccountMenu(): JSX.Element {
 
   const user = () => shell.signIn.user();
   const name = () => user()?.name || user()?.email || "Signed in";
-
-  const items = (): MenuEntry[] => {
-    const theme = shell.theme.choice();
-    return [
-      {
-        type: "custom",
-        content: (
-          <div class="shell-account__who" data-part="account-who">
-            <Avatar name={name()} size="lg" />
-            <span class="shell-account__text">
-              <span class="label nc-truncate">{name()}</span>
-              <span class="nc-meta nc-truncate">{user()?.email}</span>
-            </span>
-            <Show when={user()?.admin}>
-              <Badge tone="accent">Admin</Badge>
-            </Show>
-          </div>
-        ),
-      },
-      { type: "separator" },
-      { id: "settings", label: "Settings", icon: "settings" },
-      ...(user()?.admin ? [{ id: "admin", label: "Administration", icon: "shield" as const }] : []),
-      { type: "separator" },
-      { type: "label", label: "Theme" },
-      { id: "theme.system", label: "System", checked: theme === "system" },
-      { id: "theme.dark", label: "Dark", checked: theme === "dark" },
-      { id: "theme.light", label: "Light", checked: theme === "light" },
-      { type: "separator" },
-      { id: "sign-out", label: "Sign out", danger: true },
-    ];
-  };
-
-  const choose = (id: string) => {
-    if (id === "settings" || id === "admin") {
-      shell.navigate(`/${id}`);
-      chrome.closeDrawer();
-    } else if (id === "theme.system" || id === "theme.dark" || id === "theme.light") {
-      shell.theme.set(id.slice("theme.".length) as "system" | "dark" | "light");
-    } else if (id === "sign-out") {
-      void shell.signIn.signOut();
-    }
-  };
+  const items = (): MenuEntry[] => [
+    { id: "settings", label: "Settings", icon: "settings" },
+    ...(user()?.admin ? [{ id: "admin", label: "Administration", icon: "shield" as const }] : []),
+  ];
 
   return (
-    <DropdownMenu
-      label="Account"
+    <Menu
+      name={name()}
+      detail={user()?.name ? user()?.email : undefined}
+      badge={user()?.admin ? "Admin" : undefined}
       items={items()}
-      minWidth="260px"
-      placement="top-start"
-      onSelect={choose}
-      trigger={(trigger) => (
-        <button {...trigger} type="button" class="nc-nav-item shell-account" data-part="account-menu">
-          <span class="nc-nav-item__icon">
-            <Avatar name={name()} size="sm" />
-          </span>
-          <span class="nc-nav-item__label">{name()}</span>
-          <span class="nc-nav-item__meta" aria-hidden="true">
-            <Icon name="chevron-down" size="sm" />
-          </span>
-        </button>
-      )}
+      onSelect={(id) => {
+        shell.navigate(`/${id}`);
+        chrome.closeDrawer();
+      }}
+      theme={{ value: shell.theme.choice(), onChange: (value) => shell.theme.set(value) }}
+      onSignOut={() => void shell.signIn.signOut()}
     />
   );
 }

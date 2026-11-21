@@ -45,34 +45,9 @@
     padding: 0 var(--space-2);
   }
 
-  .shell-mark {
-    background: var(--accent);
-    color: var(--on-accent);
-  }
 
-  .shell-account {
-    width: 100%;
-    border: 0;
-    background: none;
-    font: inherit;
-    text-align: start;
-    cursor: pointer;
-  }
 
-  .shell-account__who {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    min-width: 0;
-    padding: var(--space-2);
-  }
 
-  .shell-account__text {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    min-width: 0;
-  }
 
   /* A page's content inside its view: padded like a card, its sections a gap apart. */
   .shell-view {
@@ -226,10 +201,6 @@
     height: 16px;
   }
 
-  .shell-space-mark {
-    color: var(--accent-strong);
-    border-color: var(--accent-strong);
-  }
 
   /* A run of rows' heading inside a card. */
   .shell-group__head {

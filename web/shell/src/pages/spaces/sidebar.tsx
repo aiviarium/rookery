@@ -5,6 +5,7 @@
 import { Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { useLocation } from "@solidjs/router";
+import { Mark } from "@aiviarium/nocturne";
 
 import { type LevelProps, TOP } from "../../chrome/levels.ts";
 import { LevelSidebar, type SidebarEntry, type SidebarGroup, useSiblings } from "../../chrome/sidebar.tsx";
@@ -99,7 +100,7 @@ export function SpaceSidebar(props: LevelProps): JSX.Element {
       label={`${name()}'s places`}
       back={{ label: "Rookery", to: { id: TOP } }}
       title={name()}
-      mark={<span class="nc-nav-item__mark shell-space-mark">{name().slice(0, 1).toUpperCase()}</span>}
+      mark={<Mark name={name()} hue="accent" decorative />}
       switcher={switcher()}
       groups={groups()}
     />
