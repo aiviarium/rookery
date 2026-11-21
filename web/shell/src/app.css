@@ -19,6 +19,12 @@
     min-width: 0;
   }
 
+  /* What a page shows in its header's row beside the actions. */
+  .shell-bar {
+    flex: 1;
+    min-width: 0;
+  }
+
   .shell-tab {
     display: flex;
     flex: 1;

@@ -113,40 +113,44 @@ export function PreferencesPage(props: { plugin?: string; space?: string; crumbs
       id="settings"
       crumbs={crumbs()}
       actions={[{ id: "json", label: "Open as JSON", icon: "file", overflow: true, onClick: () => setJson(true) }]}
+      bar={
+        <div class="shell-bar">
+          <Show when={any()}>
+            <FilterBar
+              label="Settings filters"
+              search={
+                <TextField
+                  variant="search"
+                  aria-label="Search settings"
+                  placeholder={props.plugin === undefined ? "Search settings" : `Search ${title()}`}
+                  value={query()}
+                  onInput={(event) => {
+                    const next = event.currentTarget.value;
+                    setQuery(next);
+                    setSearch({ q: next === "" ? undefined : next }, { replace: true });
+                  }}
+                />
+              }
+              end={
+                <div class="nc-row">
+                  <Show when={!inSpace() && scopes().length > 1}>
+                    <Select
+                      aria-label="Scope"
+                      data-part="settings-scope"
+                      value={scope()}
+                      options={scopes().map((one) => ({ value: one.id, label: one.label }))}
+                      onChange={(next) => address.setScope(next as Scope)}
+                    />
+                  </Show>
+                  <Switch label="Modified" checked={onlyModified()} onChange={(on) => setSearch({ modified: on ? "1" : undefined })} />
+                </div>
+              }
+            />
+          </Show>
+        </div>
+      }
     >
       <div class="nc-stack" data-part="settings">
-        <Show when={any()}>
-          <FilterBar
-            label="Settings filters"
-            search={
-              <TextField
-                variant="search"
-                aria-label="Search settings"
-                placeholder={props.plugin === undefined ? "Search settings" : `Search ${title()}`}
-                value={query()}
-                onInput={(event) => {
-                  const next = event.currentTarget.value;
-                  setQuery(next);
-                  setSearch({ q: next === "" ? undefined : next }, { replace: true });
-                }}
-              />
-            }
-            end={
-              <div class="nc-row">
-                <Show when={!inSpace() && scopes().length > 1}>
-                  <Select
-                    aria-label="Scope"
-                    data-part="settings-scope"
-                    value={scope()}
-                    options={scopes().map((one) => ({ value: one.id, label: one.label }))}
-                    onChange={(next) => address.setScope(next as Scope)}
-                  />
-                </Show>
-                <Switch label="Modified" checked={onlyModified()} onChange={(on) => setSearch({ modified: on ? "1" : undefined })} />
-              </div>
-            }
-          />
-        </Show>
         <Show when={settings.error()}>
           {(failure) => <Callout tone="danger">The settings could not be read. {errorMessage(failure())}</Callout>}
         </Show>

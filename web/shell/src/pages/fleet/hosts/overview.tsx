@@ -47,7 +47,7 @@ export function HostOverview(): JSX.Element {
     <View
       id="host-overview"
       crumbs={domain.crumbs()}
-      context={<Show when={issue()}>{(shown) => <State status={shown().tone}>{shown().label}</State>}</Show>}
+      context={issue() === undefined ? undefined : <State status={issue()!.tone}>{issue()!.label}</State>}
       actions={[
         { id: "apply", label: apply.busy() ? "Applying…" : "Apply profile", primary: true, disabled: apply.busy() || domain.host() === undefined, onClick: () => void apply.run() },
         { id: "rename", label: "Rename", icon: "edit", overflow: true, onClick: () => setRenaming(true) },

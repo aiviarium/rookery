@@ -8,7 +8,7 @@ import { For, Show, createSignal } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import { useSearchParams } from "@solidjs/router";
 import type { HostFile } from "@rookery/proto";
-import { Callout, Card, EmptyState, ListRow, RowList, Skeleton, Tabs } from "@aiviarium/nocturne";
+import { Callout, Card, EmptyState, IconButton, ListRow, RowList, Skeleton, Tabs } from "@aiviarium/nocturne";
 
 import { createAction } from "../../../parts/action.ts";
 import { createLive } from "../../../parts/data.ts";
@@ -109,8 +109,42 @@ export function HostFilesPage(): JSX.Element {
     <View
       id="host-files"
       crumbs={domain.crumbs("Files")}
+      bar={
+        <div class="shell-toolbar">
+          <Tabs
+            label="Account"
+            idPrefix="files-account"
+            items={ACCOUNTS.map((one) => ({ id: one.value, label: one.label }))}
+            value={account()}
+            onChange={(chosen) => setSearch({ as: chosen === "operator" ? undefined : chosen, path: undefined })}
+          />
+          <IconButton
+            size="sm"
+            icon="chevron-left"
+            label="Up a directory"
+            data-part="files-up"
+            disabled={path() === ""}
+            onClick={() => go(parentOf(path()))}
+          />
+          <nav class="shell-path nc-mono" aria-label="Directory">
+            <For each={segmentsOf(path())}>
+              {(segment, index) => (
+                <>
+                  <Show when={index() > 0}>
+                    <span class="shell-path__sep" aria-hidden="true">
+                      /
+                    </span>
+                  </Show>
+                  <button type="button" class="shell-path__part" onClick={() => go(segment.path)}>
+                    {segment.label}
+                  </button>
+                </>
+              )}
+            </For>
+          </nav>
+        </div>
+      }
       actions={[
-        { id: "up", label: "Up a directory", icon: "chevron-left", disabled: path() === "", onClick: () => go(parentOf(path())) },
         { id: "upload", label: send.busy() ? "Uploading…" : "Upload", icon: "upload", disabled: send.busy(), onClick: () => upload?.click() },
         { id: "refresh", label: "Read the directory again", icon: "refresh-cw", overflow: true, onClick: refresh },
       ]}
@@ -127,31 +161,6 @@ export function HostFilesPage(): JSX.Element {
           event.currentTarget.value = "";
         }}
       />
-      <div class="shell-toolbar">
-        <Tabs
-          label="Account"
-          idPrefix="files-account"
-          items={ACCOUNTS.map((one) => ({ id: one.value, label: one.label }))}
-          value={account()}
-          onChange={(chosen) => setSearch({ as: chosen === "operator" ? undefined : chosen, path: undefined })}
-        />
-        <nav class="shell-path nc-mono" aria-label="Directory">
-          <For each={segmentsOf(path())}>
-            {(segment, index) => (
-              <>
-                <Show when={index() > 0}>
-                  <span class="shell-path__sep" aria-hidden="true">
-                    /
-                  </span>
-                </Show>
-                <button type="button" class="shell-path__part" onClick={() => go(segment.path)}>
-                  {segment.label}
-                </button>
-              </>
-            )}
-          </For>
-        </nav>
-      </div>
       <Show when={listing.error()}>
         {(error) => <Callout tone="danger">{error().message}</Callout>}
       </Show>

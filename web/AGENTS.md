@@ -69,8 +69,12 @@ or beside the page, and `usePageTab()` says whether a page is in view and has
 the focus. On a phone the focused tab is the page.
 
 The sidebar's head shows where the person is, so a page's header shows no path:
-its crumbs still go to `View`, which names the tab after the last one, and the
-header keeps the page's actions.
+its crumbs still go to `View`, which names the tab after the last one. A page
+has one bar. With only actions, the header's actions sit in the tab's strip.
+What a toolbar under the header would hold, such as a view switch, a search or
+where in the view the page is, goes in `View`'s `bar`, the header's row beside
+the actions. Pass `context` only when there is something to say, not a `Show`
+that may draw nothing.
 
 What happens in a container stays in it: a job a host's page starts opens
 under the host (`jobPath(id, host)`), not under the Fleet's jobs.
